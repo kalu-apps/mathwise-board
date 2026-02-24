@@ -3,6 +3,8 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/features/auth/model/AuthContext";
 import { PageLoader } from "@/shared/ui/loading";
 
+const SHOWCASE_MODE = Boolean(import.meta.env.VITE_SHOWCASE_MODE);
+
 export function RoleProtectedRoute({
   allow,
   children,
@@ -14,10 +16,15 @@ export function RoleProtectedRoute({
   const location = useLocation();
 
   useEffect(() => {
+    if (SHOWCASE_MODE) return;
     if (isAuthReady && !user) {
       openAuthModal();
     }
   }, [isAuthReady, user, openAuthModal]);
+
+  if (SHOWCASE_MODE) {
+    return <>{children}</>;
+  }
 
   if (!isAuthReady) {
     return <PageLoader minHeight="22vh" title="Проверяем сессию..." />;

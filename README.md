@@ -2,6 +2,10 @@
 
 Демо-витрина сценария коллективного урока: учитель, участники, приглашения, синхронная работа на доске.
 
+## Скриншоты
+![Рабочая тетрадь — центр управления сессиями](./docs/screenshots/realtime-workbook.png)
+![Коллективный урок — доска и участники](./docs/screenshots/realtime-session-board.png)
+
 ## Что показано
 - Старт/завершение коллективной сессии.
 - Ролевая модель teacher/student.
@@ -20,7 +24,7 @@ npm install
 npm run dev:showcase
 ```
 
-Откроется маршрут: `/workbook`
+Откроется маршрут: `/workbook` (если браузер не открылся автоматически: [http://localhost:5173/workbook](http://localhost:5173/workbook)).
 
 ## Демо-доступ
 - Учитель: `teacher@axiom.demo` / `magic`
