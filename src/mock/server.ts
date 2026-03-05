@@ -7936,6 +7936,32 @@ export function setupMockServer(server: ServerWithMiddlewares) {
         });
       }
 
+      const workbookPresenceLeaveMatch = path.match(
+        /^\/api\/workbook\/sessions\/([^/]+)\/presence\/leave$/
+      );
+      if (workbookPresenceLeaveMatch && method === "POST") {
+        if (!actorUser) {
+          return json(res, 401, { error: "Требуется авторизация." });
+        }
+        const sessionId = decodeURIComponent(workbookPresenceLeaveMatch[1]);
+        const session = getWorkbookSessionById(db, sessionId);
+        if (!session) return json(res, 404, { error: "Сессия не найдена." });
+        const participant = getWorkbookParticipant(db, sessionId, actorUser.id);
+        if (!participant) return json(res, 403, { error: "Нет доступа к сессии." });
+        const timestamp = nowIso();
+        participant.isActive = false;
+        participant.leftAt = timestamp;
+        participant.lastSeenAt = timestamp;
+        touchWorkbookSessionActivity(session, timestamp);
+        saveDb();
+        return json(res, 200, {
+          ok: true,
+          participants: getWorkbookParticipants(db, sessionId).map((item) =>
+            serializeWorkbookParticipant(db, item)
+          ),
+        });
+      }
+
       // ================= CHAT =================
       if (path === "/api/chat/eligibility" && method === "GET") {
         if (!actorUser) {

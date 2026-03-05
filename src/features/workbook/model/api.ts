@@ -228,6 +228,14 @@ export async function heartbeatWorkbookPresence(sessionId: string) {
   );
 }
 
+export async function leaveWorkbookPresence(sessionId: string) {
+  return api.post<{ ok: true; participants: WorkbookSession["participants"] }>(
+    `/workbook/sessions/${encodeURIComponent(sessionId)}/presence/leave`,
+    {},
+    { notifyDataUpdate: false }
+  );
+}
+
 export async function renderWorkbookPdfPages(params: {
   fileName: string;
   dataUrl: string;

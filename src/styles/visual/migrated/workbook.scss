@@ -835,6 +835,12 @@
   gap: 8px;
 }
 
+.workbook-session__participants-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .workbook-session__participants-head .MuiIconButton-root.is-active {
   border: 1px solid color-mix(in srgb, var(--brand-solid) 58%, var(--border-strong));
   background: color-mix(in srgb, var(--brand-soft) 18%, transparent);

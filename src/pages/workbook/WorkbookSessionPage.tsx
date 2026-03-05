@@ -97,6 +97,7 @@ import {
   getWorkbookSession,
   getWorkbookSnapshot,
   heartbeatWorkbookPresence,
+  leaveWorkbookPresence,
   openWorkbookSession,
   recognizeWorkbookInk,
   renderWorkbookPdfPages,
@@ -1346,6 +1347,7 @@ export default function WorkbookSessionPage() {
   const [isSessionChatOpen, setIsSessionChatOpen] = useState(false);
   const [isSessionChatMinimized, setIsSessionChatMinimized] = useState(false);
   const [isSessionChatMaximized, setIsSessionChatMaximized] = useState(false);
+  const [isParticipantsCollapsed, setIsParticipantsCollapsed] = useState(false);
   const [isSessionChatAtBottom, setIsSessionChatAtBottom] = useState(true);
   const [isWorkbookStreamConnected, setIsWorkbookStreamConnected] = useState(false);
   const [sessionChatDraft, setSessionChatDraft] = useState("");
@@ -1403,6 +1405,7 @@ export default function WorkbookSessionPage() {
     offsetX: number;
     offsetY: number;
   } | null>(null);
+  const presenceLeaveSentRef = useRef(false);
   const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const makingOfferPeerIdsRef = useRef<Set<string>>(new Set());
 
@@ -1426,17 +1429,29 @@ export default function WorkbookSessionPage() {
   const canSendSessionChat = canUseSessionChat && !isEnded;
   const isClassSession = session?.kind === "CLASS";
   const showCollaborationPanels = Boolean(isClassSession);
+
+  useEffect(() => {
+    if (!showCollaborationPanels) {
+      setIsParticipantsCollapsed(false);
+    }
+  }, [showCollaborationPanels]);
+
   const participantCards = useMemo(
     () =>
-      [...(session?.participants ?? [])].sort((left, right) => {
-        if (left.roleInSession !== right.roleInSession) {
-          return left.roleInSession === "teacher" ? -1 : 1;
-        }
-        if (left.isOnline !== right.isOnline) {
-          return left.isOnline ? -1 : 1;
-        }
-        return left.displayName.localeCompare(right.displayName, "ru");
-      }),
+      [...(session?.participants ?? [])]
+        .filter(
+          (participant) =>
+            participant.roleInSession === "teacher" || participant.isOnline
+        )
+        .sort((left, right) => {
+          if (left.roleInSession !== right.roleInSession) {
+            return left.roleInSession === "teacher" ? -1 : 1;
+          }
+          if (left.isOnline !== right.isOnline) {
+            return left.isOnline ? -1 : 1;
+          }
+          return left.displayName.localeCompare(right.displayName, "ru");
+        }),
     [session?.participants]
   );
   const onlineParticipantsCount = useMemo(
@@ -2696,6 +2711,47 @@ export default function WorkbookSessionPage() {
       window.clearInterval(intervalId);
     };
   }, [session, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || !showCollaborationPanels || !user?.id) return;
+    presenceLeaveSentRef.current = false;
+    const leaveUrl = `/api/workbook/sessions/${encodeURIComponent(sessionId)}/presence/leave`;
+    const sendLeave = () => {
+      if (presenceLeaveSentRef.current) return;
+      presenceLeaveSentRef.current = true;
+      if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+        const payload = new Blob([JSON.stringify({})], {
+          type: "application/json",
+        });
+        navigator.sendBeacon(leaveUrl, payload);
+        return;
+      }
+      void fetch(leaveUrl, {
+        method: "POST",
+        credentials: "include",
+        keepalive: true,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      });
+    };
+    const onPageHide = () => {
+      sendLeave();
+    };
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onPageHide);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onPageHide);
+      if (!presenceLeaveSentRef.current) {
+        void leaveWorkbookPresence(sessionId).catch(() => {
+          // ignore leave errors
+        });
+      }
+      presenceLeaveSentRef.current = false;
+    };
+  }, [sessionId, showCollaborationPanels, user?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -7520,7 +7576,9 @@ export default function WorkbookSessionPage() {
 
       <div
         className={`workbook-session__layout${
-          showCollaborationPanels ? "" : " workbook-session__layout--workspace"
+          showCollaborationPanels && !isParticipantsCollapsed
+            ? ""
+            : " workbook-session__layout--workspace"
         }`}
       >
         <div
@@ -7633,6 +7691,33 @@ export default function WorkbookSessionPage() {
                 </IconButton>
               </span>
             </Tooltip>
+            {showCollaborationPanels ? (
+              <Tooltip
+                title={
+                  isParticipantsCollapsed ? "Показать участников" : "Свернуть участников"
+                }
+                placement="bottom"
+                arrow
+              >
+                <span>
+                  <IconButton
+                    size="small"
+                    className={`workbook-session__toolbar-icon ${
+                      !isParticipantsCollapsed ? "is-active" : ""
+                    }`}
+                    onClick={() =>
+                      setIsParticipantsCollapsed((current) => !current)
+                    }
+                  >
+                    {isParticipantsCollapsed ? (
+                      <UnfoldMoreRoundedIcon />
+                    ) : (
+                      <UnfoldLessRoundedIcon />
+                    )}
+                  </IconButton>
+                </span>
+              </Tooltip>
+            ) : null}
             <Tooltip title="Отменить" placement="bottom" arrow>
               <span>
                 <IconButton
@@ -8125,43 +8210,55 @@ export default function WorkbookSessionPage() {
         </div>
 
         <aside className="workbook-session__sidebar">
-          {showCollaborationPanels ? (
+          {showCollaborationPanels && !isParticipantsCollapsed ? (
             <div className="workbook-session__card">
               <div className="workbook-session__participants-head">
                 <h3>
                   <GroupRoundedIcon fontSize="small" />
                   Участники
                 </h3>
-                <Tooltip title="Открыть чат сессии" placement="left" arrow>
-                  <span className="workbook-session__participants-chat-button">
-                    <IconButton
-                      size="small"
-                      className={isSessionChatOpen ? "is-active" : ""}
-                      disabled={!canUseSessionChat && !canManageSession}
-                      onClick={() => {
-                        if (isSessionChatOpen) {
-                          setIsSessionChatOpen(false);
-                          setIsSessionChatEmojiOpen(false);
-                          return;
-                        }
-                        sessionChatShouldScrollToUnreadRef.current = true;
-                        setIsSessionChatAtBottom(false);
-                        setIsSessionChatOpen(true);
-                        setIsSessionChatMinimized(false);
-                      }}
-                    >
-                      <ForumRoundedIcon fontSize="small" />
-                    </IconButton>
-                    {sessionChatUnreadCount > 0 ? (
-                      <span
-                        className="workbook-session__participants-chat-unread"
-                        aria-label={`Непрочитанных сообщений: ${sessionChatUnreadCount}`}
+                <div className="workbook-session__participants-head-actions">
+                  <Tooltip title="Открыть чат сессии" placement="left" arrow>
+                    <span className="workbook-session__participants-chat-button">
+                      <IconButton
+                        size="small"
+                        className={isSessionChatOpen ? "is-active" : ""}
+                        disabled={!canUseSessionChat && !canManageSession}
+                        onClick={() => {
+                          if (isSessionChatOpen) {
+                            setIsSessionChatOpen(false);
+                            setIsSessionChatEmojiOpen(false);
+                            return;
+                          }
+                          sessionChatShouldScrollToUnreadRef.current = true;
+                          setIsSessionChatAtBottom(false);
+                          setIsSessionChatOpen(true);
+                          setIsSessionChatMinimized(false);
+                        }}
                       >
-                        {sessionChatUnreadCount > 9 ? "9+" : sessionChatUnreadCount}
-                      </span>
-                    ) : null}
-                  </span>
-                </Tooltip>
+                        <ForumRoundedIcon fontSize="small" />
+                      </IconButton>
+                      {sessionChatUnreadCount > 0 ? (
+                        <span
+                          className="workbook-session__participants-chat-unread"
+                          aria-label={`Непрочитанных сообщений: ${sessionChatUnreadCount}`}
+                        >
+                          {sessionChatUnreadCount > 9 ? "9+" : sessionChatUnreadCount}
+                        </span>
+                      ) : null}
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Свернуть блок участников" placement="left" arrow>
+                    <span>
+                      <IconButton
+                        size="small"
+                        onClick={() => setIsParticipantsCollapsed(true)}
+                      >
+                        <UnfoldLessRoundedIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </div>
               </div>
               <div className="workbook-session__participants-scroll">
                 {participantCards.map((participant) => {
