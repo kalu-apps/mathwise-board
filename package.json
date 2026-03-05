@@ -32,7 +32,7 @@
     "build:showcase": "vite build --mode showcase",
     "start:showcase": "vite preview --mode showcase --host 0.0.0.0 --port ${PORT:-4173}",
     "backend:start": "node --import tsx backend/src/server.ts",
-    "backend:start:showcase": "VITE_SHOWCASE_MODE=realtime node --import tsx backend/src/server.ts"
+    "backend:start:showcase": "VITE_SHOWCASE_MODE=realtime WHITEBOARD_ONLY=1 VITE_WHITEBOARD_TEACHER_LOGIN=teacher@axiom.demo VITE_WHITEBOARD_TEACHER_PASSWORD=magic node --import tsx backend/src/server.ts"
   },
   "browserslist": {
     "production": [
