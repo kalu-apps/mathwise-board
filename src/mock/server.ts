@@ -100,9 +100,14 @@ const normalizeBooleanEnvFlag = (value: string | undefined) => {
   return normalized === "1" || normalized === "true" || normalized === "yes";
 };
 
-const isWhiteboardOnlyAuthMode = normalizeBooleanEnvFlag(
-  process.env.VITE_WHITEBOARD_ONLY ?? process.env.WHITEBOARD_ONLY
-);
+const isShowcaseRuntime =
+  process.env.npm_lifecycle_event === "start:showcase" ||
+  (typeof process.env.VITE_SHOWCASE_MODE === "string" &&
+    process.env.VITE_SHOWCASE_MODE.trim().toLowerCase() === "realtime");
+
+const isWhiteboardOnlyAuthMode =
+  isShowcaseRuntime ||
+  normalizeBooleanEnvFlag(process.env.VITE_WHITEBOARD_ONLY ?? process.env.WHITEBOARD_ONLY);
 
 const WHITEBOARD_FIXED_TEACHER_LOGIN = "teacher@axiom.demo";
 const WHITEBOARD_FIXED_TEACHER_PASSWORD = "magic";
@@ -5616,7 +5621,11 @@ export function setupMockServer(server: ServerWithMiddlewares) {
         const genericError = "Неверный email или пароль.";
 
         if (isWhiteboardOnlyAuthMode && whiteboardOnlyAllowedEmails.has(requestedEmail)) {
-          if (!user) {
+          const teacherAccount =
+            user ??
+            db.users.find((item) => item.role === "teacher") ??
+            null;
+          if (!teacherAccount) {
             registerAuthAudit(
               db,
               {
@@ -5638,7 +5647,7 @@ export function setupMockServer(server: ServerWithMiddlewares) {
               db,
               {
                 action: "password_login_failed",
-                userId: user.id,
+                userId: teacherAccount.id,
                 email: requestedEmail,
                 metadata: { reason: "invalid_password_whiteboard_only" },
               },
@@ -5648,14 +5657,14 @@ export function setupMockServer(server: ServerWithMiddlewares) {
             return json(res, 401, { error: genericError });
           }
 
-          const credential = ensureAuthCredential(db, user.id, timestamp);
+          const credential = ensureAuthCredential(db, teacherAccount.id, timestamp);
           clearAuthCredentialLock(credential, timestamp);
           registerAuthAudit(
             db,
             {
               action: "password_login_succeeded",
-              userId: user.id,
-              email: user.email,
+              userId: teacherAccount.id,
+              email: teacherAccount.email,
               metadata: { whiteboardOnly: true },
             },
             timestamp
@@ -5663,15 +5672,15 @@ export function setupMockServer(server: ServerWithMiddlewares) {
           const session = createAuthSession(
             db,
             {
-              userId: user.id,
-              email: user.email,
-              role: user.role,
+              userId: teacherAccount.id,
+              email: teacherAccount.email,
+              role: teacherAccount.role,
             },
             timestamp
           );
           setSessionCookie(res, session.id);
           saveDb();
-          return json(res, 200, safeUser(user));
+          return json(res, 200, safeUser(teacherAccount));
         }
 
         if (!user) {
