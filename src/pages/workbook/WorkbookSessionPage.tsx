@@ -170,6 +170,7 @@ import {
 } from "@/features/workbook/model/smartInk";
 import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
+import { ApiError } from "@/shared/api/client";
 
 const POLL_INTERVAL_MS = 300;
 const PRESENCE_INTERVAL_MS = 2_500;
@@ -2537,75 +2538,116 @@ export default function WorkbookSessionPage() {
 
   const loadSession = useCallback(async () => {
     if (!sessionId) return;
-    try {
-      setLoading(true);
-      setError(null);
-      const [sessionData, boardSnapshot, annotationSnapshot] = await Promise.all([
-        getWorkbookSession(sessionId),
-        getWorkbookSnapshot(sessionId, "board"),
-        getWorkbookSnapshot(sessionId, "annotations"),
-      ]);
-      setSession(sessionData);
+    setLoading(true);
+    setError(null);
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const sessionData = await getWorkbookSession(sessionId);
+        const [boardSnapshotResult, annotationSnapshotResult] = await Promise.allSettled([
+          getWorkbookSnapshot(sessionId, "board"),
+          getWorkbookSnapshot(sessionId, "annotations"),
+        ]);
+        const boardSnapshot =
+          boardSnapshotResult.status === "fulfilled" ? boardSnapshotResult.value : null;
+        const annotationSnapshot =
+          annotationSnapshotResult.status === "fulfilled"
+            ? annotationSnapshotResult.value
+            : null;
+        setSession(sessionData);
 
-      const normalizedBoard = normalizeScenePayload(boardSnapshot?.payload ?? createEmptyScene());
-      const normalizedAnnotations = normalizeScenePayload(
-        annotationSnapshot?.payload ?? createEmptyScene()
-      );
-      const restoredSmartInk = normalizeSmartInkOptions(
-        normalizedBoard.boardSettings.smartInk ?? sessionData.settings?.smartInk
-      );
-      setSmartInkOptions(restoredSmartInk);
-
-      setBoardStrokes(normalizedBoard.strokes.filter((stroke) => stroke.layer === "board"));
-      setBoardObjects(normalizedBoard.objects.filter((item) => item.layer === "board"));
-      setConstraints(normalizedBoard.constraints);
-      setChatMessages(normalizedBoard.chat);
-      setComments(normalizedBoard.comments);
-      setTimerState(normalizedBoard.timer);
-      setBoardSettings(() => {
-        const normalizedLayers = normalizeSceneLayersForBoard(
-          normalizedBoard.boardSettings.sceneLayers,
-          normalizedBoard.boardSettings.activeSceneLayerId
+        const normalizedBoard = normalizeScenePayload(
+          boardSnapshot?.payload ?? createEmptyScene()
         );
-        return {
-          ...DEFAULT_BOARD_SETTINGS,
-          ...normalizedBoard.boardSettings,
-          ...normalizedLayers,
-          smartInk: restoredSmartInk,
-          title:
-            normalizedBoard.boardSettings.title ||
-            sessionData.title ||
-            DEFAULT_BOARD_SETTINGS.title,
-        };
-      });
-      setLibraryState({
-        ...DEFAULT_LIBRARY,
-        ...normalizedBoard.library,
-      });
-      setDocumentState(normalizedBoard.document);
-      setAnnotationStrokes(
-        normalizedAnnotations.strokes.filter((stroke) => stroke.layer === "annotations")
-      );
-      const loadedLatestSeq = Math.max(boardSnapshot?.version ?? 0, annotationSnapshot?.version ?? 0);
-      setLatestSeq(loadedLatestSeq);
-      latestSeqRef.current = loadedLatestSeq;
-      processedEventIdsRef.current.clear();
-      smartInkStrokeBufferRef.current = [];
-      smartInkProcessedStrokeIdsRef.current = new Set();
-      dirtyRef.current = false;
-      undoStackRef.current = [];
-      redoStackRef.current = [];
-      setUndoDepth(0);
-      setRedoDepth(0);
-      setSaveState("saved");
-      setLastSavedAt(new Date().toISOString());
-      await openWorkbookSession(sessionId);
-    } catch {
-      setError("Не удалось открыть сессию рабочей тетради.");
-      setSession(null);
-    } finally {
-      setLoading(false);
+        const normalizedAnnotations = normalizeScenePayload(
+          annotationSnapshot?.payload ?? createEmptyScene()
+        );
+        const restoredSmartInk = normalizeSmartInkOptions(
+          normalizedBoard.boardSettings.smartInk ?? sessionData.settings?.smartInk
+        );
+        setSmartInkOptions(restoredSmartInk);
+
+        setBoardStrokes(normalizedBoard.strokes.filter((stroke) => stroke.layer === "board"));
+        setBoardObjects(normalizedBoard.objects.filter((item) => item.layer === "board"));
+        setConstraints(normalizedBoard.constraints);
+        setChatMessages(normalizedBoard.chat);
+        setComments(normalizedBoard.comments);
+        setTimerState(normalizedBoard.timer);
+        setBoardSettings(() => {
+          const normalizedLayers = normalizeSceneLayersForBoard(
+            normalizedBoard.boardSettings.sceneLayers,
+            normalizedBoard.boardSettings.activeSceneLayerId
+          );
+          return {
+            ...DEFAULT_BOARD_SETTINGS,
+            ...normalizedBoard.boardSettings,
+            ...normalizedLayers,
+            smartInk: restoredSmartInk,
+            title:
+              normalizedBoard.boardSettings.title ||
+              sessionData.title ||
+              DEFAULT_BOARD_SETTINGS.title,
+          };
+        });
+        setLibraryState({
+          ...DEFAULT_LIBRARY,
+          ...normalizedBoard.library,
+        });
+        setDocumentState(normalizedBoard.document);
+        setAnnotationStrokes(
+          normalizedAnnotations.strokes.filter((stroke) => stroke.layer === "annotations")
+        );
+        const loadedLatestSeq = Math.max(
+          boardSnapshot?.version ?? 0,
+          annotationSnapshot?.version ?? 0
+        );
+        setLatestSeq(loadedLatestSeq);
+        latestSeqRef.current = loadedLatestSeq;
+        processedEventIdsRef.current.clear();
+        smartInkStrokeBufferRef.current = [];
+        smartInkProcessedStrokeIdsRef.current = new Set();
+        dirtyRef.current = false;
+        undoStackRef.current = [];
+        redoStackRef.current = [];
+        setUndoDepth(0);
+        setRedoDepth(0);
+        setSaveState("saved");
+        setLastSavedAt(new Date().toISOString());
+        try {
+          await openWorkbookSession(sessionId);
+        } catch (openError) {
+          if (
+            openError instanceof ApiError &&
+            (openError.status === 401 ||
+              openError.status === 403 ||
+              openError.status === 404)
+          ) {
+            throw openError;
+          }
+        }
+        setLoading(false);
+        return;
+      } catch (error) {
+        const recoverable =
+          error instanceof ApiError &&
+          (error.code === "server_unavailable" ||
+            error.code === "network_error" ||
+            error.code === "timeout" ||
+            error.code === "rate_limited" ||
+            error.status === 502 ||
+            error.status === 503 ||
+            error.status === 504);
+        if (recoverable && attempt < maxAttempts) {
+          await new Promise((resolve) => window.setTimeout(resolve, attempt * 250));
+          continue;
+        }
+        setError("Не удалось открыть сессию рабочей тетради.");
+        setSession(null);
+        setLoading(false);
+        return;
+      }
     }
+    setLoading(false);
   }, [sessionId]);
 
   useEffect(() => {
@@ -3879,7 +3921,17 @@ export default function WorkbookSessionPage() {
             payload: { objectId, patch: normalizedPatch },
           },
         ]);
-      } catch {
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          (error.code === "conflict" ||
+            error.code === "server_unavailable" ||
+            error.code === "network_error" ||
+            error.code === "timeout" ||
+            error.code === "rate_limited")
+        ) {
+          return;
+        }
         setError("Не удалось обновить объект.");
       }
     },
@@ -7691,33 +7743,6 @@ export default function WorkbookSessionPage() {
                 </IconButton>
               </span>
             </Tooltip>
-            {showCollaborationPanels ? (
-              <Tooltip
-                title={
-                  isParticipantsCollapsed ? "Показать участников" : "Свернуть участников"
-                }
-                placement="bottom"
-                arrow
-              >
-                <span>
-                  <IconButton
-                    size="small"
-                    className={`workbook-session__toolbar-icon ${
-                      !isParticipantsCollapsed ? "is-active" : ""
-                    }`}
-                    onClick={() =>
-                      setIsParticipantsCollapsed((current) => !current)
-                    }
-                  >
-                    {isParticipantsCollapsed ? (
-                      <UnfoldMoreRoundedIcon />
-                    ) : (
-                      <UnfoldLessRoundedIcon />
-                    )}
-                  </IconButton>
-                </span>
-              </Tooltip>
-            ) : null}
             <Tooltip title="Отменить" placement="bottom" arrow>
               <span>
                 <IconButton
@@ -8208,6 +8233,20 @@ export default function WorkbookSessionPage() {
           ) : null}
 
         </div>
+
+        {showCollaborationPanels && isParticipantsCollapsed ? (
+          <div className="workbook-session__participants-launch">
+            <Tooltip title="Открыть блок участников" placement="left" arrow>
+              <button
+                type="button"
+                className="workbook-session__participants-launch-btn"
+                onClick={() => setIsParticipantsCollapsed(false)}
+              >
+                <GroupRoundedIcon fontSize="small" />
+              </button>
+            </Tooltip>
+          </div>
+        ) : null}
 
         <aside className="workbook-session__sidebar">
           {showCollaborationPanels && !isParticipantsCollapsed ? (
