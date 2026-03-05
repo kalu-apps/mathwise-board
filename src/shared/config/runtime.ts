@@ -14,9 +14,4 @@ export const whiteboardOnlyRuntime = {
     typeof import.meta.env.VITE_WHITEBOARD_TEACHER_LOGIN === "string"
       ? import.meta.env.VITE_WHITEBOARD_TEACHER_LOGIN.trim().toLowerCase()
       : "",
-  studentLogin:
-    typeof import.meta.env.VITE_WHITEBOARD_STUDENT_LOGIN === "string"
-      ? import.meta.env.VITE_WHITEBOARD_STUDENT_LOGIN.trim().toLowerCase()
-      : "",
 };
-

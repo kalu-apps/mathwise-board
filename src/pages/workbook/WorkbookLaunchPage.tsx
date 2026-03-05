@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Button, CircularProgress, Stack, Typography } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/features/auth/model/AuthContext";
@@ -7,7 +7,6 @@ import {
   getWorkbookDrafts,
 } from "@/features/workbook/model/api";
 import { t } from "@/shared/i18n";
-import { whiteboardOnlyRuntime } from "@/shared/config/runtime";
 
 const toSessionPath = (sessionId: string) =>
   `/workbook/session/${encodeURIComponent(sessionId)}`;
@@ -17,21 +16,6 @@ export default function WorkbookLaunchPage() {
   const { user, isAuthReady, openAuthModal, logout } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const loginHint = useMemo(() => {
-    const hints: string[] = [];
-    if (whiteboardOnlyRuntime.teacherLogin) {
-      hints.push(
-        `${t("whiteboardLaunch.teacherHintPrefix")}: ${whiteboardOnlyRuntime.teacherLogin}`
-      );
-    }
-    if (whiteboardOnlyRuntime.studentLogin) {
-      hints.push(
-        `${t("whiteboardLaunch.studentHintPrefix")}: ${whiteboardOnlyRuntime.studentLogin}`
-      );
-    }
-    return hints.join(t("whiteboardLaunch.loginHintSeparator"));
-  }, []);
 
   useEffect(() => {
     if (!isAuthReady) return;
@@ -82,11 +66,6 @@ export default function WorkbookLaunchPage() {
         <Typography variant="body1" color="text.secondary">
           {t("whiteboardLaunch.subtitle")}
         </Typography>
-        {loginHint ? (
-          <Alert severity="info" className="workbook-launch__hint">
-            {loginHint}
-          </Alert>
-        ) : null}
         {error ? <Alert severity="error">{error}</Alert> : null}
         {!isAuthReady || loading ? (
           <Stack direction="row" spacing={1.5} alignItems="center">

@@ -5,12 +5,11 @@ import { joinWorkbookInvite, resolveWorkbookInvite } from "@/features/workbook/m
 import { useAuth } from "@/features/auth/model/AuthContext";
 import { ApiError } from "@/shared/api/client";
 import { t } from "@/shared/i18n";
-import { isWhiteboardOnlyMode } from "@/shared/config/runtime";
 
 export default function WorkbookInviteJoinPage() {
   const { token = "" } = useParams();
   const navigate = useNavigate();
-  const { user, openAuthModal } = useAuth();
+  const { user } = useAuth();
   const [state, setState] = useState<{
     loading: boolean;
     error: string | null;
@@ -26,7 +25,6 @@ export default function WorkbookInviteJoinPage() {
     sessionId: null,
     joined: false,
   });
-  const [blockedSessionUrl, setBlockedSessionUrl] = useState<string | null>(null);
   const [guestName, setGuestName] = useState("");
   const [guestNameError, setGuestNameError] = useState<string | null>(null);
 
@@ -36,16 +34,10 @@ export default function WorkbookInviteJoinPage() {
         token &&
           !state.loading &&
           !state.error &&
-          (user ||
-            (!isWhiteboardOnlyMode && guestName.trim().length >= 2))
+          (user || guestName.trim().length >= 2)
       ),
     [guestName, state.error, state.loading, token, user]
   );
-
-  useEffect(() => {
-    if (!isWhiteboardOnlyMode || user) return;
-    openAuthModal();
-  }, [openAuthModal, user]);
 
   useEffect(() => {
     let active = true;
@@ -109,59 +101,24 @@ export default function WorkbookInviteJoinPage() {
 
   const handleJoin = async () => {
     if (!token) return;
-    if (isWhiteboardOnlyMode && !user) {
-      openAuthModal();
-      return;
-    }
-    if (!user && guestName.trim().length < 2) {
+    const guestDisplayName = guestName.trim();
+    if (!user && guestDisplayName.length < 2) {
       setGuestNameError(t("workbookInvite.guestNameRequired"));
       return;
     }
     setGuestNameError(null);
-    setBlockedSessionUrl(null);
-    const preparedTab = window.open("", "_blank");
     try {
       setState((prev) => ({ ...prev, loading: true }));
-      const joined = await joinWorkbookInvite(
-        token,
-        user || isWhiteboardOnlyMode ? undefined : guestName.trim()
-      );
+      const joined = await joinWorkbookInvite(token, user ? undefined : guestDisplayName);
       const targetPath = `/workbook/session/${encodeURIComponent(joined.session.id)}`;
-      const targetUrl = `${window.location.origin}${targetPath}`;
       setState((prev) => ({
         ...prev,
         loading: false,
         joined: true,
         sessionId: joined.session.id,
       }));
-      if (preparedTab && !preparedTab.closed) {
-        try {
-          preparedTab.opener = null;
-        } catch {
-          // no-op
-        }
-        preparedTab.location.href = targetUrl;
-        try {
-          preparedTab.focus();
-        } catch {
-          // ignore browser focus restrictions
-        }
-        if (user) {
-          navigate("/workbook", { replace: true });
-        } else {
-          window.location.assign("/");
-        }
-        return;
-      }
-      setState((prev) => ({
-            ...prev,
-            loading: false,
-            error: t("workbookInvite.popupBlocked"),
-          }));
-      setBlockedSessionUrl(targetUrl);
-      return;
+      navigate(targetPath, { replace: true });
     } catch (error) {
-      if (preparedTab && !preparedTab.closed) preparedTab.close();
       const detailsMessage =
         error instanceof ApiError &&
         typeof error.details === "object" &&
@@ -189,15 +146,6 @@ export default function WorkbookInviteJoinPage() {
           </div>
         ) : null}
         {state.error ? <Alert severity="error">{state.error}</Alert> : null}
-        {blockedSessionUrl ? (
-          <Alert severity="warning">
-            {t("workbookInvite.manualOpen")}:{" "}
-            <a href={blockedSessionUrl} target="_blank" rel="noopener noreferrer">
-              {t("workbookInvite.manualOpenAction")}
-            </a>
-            .
-          </Alert>
-        ) : null}
         {!state.loading && !state.error ? (
           <div className="workbook-invite__meta">
             <p>
@@ -206,7 +154,7 @@ export default function WorkbookInviteJoinPage() {
             <p>
               {t("workbookInvite.teacherLabel")}: <strong>{state.hostName}</strong>
             </p>
-            {!user && !isWhiteboardOnlyMode ? (
+            {!user ? (
               <TextField
                 size="small"
                 label={t("workbookInvite.guestNameLabel")}

@@ -27,6 +27,7 @@ import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import { useAuth } from "@/features/auth/model/AuthContext";
 import {
+  createWorkbookInvite,
   createWorkbookSession,
   deleteWorkbookSession,
   duplicateWorkbookSession,
@@ -47,8 +48,6 @@ const buildSessionPath = (sessionId: string) =>
 
 const buildSessionUrl = (sessionId: string) =>
   `${window.location.origin}${buildSessionPath(sessionId)}`;
-
-const buildWorkbookEntryUrl = () => `${window.location.origin}/workbook`;
 
 const openPreparedTabOrFallback = (preparedTab: Window | null, sessionId: string) => {
   const targetUrl = buildSessionUrl(sessionId);
@@ -402,8 +401,9 @@ export default function WorkbookHubPage() {
   const handleCopyInvite = async (sessionId: string) => {
     try {
       setCopyingInviteSessionId(sessionId);
-      await navigator.clipboard.writeText(buildWorkbookEntryUrl());
-      setSuccessMessage("Ссылка на вход в рабочую тетрадь скопирована.");
+      const invite = await createWorkbookInvite(sessionId);
+      await navigator.clipboard.writeText(invite.inviteUrl);
+      setSuccessMessage("Временная ссылка приглашения скопирована.");
     } catch {
       setError("Не удалось скопировать ссылку.");
     } finally {
@@ -655,7 +655,7 @@ export default function WorkbookHubPage() {
                                 card.kind === "CLASS" &&
                                 card.statusForCard !== "ended" &&
                                 card.canInvite ? (
-                                  <Tooltip title="Скопировать ссылку входа">
+                                  <Tooltip title="Скопировать ссылку приглашения">
                                     <span>
                                       <IconButton
                                         size="small"

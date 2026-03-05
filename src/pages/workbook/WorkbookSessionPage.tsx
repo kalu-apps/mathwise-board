@@ -92,6 +92,7 @@ import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
 import { useAuth } from "@/features/auth/model/AuthContext";
 import {
   appendWorkbookEvents,
+  createWorkbookInvite,
   getWorkbookEvents,
   getWorkbookSession,
   getWorkbookSnapshot,
@@ -175,7 +176,6 @@ const AUTOSAVE_INTERVAL_MS = 9_000;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
-const WORKBOOK_ENTRY_PATH = "/workbook";
 const WORKBOOK_CHAT_EMOJIS = [
   "👍",
   "✅",
@@ -1321,7 +1321,7 @@ export default function WorkbookSessionPage() {
   const [latestSeq, setLatestSeq] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [copyingEntryLink, setCopyingEntryLink] = useState(false);
+  const [copyingInviteLink, setCopyingInviteLink] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [isStereoDialogOpen, setIsStereoDialogOpen] = useState(false);
   const [isShapesDialogOpen, setIsShapesDialogOpen] = useState(false);
@@ -5822,17 +5822,19 @@ export default function WorkbookSessionPage() {
     });
   };
 
-  const handleCopyWorkbookEntryLink = useCallback(async () => {
+  const handleCopyInviteLink = useCallback(async () => {
+    if (!sessionId) return;
     try {
-      setCopyingEntryLink(true);
-      await navigator.clipboard.writeText(`${window.location.origin}${WORKBOOK_ENTRY_PATH}`);
+      setCopyingInviteLink(true);
+      const invite = await createWorkbookInvite(sessionId);
+      await navigator.clipboard.writeText(invite.inviteUrl);
       setError(null);
     } catch {
-      setError("Не удалось скопировать ссылку на вход.");
+      setError("Не удалось скопировать ссылку приглашения.");
     } finally {
-      setCopyingEntryLink(false);
+      setCopyingInviteLink(false);
     }
-  }, []);
+  }, [sessionId]);
 
   const updateParticipantPermissions = useCallback(
     async (
@@ -7474,10 +7476,10 @@ export default function WorkbookSessionPage() {
             <Button
               variant="outlined"
               startIcon={<ContentCopyRoundedIcon />}
-              onClick={() => void handleCopyWorkbookEntryLink()}
-              disabled={copyingEntryLink}
+              onClick={() => void handleCopyInviteLink()}
+              disabled={copyingInviteLink}
             >
-              {copyingEntryLink ? "Копируем..." : "Скопировать ссылку входа"}
+              {copyingInviteLink ? "Копируем..." : "Скопировать ссылку приглашения"}
             </Button>
           ) : null}
         </div>

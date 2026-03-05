@@ -110,7 +110,6 @@ const isWhiteboardOnlyAuthMode = normalizeBooleanEnvFlag(
 const whiteboardOnlyAllowedEmails = new Set(
   [
     normalizeEnvEmail(process.env.VITE_WHITEBOARD_TEACHER_LOGIN),
-    normalizeEnvEmail(process.env.VITE_WHITEBOARD_STUDENT_LOGIN),
   ].filter((value) => value.length > 0)
 );
 
@@ -123,9 +122,6 @@ const whiteboardOnlyPasswordFallback =
 const whiteboardOnlyTeacherLogin = normalizeEnvEmail(
   process.env.VITE_WHITEBOARD_TEACHER_LOGIN
 );
-const whiteboardOnlyStudentLogin = normalizeEnvEmail(
-  process.env.VITE_WHITEBOARD_STUDENT_LOGIN
-);
 
 const whiteboardOnlyPasswordEntries: Array<[string, string]> = [
   [
@@ -133,13 +129,6 @@ const whiteboardOnlyPasswordEntries: Array<[string, string]> = [
     typeof process.env.VITE_WHITEBOARD_TEACHER_PASSWORD === "string" &&
     process.env.VITE_WHITEBOARD_TEACHER_PASSWORD.trim().length > 0
       ? process.env.VITE_WHITEBOARD_TEACHER_PASSWORD.trim()
-      : whiteboardOnlyPasswordFallback,
-  ],
-  [
-    whiteboardOnlyStudentLogin,
-    typeof process.env.VITE_WHITEBOARD_STUDENT_PASSWORD === "string" &&
-    process.env.VITE_WHITEBOARD_STUDENT_PASSWORD.trim().length > 0
-      ? process.env.VITE_WHITEBOARD_STUDENT_PASSWORD.trim()
       : whiteboardOnlyPasswordFallback,
   ],
 ];
@@ -595,7 +584,7 @@ type SerializableChatAttachment = {
 
 const CHAT_MAX_ATTACHMENTS_PER_MESSAGE = 10;
 const CHAT_MAX_ATTACHMENT_SIZE_BYTES = 15 * 1024 * 1024;
-const WORKBOOK_INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 3;
+const WORKBOOK_INVITE_TTL_MS = 1000 * 60 * 30;
 const WORKBOOK_PRESENCE_TTL_MS = 1000 * 60;
 const WORKBOOK_EVENT_LIMIT_PER_SESSION = 4000;
 const WORKBOOK_PDF_RENDER_MAX_PAGES = 20;
