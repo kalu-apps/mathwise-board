@@ -21,8 +21,9 @@ import {
   subscribeOutbox,
 } from "@/shared/lib/outbox";
 
-const HEALTHCHECK_TIMEOUT_MS = 5_000;
-const AUTO_RECHECK_MS = 15_000;
+const HEALTHCHECK_TIMEOUT_MS = 12_000;
+const AUTO_RECHECK_MS = 25_000;
+const DEGRADED_FAILURE_THRESHOLD = 2;
 
 const DEGRADE_CODES = new Set<ApiFailureEventDetail["code"]>([
   "timeout",
@@ -53,6 +54,7 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
   );
   const [outboxSnapshot, setOutboxSnapshot] = useState(() => getOutboxSnapshot());
   const checkingRef = useRef(false);
+  const consecutiveTransportFailuresRef = useRef(0);
 
   const recheck = useCallback(async () => {
     if (checkingRef.current) return;
@@ -75,17 +77,25 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
       });
 
       if (response.status >= 500) {
-        setStatus("degraded");
+        consecutiveTransportFailuresRef.current += 1;
+        if (consecutiveTransportFailuresRef.current >= DEGRADED_FAILURE_THRESHOLD) {
+          setStatus("degraded");
+        }
       } else {
+        consecutiveTransportFailuresRef.current = 0;
         setStatus("online");
         setLastErrorCode(null);
       }
     } catch {
       if (typeof navigator !== "undefined" && !navigator.onLine) {
+        consecutiveTransportFailuresRef.current = 0;
         setStatus("offline");
         setLastErrorCode("network_offline");
       } else {
-        setStatus("degraded");
+        consecutiveTransportFailuresRef.current += 1;
+        if (consecutiveTransportFailuresRef.current >= DEGRADED_FAILURE_THRESHOLD) {
+          setStatus("degraded");
+        }
       }
     } finally {
       window.clearTimeout(timeoutId);
@@ -112,6 +122,7 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
     if (typeof window === "undefined") return undefined;
 
     const handleOnline = () => {
+      consecutiveTransportFailuresRef.current = 0;
       setStatus("degraded");
       void recheck();
       void flushOutboxQueue();
@@ -129,12 +140,16 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
       setLastErrorCode(detail.code);
 
       if (detail.code === "network_offline") {
+        consecutiveTransportFailuresRef.current = 0;
         setStatus("offline");
         return;
       }
 
       if (DEGRADE_CODES.has(detail.code)) {
-        setStatus((prev) => (prev === "offline" ? "offline" : "degraded"));
+        consecutiveTransportFailuresRef.current += 1;
+        if (consecutiveTransportFailuresRef.current >= DEGRADED_FAILURE_THRESHOLD) {
+          setStatus((prev) => (prev === "offline" ? "offline" : "degraded"));
+        }
       }
     };
 
@@ -142,6 +157,7 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
       const detail = (event as CustomEvent<ApiSuccessEventDetail>).detail;
       if (!detail) return;
       if (typeof navigator !== "undefined" && !navigator.onLine) return;
+      consecutiveTransportFailuresRef.current = 0;
       setStatus("online");
       setLastErrorCode(null);
     };

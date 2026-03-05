@@ -33,9 +33,6 @@ const WorkbookHubPage = lazy(() => import("@/pages/workbook/WorkbookHubPage"));
 const WorkbookSessionPage = lazy(
   () => import("@/pages/workbook/WorkbookSessionPage")
 );
-const WorkbookInviteJoinPage = lazy(
-  () => import("@/pages/workbook/WorkbookInviteJoinPage")
-);
 const WorkbookLaunchPage = lazy(
   () => import("@/pages/workbook/WorkbookLaunchPage")
 );
@@ -69,10 +66,6 @@ const whiteboardOnlyChildren: RouteObject[] = [
         {withSuspense(<WorkbookSessionPage />)}
       </RoleProtectedRoute>
     ),
-  },
-  {
-    path: "/workbook/invite/:token",
-    element: withSuspense(<WorkbookInviteJoinPage />),
   },
 ];
 
@@ -183,10 +176,6 @@ const fullChildren: RouteObject[] = [
         {withSuspense(<WorkbookSessionPage />)}
       </RoleProtectedRoute>
     ),
-  },
-  {
-    path: "/workbook/invite/:token",
-    element: withSuspense(<WorkbookInviteJoinPage />),
   },
 ];
 

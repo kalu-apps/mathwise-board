@@ -27,7 +27,6 @@ import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import { useAuth } from "@/features/auth/model/AuthContext";
 import {
-  createWorkbookInvite,
   createWorkbookSession,
   deleteWorkbookSession,
   duplicateWorkbookSession,
@@ -48,6 +47,8 @@ const buildSessionPath = (sessionId: string) =>
 
 const buildSessionUrl = (sessionId: string) =>
   `${window.location.origin}${buildSessionPath(sessionId)}`;
+
+const buildWorkbookEntryUrl = () => `${window.location.origin}/workbook`;
 
 const openPreparedTabOrFallback = (preparedTab: Window | null, sessionId: string) => {
   const targetUrl = buildSessionUrl(sessionId);
@@ -401,9 +402,8 @@ export default function WorkbookHubPage() {
   const handleCopyInvite = async (sessionId: string) => {
     try {
       setCopyingInviteSessionId(sessionId);
-      const invite = await createWorkbookInvite(sessionId);
-      await navigator.clipboard.writeText(invite.inviteUrl);
-      setSuccessMessage("Ссылка для подключения скопирована.");
+      await navigator.clipboard.writeText(buildWorkbookEntryUrl());
+      setSuccessMessage("Ссылка на вход в рабочую тетрадь скопирована.");
     } catch {
       setError("Не удалось скопировать ссылку.");
     } finally {

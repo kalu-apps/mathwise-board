@@ -92,8 +92,6 @@ import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
 import { useAuth } from "@/features/auth/model/AuthContext";
 import {
   appendWorkbookEvents,
-  createWorkbookInvite,
-  endWorkbookSession,
   getWorkbookEvents,
   getWorkbookSession,
   getWorkbookSnapshot,
@@ -170,11 +168,6 @@ import {
 } from "@/features/workbook/model/smartInk";
 import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
-import {
-  getTeacherChatThreads,
-  sendTeacherChatMessage,
-} from "@/features/chat/model/api";
-import type { TeacherChatThread } from "@/features/chat/model/types";
 
 const POLL_INTERVAL_MS = 300;
 const PRESENCE_INTERVAL_MS = 2_500;
@@ -182,6 +175,7 @@ const AUTOSAVE_INTERVAL_MS = 9_000;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
+const WORKBOOK_ENTRY_PATH = "/workbook";
 const WORKBOOK_CHAT_EMOJIS = [
   "👍",
   "✅",
@@ -1327,11 +1321,7 @@ export default function WorkbookSessionPage() {
   const [latestSeq, setLatestSeq] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false);
-  const [inviteCandidates, setInviteCandidates] = useState<TeacherChatThread[]>([]);
-  const [inviteSearch, setInviteSearch] = useState("");
-  const [loadingInviteCandidates, setLoadingInviteCandidates] = useState(false);
-  const [sendingInviteThreadId, setSendingInviteThreadId] = useState<string | null>(null);
+  const [copyingEntryLink, setCopyingEntryLink] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [isStereoDialogOpen, setIsStereoDialogOpen] = useState(false);
   const [isShapesDialogOpen, setIsShapesDialogOpen] = useState(false);
@@ -1426,7 +1416,6 @@ export default function WorkbookSessionPage() {
   );
   const actorPermissions = actorParticipant?.permissions ?? FALLBACK_PERMISSIONS;
   const canManageSession = Boolean(actorPermissions.canManageSession);
-  const canInvite = Boolean(actorPermissions.canInvite);
   const canDraw = Boolean(actorPermissions.canDraw && !isEnded && !awaitingClearRequest);
   const canSelect = Boolean(actorPermissions.canSelect && !isEnded);
   const canInsertImage = Boolean(actorPermissions.canInsertImage && !isEnded);
@@ -1454,23 +1443,6 @@ export default function WorkbookSessionPage() {
     () => participantCards.filter((participant) => participant.isOnline).length,
     [participantCards]
   );
-  const connectedStudentIds = useMemo(
-    () =>
-      new Set(
-        session?.participants
-          .filter((participant) => participant.roleInSession === "student")
-          .map((participant) => participant.userId) ?? []
-      ),
-    [session?.participants]
-  );
-  const filteredInviteCandidates = useMemo(() => {
-    const normalizedQuery = inviteSearch.trim().toLowerCase();
-    if (!normalizedQuery) return inviteCandidates;
-    return inviteCandidates.filter((candidate) => {
-      const name = candidate.studentName.toLowerCase();
-      return name.includes(normalizedQuery);
-    });
-  }, [inviteCandidates, inviteSearch]);
   const sessionChatReadStorageKey = useMemo(
     () => (sessionId && user?.id ? `workbook:chat-read:${sessionId}:${user.id}` : ""),
     [sessionId, user?.id]
@@ -5850,39 +5822,17 @@ export default function WorkbookSessionPage() {
     });
   };
 
-  const handleOpenInviteDialog = async () => {
-    if (!canInvite) return;
-    setIsInviteDialogOpen(true);
-    setInviteSearch("");
-    setLoadingInviteCandidates(true);
+  const handleCopyWorkbookEntryLink = useCallback(async () => {
     try {
-      const threads = await getTeacherChatThreads();
-      setInviteCandidates(threads);
-    } catch {
-      setInviteCandidates([]);
-      setError("Не удалось загрузить список студентов для приглашения.");
-    } finally {
-      setLoadingInviteCandidates(false);
-    }
-  };
-
-  const handleSendInviteToStudent = async (thread: TeacherChatThread) => {
-    if (!sessionId) return;
-    setSendingInviteThreadId(thread.id);
-    try {
-      const invite = await createWorkbookInvite(sessionId);
-      await sendTeacherChatMessage({
-        threadId: thread.id,
-        text: `Подключайтесь к коллективному уроку: ${invite.inviteUrl}`,
-      });
-      setIsInviteDialogOpen(false);
+      setCopyingEntryLink(true);
+      await navigator.clipboard.writeText(`${window.location.origin}${WORKBOOK_ENTRY_PATH}`);
       setError(null);
     } catch {
-      setError("Не удалось отправить приглашение студенту.");
+      setError("Не удалось скопировать ссылку на вход.");
     } finally {
-      setSendingInviteThreadId(null);
+      setCopyingEntryLink(false);
     }
-  };
+  }, []);
 
   const updateParticipantPermissions = useCallback(
     async (
@@ -6008,52 +5958,6 @@ export default function WorkbookSessionPage() {
     },
     [isSessionChatMaximized, isSessionChatMinimized]
   );
-
-  const handleFinishSession = async () => {
-    if (!sessionId || !canManageSession) return;
-    try {
-      const response = await endWorkbookSession(sessionId);
-      setSession(response.session);
-      setChatMessages([]);
-      setIsSessionChatOpen(false);
-      setIsSessionChatEmojiOpen(false);
-      setSessionChatDraft("");
-      persistSessionChatReadAt(null);
-      setSessionChatReadAt(null);
-      await Promise.all([
-        saveWorkbookSnapshot({
-          sessionId,
-          layer: "board",
-          version: latestSeq,
-          payload: encodeScenePayload({
-            strokes: boardStrokes,
-            objects: boardObjects,
-            constraints,
-            chat: [],
-            comments,
-            timer: timerState,
-            boardSettings,
-            library: libraryState,
-            document: documentState,
-          }),
-        }),
-        saveWorkbookSnapshot({
-          sessionId,
-          layer: "annotations",
-          version: latestSeq,
-          payload: encodeScenePayload({
-            strokes: annotationStrokes,
-            chat: [],
-          }),
-        }),
-      ]);
-      dirtyRef.current = false;
-      setSaveState("saved");
-      setLastSavedAt(new Date().toISOString());
-    } catch {
-      setError("Не удалось завершить сессию.");
-    }
-  };
 
   const updateDocumentState = async (patch: Partial<WorkbookDocumentState>) => {
     try {
@@ -7566,20 +7470,14 @@ export default function WorkbookSessionPage() {
           </div>
         </div>
         <div className="workbook-session__head-actions">
-          {canInvite && session.status !== "ended" ? (
+          {canManageSession && session.kind === "CLASS" ? (
             <Button
               variant="outlined"
               startIcon={<ContentCopyRoundedIcon />}
-              onClick={() => void handleOpenInviteDialog()}
+              onClick={() => void handleCopyWorkbookEntryLink()}
+              disabled={copyingEntryLink}
             >
-              Пригласить участника
-            </Button>
-          ) : null}
-          {canManageSession &&
-          session.status !== "ended" &&
-          session.kind === "CLASS" ? (
-            <Button color="error" variant="outlined" onClick={() => void handleFinishSession()}>
-              Завершить
+              {copyingEntryLink ? "Копируем..." : "Скопировать ссылку входа"}
             </Button>
           ) : null}
         </div>
@@ -11158,86 +11056,6 @@ export default function WorkbookSessionPage() {
               Удалить выделенное
             </MenuItem>
           </Menu>
-
-          <Dialog
-            container={overlayContainer}
-            open={isInviteDialogOpen}
-            onClose={() => {
-              if (sendingInviteThreadId) return;
-              setIsInviteDialogOpen(false);
-            }}
-            fullWidth
-            maxWidth="sm"
-          >
-            <DialogTitle>Пригласить участника</DialogTitle>
-            <DialogContent dividers>
-              {loadingInviteCandidates ? (
-                <div className="workbook-session__invite-loading">
-                  <CircularProgress size={18} />
-                  <span>Загружаем студентов...</span>
-                </div>
-              ) : inviteCandidates.length === 0 ? (
-                <p className="workbook-session__hint">
-                  Нет доступных студентов для отправки приглашения.
-                </p>
-              ) : (
-                <>
-                  <TextField
-                    size="small"
-                    fullWidth
-                    placeholder="Поиск по имени или фамилии"
-                    value={inviteSearch}
-                    onChange={(event) => setInviteSearch(event.target.value)}
-                  />
-                  {filteredInviteCandidates.length === 0 ? (
-                    <p className="workbook-session__hint">
-                      По вашему запросу студенты не найдены.
-                    </p>
-                  ) : (
-                    <div className="workbook-session__invite-list">
-                      {filteredInviteCandidates.map((thread) => {
-                        const alreadyConnected = connectedStudentIds.has(thread.studentId);
-                        const isSending = sendingInviteThreadId === thread.id;
-                        return (
-                          <article key={thread.id} className="workbook-session__invite-student-card">
-                            <div className="workbook-session__invite-student-main">
-                              <Avatar src={thread.studentPhoto} alt={thread.studentName}>
-                                {thread.studentName.slice(0, 1)}
-                              </Avatar>
-                              <div>
-                                <strong>{thread.studentName}</strong>
-                                <small>{thread.studentEmail}</small>
-                              </div>
-                            </div>
-                            <Button
-                              size="small"
-                              variant={alreadyConnected ? "outlined" : "contained"}
-                              disabled={alreadyConnected || isSending}
-                              onClick={() => void handleSendInviteToStudent(thread)}
-                            >
-                              {alreadyConnected
-                                ? "Уже в сессии"
-                                : isSending
-                                  ? "Отправка..."
-                                  : "Отправить ссылку"}
-                            </Button>
-                          </article>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
-              )}
-            </DialogContent>
-            <DialogActions>
-              <Button
-                onClick={() => setIsInviteDialogOpen(false)}
-                disabled={Boolean(sendingInviteThreadId)}
-              >
-                Закрыть
-              </Button>
-            </DialogActions>
-          </Dialog>
 
           <Dialog
             container={overlayContainer}
