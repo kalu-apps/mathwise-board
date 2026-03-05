@@ -537,19 +537,16 @@ const teacherEmailSet = new Set(
   TEACHER_EMAILS.map((email) => normalizeEmail(email)).filter(Boolean)
 );
 const primaryTeacherEmail = normalizeEmail(TEACHER_EMAILS[0] ?? "");
-if (primaryTeacherEmail) {
-  whiteboardOnlyAllowedEmails.add(primaryTeacherEmail);
-}
-if (whiteboardOnlyTeacherLogin && whiteboardOnlyTeacherLogin !== primaryTeacherEmail) {
-  const teacherPassword =
-    whiteboardOnlyPasswordByEmail.get(whiteboardOnlyTeacherLogin) ??
-    whiteboardOnlyPasswordFallback;
-  whiteboardOnlyPasswordByEmail.set(primaryTeacherEmail, teacherPassword);
-}
-const canonicalizeTeacherLoginEmail = (email: string) =>
-  teacherEmailSet.has(email) || email === whiteboardOnlyTeacherLogin
-    ? primaryTeacherEmail || email
-    : email;
+const canonicalizeTeacherLoginEmail = (email: string) => {
+  if (
+    isWhiteboardOnlyAuthMode &&
+    whiteboardOnlyTeacherLogin &&
+    email === whiteboardOnlyTeacherLogin
+  ) {
+    return primaryTeacherEmail || email;
+  }
+  return teacherEmailSet.has(email) ? primaryTeacherEmail : email;
+};
 const LEGAL_DOCUMENT_VERSION = "ru-legal-v1";
 const AUTH_SESSION_COOKIE = "mt_auth_session";
 const AUTH_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
@@ -5608,12 +5605,13 @@ export function setupMockServer(server: ServerWithMiddlewares) {
 
       if (path === "/api/auth/password/login" && method === "POST") {
         const body = (await readBody(req)) as { email?: string; password?: string };
-        const email = canonicalizeTeacherLoginEmail(normalizeEmail(body?.email));
+        const requestedEmail = normalizeEmail(body?.email);
+        const email = canonicalizeTeacherLoginEmail(requestedEmail);
         const password = normalizePasswordInput(body?.password);
         if (!email || !password) {
           return json(res, 400, { error: "Введите email и пароль." });
         }
-        if (isEmailBlockedInWhiteboardOnly(email)) {
+        if (isEmailBlockedInWhiteboardOnly(requestedEmail)) {
           return json(res, 403, {
             error: "Доступ ограничен демонстрационными аккаунтами урока.",
           });
@@ -5623,13 +5621,13 @@ export function setupMockServer(server: ServerWithMiddlewares) {
         const timestamp = nowIso();
         const genericError = "Неверный email или пароль.";
 
-        if (isWhiteboardOnlyAuthMode && whiteboardOnlyAllowedEmails.has(email)) {
+        if (isWhiteboardOnlyAuthMode && whiteboardOnlyAllowedEmails.has(requestedEmail)) {
           if (!user) {
             registerAuthAudit(
               db,
               {
                 action: "password_login_failed",
-                email,
+                email: requestedEmail,
                 metadata: { reason: "user_not_found_whiteboard_only" },
               },
               timestamp
@@ -5639,14 +5637,15 @@ export function setupMockServer(server: ServerWithMiddlewares) {
           }
 
           const expectedPassword =
-            whiteboardOnlyPasswordByEmail.get(email) ?? whiteboardOnlyPasswordFallback;
+            whiteboardOnlyPasswordByEmail.get(requestedEmail) ??
+            whiteboardOnlyPasswordFallback;
           if (password !== expectedPassword) {
             registerAuthAudit(
               db,
               {
                 action: "password_login_failed",
                 userId: user.id,
-                email,
+                email: requestedEmail,
                 metadata: { reason: "invalid_password_whiteboard_only" },
               },
               timestamp
