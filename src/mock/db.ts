@@ -283,6 +283,11 @@ const createDefaultDb = (): MockDb => ({
 });
 
 let db: MockDb | null = null;
+let persistTimer: NodeJS.Timeout | null = null;
+let persistInFlight = false;
+let persistRequestedWhileWriting = false;
+
+const PERSIST_DEBOUNCE_MS = 120;
 
 function readDbFile(): MockDb {
   try {
@@ -313,12 +318,48 @@ export function getDb(): MockDb {
   return db;
 }
 
+const persistDbNow = () => {
+  if (!db || persistInFlight) return;
+  persistInFlight = true;
+  const payload = JSON.stringify(db, null, 2);
+  fs.writeFile(DB_FILE, payload, (error) => {
+    void error;
+    persistInFlight = false;
+    if (persistRequestedWhileWriting) {
+      persistRequestedWhileWriting = false;
+      if (persistTimer) {
+        clearTimeout(persistTimer);
+      }
+      persistTimer = setTimeout(() => {
+        persistTimer = null;
+        persistDbNow();
+      }, PERSIST_DEBOUNCE_MS);
+    }
+  });
+};
+
 export function saveDb() {
   if (!db) return;
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+  if (persistInFlight) {
+    persistRequestedWhileWriting = true;
+    return;
+  }
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+  }
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    persistDbNow();
+  }, PERSIST_DEBOUNCE_MS);
 }
 
 export function resetDb() {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  persistInFlight = false;
+  persistRequestedWhileWriting = false;
   db = createDefaultDb();
   fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 }

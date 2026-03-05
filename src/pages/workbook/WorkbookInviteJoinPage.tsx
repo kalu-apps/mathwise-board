@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Alert, Button, CircularProgress, TextField } from "@mui/material";
 import { joinWorkbookInvite, resolveWorkbookInvite } from "@/features/workbook/model/api";
+import { getAuthSession } from "@/features/auth/model/api";
 import { useAuth } from "@/features/auth/model/AuthContext";
 import { ApiError } from "@/shared/api/client";
 import { t } from "@/shared/i18n";
@@ -9,7 +10,7 @@ import { t } from "@/shared/i18n";
 export default function WorkbookInviteJoinPage() {
   const { token = "" } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const [state, setState] = useState<{
     loading: boolean;
     error: string | null;
@@ -110,6 +111,10 @@ export default function WorkbookInviteJoinPage() {
     try {
       setState((prev) => ({ ...prev, loading: true }));
       const joined = await joinWorkbookInvite(token, user ? undefined : guestDisplayName);
+      const authSession = await getAuthSession();
+      if (authSession) {
+        updateUser(authSession);
+      }
       const targetPath = `/workbook/session/${encodeURIComponent(joined.session.id)}`;
       setState((prev) => ({
         ...prev,
@@ -155,25 +160,24 @@ export default function WorkbookInviteJoinPage() {
               {t("workbookInvite.teacherLabel")}: <strong>{state.hostName}</strong>
             </p>
             {!user ? (
-              <TextField
-                size="small"
-                label={t("workbookInvite.guestNameLabel")}
-                value={guestName}
-                onChange={(event) => {
-                  setGuestName(event.target.value);
-                  if (guestNameError) setGuestNameError(null);
-                }}
-                error={Boolean(guestNameError)}
-                helperText={guestNameError ?? t("workbookInvite.guestNameHint")}
-              />
+              <div className="workbook-invite__guest-field">
+                <TextField
+                  size="small"
+                  label={t("workbookInvite.guestNameLabel")}
+                  value={guestName}
+                  onChange={(event) => {
+                    setGuestName(event.target.value);
+                    if (guestNameError) setGuestNameError(null);
+                  }}
+                  error={Boolean(guestNameError)}
+                  helperText={guestNameError ?? t("workbookInvite.guestNameHint")}
+                />
+              </div>
             ) : null}
           </div>
         ) : null}
         {!state.loading ? (
           <div className="workbook-invite__actions">
-            <Button variant="outlined" onClick={() => navigate(user ? "/workbook" : "/")}>
-              {t("workbookInvite.openWorkbook")}
-            </Button>
             <Button
               variant="contained"
               onClick={() => void handleJoin()}
