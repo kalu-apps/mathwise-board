@@ -7,6 +7,7 @@ import { ConnectivityBanner } from "@/shared/ui/ConnectivityBanner";
 import { PerformanceModeBanner } from "@/shared/ui/PerformanceModeBanner";
 import { AxiomAssistant } from "@/features/assistant/ui/AxiomAssistant";
 import type { AssistantMode } from "@/shared/api/assistant-contracts";
+import { isWhiteboardOnlyMode } from "@/shared/config/runtime";
 
 const resolveAssistantMode = (pathname: string): AssistantMode => {
   if (pathname.startsWith("/workbook/session/")) return "whiteboard";
@@ -40,7 +41,7 @@ export function MainLayout() {
       <main className="app-main">
         <Outlet />
       </main>
-      {user && (user.role === "student" || user.role === "teacher") ? (
+      {!isWhiteboardOnlyMode && user && (user.role === "student" || user.role === "teacher") ? (
         <AxiomAssistant
           userId={user.id}
           role={user.role}

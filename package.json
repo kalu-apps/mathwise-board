@@ -29,7 +29,8 @@
     "verify": "npm run lint && npm run audit:visual && npm run audit:contracts && npm run audit:contrast && npm run smoke:visual && npm run visual:matrix && npm run visual:diff && npm run build && npm run audit:visual-performance && npm run audit:i18n",
     "preview": "vite preview",
     "dev:showcase": "vite --mode showcase --open /workbook",
-    "build:showcase": "vite build --mode showcase"
+    "build:showcase": "vite build --mode showcase",
+    "start:showcase": "vite preview --host 0.0.0.0 --port ${PORT:-4173}"
   },
   "browserslist": {
     "production": [

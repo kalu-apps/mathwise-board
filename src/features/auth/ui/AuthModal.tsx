@@ -29,6 +29,7 @@ import {
   requestPasswordReset,
   resendVerification,
 } from "@/features/auth/model/api";
+import { isWhiteboardOnlyMode } from "@/shared/config/runtime";
 
 interface AuthModalProps {
   open: boolean;
@@ -91,6 +92,8 @@ export function AuthModal({
     "success" | "info" | "warning" | "error"
   >("info");
   const [resetDebugToken, setResetDebugToken] = useState<string | null>(null);
+  const forcePasswordOnly = isWhiteboardOnlyMode;
+  const activeAuthMethod: AuthMethod = forcePasswordOnly ? "password" : authMethod;
 
   useEffect(() => {
     if (!open) return;
@@ -125,6 +128,19 @@ export function AuthModal({
     setResetSeverity("info");
     setResetDebugToken(null);
   }, [initialEmail, mode, open]);
+
+  useEffect(() => {
+    if (!forcePasswordOnly || authMethod === "password") return;
+    setAuthMethod("password");
+  }, [authMethod, forcePasswordOnly]);
+
+  useEffect(() => {
+    if (!forcePasswordOnly) return;
+    if (!showResetPassword) return;
+    setShowResetPassword(false);
+    setResetMessage(null);
+    setResetDebugToken(null);
+  }, [forcePasswordOnly, showResetPassword]);
 
   const normalizedEmail = email.trim().toLowerCase();
   const recoverHintLines = useMemo(
@@ -214,7 +230,7 @@ export function AuthModal({
   }, [mode, normalizedEmail, open, runRecoverCheck]);
 
   useEffect(() => {
-    if (authMethod !== "magic") return;
+    if (activeAuthMethod !== "magic") return;
     if (!loginCodeSent) return;
     if (!loginCodeEmail) return;
     if (normalizedEmail === loginCodeEmail) return;
@@ -223,26 +239,26 @@ export function AuthModal({
     setLoginCodeEmail("");
     setLoginCodeDebug(null);
     setLoginCodeMessage(null);
-  }, [normalizedEmail, authMethod, loginCodeSent, loginCodeEmail]);
+  }, [normalizedEmail, activeAuthMethod, loginCodeSent, loginCodeEmail]);
 
   useEffect(() => {
-    if (authMethod !== "magic") return;
+    if (activeAuthMethod !== "magic") return;
     setError(null);
-  }, [authMethod]);
+  }, [activeAuthMethod]);
 
   useEffect(() => {
-    if (authMethod === "magic") return;
+    if (activeAuthMethod === "magic") return;
     setShowRecover(false);
     setRecoverMessage(null);
     setCanResend(false);
-  }, [authMethod]);
+  }, [activeAuthMethod]);
 
   useEffect(() => {
-    if (authMethod === "password") return;
+    if (activeAuthMethod === "password") return;
     setShowResetPassword(false);
     setResetMessage(null);
     setResetDebugToken(null);
-  }, [authMethod]);
+  }, [activeAuthMethod]);
 
   const collapseRecoverPanels = useCallback(() => {
     if (!showRecover) return;
@@ -288,7 +304,7 @@ export function AuthModal({
 
     setSubmitLoading(true);
     try {
-      if (authMethod === "password") {
+      if (activeAuthMethod === "password") {
         const result = await loginWithPassword(normalizedEmail, password);
         if (!result.ok) {
           if (result.code === "password_locked" && result.lockedUntil) {
@@ -471,26 +487,28 @@ export function AuthModal({
           {t("auth.modalDescription")}
         </Typography>
 
-        <div className="auth-modal__mode-switch" role="tablist" aria-label="Режим входа">
-          <Button
-            type="button"
-            variant={authMethod === "magic" ? "contained" : "outlined"}
-            onClick={() => setAuthMethod("magic")}
-            startIcon={<AlternateEmailRoundedIcon fontSize="small" />}
-            className="auth-modal__mode-btn"
-          >
-            {t("auth.methodMagic")}
-          </Button>
-          <Button
-            type="button"
-            variant={authMethod === "password" ? "contained" : "outlined"}
-            onClick={() => setAuthMethod("password")}
-            startIcon={<PasswordRoundedIcon fontSize="small" />}
-            className="auth-modal__mode-btn"
-          >
-            {t("auth.methodPassword")}
-          </Button>
-        </div>
+        {!forcePasswordOnly ? (
+          <div className="auth-modal__mode-switch" role="tablist" aria-label="Режим входа">
+            <Button
+              type="button"
+              variant={activeAuthMethod === "magic" ? "contained" : "outlined"}
+              onClick={() => setAuthMethod("magic")}
+              startIcon={<AlternateEmailRoundedIcon fontSize="small" />}
+              className="auth-modal__mode-btn"
+            >
+              {t("auth.methodMagic")}
+            </Button>
+            <Button
+              type="button"
+              variant={activeAuthMethod === "password" ? "contained" : "outlined"}
+              onClick={() => setAuthMethod("password")}
+              startIcon={<PasswordRoundedIcon fontSize="small" />}
+              className="auth-modal__mode-btn"
+            >
+              {t("auth.methodPassword")}
+            </Button>
+          </div>
+        ) : null}
 
         <TextField
           className="auth-modal__email-field"
@@ -503,7 +521,7 @@ export function AuthModal({
           InputLabelProps={{ shrink: true }}
         />
 
-        {authMethod === "password" && (
+        {activeAuthMethod === "password" && (
           <TextField
             label={t("auth.passwordLabel")}
             type={showPassword ? "text" : "password"}
@@ -522,7 +540,7 @@ export function AuthModal({
           />
         )}
 
-        {authMethod === "magic" && loginCodeSent && (
+        {activeAuthMethod === "magic" && loginCodeSent && (
           <>
             {loginCodeMessage && (
               <Alert severity="success" className="auth-modal__recover-state">
@@ -558,7 +576,7 @@ export function AuthModal({
                 onClick={handleSubmit}
                 disabled={submitLoading}
                 aria-label={
-                  authMethod === "password"
+                  activeAuthMethod === "password"
                     ? t("auth.passwordSubmit")
                     : loginCodeSent
                     ? t("auth.magicCodeConfirm")
@@ -566,7 +584,7 @@ export function AuthModal({
                 }
                 sx={mobileIconActionSx}
               >
-                {authMethod === "password" ? (
+                {activeAuthMethod === "password" ? (
                   <LockOpenRoundedIcon fontSize="small" />
                 ) : loginCodeSent ? (
                   <MarkEmailReadRoundedIcon fontSize="small" />
@@ -575,7 +593,7 @@ export function AuthModal({
                 )}
               </Button>
 
-              {authMethod === "magic" && (
+              {activeAuthMethod === "magic" && (
                 <Button
                   className="auth-modal__recover"
                   variant="outlined"
@@ -588,7 +606,7 @@ export function AuthModal({
                 </Button>
               )}
 
-              {authMethod === "password" && (
+              {activeAuthMethod === "password" && !forcePasswordOnly && (
                 <Button
                   className="auth-modal__recover"
                   variant="outlined"
@@ -618,7 +636,7 @@ export function AuthModal({
                   loading={submitLoading}
                   loadingLabel={t("connectivity.rechecking")}
                 >
-                  {authMethod === "password"
+                  {activeAuthMethod === "password"
                     ? t("auth.passwordSubmit")
                     : loginCodeSent
                     ? t("auth.magicCodeConfirm")
@@ -626,7 +644,7 @@ export function AuthModal({
                 </ButtonPending>
               </Button>
 
-              {authMethod === "magic" && (
+              {activeAuthMethod === "magic" && (
                 <Button
                   className="auth-modal__recover"
                   variant="text"
@@ -645,7 +663,7 @@ export function AuthModal({
             </>
           )}
 
-          {authMethod === "password" && !isMobile && (
+          {activeAuthMethod === "password" && !isMobile && !forcePasswordOnly && (
             <div className="auth-modal__secondary-actions">
               <Button
                 className="auth-modal__reset-toggle"
@@ -661,7 +679,7 @@ export function AuthModal({
             </div>
           )}
 
-          {authMethod === "password" && showResetPassword && (
+          {activeAuthMethod === "password" && !forcePasswordOnly && showResetPassword && (
             <div className="auth-modal__reset-panel">
               {resetMessage && (
                 <Alert severity={resetSeverity} className="auth-modal__recover-state">
@@ -736,7 +754,7 @@ export function AuthModal({
             </div>
           )}
 
-          {authMethod === "magic" && showRecover && (
+          {activeAuthMethod === "magic" && showRecover && (
             <Alert severity="warning" className="auth-modal__recover-hint">
               <div className="auth-modal__warning-lines">
                 {recoverHintLines.map((line, index) => (
@@ -748,13 +766,13 @@ export function AuthModal({
             </Alert>
           )}
 
-          {authMethod === "magic" && showRecover && recoverMessage && (
+          {activeAuthMethod === "magic" && showRecover && recoverMessage && (
             <Alert severity={recoverSeverity} className="auth-modal__recover-state">
               {recoverMessage}
             </Alert>
           )}
 
-          {authMethod === "magic" && showRecover && (
+          {activeAuthMethod === "magic" && showRecover && (
             <Typography
               variant="caption"
               color="text.secondary"
@@ -764,7 +782,7 @@ export function AuthModal({
             </Typography>
           )}
 
-          {authMethod === "magic" && showRecover && canResend && (
+          {activeAuthMethod === "magic" && showRecover && canResend && (
             <Button
               className="auth-modal__resend"
               variant="outlined"

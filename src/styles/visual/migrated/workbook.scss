@@ -2844,6 +2844,37 @@
   gap: 8px;
 }
 
+.workbook-launch {
+  min-height: calc(100vh - 160px);
+  align-items: center;
+  padding: 16px;
+}
+
+.workbook-launch__card {
+  margin: 0 auto;
+  width: min(680px, 100%);
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--surface-elevated) 92%, transparent), color-mix(in srgb, var(--surface-soft) 84%, transparent));
+  box-shadow: var(--shadow-md);
+
+  h4 {
+    margin: 0;
+  }
+}
+
+.workbook-launch__hint {
+  margin-top: 2px;
+}
+
+.workbook-launch__actions {
+  margin-top: 4px;
+}
+
 @media (max-width: 1024px) {
   .workbook-session__layout {
     grid-template-columns: minmax(0, 1fr);

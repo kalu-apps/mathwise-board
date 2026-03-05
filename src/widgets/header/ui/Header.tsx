@@ -10,6 +10,7 @@ import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
 import { useAuth } from "@/features/auth/model/AuthContext";
 import { useThemeMode } from "@/app/theme/themeModeContext";
 import { t } from "@/shared/i18n";
+import { isWhiteboardOnlyMode } from "@/shared/config/runtime";
 
 export function Header() {
   const { user, logout, openAuthModal } = useAuth();
@@ -33,7 +34,9 @@ export function Header() {
     hasError: false,
   });
 
-  const menuItems = [
+  const menuItems = isWhiteboardOnlyMode
+    ? []
+    : [
     { label: t("header.navCourses"), path: "/courses" },
     { label: t("header.navTeacher"), path: "/about-teacher" },
     { label: t("header.navBooking"), path: "/booking" },
@@ -41,6 +44,10 @@ export function Header() {
   ];
 
   const handleLogoClick = () => {
+    if (isWhiteboardOnlyMode) {
+      navigate("/workbook");
+      return;
+    }
     if (!window.matchMedia("(max-width: 960px)").matches) {
       navigate("/");
     } else {
@@ -54,7 +61,7 @@ export function Header() {
     navigate("/", { replace: true });
   };
 
-  const showAssistantStatus = Boolean(user);
+  const showAssistantStatus = Boolean(user) && !isWhiteboardOnlyMode;
 
   const handleAssistantToggle = () => {
     if (typeof window === "undefined") return;
@@ -141,18 +148,20 @@ export function Header() {
             />
           </IconButton>
 
-          <nav className="header__menu-desktop">
-            {menuItems.map((item) => (
-              <Button
-                key={item.label}
-                color="inherit"
-                className="header__link"
-                onClick={() => navigate(item.path)}
-              >
-                {item.label}
-              </Button>
-            ))}
-          </nav>
+          {menuItems.length > 0 ? (
+            <nav className="header__menu-desktop">
+              {menuItems.map((item) => (
+                <Button
+                  key={item.label}
+                  color="inherit"
+                  className="header__link"
+                  onClick={() => navigate(item.path)}
+                >
+                  {item.label}
+                </Button>
+              ))}
+            </nav>
+          ) : null}
         </div>
 
         <div className="header__right">
@@ -207,9 +216,11 @@ export function Header() {
                 <Button
                   onClick={() =>
                     navigate(
-                      user.role === "student"
-                        ? "/student/profile"
-                        : "/teacher/profile"
+                      isWhiteboardOnlyMode
+                        ? "/workbook"
+                        : user.role === "student"
+                          ? "/student/profile"
+                          : "/teacher/profile"
                     )
                   }
                   className="header__profile-btn"
@@ -240,7 +251,7 @@ export function Header() {
         </div>
       </div>
 
-      {mobileOpen && (
+      {mobileOpen && menuItems.length > 0 && (
         <>
           <button
             type="button"

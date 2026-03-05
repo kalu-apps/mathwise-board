@@ -94,6 +94,33 @@ import {
 } from "../features/assessments/model/types";
 import { createMediaStorageAdapter } from "./mediaStorage";
 
+const normalizeBooleanEnvFlag = (value: string | undefined) => {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+};
+
+const normalizeEnvEmail = (value: string | undefined) =>
+  typeof value === "string" ? value.trim().toLowerCase() : "";
+
+const isWhiteboardOnlyAuthMode = normalizeBooleanEnvFlag(
+  process.env.VITE_WHITEBOARD_ONLY ?? process.env.WHITEBOARD_ONLY
+);
+
+const whiteboardOnlyAllowedEmails = new Set(
+  [
+    normalizeEnvEmail(process.env.VITE_WHITEBOARD_TEACHER_LOGIN),
+    normalizeEnvEmail(process.env.VITE_WHITEBOARD_STUDENT_LOGIN),
+  ].filter((value) => value.length > 0)
+);
+
+const whiteboardOnlyAllowedAuthRoutes = new Set([
+  "GET /api/auth/session",
+  "POST /api/auth/logout",
+  "POST /api/auth/password/login",
+  "GET /api/auth/password/status",
+]);
+
 const json = (res: import("http").ServerResponse, status: number, data: unknown) => {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
@@ -165,6 +192,11 @@ const pruneAssessmentSessions = (
 
 const normalizeEmail = (value: unknown) =>
   typeof value === "string" ? value.trim().toLowerCase() : "";
+
+const isEmailBlockedInWhiteboardOnly = (email: string) =>
+  isWhiteboardOnlyAuthMode &&
+  whiteboardOnlyAllowedEmails.size > 0 &&
+  !whiteboardOnlyAllowedEmails.has(email);
 
 const normalizePasswordInput = (value: unknown) =>
   typeof value === "string" ? value.normalize("NFKC") : "";
@@ -5279,6 +5311,16 @@ export function setupMockServer(server: ServerWithMiddlewares) {
     const actorUser = sessionActor?.user ?? null;
     const actorSession = sessionActor?.session ?? null;
 
+    if (
+      isWhiteboardOnlyAuthMode &&
+      path.startsWith("/api/auth/") &&
+      !whiteboardOnlyAllowedAuthRoutes.has(`${method} ${path}`)
+    ) {
+      return json(res, 403, {
+        error: "Режим whiteboard-only: доступны только вход по паролю и сессия урока.",
+      });
+    }
+
     try {
       // ================= AUTH =================
       if (path === "/api/dev/reset" && method === "POST") {
@@ -5359,6 +5401,12 @@ export function setupMockServer(server: ServerWithMiddlewares) {
       }
 
       if (path === "/api/auth/magic-link" && method === "POST") {
+        if (isWhiteboardOnlyAuthMode) {
+          return json(res, 403, {
+            error:
+              "В режиме whiteboard-only вход по ссылке отключен. Используйте статичный логин и пароль.",
+          });
+        }
         const body = (await readBody(req)) as { email: string };
         const email = canonicalizeTeacherLoginEmail(normalizeEmail(body?.email));
         if (!email) {
@@ -5429,6 +5477,12 @@ export function setupMockServer(server: ServerWithMiddlewares) {
       }
 
       if (path === "/api/auth/magic-link/confirm" && method === "POST") {
+        if (isWhiteboardOnlyAuthMode) {
+          return json(res, 403, {
+            error:
+              "В режиме whiteboard-only вход по ссылке отключен. Используйте статичный логин и пароль.",
+          });
+        }
         const body = (await readBody(req)) as { email?: string; code?: string };
         const email = canonicalizeTeacherLoginEmail(normalizeEmail(body?.email));
         const code =
@@ -5527,6 +5581,11 @@ export function setupMockServer(server: ServerWithMiddlewares) {
         const password = normalizePasswordInput(body?.password);
         if (!email || !password) {
           return json(res, 400, { error: "Введите email и пароль." });
+        }
+        if (isEmailBlockedInWhiteboardOnly(email)) {
+          return json(res, 403, {
+            error: "Доступ ограничен демонстрационными аккаунтами урока.",
+          });
         }
 
         const user = db.users.find((item) => normalizeEmail(item.email) === email) ?? null;

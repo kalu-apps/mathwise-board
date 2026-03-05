@@ -5,11 +5,12 @@ import { joinWorkbookInvite, resolveWorkbookInvite } from "@/features/workbook/m
 import { useAuth } from "@/features/auth/model/AuthContext";
 import { ApiError } from "@/shared/api/client";
 import { t } from "@/shared/i18n";
+import { isWhiteboardOnlyMode } from "@/shared/config/runtime";
 
 export default function WorkbookInviteJoinPage() {
   const { token = "" } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, openAuthModal } = useAuth();
   const [state, setState] = useState<{
     loading: boolean;
     error: string | null;
@@ -35,10 +36,16 @@ export default function WorkbookInviteJoinPage() {
         token &&
           !state.loading &&
           !state.error &&
-          (user || guestName.trim().length >= 2)
+          (user ||
+            (!isWhiteboardOnlyMode && guestName.trim().length >= 2))
       ),
     [guestName, state.error, state.loading, token, user]
   );
+
+  useEffect(() => {
+    if (!isWhiteboardOnlyMode || user) return;
+    openAuthModal();
+  }, [openAuthModal, user]);
 
   useEffect(() => {
     let active = true;
@@ -102,7 +109,11 @@ export default function WorkbookInviteJoinPage() {
 
   const handleJoin = async () => {
     if (!token) return;
-      if (!user && guestName.trim().length < 2) {
+    if (isWhiteboardOnlyMode && !user) {
+      openAuthModal();
+      return;
+    }
+    if (!user && guestName.trim().length < 2) {
       setGuestNameError(t("workbookInvite.guestNameRequired"));
       return;
     }
@@ -111,7 +122,10 @@ export default function WorkbookInviteJoinPage() {
     const preparedTab = window.open("", "_blank");
     try {
       setState((prev) => ({ ...prev, loading: true }));
-      const joined = await joinWorkbookInvite(token, user ? undefined : guestName.trim());
+      const joined = await joinWorkbookInvite(
+        token,
+        user || isWhiteboardOnlyMode ? undefined : guestName.trim()
+      );
       const targetPath = `/workbook/session/${encodeURIComponent(joined.session.id)}`;
       const targetUrl = `${window.location.origin}${targetPath}`;
       setState((prev) => ({
@@ -192,7 +206,7 @@ export default function WorkbookInviteJoinPage() {
             <p>
               {t("workbookInvite.teacherLabel")}: <strong>{state.hostName}</strong>
             </p>
-            {!user ? (
+            {!user && !isWhiteboardOnlyMode ? (
               <TextField
                 size="small"
                 label={t("workbookInvite.guestNameLabel")}

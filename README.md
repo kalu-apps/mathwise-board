@@ -22,11 +22,40 @@ npm install
 npm run dev:showcase
 ```
 
-Откроется маршрут: `/workbook`
+Откроется whiteboard-only сценарий:
+- `/` — только авторизация и вход в коллективный урок
+- `/workbook/session/:sessionId` — доска урока
+- `/workbook/invite/:token` — подключение ученика по приглашению
 
 ## Демо-доступ
 - Учитель: `teacher@axiom.demo` / `magic`
 - Студент: `student@axiom.demo` / `magic`
+
+В showcase режиме включен `VITE_WHITEBOARD_ONLY=1`: прочие разделы платформы скрыты из роутинга.
+Вход по magic-link отключен на mock API: доступ только через статичные аккаунты урока.
+
+## Прод-пилот (бесплатно, Render)
+В репозитории есть `render.yaml`. Он разворачивает сервис как whiteboard-only приложение:
+
+- `buildCommand`: `npm ci && npm run build:showcase`
+- `startCommand`: `npm run start:showcase`
+- API и SSE работают через встроенный mock backend в `vite preview`.
+
+### Переменные окружения в Render
+- `VITE_SHOWCASE_MODE=realtime`
+- `VITE_WHITEBOARD_ONLY=1`
+- `VITE_WHITEBOARD_TEACHER_LOGIN=<логин учителя>`
+- `VITE_WHITEBOARD_STUDENT_LOGIN=<логин ученика>`
+
+### Быстро отключить доступ
+- В Render: `Suspend Service` (моментально выключает публичный URL).
+- Либо удалить сервис целиком (URL перестает существовать).
+
+### Схема урока
+1. Учитель авторизуется и автоматически попадает в активный коллективный урок (или создается новый).
+2. Учитель копирует invite-ссылку внутри урока и отправляет ученику.
+3. Ученик открывает ссылку и авторизуется статичным логином/паролем.
+4. После завершения урока invite-ссылка становится неактивной.
 
 ## Что оценивать на собеседовании
 - Реализация ролей и прав.
