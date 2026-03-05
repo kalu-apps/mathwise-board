@@ -30,7 +30,7 @@
     "preview": "vite preview",
     "dev:showcase": "vite --mode showcase --open /workbook",
     "build:showcase": "vite build --mode showcase",
-    "start:showcase": "vite preview --host 0.0.0.0 --port ${PORT:-4173}"
+    "start:showcase": "vite preview --mode showcase --host 0.0.0.0 --port ${PORT:-4173}"
   },
   "browserslist": {
     "production": [

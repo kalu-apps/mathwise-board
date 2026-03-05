@@ -1,4 +1,4 @@
-import { defineConfig, type PluginOption } from "vite";
+import { defineConfig, loadEnv, type PluginOption } from "vite";
 import react from "@vitejs/plugin-react";
 import legacy from "@vitejs/plugin-legacy";
 import basicSsl from "@vitejs/plugin-basic-ssl";
@@ -10,7 +10,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // https://vite.dev/config/
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
+  const loadedEnv = loadEnv(mode, process.cwd(), "");
+  for (const [key, value] of Object.entries(loadedEnv)) {
+    if (typeof process.env[key] === "undefined") {
+      process.env[key] = value;
+    }
+  }
   const useHttps = process.env.VITE_DEV_HTTPS === "1";
   const plugins: PluginOption[] = [
     react(),
