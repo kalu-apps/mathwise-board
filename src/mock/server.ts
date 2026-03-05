@@ -115,7 +115,7 @@ const whiteboardOnlyPasswordFallback =
 
 const whiteboardOnlyTeacherLogin =
   normalizeEnvEmail(process.env.VITE_WHITEBOARD_TEACHER_LOGIN) ||
-  normalizeEmail(TEACHER_EMAILS[0] ?? "");
+  normalizeEnvEmail(TEACHER_EMAILS[0] ?? "");
 const whiteboardOnlyAllowedEmails = new Set(
   [whiteboardOnlyTeacherLogin].filter((value) => value.length > 0)
 );
