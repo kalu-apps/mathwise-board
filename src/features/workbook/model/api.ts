@@ -1,4 +1,5 @@
 import { api } from "@/shared/api/client";
+import type { User } from "@/entities/user/model/types";
 import type {
   WorkbookDraftCard,
   WorkbookEvent,
@@ -109,6 +110,7 @@ export async function joinWorkbookInvite(token: string, guestName?: string) {
   return api.post<{
     session: WorkbookSession;
     draft: WorkbookDraftCard;
+    user?: User;
   }>(
     `/workbook/invites/${encodeURIComponent(token)}/join`,
     typeof guestName === "string" ? { guestName } : {}

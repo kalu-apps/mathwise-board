@@ -1889,6 +1889,9 @@ export function WorkbookCanvas({
     if (disabled) return;
     const svg = event.currentTarget ?? null;
     if (!svg) return;
+    if (event.pointerType !== "mouse") {
+      event.preventDefault();
+    }
     if (event.button !== 0) {
       if (tool === "laser" && event.button === 2) {
         onLaserClear?.();
@@ -2285,6 +2288,9 @@ export function WorkbookCanvas({
     if (pointerIdRef.current !== event.pointerId) return;
     const svg = event.currentTarget ?? null;
     if (!svg) return;
+    if (event.pointerType !== "mouse") {
+      event.preventDefault();
+    }
     if (panning) {
       const dx = event.clientX - panning.start.x;
       const dy = event.clientY - panning.start.y;
@@ -2949,6 +2955,9 @@ export function WorkbookCanvas({
     if (!svg) {
       pointerIdRef.current = null;
       return;
+    }
+    if (event.pointerType !== "mouse") {
+      event.preventDefault();
     }
     if (strokePointsRef.current.length > 0 || points.length > 0) {
       finishStroke(event, svg);

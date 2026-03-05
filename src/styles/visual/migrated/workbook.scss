@@ -333,45 +333,6 @@
   overflow-x: clip;
 }
 
-.workbook-session__participants-launch {
-  position: fixed;
-  top: 50%;
-  right: 18px;
-  transform: translateY(-50%);
-  z-index: 26;
-}
-
-.workbook-session__participants-launch-btn {
-  width: 42px;
-  height: 42px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--brand-soft) 52%, var(--border-subtle));
-  background:
-    radial-gradient(
-      circle at 28% 28%,
-      color-mix(in srgb, var(--brand-soft) 22%, transparent),
-      transparent 62%
-    ),
-    color-mix(in srgb, var(--surface-elevated) 92%, transparent);
-  color: color-mix(in srgb, var(--brand-solid) 60%, var(--text-primary));
-  box-shadow: 0 12px 24px color-mix(in srgb, var(--brand-solid) 20%, transparent);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    border-color 0.18s ease,
-    background-color 0.18s ease;
-
-  &:hover {
-    transform: translateY(-1px);
-    border-color: color-mix(in srgb, var(--brand-solid) 62%, var(--border-strong));
-    box-shadow: 0 16px 28px color-mix(in srgb, var(--brand-solid) 24%, transparent);
-  }
-}
-
 .workbook-session__file-input {
   display: none;
 }
@@ -740,11 +701,9 @@
   flex-direction: column;
   gap: 10px;
   isolation: isolate;
-  contain: layout paint;
   background-clip: padding-box;
-  transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
+  overscroll-behavior: contain;
+  will-change: left, top;
 }
 
 .workbook-session__utility-float-body {
@@ -760,11 +719,8 @@
   padding-right: 2px;
   scrollbar-width: thin;
   overscroll-behavior: contain;
-  -webkit-overflow-scrolling: auto;
-  contain: layout paint;
-  background: transparent;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
+  -webkit-overflow-scrolling: touch;
+  background: color-mix(in srgb, var(--surface-elevated) 95%, transparent);
 }
 
 .workbook-session__utility-float-body > .workbook-session__card {
@@ -780,8 +736,9 @@
   cursor: grab;
   position: relative;
   z-index: 3;
+  top: 0;
   padding: 10px 0 8px;
-  background: transparent;
+  background: color-mix(in srgb, var(--surface-elevated) 98%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
 
   &:active {
@@ -2972,10 +2929,6 @@
   .workbook-session__participants-scroll {
     max-height: min(40vh, 360px);
   }
-
-  .workbook-session__participants-launch {
-    right: 12px;
-  }
 }
 
 @media (max-width: 760px) {
@@ -3102,22 +3055,26 @@
   }
 
   .workbook-session__canvas {
-    min-height: max(48vh, 320px);
+    min-height: clamp(340px, 56dvh, 620px);
+    height: clamp(340px, 56dvh, 620px);
   }
 
   .workbook-session__board-shell {
     position: relative;
-    display: block;
-    padding-right: 48px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px;
+    padding-right: 0;
     padding-bottom: 0;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .workbook-session__tools {
-    position: absolute;
-    top: 10px;
-    right: 6px;
+    position: static;
     width: 38px;
-    max-height: calc(100% - 20px);
+    max-height: clamp(300px, 56dvh, 620px);
     flex-direction: column;
     overflow-y: auto;
     overflow-x: hidden;
@@ -3263,13 +3220,6 @@
     left: 8px;
     width: calc(100vw - 16px);
     height: calc(100vh - 16px);
-    transform: none;
-  }
-
-  .workbook-session__participants-launch {
-    top: auto;
-    bottom: 84px;
-    right: 12px;
     transform: none;
   }
 }

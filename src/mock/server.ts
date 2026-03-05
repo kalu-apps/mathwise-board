@@ -589,7 +589,7 @@ type SerializableChatAttachment = {
 const CHAT_MAX_ATTACHMENTS_PER_MESSAGE = 10;
 const CHAT_MAX_ATTACHMENT_SIZE_BYTES = 15 * 1024 * 1024;
 const WORKBOOK_INVITE_TTL_MS = 1000 * 60 * 30;
-const WORKBOOK_PRESENCE_TTL_MS = 1000 * 60;
+const WORKBOOK_PRESENCE_TTL_MS = 1_000 * 5;
 const WORKBOOK_EVENT_LIMIT_PER_SESSION = 4000;
 const WORKBOOK_PDF_RENDER_MAX_PAGES = 20;
 const WORKBOOK_PDF_RENDER_MAX_BYTES = 15 * 1024 * 1024;
@@ -5227,48 +5227,80 @@ type WorkbookStreamClient = {
 
 const workbookStreamClientsBySession = new Map<string, Map<string, WorkbookStreamClient>>();
 
-const removeWorkbookStreamClient = (sessionId: string, clientId: string) => {
+const hasWorkbookStreamClientForUser = (sessionId: string, userId: string) => {
+  const sessionClients = workbookStreamClientsBySession.get(sessionId);
+  if (!sessionClients || sessionClients.size === 0) return false;
+  return Array.from(sessionClients.values()).some((client) => client.userId === userId);
+};
+
+const markWorkbookParticipantInactive = (
+  db: ReturnType<typeof getDb>,
+  sessionId: string,
+  userId: string,
+  timestamp = nowIso()
+) => {
+  const participant = getWorkbookParticipant(db, sessionId, userId);
+  if (!participant) return false;
+  if (!participant.isActive && participant.leftAt) return false;
+  participant.isActive = false;
+  participant.leftAt = timestamp;
+  participant.lastSeenAt = timestamp;
+  return true;
+};
+
+const removeWorkbookStreamClient = (
+  db: ReturnType<typeof getDb>,
+  sessionId: string,
+  clientId: string,
+  options?: { markOffline?: boolean }
+) => {
   const sessionClients = workbookStreamClientsBySession.get(sessionId);
   if (!sessionClients) return;
   const client = sessionClients.get(clientId);
   if (!client) return;
   clearInterval(client.heartbeatTimer);
   sessionClients.delete(clientId);
+  if (options?.markOffline !== false && !hasWorkbookStreamClientForUser(sessionId, client.userId)) {
+    const mutated = markWorkbookParticipantInactive(db, sessionId, client.userId);
+    if (mutated) saveDb();
+  }
   if (sessionClients.size === 0) {
     workbookStreamClientsBySession.delete(sessionId);
   }
 };
 
-const closeWorkbookStreamSession = (sessionId: string) => {
+const closeWorkbookStreamSession = (db: ReturnType<typeof getDb>, sessionId: string) => {
   const sessionClients = workbookStreamClientsBySession.get(sessionId);
   if (!sessionClients) return;
-  Array.from(sessionClients.values()).forEach((client) => {
-    clearInterval(client.heartbeatTimer);
+  const clientIds = Array.from(sessionClients.keys());
+  clientIds.forEach((clientId) => {
+    const client = sessionClients.get(clientId);
+    if (!client) return;
     try {
       client.res.end();
     } catch {
       // ignore close errors
     }
+    removeWorkbookStreamClient(db, sessionId, clientId, { markOffline: false });
   });
-  workbookStreamClientsBySession.delete(sessionId);
 };
 
-const closeWorkbookStreamClientByUser = (sessionId: string, userId: string) => {
+const closeWorkbookStreamClientByUser = (
+  db: ReturnType<typeof getDb>,
+  sessionId: string,
+  userId: string
+) => {
   const sessionClients = workbookStreamClientsBySession.get(sessionId);
   if (!sessionClients) return;
   Array.from(sessionClients.values()).forEach((client) => {
     if (client.userId !== userId) return;
-    clearInterval(client.heartbeatTimer);
     try {
       client.res.end();
     } catch {
       // ignore close errors
     }
-    sessionClients.delete(client.id);
+    removeWorkbookStreamClient(db, sessionId, client.id, { markOffline: false });
   });
-  if (sessionClients.size === 0) {
-    workbookStreamClientsBySession.delete(sessionId);
-  }
 };
 
 const publishWorkbookStreamEvents = (
@@ -5297,13 +5329,15 @@ const publishWorkbookStreamEvents = (
         participant.sessionId === payload.sessionId && participant.userId === client.userId
     );
     if (!hasAccess || client.res.writableEnded || client.res.destroyed) {
-      removeWorkbookStreamClient(payload.sessionId, client.id);
+      removeWorkbookStreamClient(db, payload.sessionId, client.id, {
+        markOffline: false,
+      });
       return;
     }
     try {
       client.res.write(chunk);
     } catch {
-      removeWorkbookStreamClient(payload.sessionId, client.id);
+      removeWorkbookStreamClient(db, payload.sessionId, client.id);
     }
   });
 };
@@ -6821,7 +6855,7 @@ export function setupMockServer(server: ServerWithMiddlewares) {
           db.workbookParticipants = db.workbookParticipants.filter(
             (item) => !(item.sessionId === sessionId && item.userId === actorUser.id)
           );
-          closeWorkbookStreamClientByUser(sessionId, actorUser.id);
+          closeWorkbookStreamClientByUser(db, sessionId, actorUser.id);
           saveDb();
           return json(res, 200, {
             ok: true,
@@ -6853,7 +6887,7 @@ export function setupMockServer(server: ServerWithMiddlewares) {
         db.workbookSessions = db.workbookSessions.filter(
           (item) => item.id !== sessionId
         );
-        closeWorkbookStreamSession(sessionId);
+        closeWorkbookStreamSession(db, sessionId);
         saveDb();
         return json(res, 200, {
           ok: true,
@@ -7027,7 +7061,7 @@ export function setupMockServer(server: ServerWithMiddlewares) {
           );
         });
         studentParticipants.forEach((studentParticipant) =>
-          closeWorkbookStreamClientByUser(sessionId, studentParticipant.userId)
+          closeWorkbookStreamClientByUser(db, sessionId, studentParticipant.userId)
         );
         saveDb();
         return json(res, 200, {
@@ -7409,6 +7443,7 @@ export function setupMockServer(server: ServerWithMiddlewares) {
             id: resolvedActorUser.id,
             role: resolvedActorUser.role,
           }),
+          user: safeUser(resolvedActorUser),
         });
       }
 
@@ -7426,6 +7461,18 @@ export function setupMockServer(server: ServerWithMiddlewares) {
         if (!canActorAccessWorkbookSession(db, sessionId, actorUser.id)) {
           return json(res, 403, { error: "Нет доступа к сессии." });
         }
+        const participant = getWorkbookParticipant(db, sessionId, actorUser.id);
+        if (participant) {
+          const timestamp = nowIso();
+          participant.isActive = true;
+          participant.leftAt = null;
+          participant.lastSeenAt = timestamp;
+          const session = getWorkbookSessionById(db, sessionId);
+          if (session) {
+            touchWorkbookSessionActivity(session, timestamp);
+          }
+          saveDb();
+        }
 
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -7436,13 +7483,13 @@ export function setupMockServer(server: ServerWithMiddlewares) {
         const clientId = ensureId();
         const heartbeatTimer = setInterval(() => {
           if (res.writableEnded || res.destroyed) {
-            removeWorkbookStreamClient(sessionId, clientId);
+            removeWorkbookStreamClient(db, sessionId, clientId);
             return;
           }
           try {
             res.write(": ping\n\n");
           } catch {
-            removeWorkbookStreamClient(sessionId, clientId);
+            removeWorkbookStreamClient(db, sessionId, clientId);
           }
         }, 15_000);
 
@@ -7470,7 +7517,7 @@ export function setupMockServer(server: ServerWithMiddlewares) {
         );
 
         const close = () => {
-          removeWorkbookStreamClient(sessionId, clientId);
+          removeWorkbookStreamClient(db, sessionId, clientId);
         };
         req.on("close", close);
         res.on("close", close);

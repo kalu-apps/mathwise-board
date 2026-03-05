@@ -23,7 +23,8 @@ import {
 
 const HEALTHCHECK_TIMEOUT_MS = 12_000;
 const AUTO_RECHECK_MS = 25_000;
-const DEGRADED_FAILURE_THRESHOLD = 2;
+const DEGRADED_FAILURE_THRESHOLD = 5;
+const DEGRADED_RECOVERY_MIN_MS = 5_000;
 
 const DEGRADE_CODES = new Set<ApiFailureEventDetail["code"]>([
   "timeout",
@@ -55,6 +56,45 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
   const [outboxSnapshot, setOutboxSnapshot] = useState(() => getOutboxSnapshot());
   const checkingRef = useRef(false);
   const consecutiveTransportFailuresRef = useRef(0);
+  const statusRef = useRef<ConnectivityStatus>(getInitialStatus());
+  const degradedSinceRef = useRef<number | null>(null);
+
+  const markOnline = useCallback((force = false) => {
+    setStatus((prev) => {
+      if (prev === "online") return prev;
+      if (
+        !force &&
+        prev === "degraded" &&
+        degradedSinceRef.current &&
+        Date.now() - degradedSinceRef.current < DEGRADED_RECOVERY_MIN_MS
+      ) {
+        return prev;
+      }
+      statusRef.current = "online";
+      degradedSinceRef.current = null;
+      return "online";
+    });
+  }, []);
+
+  const markDegraded = useCallback(() => {
+    setStatus((prev) => {
+      if (prev === "offline" || prev === "degraded") return prev;
+      statusRef.current = "degraded";
+      if (!degradedSinceRef.current) {
+        degradedSinceRef.current = Date.now();
+      }
+      return "degraded";
+    });
+  }, []);
+
+  const markOffline = useCallback(() => {
+    setStatus((prev) => {
+      if (prev === "offline") return prev;
+      statusRef.current = "offline";
+      degradedSinceRef.current = null;
+      return "offline";
+    });
+  }, []);
 
   const recheck = useCallback(async () => {
     if (checkingRef.current) return;
@@ -79,22 +119,22 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
       if (response.status >= 500) {
         consecutiveTransportFailuresRef.current += 1;
         if (consecutiveTransportFailuresRef.current >= DEGRADED_FAILURE_THRESHOLD) {
-          setStatus("degraded");
+          markDegraded();
         }
       } else {
         consecutiveTransportFailuresRef.current = 0;
-        setStatus("online");
+        markOnline();
         setLastErrorCode(null);
       }
     } catch {
       if (typeof navigator !== "undefined" && !navigator.onLine) {
         consecutiveTransportFailuresRef.current = 0;
-        setStatus("offline");
+        markOffline();
         setLastErrorCode("network_offline");
       } else {
         consecutiveTransportFailuresRef.current += 1;
         if (consecutiveTransportFailuresRef.current >= DEGRADED_FAILURE_THRESHOLD) {
-          setStatus("degraded");
+          markDegraded();
         }
       }
     } finally {
@@ -102,7 +142,7 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
       checkingRef.current = false;
       setChecking(false);
     }
-  }, []);
+  }, [markDegraded, markOffline, markOnline]);
 
   useEffect(() => {
     setRetrySnapshot(getRetryLastActionSnapshot());
@@ -123,13 +163,13 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
 
     const handleOnline = () => {
       consecutiveTransportFailuresRef.current = 0;
-      setStatus("degraded");
+      markDegraded();
       void recheck();
       void flushOutboxQueue();
     };
 
     const handleOffline = () => {
-      setStatus("offline");
+      markOffline();
       setLastErrorCode("network_offline");
     };
 
@@ -141,14 +181,14 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
 
       if (detail.code === "network_offline") {
         consecutiveTransportFailuresRef.current = 0;
-        setStatus("offline");
+        markOffline();
         return;
       }
 
       if (DEGRADE_CODES.has(detail.code)) {
         consecutiveTransportFailuresRef.current += 1;
         if (consecutiveTransportFailuresRef.current >= DEGRADED_FAILURE_THRESHOLD) {
-          setStatus((prev) => (prev === "offline" ? "offline" : "degraded"));
+          markDegraded();
         }
       }
     };
@@ -158,7 +198,7 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
       if (!detail) return;
       if (typeof navigator !== "undefined" && !navigator.onLine) return;
       consecutiveTransportFailuresRef.current = 0;
-      setStatus("online");
+      markOnline();
       setLastErrorCode(null);
     };
 
@@ -195,7 +235,7 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", handleWakeup);
       document.removeEventListener("visibilitychange", handleWakeup);
     };
-  }, [recheck]);
+  }, [markDegraded, markOffline, markOnline, recheck]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;

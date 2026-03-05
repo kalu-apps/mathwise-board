@@ -100,6 +100,13 @@ export default function WorkbookInviteJoinPage() {
     };
   }, [token]);
 
+  useEffect(() => {
+    if (!state.joined || !state.sessionId) return;
+    if (!user) return;
+    const targetPath = `/workbook/session/${encodeURIComponent(state.sessionId)}`;
+    navigate(targetPath, { replace: true });
+  }, [navigate, state.joined, state.sessionId, user]);
+
   const handleJoin = async () => {
     if (!token) return;
     const guestDisplayName = guestName.trim();
@@ -111,18 +118,25 @@ export default function WorkbookInviteJoinPage() {
     try {
       setState((prev) => ({ ...prev, loading: true }));
       const joined = await joinWorkbookInvite(token, user ? undefined : guestDisplayName);
-      const authSession = await getAuthSession();
-      if (authSession) {
-        updateUser(authSession);
+      const authSession = joined.user ? null : await getAuthSession();
+      const resolvedUser = joined.user ?? authSession;
+      if (resolvedUser) {
+        updateUser(resolvedUser);
       }
-      const targetPath = `/workbook/session/${encodeURIComponent(joined.session.id)}`;
+      if (!resolvedUser) {
+        setState((prev) => ({
+          ...prev,
+          loading: false,
+          error: t("workbookInvite.joinError"),
+        }));
+        return;
+      }
       setState((prev) => ({
         ...prev,
         loading: false,
         joined: true,
         sessionId: joined.session.id,
       }));
-      navigate(targetPath, { replace: true });
     } catch (error) {
       const detailsMessage =
         error instanceof ApiError &&

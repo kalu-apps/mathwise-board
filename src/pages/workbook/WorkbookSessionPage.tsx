@@ -172,8 +172,8 @@ import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
-const POLL_INTERVAL_MS = 300;
-const PRESENCE_INTERVAL_MS = 2_500;
+const POLL_INTERVAL_MS = 900;
+const PRESENCE_INTERVAL_MS = 1_500;
 const AUTOSAVE_INTERVAL_MS = 9_000;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
@@ -6572,18 +6572,6 @@ export default function WorkbookSessionPage() {
       },
     },
     {
-      id: "polygon-points",
-      title: "Многоугольник по точкам",
-      subtitle: "Произвольная форма",
-      icon: <ShapeCatalogPreview variant="polyline" />,
-      tool: "polygon",
-      apply: () => {
-        setPolygonMode("points");
-        setPolygonPreset("regular");
-        setTool("polygon");
-      },
-    },
-    {
       id: "polygon-4",
       title: "Квадрат",
       subtitle: "Регулярный 4-угольник",
@@ -6637,8 +6625,6 @@ export default function WorkbookSessionPage() {
         <li>`Ctrl/Cmd + X` — вырезать выделенную область (Ножницы)</li>
         <li>`Space` — временная рука (pan)</li>
         <li>`Esc` — убрать указку (в режиме указки)</li>
-        <li>`Enter` — завершить многоугольник по точкам</li>
-        <li>`Esc` — отменить многоугольник по точкам</li>
       </ul>
     </div>
   );
@@ -7810,39 +7796,20 @@ export default function WorkbookSessionPage() {
               </span>
             </Tooltip>
 
-            {tool === "polygon" ? (
-              <>
-                <div className="workbook-session__contextbar-inline">
-                  <label htmlFor="workbook-polygon-mode">Режим</label>
-                  <Select
-                    native
-                    size="small"
-                    inputProps={{ id: "workbook-polygon-mode" }}
-                    value={polygonMode}
-                    onChange={(event) =>
-                      setPolygonMode(
-                        event.target.value === "points" ? "points" : "regular"
-                      )
-                    }
-                  >
-                    <option value="regular">Регулярный</option>
-                    <option value="points">По точкам</option>
-                  </Select>
-                </div>
-                {polygonMode === "regular" && polygonPreset === "regular" ? (
-                  <div className="workbook-session__contextbar-inline">
-                    <label htmlFor="workbook-polygon-sides">N</label>
-                    <input
-                      id="workbook-polygon-sides"
-                      type="number"
-                      min={3}
-                      max={12}
-                      value={polygonSides}
-                      onChange={(event) => setPolygonSides(Number(event.target.value))}
-                    />
-                  </div>
-                ) : null}
-              </>
+            {tool === "polygon" &&
+            polygonMode === "regular" &&
+            polygonPreset === "regular" ? (
+              <div className="workbook-session__contextbar-inline">
+                <label htmlFor="workbook-polygon-sides">N</label>
+                <input
+                  id="workbook-polygon-sides"
+                  type="number"
+                  min={3}
+                  max={12}
+                  value={polygonSides}
+                  onChange={(event) => setPolygonSides(Number(event.target.value))}
+                />
+              </div>
             ) : null}
 
             {tool === "function_graph" ? (
@@ -7913,6 +7880,29 @@ export default function WorkbookSessionPage() {
                 </IconButton>
               </span>
             </Tooltip>
+            {showCollaborationPanels ? (
+              <Tooltip
+                title={
+                  isParticipantsCollapsed
+                    ? "Открыть блок участников"
+                    : "Свернуть блок участников"
+                }
+                placement="bottom"
+                arrow
+              >
+                <span>
+                  <IconButton
+                    size="small"
+                    className={`workbook-session__toolbar-icon ${
+                      !isParticipantsCollapsed ? "is-active" : ""
+                    }`}
+                    onClick={() => setIsParticipantsCollapsed((current) => !current)}
+                  >
+                    <GroupRoundedIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            ) : null}
           </div>
 
           <div className="workbook-session__board-shell">
@@ -8233,20 +8223,6 @@ export default function WorkbookSessionPage() {
           ) : null}
 
         </div>
-
-        {showCollaborationPanels && isParticipantsCollapsed ? (
-          <div className="workbook-session__participants-launch">
-            <Tooltip title="Открыть блок участников" placement="left" arrow>
-              <button
-                type="button"
-                className="workbook-session__participants-launch-btn"
-                onClick={() => setIsParticipantsCollapsed(false)}
-              >
-                <GroupRoundedIcon fontSize="small" />
-              </button>
-            </Tooltip>
-          </div>
-        ) : null}
 
         <aside className="workbook-session__sidebar">
           {showCollaborationPanels && !isParticipantsCollapsed ? (
