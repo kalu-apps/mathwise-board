@@ -1,0 +1,12 @@
+meta:
+  environment: node
+  toolchain:
+    name: npm
+    version: 20
+
+build:
+  additionalCommands: npm run build:showcase
+
+run:
+  command: npm run start:showcase
+  containerPort: 4173
