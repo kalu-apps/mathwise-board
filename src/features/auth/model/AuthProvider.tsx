@@ -62,6 +62,9 @@ const SHOWCASE_AUTO_LOGIN_EMAIL =
   import.meta.env.VITE_SHOWCASE_AUTO_LOGIN_EMAIL?.trim().toLowerCase() ?? "";
 const SHOWCASE_AUTO_LOGIN_PASSWORD =
   import.meta.env.VITE_SHOWCASE_AUTO_LOGIN_PASSWORD ?? "magic";
+const DISABLE_IDLE_AUTO_LOGOUT =
+  import.meta.env.VITE_SHOWCASE_MODE?.trim().toLowerCase() === "realtime" ||
+  String(import.meta.env.VITE_WHITEBOARD_ONLY ?? "").trim() === "1";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() =>
@@ -155,6 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
+    if (DISABLE_IDLE_AUTO_LOGOUT) return;
 
     const clearIdleTimer = () => {
       if (idleTimerRef.current !== null) {

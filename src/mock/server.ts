@@ -454,6 +454,7 @@ const pruneTeacherAvailability = (db: ReturnType<typeof getDb>) => {
     }
   });
   if (mutated) {
+    workbookLatestSeqBySession.clear();
     saveDb();
   }
 };
@@ -549,7 +550,9 @@ const canonicalizeTeacherLoginEmail = (email: string) => {
 const LEGAL_DOCUMENT_VERSION = "ru-legal-v1";
 const AUTH_SESSION_COOKIE = "mt_auth_session";
 const AUTH_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
-const AUTH_SESSION_IDLE_TTL_MS = 1000 * 60 * 60;
+const AUTH_SESSION_IDLE_TTL_MS = isWhiteboardOnlyAuthMode
+  ? 1000 * 60 * 60 * 24
+  : 1000 * 60 * 60;
 const AUTH_PASSWORD_PEPPER = process.env.AUTH_PASSWORD_PEPPER ?? "mock-pepper-v1";
 const AUTH_PASSWORD_MAX_FAILED_ATTEMPTS = 5;
 const AUTH_PASSWORD_LOCK_MS = 1000 * 60 * 15;
@@ -589,7 +592,7 @@ type SerializableChatAttachment = {
 const CHAT_MAX_ATTACHMENTS_PER_MESSAGE = 10;
 const CHAT_MAX_ATTACHMENT_SIZE_BYTES = 15 * 1024 * 1024;
 const WORKBOOK_INVITE_TTL_MS = 1000 * 60 * 30;
-const WORKBOOK_PRESENCE_TTL_MS = 1_000 * 5;
+const WORKBOOK_PRESENCE_TTL_MS = 1_000 * 25;
 const WORKBOOK_EVENT_LIMIT_PER_SESSION = 4000;
 const WORKBOOK_PDF_RENDER_MAX_PAGES = 20;
 const WORKBOOK_PDF_RENDER_MAX_BYTES = 15 * 1024 * 1024;
@@ -1325,10 +1328,7 @@ const touchWorkbookSessionActivity = (
 };
 
 const getNextWorkbookSeq = (db: ReturnType<typeof getDb>, sessionId: string) => {
-  const latest = db.workbookEvents
-    .filter((event) => event.sessionId === sessionId)
-    .sort((a, b) => b.seq - a.seq)[0];
-  return (latest?.seq ?? 0) + 1;
+  return getWorkbookLatestSeq(db, sessionId) + 1;
 };
 
 const appendWorkbookEvent = (
@@ -1352,6 +1352,7 @@ const appendWorkbookEvent = (
     createdAt,
   };
   db.workbookEvents.push(event);
+  workbookLatestSeqBySession.set(params.sessionId, event.seq);
   const sessionEvents = db.workbookEvents.filter(
     (candidate) => candidate.sessionId === params.sessionId
   );
@@ -5226,6 +5227,22 @@ type WorkbookStreamClient = {
 };
 
 const workbookStreamClientsBySession = new Map<string, Map<string, WorkbookStreamClient>>();
+const workbookLatestSeqBySession = new Map<string, number>();
+
+const getWorkbookLatestSeq = (db: ReturnType<typeof getDb>, sessionId: string) => {
+  const cached = workbookLatestSeqBySession.get(sessionId);
+  if (typeof cached === "number") {
+    return cached;
+  }
+  let latest = 0;
+  db.workbookEvents.forEach((event) => {
+    if (event.sessionId === sessionId && event.seq > latest) {
+      latest = event.seq;
+    }
+  });
+  workbookLatestSeqBySession.set(sessionId, latest);
+  return latest;
+};
 
 const hasWorkbookStreamClientForUser = (sessionId: string, userId: string) => {
   const sessionClients = workbookStreamClientsBySession.get(sessionId);
@@ -5261,8 +5278,7 @@ const removeWorkbookStreamClient = (
   clearInterval(client.heartbeatTimer);
   sessionClients.delete(clientId);
   if (options?.markOffline !== false && !hasWorkbookStreamClientForUser(sessionId, client.userId)) {
-    const mutated = markWorkbookParticipantInactive(db, sessionId, client.userId);
-    if (mutated) saveDb();
+    markWorkbookParticipantInactive(db, sessionId, client.userId);
   }
   if (sessionClients.size === 0) {
     workbookStreamClientsBySession.delete(sessionId);
@@ -7471,7 +7487,6 @@ export function setupMockServer(server: ServerWithMiddlewares) {
           if (session) {
             touchWorkbookSessionActivity(session, timestamp);
           }
-          saveDb();
         }
 
         res.statusCode = 200;
@@ -7503,10 +7518,7 @@ export function setupMockServer(server: ServerWithMiddlewares) {
         });
         workbookStreamClientsBySession.set(sessionId, sessionClients);
 
-        const latestSeq =
-          db.workbookEvents
-            .filter((event) => event.sessionId === sessionId)
-            .sort((a, b) => b.seq - a.seq)[0]?.seq ?? 0;
+        const latestSeq = getWorkbookLatestSeq(db, sessionId);
         res.write("retry: 1200\n");
         res.write(
           `event: workbook\ndata: ${JSON.stringify({
@@ -7536,13 +7548,10 @@ export function setupMockServer(server: ServerWithMiddlewares) {
         const afterSeq = Number.isFinite(Number(afterSeqRaw))
           ? Math.max(0, Number(afterSeqRaw))
           : 0;
-        const events = db.workbookEvents
-          .filter((event) => event.sessionId === sessionId && event.seq > afterSeq)
-          .sort((a, b) => a.seq - b.seq);
-        const latestSeq =
-          db.workbookEvents
-            .filter((event) => event.sessionId === sessionId)
-            .sort((a, b) => b.seq - a.seq)[0]?.seq ?? 0;
+        const events = db.workbookEvents.filter(
+          (event) => event.sessionId === sessionId && event.seq > afterSeq
+        );
+        const latestSeq = getWorkbookLatestSeq(db, sessionId);
         return json(res, 200, {
           sessionId,
           latestSeq,
@@ -7869,7 +7878,20 @@ export function setupMockServer(server: ServerWithMiddlewares) {
           payload: parseWorkbookPayload(event.payload),
           createdAt: event.createdAt,
         }));
-        saveDb();
+        const shouldPersist = created.some((event) => {
+          if (
+            event.type === "settings.update" ||
+            event.type === "permissions.update" ||
+            event.type === "board.settings.update" ||
+            event.type === "document.asset.add"
+          ) {
+            return true;
+          }
+          return event.type.startsWith("library.");
+        });
+        if (shouldPersist) {
+          saveDb();
+        }
         publishWorkbookStreamEvents(db, {
           sessionId,
           latestSeq: created[created.length - 1].seq,
@@ -7974,7 +7996,6 @@ export function setupMockServer(server: ServerWithMiddlewares) {
           statusForCard: session.status === "ended" ? "ended" : "in_progress",
           timestamp,
         });
-        saveDb();
         return json(res, 200, {
           ok: true,
           participants: getWorkbookParticipants(db, sessionId).map((item) =>
@@ -8000,7 +8021,6 @@ export function setupMockServer(server: ServerWithMiddlewares) {
         participant.leftAt = timestamp;
         participant.lastSeenAt = timestamp;
         touchWorkbookSessionActivity(session, timestamp);
-        saveDb();
         return json(res, 200, {
           ok: true,
           participants: getWorkbookParticipants(db, sessionId).map((item) =>

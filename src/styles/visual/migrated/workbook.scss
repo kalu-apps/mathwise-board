@@ -313,6 +313,13 @@
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
 }
 
+.workbook-session__error-actions {
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .workbook-session__layout {
   display: grid;
   gap: var(--fluid-gap-sm);

@@ -34,6 +34,12 @@ const DEGRADE_CODES = new Set<ApiFailureEventDetail["code"]>([
   "rate_limited",
 ]);
 
+const isWorkbookRealtimePath = (path: string) =>
+  path.startsWith("/workbook/sessions/") &&
+  (path.includes("/events") ||
+    path.includes("/presence") ||
+    path.includes("/snapshot"));
+
 const getInitialStatus = (): ConnectivityStatus => {
   if (typeof navigator === "undefined") return "online";
   return navigator.onLine ? "online" : "offline";
@@ -176,6 +182,9 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
     const handleApiFailure = (event: Event) => {
       const detail = (event as CustomEvent<ApiFailureEventDetail>).detail;
       if (!detail) return;
+      if (isWorkbookRealtimePath(detail.path)) {
+        return;
+      }
 
       setLastErrorCode(detail.code);
 
@@ -196,6 +205,9 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
     const handleApiSuccess = (event: Event) => {
       const detail = (event as CustomEvent<ApiSuccessEventDetail>).detail;
       if (!detail) return;
+      if (isWorkbookRealtimePath(detail.path)) {
+        return;
+      }
       if (typeof navigator !== "undefined" && !navigator.onLine) return;
       consecutiveTransportFailuresRef.current = 0;
       markOnline();

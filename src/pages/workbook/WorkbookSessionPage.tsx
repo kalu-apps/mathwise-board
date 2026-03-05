@@ -15,7 +15,6 @@ import {
   Avatar,
   Button,
   Chip,
-  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -172,8 +171,8 @@ import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
-const POLL_INTERVAL_MS = 900;
-const PRESENCE_INTERVAL_MS = 1_500;
+const POLL_INTERVAL_MS = 350;
+const PRESENCE_INTERVAL_MS = 4_000;
 const AUTOSAVE_INTERVAL_MS = 9_000;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
@@ -1364,13 +1363,9 @@ export default function WorkbookSessionPage() {
     y: number;
   } | null>(null);
   const areaSelectionClipboardRef = useRef<WorkbookBoardObject[] | null>(null);
-  const [saveState, setSaveState] = useState<"saved" | "unsaved" | "saving" | "error">(
+  const [, setSaveState] = useState<"saved" | "unsaved" | "saving" | "error">(
     "saved"
   );
-  const [saveIndicatorState, setSaveIndicatorState] = useState<
-    "saved" | "unsaved" | "saving" | "error"
-  >("saved");
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [undoDepth, setUndoDepth] = useState(0);
   const [redoDepth, setRedoDepth] = useState(0);
   const sessionRootRef = useRef<HTMLElement | null>(null);
@@ -1381,7 +1376,6 @@ export default function WorkbookSessionPage() {
   const dirtyRef = useRef(false);
   const isSavingRef = useRef(false);
   const laserClearInFlightRef = useRef(false);
-  const saveIndicatorTimerRef = useRef<number | null>(null);
   const autosaveDebounceRef = useRef<number | null>(null);
   const smartInkDebounceRef = useRef<number | null>(null);
   const smartInkStrokeBufferRef = useRef<WorkbookStroke[]>([]);
@@ -1437,19 +1431,47 @@ export default function WorkbookSessionPage() {
     }
   }, [showCollaborationPanels]);
 
+  const areParticipantsEqual = useCallback(
+    (left: WorkbookSessionParticipant[], right: WorkbookSessionParticipant[]) => {
+      if (left.length !== right.length) return false;
+      const normalize = (participants: WorkbookSessionParticipant[]) =>
+        [...participants]
+          .sort((a, b) => a.userId.localeCompare(b.userId))
+          .map((participant) => ({
+            userId: participant.userId,
+            roleInSession: participant.roleInSession,
+            isOnline: participant.isOnline,
+            isActive: participant.isActive,
+            canUseChat: participant.permissions.canUseChat,
+            canUseMedia: participant.permissions.canUseMedia,
+            canDraw: participant.permissions.canDraw,
+            canSelect: participant.permissions.canSelect,
+            canDelete: participant.permissions.canDelete,
+            canInsertImage: participant.permissions.canInsertImage,
+            canClear: participant.permissions.canClear,
+            canExport: participant.permissions.canExport,
+            canUseLaser: participant.permissions.canUseLaser,
+            lastSeenAt: participant.lastSeenAt ?? null,
+          }));
+      const normalizedLeft = normalize(left);
+      const normalizedRight = normalize(right);
+      return normalizedLeft.every((participant, index) => {
+        const target = normalizedRight[index];
+        return JSON.stringify(participant) === JSON.stringify(target);
+      });
+    },
+    []
+  );
+
   const participantCards = useMemo(
     () =>
       [...(session?.participants ?? [])]
-        .filter(
-          (participant) =>
-            participant.roleInSession === "teacher" || participant.isOnline
-        )
         .sort((left, right) => {
-          if (left.roleInSession !== right.roleInSession) {
-            return left.roleInSession === "teacher" ? -1 : 1;
-          }
           if (left.isOnline !== right.isOnline) {
             return left.isOnline ? -1 : 1;
+          }
+          if (left.roleInSession !== right.roleInSession) {
+            return left.roleInSession === "teacher" ? -1 : 1;
           }
           return left.displayName.localeCompare(right.displayName, "ru");
         }),
@@ -1734,6 +1756,8 @@ export default function WorkbookSessionPage() {
           audioElement = new Audio();
           audioElement.autoplay = true;
           audioElement.muted = false;
+          audioElement.playsInline = true;
+          audioElement.volume = 1;
           remoteAudioElementsRef.current.set(remoteUserId, audioElement);
         }
         if (audioElement.srcObject !== remoteStream) {
@@ -2612,7 +2636,6 @@ export default function WorkbookSessionPage() {
         setUndoDepth(0);
         setRedoDepth(0);
         setSaveState("saved");
-        setLastSavedAt(new Date().toISOString());
         try {
           await openWorkbookSession(sessionId);
         } catch (openError) {
@@ -2641,7 +2664,19 @@ export default function WorkbookSessionPage() {
           await new Promise((resolve) => window.setTimeout(resolve, attempt * 250));
           continue;
         }
-        setError("Не удалось открыть сессию рабочей тетради.");
+        if (error instanceof ApiError) {
+          if (error.status === 401) {
+            setError("Сессия недоступна: авторизация истекла. Обновите страницу и войдите снова.");
+          } else if (error.status === 403) {
+            setError("Нет доступа к этой сессии. Запросите новую ссылку у преподавателя.");
+          } else if (error.status === 404) {
+            setError("Сессия не найдена. Возможно, урок завершен или ссылка устарела.");
+          } else {
+            setError("Не удалось открыть сессию. Проверьте подключение и повторите попытку.");
+          }
+        } else {
+          setError("Не удалось открыть сессию. Проверьте подключение и повторите попытку.");
+        }
         setSession(null);
         setLoading(false);
         return;
@@ -2738,7 +2773,11 @@ export default function WorkbookSessionPage() {
         const response = await heartbeatWorkbookPresence(sessionId);
         if (!active) return;
         setSession((current) =>
-          current ? { ...current, participants: response.participants } : current
+          current
+            ? areParticipantsEqual(current.participants, response.participants)
+              ? current
+              : { ...current, participants: response.participants }
+            : current
         );
       } catch {
         // ignore transient presence errors
@@ -2752,7 +2791,7 @@ export default function WorkbookSessionPage() {
       active = false;
       window.clearInterval(intervalId);
     };
-  }, [session, sessionId]);
+  }, [areParticipantsEqual, session, sessionId]);
 
   useEffect(() => {
     if (!sessionId || !showCollaborationPanels || !user?.id) return;
@@ -3042,6 +3081,21 @@ export default function WorkbookSessionPage() {
     [closeAllPeerConnections]
   );
 
+  useEffect(() => {
+    if (!session || session.kind !== "CLASS" || !canUseMedia || isEnded) return;
+    const resumeRemoteAudio = () => {
+      Array.from(remoteAudioElementsRef.current.values()).forEach((audio) => {
+        void audio.play().catch(() => undefined);
+      });
+    };
+    window.addEventListener("pointerdown", resumeRemoteAudio, { passive: true });
+    window.addEventListener("keydown", resumeRemoteAudio);
+    return () => {
+      window.removeEventListener("pointerdown", resumeRemoteAudio);
+      window.removeEventListener("keydown", resumeRemoteAudio);
+    };
+  }, [canUseMedia, isEnded, session]);
+
   const persistSnapshots = useCallback(async (options?: { silent?: boolean; force?: boolean }) => {
     if (!sessionId) return false;
     if (!options?.force && !dirtyRef.current) return true;
@@ -3087,7 +3141,6 @@ export default function WorkbookSessionPage() {
       if (dirtyRevisionRef.current === revisionAtSaveStart) {
         dirtyRef.current = false;
         setSaveState("saved");
-        setLastSavedAt(new Date().toISOString());
       } else {
         dirtyRef.current = true;
         pendingAutosaveAfterSaveRef.current = true;
@@ -3914,6 +3967,11 @@ export default function WorkbookSessionPage() {
             height: constrained.height,
           }
         : patch;
+      setBoardObjects((current) =>
+        current.map((item) =>
+          item.id === objectId ? mergeBoardObjectWithPatch(item, normalizedPatch) : item
+        )
+      );
       try {
         await appendEventsAndApply([
           {
@@ -3932,6 +3990,9 @@ export default function WorkbookSessionPage() {
         ) {
           return;
         }
+        setBoardObjects((current) =>
+          current.map((item) => (item.id === objectId ? currentObject : item))
+        );
         setError("Не удалось обновить объект.");
       }
     },
@@ -7436,40 +7497,6 @@ export default function WorkbookSessionPage() {
     setSelectedObjectId(null);
   }, [selectedObjectId, visibleBoardObjects]);
 
-  useEffect(() => {
-    if (saveIndicatorTimerRef.current !== null) {
-      window.clearTimeout(saveIndicatorTimerRef.current);
-      saveIndicatorTimerRef.current = null;
-    }
-    if (saveState === "saved" && saveIndicatorState === "saving") {
-      saveIndicatorTimerRef.current = window.setTimeout(() => {
-        setSaveIndicatorState("saved");
-        saveIndicatorTimerRef.current = null;
-      }, 240);
-      return;
-    }
-    setSaveIndicatorState(saveState);
-  }, [saveIndicatorState, saveState]);
-
-  useEffect(
-    () => () => {
-      if (saveIndicatorTimerRef.current !== null) {
-        window.clearTimeout(saveIndicatorTimerRef.current);
-        saveIndicatorTimerRef.current = null;
-      }
-    },
-    []
-  );
-
-  const saveStatusLabel = useMemo(() => {
-    if (saveIndicatorState === "error") return "Ошибка сохранения";
-    if (!lastSavedAt) return "Автосохранение";
-    return `Сохранено ${new Intl.DateTimeFormat("ru-RU", {
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(lastSavedAt))}`;
-  }, [lastSavedAt, saveIndicatorState]);
-
   const handleBack = useCallback(async () => {
     if (dirtyRef.current) {
       const saved = await persistSnapshots({ force: true });
@@ -7502,7 +7529,18 @@ export default function WorkbookSessionPage() {
     return (
       <section className="workbook-session workbook-session--error">
         <Alert severity="error">{error ?? "Сессия недоступна."}</Alert>
-        <Button onClick={() => navigate(fallbackBackPath)}>К рабочим тетрадям</Button>
+        <div className="workbook-session__error-actions">
+          <Button
+            variant="contained"
+            onClick={() => {
+              if (typeof window !== "undefined") {
+                window.location.reload();
+              }
+            }}
+          >
+            Переподключиться
+          </Button>
+        </div>
       </section>
     );
   }
@@ -7548,19 +7586,6 @@ export default function WorkbookSessionPage() {
                 size="small"
                 label={session.status === "ended" ? "Завершено" : "В процессе"}
                 color={session.status === "ended" ? "default" : "primary"}
-              />
-              <Chip
-                size="small"
-                label={saveStatusLabel}
-                icon={
-                  saveIndicatorState === "saving" ? (
-                    <CircularProgress size={12} thickness={5} color="inherit" />
-                  ) : undefined
-                }
-                color={
-                  saveIndicatorState === "error" ? "error" : "default"
-                }
-                variant={saveIndicatorState === "error" ? "filled" : "outlined"}
               />
             </div>
           </div>
