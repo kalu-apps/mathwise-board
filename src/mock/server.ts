@@ -107,12 +107,6 @@ const isWhiteboardOnlyAuthMode = normalizeBooleanEnvFlag(
   process.env.VITE_WHITEBOARD_ONLY ?? process.env.WHITEBOARD_ONLY
 );
 
-const whiteboardOnlyAllowedEmails = new Set(
-  [
-    normalizeEnvEmail(process.env.VITE_WHITEBOARD_TEACHER_LOGIN),
-  ].filter((value) => value.length > 0)
-);
-
 const whiteboardOnlyPasswordFallback =
   typeof process.env.VITE_WHITEBOARD_DEMO_PASSWORD === "string" &&
   process.env.VITE_WHITEBOARD_DEMO_PASSWORD.trim().length > 0
@@ -121,6 +115,9 @@ const whiteboardOnlyPasswordFallback =
 
 const whiteboardOnlyTeacherLogin = normalizeEnvEmail(
   process.env.VITE_WHITEBOARD_TEACHER_LOGIN
+);
+const whiteboardOnlyAllowedEmails = new Set(
+  [whiteboardOnlyTeacherLogin].filter((value) => value.length > 0)
 );
 
 const whiteboardOnlyPasswordEntries: Array<[string, string]> = [
@@ -540,8 +537,19 @@ const teacherEmailSet = new Set(
   TEACHER_EMAILS.map((email) => normalizeEmail(email)).filter(Boolean)
 );
 const primaryTeacherEmail = normalizeEmail(TEACHER_EMAILS[0] ?? "");
+if (primaryTeacherEmail) {
+  whiteboardOnlyAllowedEmails.add(primaryTeacherEmail);
+}
+if (whiteboardOnlyTeacherLogin && whiteboardOnlyTeacherLogin !== primaryTeacherEmail) {
+  const teacherPassword =
+    whiteboardOnlyPasswordByEmail.get(whiteboardOnlyTeacherLogin) ??
+    whiteboardOnlyPasswordFallback;
+  whiteboardOnlyPasswordByEmail.set(primaryTeacherEmail, teacherPassword);
+}
 const canonicalizeTeacherLoginEmail = (email: string) =>
-  teacherEmailSet.has(email) ? primaryTeacherEmail : email;
+  teacherEmailSet.has(email) || email === whiteboardOnlyTeacherLogin
+    ? primaryTeacherEmail || email
+    : email;
 const LEGAL_DOCUMENT_VERSION = "ru-legal-v1";
 const AUTH_SESSION_COOKIE = "mt_auth_session";
 const AUTH_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
