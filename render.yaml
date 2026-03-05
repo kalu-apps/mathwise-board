@@ -17,3 +17,5 @@ services:
         sync: false
       - key: VITE_WHITEBOARD_STUDENT_LOGIN
         sync: false
+      - key: VITE_WHITEBOARD_DEMO_PASSWORD
+        sync: false

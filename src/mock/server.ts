@@ -114,6 +114,40 @@ const whiteboardOnlyAllowedEmails = new Set(
   ].filter((value) => value.length > 0)
 );
 
+const whiteboardOnlyPasswordFallback =
+  typeof process.env.VITE_WHITEBOARD_DEMO_PASSWORD === "string" &&
+  process.env.VITE_WHITEBOARD_DEMO_PASSWORD.trim().length > 0
+    ? process.env.VITE_WHITEBOARD_DEMO_PASSWORD.trim()
+    : "magic";
+
+const whiteboardOnlyTeacherLogin = normalizeEnvEmail(
+  process.env.VITE_WHITEBOARD_TEACHER_LOGIN
+);
+const whiteboardOnlyStudentLogin = normalizeEnvEmail(
+  process.env.VITE_WHITEBOARD_STUDENT_LOGIN
+);
+
+const whiteboardOnlyPasswordEntries: Array<[string, string]> = [
+  [
+    whiteboardOnlyTeacherLogin,
+    typeof process.env.VITE_WHITEBOARD_TEACHER_PASSWORD === "string" &&
+    process.env.VITE_WHITEBOARD_TEACHER_PASSWORD.trim().length > 0
+      ? process.env.VITE_WHITEBOARD_TEACHER_PASSWORD.trim()
+      : whiteboardOnlyPasswordFallback,
+  ],
+  [
+    whiteboardOnlyStudentLogin,
+    typeof process.env.VITE_WHITEBOARD_STUDENT_PASSWORD === "string" &&
+    process.env.VITE_WHITEBOARD_STUDENT_PASSWORD.trim().length > 0
+      ? process.env.VITE_WHITEBOARD_STUDENT_PASSWORD.trim()
+      : whiteboardOnlyPasswordFallback,
+  ],
+];
+
+const whiteboardOnlyPasswordByEmail = new Map<string, string>(
+  whiteboardOnlyPasswordEntries.filter(([email]) => email.length > 0)
+);
+
 const whiteboardOnlyAllowedAuthRoutes = new Set([
   "GET /api/auth/session",
   "POST /api/auth/logout",
@@ -5591,6 +5625,65 @@ export function setupMockServer(server: ServerWithMiddlewares) {
         const user = db.users.find((item) => normalizeEmail(item.email) === email) ?? null;
         const timestamp = nowIso();
         const genericError = "Неверный email или пароль.";
+
+        if (isWhiteboardOnlyAuthMode && whiteboardOnlyAllowedEmails.has(email)) {
+          if (!user) {
+            registerAuthAudit(
+              db,
+              {
+                action: "password_login_failed",
+                email,
+                metadata: { reason: "user_not_found_whiteboard_only" },
+              },
+              timestamp
+            );
+            saveDb();
+            return json(res, 401, { error: genericError });
+          }
+
+          const expectedPassword =
+            whiteboardOnlyPasswordByEmail.get(email) ?? whiteboardOnlyPasswordFallback;
+          if (password !== expectedPassword) {
+            registerAuthAudit(
+              db,
+              {
+                action: "password_login_failed",
+                userId: user.id,
+                email,
+                metadata: { reason: "invalid_password_whiteboard_only" },
+              },
+              timestamp
+            );
+            saveDb();
+            return json(res, 401, { error: genericError });
+          }
+
+          const credential = ensureAuthCredential(db, user.id, timestamp);
+          clearAuthCredentialLock(credential, timestamp);
+          registerAuthAudit(
+            db,
+            {
+              action: "password_login_succeeded",
+              userId: user.id,
+              email: user.email,
+              metadata: { whiteboardOnly: true },
+            },
+            timestamp
+          );
+          const session = createAuthSession(
+            db,
+            {
+              userId: user.id,
+              email: user.email,
+              role: user.role,
+            },
+            timestamp
+          );
+          setSessionCookie(res, session.id);
+          saveDb();
+          return json(res, 200, safeUser(user));
+        }
+
         if (!user) {
           registerAuthAudit(
             db,

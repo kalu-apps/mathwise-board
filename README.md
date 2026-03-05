@@ -46,6 +46,7 @@ npm run dev:showcase
 - `VITE_WHITEBOARD_ONLY=1`
 - `VITE_WHITEBOARD_TEACHER_LOGIN=<логин учителя>`
 - `VITE_WHITEBOARD_STUDENT_LOGIN=<логин ученика>`
+- `VITE_WHITEBOARD_DEMO_PASSWORD=<общий пароль>`
 
 ### Быстро отключить доступ
 - В Render: `Suspend Service` (моментально выключает публичный URL).
