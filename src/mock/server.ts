@@ -100,22 +100,16 @@ const normalizeBooleanEnvFlag = (value: string | undefined) => {
   return normalized === "1" || normalized === "true" || normalized === "yes";
 };
 
-const normalizeEnvEmail = (value: string | undefined) =>
-  typeof value === "string" ? value.trim().toLowerCase() : "";
-
 const isWhiteboardOnlyAuthMode = normalizeBooleanEnvFlag(
   process.env.VITE_WHITEBOARD_ONLY ?? process.env.WHITEBOARD_ONLY
 );
 
-const whiteboardOnlyPasswordFallback =
-  typeof process.env.VITE_WHITEBOARD_DEMO_PASSWORD === "string" &&
-  process.env.VITE_WHITEBOARD_DEMO_PASSWORD.trim().length > 0
-    ? process.env.VITE_WHITEBOARD_DEMO_PASSWORD.trim()
-    : "magic";
+const WHITEBOARD_FIXED_TEACHER_LOGIN = "teacher@axiom.demo";
+const WHITEBOARD_FIXED_TEACHER_PASSWORD = "magic";
 
-const whiteboardOnlyTeacherLogin =
-  normalizeEnvEmail(process.env.VITE_WHITEBOARD_TEACHER_LOGIN) ||
-  normalizeEnvEmail(TEACHER_EMAILS[0] ?? "");
+const whiteboardOnlyPasswordFallback = WHITEBOARD_FIXED_TEACHER_PASSWORD;
+
+const whiteboardOnlyTeacherLogin = WHITEBOARD_FIXED_TEACHER_LOGIN;
 const whiteboardOnlyAllowedEmails = new Set(
   [whiteboardOnlyTeacherLogin].filter((value) => value.length > 0)
 );
