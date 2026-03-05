@@ -42,6 +42,7 @@ export default defineConfig(() => {
     server: {
       https: useHttps ? {} : undefined,
       host: true,
+      allowedHosts: true as const,
       port: 5173,
       strictPort: true,
       hmr: {
@@ -52,6 +53,7 @@ export default defineConfig(() => {
     },
     preview: {
       host: true,
+      allowedHosts: true as const,
       port: 5173,
       strictPort: true,
     },
