@@ -113,9 +113,9 @@ const whiteboardOnlyPasswordFallback =
     ? process.env.VITE_WHITEBOARD_DEMO_PASSWORD.trim()
     : "magic";
 
-const whiteboardOnlyTeacherLogin = normalizeEnvEmail(
-  process.env.VITE_WHITEBOARD_TEACHER_LOGIN
-);
+const whiteboardOnlyTeacherLogin =
+  normalizeEnvEmail(process.env.VITE_WHITEBOARD_TEACHER_LOGIN) ||
+  normalizeEmail(TEACHER_EMAILS[0] ?? "");
 const whiteboardOnlyAllowedEmails = new Set(
   [whiteboardOnlyTeacherLogin].filter((value) => value.length > 0)
 );
