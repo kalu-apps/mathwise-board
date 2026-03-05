@@ -100,13 +100,6 @@ export default function WorkbookInviteJoinPage() {
     };
   }, [token]);
 
-  useEffect(() => {
-    if (!state.joined || !state.sessionId) return;
-    if (!user) return;
-    const targetPath = `/workbook/session/${encodeURIComponent(state.sessionId)}`;
-    navigate(targetPath, { replace: true });
-  }, [navigate, state.joined, state.sessionId, user]);
-
   const handleJoin = async () => {
     if (!token) return;
     const guestDisplayName = guestName.trim();
@@ -137,6 +130,9 @@ export default function WorkbookInviteJoinPage() {
         joined: true,
         sessionId: joined.session.id,
       }));
+      navigate(`/workbook/session/${encodeURIComponent(joined.session.id)}`, {
+        replace: true,
+      });
     } catch (error) {
       const detailsMessage =
         error instanceof ApiError &&

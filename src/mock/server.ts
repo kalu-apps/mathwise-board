@@ -592,8 +592,10 @@ type SerializableChatAttachment = {
 const CHAT_MAX_ATTACHMENTS_PER_MESSAGE = 10;
 const CHAT_MAX_ATTACHMENT_SIZE_BYTES = 15 * 1024 * 1024;
 const WORKBOOK_INVITE_TTL_MS = 1000 * 60 * 30;
-const WORKBOOK_PRESENCE_TTL_MS = 1_000 * 25;
+const WORKBOOK_PRESENCE_TTL_MS = 1_000 * 10;
 const WORKBOOK_EVENT_LIMIT_PER_SESSION = 4000;
+const WORKBOOK_EVENTS_BATCH_LIMIT = 180;
+const MAINTENANCE_INTERVAL_MS = isWhiteboardOnlyAuthMode ? 12_000 : 0;
 const WORKBOOK_PDF_RENDER_MAX_PAGES = 20;
 const WORKBOOK_PDF_RENDER_MAX_BYTES = 15 * 1024 * 1024;
 const execFileAsync = promisify(execFileCallback);
@@ -1353,14 +1355,16 @@ const appendWorkbookEvent = (
   };
   db.workbookEvents.push(event);
   workbookLatestSeqBySession.set(params.sessionId, event.seq);
-  const sessionEvents = db.workbookEvents.filter(
-    (candidate) => candidate.sessionId === params.sessionId
-  );
-  if (sessionEvents.length > WORKBOOK_EVENT_LIMIT_PER_SESSION) {
-    const overflow = sessionEvents.length - WORKBOOK_EVENT_LIMIT_PER_SESSION;
-    const sorted = sessionEvents.sort((a, b) => a.seq - b.seq);
-    const toDelete = new Set(sorted.slice(0, overflow).map((item) => item.id));
-    db.workbookEvents = db.workbookEvents.filter((item) => !toDelete.has(item.id));
+  if (!isWhiteboardOnlyAuthMode) {
+    const sessionEvents = db.workbookEvents.filter(
+      (candidate) => candidate.sessionId === params.sessionId
+    );
+    if (sessionEvents.length > WORKBOOK_EVENT_LIMIT_PER_SESSION) {
+      const overflow = sessionEvents.length - WORKBOOK_EVENT_LIMIT_PER_SESSION;
+      const sorted = sessionEvents.sort((a, b) => a.seq - b.seq);
+      const toDelete = new Set(sorted.slice(0, overflow).map((item) => item.id));
+      db.workbookEvents = db.workbookEvents.filter((item) => !toDelete.has(item.id));
+    }
   }
   return event;
 };
@@ -1744,6 +1748,31 @@ const createWorkbookGuestUser = (
   };
   db.users.push(user);
   return user;
+};
+
+const findWorkbookGuestUserByName = (
+  db: ReturnType<typeof getDb>,
+  sessionId: string,
+  guestName: string
+) => {
+  const normalizedTarget = normalizeWorkbookGuestName(guestName).toLowerCase();
+  if (!normalizedTarget) return null;
+  const participantByUserId = new Map(
+    db.workbookParticipants
+      .filter((participant) => participant.sessionId === sessionId)
+      .map((participant) => [participant.userId, participant])
+  );
+  for (const user of db.users) {
+    if (!user.email.endsWith("@axiom.local")) continue;
+    const participant = participantByUserId.get(user.id);
+    if (!participant) continue;
+    const displayName = normalizeWorkbookGuestName(toDisplayName(user)).toLowerCase();
+    if (!displayName) continue;
+    if (displayName === normalizedTarget) {
+      return user;
+    }
+  }
+  return null;
 };
 
 const resolveChatSenderName = (
@@ -5228,6 +5257,7 @@ type WorkbookStreamClient = {
 
 const workbookStreamClientsBySession = new Map<string, Map<string, WorkbookStreamClient>>();
 const workbookLatestSeqBySession = new Map<string, number>();
+let lastMaintenanceRunAt = 0;
 
 const getWorkbookLatestSeq = (db: ReturnType<typeof getDb>, sessionId: string) => {
   const cached = workbookLatestSeqBySession.get(sessionId);
@@ -5366,23 +5396,32 @@ export function setupMockServer(server: ServerWithMiddlewares) {
     const path = url.pathname;
     const method = req.method ?? "GET";
     const db = getDb();
-    ensureDomainCollections(db);
-    enforceSingleTeacherIdentity(db);
-    pruneWorkbookArtifacts(db);
-    pruneAuthSessions(db);
-    pruneTeacherAvailability(db);
-    normalizeBookingRecords(db);
-    const expiredResetTokenMutated = prunePasswordResetTokens(db);
-    const expiredAuthCodeMutated = pruneAuthOneTimeCodes(db);
-    const expiredCheckoutCount = expireStaleCheckouts(db);
-    const expiredIdempotencyMutated = pruneIdempotencyRecords(db);
-    if (
-      expiredCheckoutCount > 0 ||
-      expiredResetTokenMutated ||
-      expiredAuthCodeMutated ||
-      expiredIdempotencyMutated
-    ) {
-      saveDb();
+    const nowMs = nowTs();
+    const maintenanceTimestamp = new Date(nowMs).toISOString();
+    const shouldRunMaintenance =
+      MAINTENANCE_INTERVAL_MS <= 0 || nowMs - lastMaintenanceRunAt >= MAINTENANCE_INTERVAL_MS;
+    if (shouldRunMaintenance) {
+      lastMaintenanceRunAt = nowMs;
+      ensureDomainCollections(db);
+      enforceSingleTeacherIdentity(db);
+      pruneWorkbookArtifacts(db);
+      pruneAuthSessions(db, nowMs);
+      if (!isWhiteboardOnlyAuthMode) {
+        pruneTeacherAvailability(db);
+        normalizeBookingRecords(db);
+        const expiredResetTokenMutated = prunePasswordResetTokens(db, maintenanceTimestamp);
+        const expiredAuthCodeMutated = pruneAuthOneTimeCodes(db, maintenanceTimestamp);
+        const expiredCheckoutCount = expireStaleCheckouts(db, maintenanceTimestamp);
+        const expiredIdempotencyMutated = pruneIdempotencyRecords(db, nowMs);
+        if (
+          expiredCheckoutCount > 0 ||
+          expiredResetTokenMutated ||
+          expiredAuthCodeMutated ||
+          expiredIdempotencyMutated
+        ) {
+          saveDb();
+        }
+      }
     }
     const sessionActor = resolveSessionActor(db, req);
     const actorUser = sessionActor?.user ?? null;
@@ -7387,13 +7426,16 @@ export function setupMockServer(server: ServerWithMiddlewares) {
         }
 
         const timestamp = nowIso();
+        const joiningAsGuest = !actorUser;
         let resolvedActorUser = actorUser;
         if (!resolvedActorUser) {
           const guestName = normalizeWorkbookGuestName(body?.guestName);
           if (!guestName) {
             return json(res, 401, { error: "Укажите имя для входа по приглашению." });
           }
-          resolvedActorUser = createWorkbookGuestUser(db, guestName);
+          resolvedActorUser =
+            findWorkbookGuestUserByName(db, session.id, guestName) ??
+            createWorkbookGuestUser(db, guestName);
           const guestSession = createAuthSession(
             db,
             {
@@ -7404,6 +7446,33 @@ export function setupMockServer(server: ServerWithMiddlewares) {
             timestamp
           );
           setSessionCookie(res, guestSession.id);
+          closeWorkbookStreamClientByUser(db, session.id, resolvedActorUser.id);
+        }
+        if (joiningAsGuest) {
+          const normalizedGuestName = normalizeWorkbookGuestName(
+            toDisplayName(resolvedActorUser)
+          ).toLowerCase();
+          if (normalizedGuestName) {
+            db.workbookParticipants.forEach((candidate) => {
+              if (
+                candidate.sessionId !== session.id ||
+                candidate.userId === resolvedActorUser.id ||
+                candidate.roleInSession !== "student"
+              ) {
+                return;
+              }
+              const candidateUser = db.users.find((user) => user.id === candidate.userId);
+              if (!candidateUser || !candidateUser.email.endsWith("@axiom.local")) return;
+              const candidateName = normalizeWorkbookGuestName(
+                toDisplayName(candidateUser)
+              ).toLowerCase();
+              if (!candidateName || candidateName !== normalizedGuestName) return;
+              candidate.isActive = false;
+              candidate.leftAt = timestamp;
+              candidate.lastSeenAt = timestamp;
+              closeWorkbookStreamClientByUser(db, session.id, candidate.userId);
+            });
+          }
         }
         let participant = getWorkbookParticipant(db, session.id, resolvedActorUser.id);
         if (!participant) {
@@ -7494,6 +7563,10 @@ export function setupMockServer(server: ServerWithMiddlewares) {
         res.setHeader("Cache-Control", "no-cache, no-transform");
         res.setHeader("Connection", "keep-alive");
         res.setHeader("X-Accel-Buffering", "no");
+        res.setHeader("Content-Encoding", "none");
+        if (typeof res.flushHeaders === "function") {
+          res.flushHeaders();
+        }
 
         const clientId = ensureId();
         const heartbeatTimer = setInterval(() => {
@@ -7548,9 +7621,9 @@ export function setupMockServer(server: ServerWithMiddlewares) {
         const afterSeq = Number.isFinite(Number(afterSeqRaw))
           ? Math.max(0, Number(afterSeqRaw))
           : 0;
-        const events = db.workbookEvents.filter(
-          (event) => event.sessionId === sessionId && event.seq > afterSeq
-        );
+        const events = db.workbookEvents
+          .filter((event) => event.sessionId === sessionId && event.seq > afterSeq)
+          .slice(0, WORKBOOK_EVENTS_BATCH_LIMIT);
         const latestSeq = getWorkbookLatestSeq(db, sessionId);
         return json(res, 200, {
           sessionId,

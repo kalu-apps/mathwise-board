@@ -171,9 +171,9 @@ import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
-const POLL_INTERVAL_MS = 350;
-const PRESENCE_INTERVAL_MS = 4_000;
-const AUTOSAVE_INTERVAL_MS = 9_000;
+const POLL_INTERVAL_MS = 180;
+const PRESENCE_INTERVAL_MS = 2_500;
+const AUTOSAVE_INTERVAL_MS = 15_000;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
@@ -1466,12 +1466,16 @@ export default function WorkbookSessionPage() {
   const participantCards = useMemo(
     () =>
       [...(session?.participants ?? [])]
+        .filter(
+          (participant) =>
+            participant.roleInSession === "teacher" || participant.isOnline
+        )
         .sort((left, right) => {
-          if (left.isOnline !== right.isOnline) {
-            return left.isOnline ? -1 : 1;
-          }
           if (left.roleInSession !== right.roleInSession) {
             return left.roleInSession === "teacher" ? -1 : 1;
+          }
+          if (left.isOnline !== right.isOnline) {
+            return left.isOnline ? -1 : 1;
           }
           return left.displayName.localeCompare(right.displayName, "ru");
         }),
@@ -2690,7 +2694,7 @@ export default function WorkbookSessionPage() {
   }, [loadSession]);
 
   useEffect(() => {
-    if (!sessionId || !session || isWorkbookStreamConnected) return;
+    if (!sessionId || !session) return;
     let active = true;
     const poll = async () => {
       try {
@@ -2714,9 +2718,10 @@ export default function WorkbookSessionPage() {
       }
     };
     void poll();
+    const intervalMs = isWorkbookStreamConnected ? 220 : POLL_INTERVAL_MS;
     const intervalId = window.setInterval(() => {
       void poll();
-    }, POLL_INTERVAL_MS);
+    }, intervalMs);
     return () => {
       active = false;
       window.clearInterval(intervalId);
@@ -3032,13 +3037,15 @@ export default function WorkbookSessionPage() {
       }
     });
 
-    if (user.role !== "teacher") return;
     const connectToOnlineStudents = async () => {
       for (const participant of session.participants) {
         if (
           participant.userId === user.id ||
-          participant.roleInSession !== "student" ||
-            !participant.isOnline
+          !participant.isOnline ||
+          !(
+            (user.role === "teacher" && participant.roleInSession === "student") ||
+            (user.role === "student" && participant.roleInSession === "teacher")
+          )
         ) {
           continue;
         }
@@ -3049,6 +3056,9 @@ export default function WorkbookSessionPage() {
           }
           if (connection.signalingState !== "stable") continue;
           if (connection.remoteDescription) continue;
+          const shouldInitiateOffer =
+            user.role === "teacher" || user.id.localeCompare(participant.userId) < 0;
+          if (!shouldInitiateOffer) continue;
           await createAndSendOffer(participant.userId, connection);
         } catch {
           // ignore one-off connection errors and keep reconnect loop alive
@@ -3988,6 +3998,14 @@ export default function WorkbookSessionPage() {
             error.code === "timeout" ||
             error.code === "rate_limited")
         ) {
+          window.setTimeout(() => {
+            void appendEventsAndApply([
+              {
+                type: "board.object.update",
+                payload: { objectId, patch: normalizedPatch },
+              },
+            ]).catch(() => undefined);
+          }, 120);
           return;
         }
         setBoardObjects((current) =>

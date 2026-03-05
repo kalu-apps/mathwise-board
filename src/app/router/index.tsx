@@ -64,11 +64,7 @@ const whiteboardOnlyChildren: RouteObject[] = [
   },
   {
     path: "/workbook/session/:sessionId",
-    element: (
-      <RoleProtectedRoute allow={["student", "teacher"]}>
-        {withSuspense(<WorkbookSessionPage />)}
-      </RoleProtectedRoute>
-    ),
+    element: withSuspense(<WorkbookSessionPage />),
   },
   {
     path: "/workbook/invite/:token",
