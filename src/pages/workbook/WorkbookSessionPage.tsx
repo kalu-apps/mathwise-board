@@ -174,6 +174,7 @@ import { ApiError } from "@/shared/api/client";
 const POLL_INTERVAL_MS = 180;
 const PRESENCE_INTERVAL_MS = 2_500;
 const AUTOSAVE_INTERVAL_MS = 15_000;
+const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 70;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
@@ -1401,6 +1402,11 @@ export default function WorkbookSessionPage() {
     offsetY: number;
   } | null>(null);
   const presenceLeaveSentRef = useRef(false);
+  const objectUpdateQueuedPatchRef = useRef<
+    Map<string, Partial<WorkbookBoardObject>>
+  >(new Map());
+  const objectUpdateTimersRef = useRef<Map<string, number>>(new Map());
+  const objectUpdateInFlightRef = useRef<Set<string>>(new Set());
   const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const makingOfferPeerIdsRef = useRef<Set<string>>(new Set());
 
@@ -1451,7 +1457,6 @@ export default function WorkbookSessionPage() {
             canClear: participant.permissions.canClear,
             canExport: participant.permissions.canExport,
             canUseLaser: participant.permissions.canUseLaser,
-            lastSeenAt: participant.lastSeenAt ?? null,
           }));
       const normalizedLeft = normalize(left);
       const normalizedRight = normalize(right);
@@ -2189,6 +2194,12 @@ export default function WorkbookSessionPage() {
         if (event.type === "board.clear") {
           setBoardStrokes([]);
           setBoardObjects([]);
+          objectUpdateQueuedPatchRef.current.clear();
+          objectUpdateTimersRef.current.forEach((timerId) => {
+            window.clearTimeout(timerId);
+          });
+          objectUpdateTimersRef.current.clear();
+          objectUpdateInFlightRef.current.clear();
           setConstraints([]);
           setSelectedObjectId(null);
           setSelectedConstraintId(null);
@@ -3264,6 +3275,18 @@ export default function WorkbookSessionPage() {
     []
   );
 
+  useEffect(
+    () => () => {
+      objectUpdateTimersRef.current.forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      objectUpdateTimersRef.current.clear();
+      objectUpdateQueuedPatchRef.current.clear();
+      objectUpdateInFlightRef.current.clear();
+    },
+    []
+  );
+
   useEffect(() => {
     if (smartInkOptions.mode !== "off") return;
     smartInkStrokeBufferRef.current = [];
@@ -3316,6 +3339,55 @@ export default function WorkbookSessionPage() {
       rollbackHistorySnapshot,
       sessionId,
     ]
+  );
+
+  const flushQueuedObjectUpdate = useCallback(
+    (objectId: string) => {
+      if (objectUpdateTimersRef.current.has(objectId)) return;
+      const timerId = window.setTimeout(() => {
+        objectUpdateTimersRef.current.delete(objectId);
+        if (objectUpdateInFlightRef.current.has(objectId)) {
+          flushQueuedObjectUpdate(objectId);
+          return;
+        }
+        const queuedPatch = objectUpdateQueuedPatchRef.current.get(objectId);
+        if (!queuedPatch) return;
+        objectUpdateQueuedPatchRef.current.delete(objectId);
+        objectUpdateInFlightRef.current.add(objectId);
+        void appendEventsAndApply([
+          {
+            type: "board.object.update",
+            payload: { objectId, patch: queuedPatch },
+          },
+        ])
+          .catch((error) => {
+            const isTransientError =
+              error instanceof ApiError &&
+              (error.code === "conflict" ||
+                error.code === "server_unavailable" ||
+                error.code === "network_error" ||
+                error.code === "timeout" ||
+                error.code === "rate_limited");
+            if (isTransientError) {
+              const pendingPatch = objectUpdateQueuedPatchRef.current.get(objectId) ?? {};
+              objectUpdateQueuedPatchRef.current.set(objectId, {
+                ...queuedPatch,
+                ...pendingPatch,
+              });
+              return;
+            }
+            setError("Не удалось обновить объект.");
+          })
+          .finally(() => {
+            objectUpdateInFlightRef.current.delete(objectId);
+            if (objectUpdateQueuedPatchRef.current.has(objectId)) {
+              flushQueuedObjectUpdate(objectId);
+            }
+          });
+      }, OBJECT_UPDATE_FLUSH_INTERVAL_MS);
+      objectUpdateTimersRef.current.set(objectId, timerId);
+    },
+    [appendEventsAndApply]
   );
 
   const clearLayerNow = useCallback(
@@ -3982,43 +4054,31 @@ export default function WorkbookSessionPage() {
           item.id === objectId ? mergeBoardObjectWithPatch(item, normalizedPatch) : item
         )
       );
-      try {
-        await appendEventsAndApply([
-          {
-            type: "board.object.update",
-            payload: { objectId, patch: normalizedPatch },
-          },
-        ]);
-      } catch (error) {
-        if (
-          error instanceof ApiError &&
-          (error.code === "conflict" ||
-            error.code === "server_unavailable" ||
-            error.code === "network_error" ||
-            error.code === "timeout" ||
-            error.code === "rate_limited")
-        ) {
-          window.setTimeout(() => {
-            void appendEventsAndApply([
-              {
-                type: "board.object.update",
-                payload: { objectId, patch: normalizedPatch },
-              },
-            ]).catch(() => undefined);
-          }, 120);
-          return;
-        }
-        setBoardObjects((current) =>
-          current.map((item) => (item.id === objectId ? currentObject : item))
-        );
-        setError("Не удалось обновить объект.");
-      }
+      const pendingPatch = objectUpdateQueuedPatchRef.current.get(objectId) ?? {};
+      objectUpdateQueuedPatchRef.current.set(objectId, {
+        ...pendingPatch,
+        ...normalizedPatch,
+      });
+      flushQueuedObjectUpdate(objectId);
     },
-    [appendEventsAndApply, applyConstraintsForObject, boardObjects, canSelect, sessionId]
+    [
+      applyConstraintsForObject,
+      boardObjects,
+      canSelect,
+      flushQueuedObjectUpdate,
+      sessionId,
+    ]
   );
 
   const commitObjectDelete = async (objectId: string) => {
     if (!sessionId || !canDelete) return;
+    objectUpdateQueuedPatchRef.current.delete(objectId);
+    const pendingTimer = objectUpdateTimersRef.current.get(objectId);
+    if (pendingTimer !== undefined) {
+      window.clearTimeout(pendingTimer);
+      objectUpdateTimersRef.current.delete(objectId);
+    }
+    objectUpdateInFlightRef.current.delete(objectId);
     const targetObject = boardObjects.find((item) => item.id === objectId);
     const targetLayerId = targetObject ? getObjectSceneLayerId(targetObject) : MAIN_SCENE_LAYER_ID;
     const shouldPruneLayer =
