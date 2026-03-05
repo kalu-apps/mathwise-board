@@ -12,14 +12,14 @@
 - `VITE_SHOWCASE_MODE=realtime`
 - `VITE_WHITEBOARD_ONLY=1`
 - `VITE_WHITEBOARD_TEACHER_LOGIN=teacher@axiom.demo`
-- `VITE_WHITEBOARD_DEMO_PASSWORD=magic`
+- `VITE_WHITEBOARD_TEACHER_PASSWORD=magic`
 
 Опционально:
 - `PORT` (если требуется платформой явно, иначе используется порт по умолчанию).
 
 ## Команды сборки и запуска
 - Build: `npm ci && npm run build:showcase`
-- Start: `npm run start:showcase`
+- Start: `npm run backend:start:showcase`
 
 ## Минимальный релиз-чеклист
 1. Открыть `/`, авторизоваться как учитель.
@@ -33,5 +33,4 @@
 Варианты:
 - остановить/заморозить приложение в Amvera;
 - удалить приложение в Amvera;
-- сменить пароль учителя (`VITE_WHITEBOARD_DEMO_PASSWORD`) и перезапустить приложение.
-
+- сменить пароль учителя (`VITE_WHITEBOARD_TEACHER_PASSWORD`) и перезапустить приложение.

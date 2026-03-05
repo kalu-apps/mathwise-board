@@ -30,7 +30,9 @@
     "preview": "vite preview",
     "dev:showcase": "vite --mode showcase --open /workbook",
     "build:showcase": "vite build --mode showcase",
-    "start:showcase": "vite preview --mode showcase --host 0.0.0.0 --port ${PORT:-4173}"
+    "start:showcase": "vite preview --mode showcase --host 0.0.0.0 --port ${PORT:-4173}",
+    "backend:start": "node --import tsx backend/src/server.ts",
+    "backend:start:showcase": "VITE_SHOWCASE_MODE=realtime node --import tsx backend/src/server.ts"
   },
   "browserslist": {
     "production": [
@@ -51,14 +53,17 @@
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.7",
     "@mui/material": "^7.3.7",
+    "connect": "^3.7.0",
     "jspdf": "^4.1.0",
     "jszip": "^3.10.1",
     "mathjs": "^15.1.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-router-dom": "^7.12.0"
+    "react-router-dom": "^7.12.0",
+    "tsx": "^4.20.6"
   },
   "devDependencies": {
+    "@types/connect": "^3.4.38",
     "@eslint/js": "^9.39.1",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",

@@ -28,8 +28,14 @@ npm run dev:showcase
 - `/workbook/invite/:token` — вход ученика по временной ссылке
 
 ## Демо-доступ
-- Учитель: статичный логин/пароль из env (`VITE_WHITEBOARD_TEACHER_LOGIN` + `VITE_WHITEBOARD_DEMO_PASSWORD`).
+- Учитель: статичный логин/пароль из env (`VITE_WHITEBOARD_TEACHER_LOGIN` + `VITE_WHITEBOARD_TEACHER_PASSWORD`).
 - Ученик: без логина и пароля, по временной ссылке приглашения.
+
+## Прод-старт монолита (API + frontend)
+```bash
+npm run build:showcase
+npm run backend:start:showcase
+```
 
 В showcase режиме включен `VITE_WHITEBOARD_ONLY=1`: прочие разделы платформы скрыты из роутинга.
 Вход по magic-link отключен на mock API.
