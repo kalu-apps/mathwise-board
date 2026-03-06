@@ -331,6 +331,23 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
+.workbook-session__layout--sidebar-overlay {
+  grid-template-columns: minmax(0, 1fr);
+  position: relative;
+}
+
+.workbook-session__layout--sidebar-overlay .workbook-session__sidebar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: min(320px, 28vw);
+  z-index: 14;
+}
+
+.workbook-session__layout--sidebar-overlay .workbook-session__sidebar > * {
+  pointer-events: auto;
+}
+
 .workbook-session__workspace {
   display: grid;
   gap: 10px;
@@ -2311,7 +2328,8 @@
   position: fixed;
   left: 24px;
   top: 96px;
-  width: min(460px, calc(100vw - 24px));
+  width: clamp(300px, 34vw, 420px);
+  max-width: calc(100vw - 16px);
   min-height: 280px;
   max-height: calc(100vh - 24px);
   border: 1px solid var(--border-subtle);
@@ -2893,6 +2911,11 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .workbook-session__layout--sidebar-overlay .workbook-session__sidebar {
+    position: static;
+    width: 100%;
+  }
+
   .workbook-session__board-shell {
     grid-template-columns: minmax(0, 1fr);
     gap: 8px;
@@ -3134,10 +3157,10 @@
     left: 8px !important;
     right: 8px !important;
     width: auto !important;
-    max-height: min(72vh, 620px);
+    max-height: min(72dvh, 620px);
     top: auto !important;
     bottom: max(8px, env(safe-area-inset-bottom));
-    height: min(72vh, 620px);
+    height: min(72dvh, 620px);
     border-radius: 14px;
     padding: 8px;
     display: flex;
@@ -3216,16 +3239,19 @@
   }
 
   .workbook-session__session-chat {
-    left: 8px;
+    left: 8px !important;
+    right: 8px !important;
     top: 56px;
-    width: calc(100vw - 16px);
+    width: auto !important;
+    max-width: none;
     max-height: calc(100vh - 64px);
   }
 
   .workbook-session__session-chat.is-maximized {
-    top: 8px;
-    left: 8px;
-    width: calc(100vw - 16px);
+    top: 8px !important;
+    left: 8px !important;
+    right: 8px !important;
+    width: auto !important;
     height: calc(100vh - 16px);
     transform: none;
   }
@@ -3278,8 +3304,8 @@
     left: 6px !important;
     right: 6px !important;
     width: auto !important;
-    max-height: min(78vh, 560px);
-    height: min(78vh, 560px);
+    max-height: min(78dvh, 560px);
+    height: min(78dvh, 560px);
     border-radius: 12px;
     padding: 7px;
   }

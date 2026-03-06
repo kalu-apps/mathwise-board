@@ -101,7 +101,14 @@ type WorkbookCanvasProps = {
   onStrokeCommit: (stroke: WorkbookStroke) => void;
   onStrokeDelete: (strokeId: string, layer: WorkbookLayer) => void;
   onObjectCreate: (object: WorkbookBoardObject) => void;
-  onObjectUpdate: (objectId: string, patch: Partial<WorkbookBoardObject>) => void;
+  onObjectUpdate: (
+    objectId: string,
+    patch: Partial<WorkbookBoardObject>,
+    options?: {
+      trackHistory?: boolean;
+      markDirty?: boolean;
+    }
+  ) => void;
   onObjectDelete: (objectId: string) => void;
   onObjectContextMenu?: (objectId: string, anchor: { x: number; y: number }) => void;
   onShapeVertexContextMenu?: (payload: {
@@ -811,6 +818,60 @@ const mapConstraintLabel = (type: WorkbookConstraint["type"]) => {
 const clampGraphOffsetValue = (value: number) =>
   Math.max(-999, Math.min(999, Number.isFinite(value) ? value : 0));
 
+const COORD_DELTA_EPSILON = 0.01;
+
+const hasCoordChanged = (left: number, right: number) =>
+  Math.abs(left - right) > COORD_DELTA_EPSILON;
+
+const arePointsEqual = (
+  left: WorkbookPoint[] | undefined,
+  right: WorkbookPoint[] | undefined
+) => {
+  if (!left && !right) return true;
+  if (!left || !right) return false;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (
+      hasCoordChanged(left[index].x, right[index].x) ||
+      hasCoordChanged(left[index].y, right[index].y)
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const toStableSignature = (value: unknown) => {
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+};
+
+const buildRealtimeObjectPatch = (
+  base: WorkbookBoardObject,
+  preview: WorkbookBoardObject
+): Partial<WorkbookBoardObject> | null => {
+  const patch: Partial<WorkbookBoardObject> = {};
+  if (hasCoordChanged(base.x, preview.x)) patch.x = preview.x;
+  if (hasCoordChanged(base.y, preview.y)) patch.y = preview.y;
+  if (hasCoordChanged(base.width, preview.width)) patch.width = preview.width;
+  if (hasCoordChanged(base.height, preview.height)) patch.height = preview.height;
+  if (hasCoordChanged(base.rotation ?? 0, preview.rotation ?? 0)) {
+    patch.rotation = preview.rotation;
+  }
+  const basePoints = Array.isArray(base.points) ? base.points : undefined;
+  const previewPoints = Array.isArray(preview.points) ? preview.points : undefined;
+  if (!arePointsEqual(basePoints, previewPoints)) {
+    patch.points = previewPoints;
+  }
+  if (toStableSignature(base.meta ?? null) !== toStableSignature(preview.meta ?? null)) {
+    patch.meta = preview.meta;
+  }
+  return Object.keys(patch).length > 0 ? patch : null;
+};
+
 const getPointObjectCenter = (object: WorkbookBoardObject) => ({
   x: object.x + object.width / 2,
   y: object.y + object.height / 2,
@@ -905,6 +966,8 @@ export function WorkbookCanvas({
 }: WorkbookCanvasProps) {
   const [containerNode, setContainerNode] = useState<HTMLDivElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
+  const lastRealtimeUpdateAtRef = useRef<Map<string, number>>(new Map());
+  const lastRealtimePatchSignatureRef = useRef<Map<string, string>>(new Map());
   const [points, setPoints] = useState<WorkbookPoint[]>([]);
   const strokePointsRef = useRef<WorkbookPoint[]>([]);
   const strokeFlushFrameRef = useRef<number | null>(null);
@@ -5398,6 +5461,51 @@ export function WorkbookCanvas({
     }
     return preview;
   })();
+
+  const isLiveInteractionActive = Boolean(
+    moving || resizing || graphPan || solid3dGesture || solid3dResize
+  );
+
+  const emitRealtimeObjectUpdate = useCallback(
+    (objectId: string, patch: Partial<WorkbookBoardObject>) => {
+      const now =
+        typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+      const previousTs = lastRealtimeUpdateAtRef.current.get(objectId) ?? 0;
+      if (now - previousTs < 42) return;
+      const signature = toStableSignature(patch);
+      const previousSignature =
+        lastRealtimePatchSignatureRef.current.get(objectId) ?? "";
+      if (signature === previousSignature && now - previousTs < 180) return;
+      lastRealtimeUpdateAtRef.current.set(objectId, now);
+      lastRealtimePatchSignatureRef.current.set(objectId, signature);
+      onObjectUpdate(objectId, patch, {
+        trackHistory: false,
+        markDirty: false,
+      });
+    },
+    [onObjectUpdate]
+  );
+
+  useEffect(() => {
+    if (!isLiveInteractionActive || !selectedObject || !selectedPreviewObject) return;
+    if (selectedObject.id !== selectedPreviewObject.id) return;
+    const patch = buildRealtimeObjectPatch(selectedObject, selectedPreviewObject);
+    if (!patch) return;
+    emitRealtimeObjectUpdate(selectedObject.id, patch);
+  }, [
+    emitRealtimeObjectUpdate,
+    isLiveInteractionActive,
+    selectedObject,
+    selectedPreviewObject,
+  ]);
+
+  useEffect(() => {
+    if (isLiveInteractionActive) return;
+    lastRealtimePatchSignatureRef.current.clear();
+    lastRealtimeUpdateAtRef.current.clear();
+  }, [isLiveInteractionActive]);
 
   const selectedRect = useMemo(() => {
     if (!selectedPreviewObject) return null;

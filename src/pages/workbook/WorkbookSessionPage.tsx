@@ -171,8 +171,9 @@ import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
-const POLL_INTERVAL_MS = 180;
-const PRESENCE_INTERVAL_MS = 2_500;
+const POLL_INTERVAL_MS = 650;
+const POLL_INTERVAL_STREAM_CONNECTED_MS = 1_400;
+const PRESENCE_INTERVAL_MS = 3_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 70;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
@@ -261,6 +262,72 @@ const HISTORY_EVENT_TYPES = new Set<WorkbookEvent["type"]>([
   "document.annotation.add",
   "document.annotation.clear",
 ]);
+
+const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
+  if (events.length <= 1) return events;
+  const compacted: WorkbookEvent[] = [];
+  const pendingByObjectId = new Map<string, WorkbookEvent>();
+  const flushPending = () => {
+    if (pendingByObjectId.size === 0) return;
+    pendingByObjectId.forEach((event) => compacted.push(event));
+    pendingByObjectId.clear();
+  };
+  events.forEach((event) => {
+    if (event.type === "board.object.update") {
+      const payload =
+        event.payload && typeof event.payload === "object"
+          ? (event.payload as { objectId?: unknown; patch?: unknown })
+          : null;
+      const objectId = payload && typeof payload.objectId === "string" ? payload.objectId : "";
+      const patch =
+        payload?.patch && typeof payload.patch === "object"
+          ? (payload.patch as Partial<WorkbookBoardObject>)
+          : null;
+      if (!objectId || !patch) {
+        flushPending();
+        compacted.push(event);
+        return;
+      }
+      const previous = pendingByObjectId.get(objectId);
+      if (previous) {
+        const previousPayload =
+          previous.payload && typeof previous.payload === "object"
+            ? (previous.payload as {
+                objectId: string;
+                patch: Partial<WorkbookBoardObject>;
+              })
+            : { objectId, patch: {} as Partial<WorkbookBoardObject> };
+        pendingByObjectId.set(objectId, {
+          ...event,
+          payload: {
+            objectId,
+            patch: {
+              ...previousPayload.patch,
+              ...patch,
+            },
+          },
+        });
+      } else {
+        pendingByObjectId.set(objectId, event);
+      }
+      return;
+    }
+    const deletedObjectId =
+      event.type === "board.object.delete" &&
+      event.payload &&
+      typeof event.payload === "object" &&
+      typeof (event.payload as { objectId?: unknown }).objectId === "string"
+        ? ((event.payload as { objectId: string }).objectId ?? "")
+        : "";
+    if (deletedObjectId) {
+      pendingByObjectId.delete(deletedObjectId);
+    }
+    flushPending();
+    compacted.push(event);
+  });
+  flushPending();
+  return compacted;
+};
 
 const DEFAULT_SETTINGS: WorkbookSessionSettings = {
   undoPolicy: "teacher_only",
@@ -1245,6 +1312,9 @@ export default function WorkbookSessionPage() {
   const [spacePanActive, setSpacePanActive] = useState(false);
   const [viewportZoom, setViewportZoom] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isCompactViewport, setIsCompactViewport] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth <= 760 : false
+  );
   const [utilityTab, setUtilityTab] = useState<
     "settings" | "notes" | "graph" | "transform" | "layers"
   >(
@@ -1407,6 +1477,9 @@ export default function WorkbookSessionPage() {
   >(new Map());
   const objectUpdateTimersRef = useRef<Map<string, number>>(new Map());
   const objectUpdateInFlightRef = useRef<Set<string>>(new Set());
+  const objectUpdateDispatchOptionsRef = useRef<
+    Map<string, { trackHistory: boolean; markDirty: boolean }>
+  >(new Map());
   const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const makingOfferPeerIdsRef = useRef<Set<string>>(new Set());
 
@@ -1430,6 +1503,7 @@ export default function WorkbookSessionPage() {
   const canSendSessionChat = canUseSessionChat && !isEnded;
   const isClassSession = session?.kind === "CLASS";
   const showCollaborationPanels = Boolean(isClassSession);
+  const showSidebarParticipants = showCollaborationPanels && !isParticipantsCollapsed;
 
   useEffect(() => {
     if (!showCollaborationPanels) {
@@ -1447,7 +1521,6 @@ export default function WorkbookSessionPage() {
             userId: participant.userId,
             roleInSession: participant.roleInSession,
             isOnline: participant.isOnline,
-            isActive: participant.isActive,
             canUseChat: participant.permissions.canUseChat,
             canUseMedia: participant.permissions.canUseMedia,
             canDraw: participant.permissions.canDraw,
@@ -1510,6 +1583,18 @@ export default function WorkbookSessionPage() {
     setTool("select");
     setStrokeWidth(getDefaultToolWidth("select"));
   }, [sessionId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleResize = () => {
+      setIsCompactViewport(window.innerWidth <= 760);
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize, { passive: true });
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
 
   useEffect(() => {
     latestSeqRef.current = latestSeq;
@@ -2081,7 +2166,8 @@ export default function WorkbookSessionPage() {
   const applyIncomingEvents = useCallback(
     (events: WorkbookEvent[]) => {
       if (events.length === 0) return;
-      events.forEach((event) => {
+      const compactedEvents = compactWorkbookObjectUpdateEvents(events);
+      compactedEvents.forEach((event) => {
         try {
         if (event.type === "board.undo" || event.type === "board.redo") {
           const payload = event.payload as { scene?: unknown };
@@ -2200,6 +2286,7 @@ export default function WorkbookSessionPage() {
           });
           objectUpdateTimersRef.current.clear();
           objectUpdateInFlightRef.current.clear();
+          objectUpdateDispatchOptionsRef.current.clear();
           setConstraints([]);
           setSelectedObjectId(null);
           setSelectedConstraintId(null);
@@ -2729,7 +2816,9 @@ export default function WorkbookSessionPage() {
       }
     };
     void poll();
-    const intervalMs = isWorkbookStreamConnected ? 220 : POLL_INTERVAL_MS;
+    const intervalMs = isWorkbookStreamConnected
+      ? POLL_INTERVAL_STREAM_CONNECTED_MS
+      : POLL_INTERVAL_MS;
     const intervalId = window.setInterval(() => {
       void poll();
     }, intervalMs);
@@ -2973,7 +3062,14 @@ export default function WorkbookSessionPage() {
   ]);
 
   useEffect(() => {
-    if (!isSessionChatOpen || isSessionChatMinimized || isSessionChatMaximized) return;
+    if (
+      isCompactViewport ||
+      !isSessionChatOpen ||
+      isSessionChatMinimized ||
+      isSessionChatMaximized
+    ) {
+      return;
+    }
     const panel = sessionChatRef.current;
     if (!panel || typeof window === "undefined") return;
     const panelWidth = panel.offsetWidth || 420;
@@ -2984,10 +3080,17 @@ export default function WorkbookSessionPage() {
       x: Math.min(maxX, Math.max(8, current.x)),
       y: Math.min(maxY, Math.max(8, current.y)),
     }));
-  }, [isSessionChatMaximized, isSessionChatMinimized, isSessionChatOpen]);
+  }, [isCompactViewport, isSessionChatMaximized, isSessionChatMinimized, isSessionChatOpen]);
 
   useEffect(() => {
-    if (!isSessionChatOpen || isSessionChatMaximized || isSessionChatMinimized) return;
+    if (
+      isCompactViewport ||
+      !isSessionChatOpen ||
+      isSessionChatMaximized ||
+      isSessionChatMinimized
+    ) {
+      return;
+    }
     const onPointerMove = (event: PointerEvent) => {
       const dragState = sessionChatDragStateRef.current;
       if (!dragState || dragState.pointerId !== event.pointerId) return;
@@ -3016,7 +3119,13 @@ export default function WorkbookSessionPage() {
       window.removeEventListener("pointercancel", onPointerUp);
       sessionChatDragStateRef.current = null;
     };
-  }, [isSessionChatMaximized, isSessionChatMinimized, isSessionChatOpen]);
+  }, [isCompactViewport, isSessionChatMaximized, isSessionChatMinimized, isSessionChatOpen]);
+
+  useEffect(() => {
+    if (!isCompactViewport) return;
+    sessionChatDragStateRef.current = null;
+    setSessionChatPosition({ x: 8, y: 56 });
+  }, [isCompactViewport]);
 
   useEffect(() => {
     if (!session || session.kind !== "CLASS" || !canUseMedia || isEnded || !user?.id) {
@@ -3283,6 +3392,7 @@ export default function WorkbookSessionPage() {
       objectUpdateTimersRef.current.clear();
       objectUpdateQueuedPatchRef.current.clear();
       objectUpdateInFlightRef.current.clear();
+      objectUpdateDispatchOptionsRef.current.clear();
     },
     []
   );
@@ -3297,9 +3407,17 @@ export default function WorkbookSessionPage() {
   }, [smartInkOptions.mode]);
 
   const appendEventsAndApply = useCallback(
-    async (events: Array<{ type: WorkbookEvent["type"]; payload: unknown }>) => {
+    async (
+      events: Array<{ type: WorkbookEvent["type"]; payload: unknown }>,
+      options?: {
+        trackHistory?: boolean;
+        markDirty?: boolean;
+      }
+    ) => {
       if (!sessionId) return;
-      const trackHistory = events.some((event) => HISTORY_EVENT_TYPES.has(event.type));
+      const trackHistory =
+        options?.trackHistory ?? events.some((event) => HISTORY_EVENT_TYPES.has(event.type));
+      const shouldMarkDirty = options?.markDirty ?? trackHistory;
       if (trackHistory) {
         pushHistorySnapshot();
       }
@@ -3321,7 +3439,7 @@ export default function WorkbookSessionPage() {
           latestSeqRef.current = nextLatest;
           setLatestSeq(nextLatest);
         }
-        if (trackHistory) {
+        if (shouldMarkDirty) {
           markDirty();
         }
       } catch (error) {
@@ -3353,13 +3471,18 @@ export default function WorkbookSessionPage() {
         const queuedPatch = objectUpdateQueuedPatchRef.current.get(objectId);
         if (!queuedPatch) return;
         objectUpdateQueuedPatchRef.current.delete(objectId);
+        const dispatchOptions = objectUpdateDispatchOptionsRef.current.get(objectId) ?? {
+          trackHistory: true,
+          markDirty: true,
+        };
+        objectUpdateDispatchOptionsRef.current.delete(objectId);
         objectUpdateInFlightRef.current.add(objectId);
         void appendEventsAndApply([
           {
             type: "board.object.update",
             payload: { objectId, patch: queuedPatch },
           },
-        ])
+        ], dispatchOptions)
           .catch((error) => {
             const isTransientError =
               error instanceof ApiError &&
@@ -3373,6 +3496,14 @@ export default function WorkbookSessionPage() {
               objectUpdateQueuedPatchRef.current.set(objectId, {
                 ...queuedPatch,
                 ...pendingPatch,
+              });
+              const pendingOptions = objectUpdateDispatchOptionsRef.current.get(objectId) ?? {
+                trackHistory: false,
+                markDirty: false,
+              };
+              objectUpdateDispatchOptionsRef.current.set(objectId, {
+                trackHistory: dispatchOptions.trackHistory || pendingOptions.trackHistory,
+                markDirty: dispatchOptions.markDirty || pendingOptions.markDirty,
               });
               return;
             }
@@ -3560,6 +3691,9 @@ export default function WorkbookSessionPage() {
       setUtilityTab(tab);
       setIsUtilityPanelOpen(true);
       setIsUtilityPanelCollapsed(false);
+      if (isCompactViewport) {
+        return;
+      }
       if (!workspaceRef.current) return;
       const rect = workspaceRef.current.getBoundingClientRect();
       setUtilityPanelPosition((current) => {
@@ -3579,6 +3713,7 @@ export default function WorkbookSessionPage() {
     },
     [
       boardObjects,
+      isCompactViewport,
       isFullscreen,
       isUtilityPanelOpen,
       selectedObjectId,
@@ -3587,6 +3722,7 @@ export default function WorkbookSessionPage() {
   );
 
   const handleUtilityPanelDragStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (isCompactViewport) return;
     if (event.button !== 0) return;
     const target = event.target;
     if (target instanceof HTMLElement) {
@@ -3626,6 +3762,10 @@ export default function WorkbookSessionPage() {
   );
 
   useEffect(() => {
+    if (isCompactViewport) {
+      setUtilityPanelDragState(null);
+      return;
+    }
     if (!utilityPanelDragState) return;
     const onPointerMove = (event: PointerEvent) => {
       const deltaX = event.clientX - utilityPanelDragState.startClientX;
@@ -3647,9 +3787,10 @@ export default function WorkbookSessionPage() {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [utilityPanelDragState]);
+  }, [isCompactViewport, utilityPanelDragState]);
 
   useEffect(() => {
+    if (isCompactViewport) return;
     if (!isUtilityPanelOpen) return;
     if (!workspaceRef.current) return;
     setUtilityPanelPosition((current) => {
@@ -3668,7 +3809,7 @@ export default function WorkbookSessionPage() {
         y: Math.max(minY, Math.min(maxY, nextY)),
       };
     });
-  }, [isFullscreen, isUtilityPanelOpen]);
+  }, [isCompactViewport, isFullscreen, isUtilityPanelOpen]);
 
   const utilityPanelTitle = useMemo(() => {
     if (utilityTab === "settings") return "Настройки доски";
@@ -4029,7 +4170,14 @@ export default function WorkbookSessionPage() {
   );
 
   const commitObjectUpdate = useCallback(
-    async (objectId: string, patch: Partial<WorkbookBoardObject>) => {
+    (
+      objectId: string,
+      patch: Partial<WorkbookBoardObject>,
+      options?: {
+        trackHistory?: boolean;
+        markDirty?: boolean;
+      }
+    ) => {
       if (!sessionId || !canSelect) return;
       const currentObject = boardObjects.find((item) => item.id === objectId);
       if (!currentObject) return;
@@ -4059,6 +4207,16 @@ export default function WorkbookSessionPage() {
         ...pendingPatch,
         ...normalizedPatch,
       });
+      const pendingDispatchOptions =
+        objectUpdateDispatchOptionsRef.current.get(objectId) ?? null;
+      const nextDispatchOptions = {
+        trackHistory:
+          (pendingDispatchOptions?.trackHistory ?? false) ||
+          (options?.trackHistory ?? true),
+        markDirty:
+          (pendingDispatchOptions?.markDirty ?? false) || (options?.markDirty ?? true),
+      };
+      objectUpdateDispatchOptionsRef.current.set(objectId, nextDispatchOptions);
       flushQueuedObjectUpdate(objectId);
     },
     [
@@ -4073,6 +4231,7 @@ export default function WorkbookSessionPage() {
   const commitObjectDelete = async (objectId: string) => {
     if (!sessionId || !canDelete) return;
     objectUpdateQueuedPatchRef.current.delete(objectId);
+    objectUpdateDispatchOptionsRef.current.delete(objectId);
     const pendingTimer = objectUpdateTimersRef.current.get(objectId);
     if (pendingTimer !== undefined) {
       window.clearTimeout(pendingTimer);
@@ -6191,7 +6350,7 @@ export default function WorkbookSessionPage() {
 
   const handleSessionChatDragStart = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (isSessionChatMinimized || isSessionChatMaximized) return;
+      if (isCompactViewport || isSessionChatMinimized || isSessionChatMaximized) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("button")) return;
       const panel = sessionChatRef.current;
@@ -6205,7 +6364,7 @@ export default function WorkbookSessionPage() {
       };
       event.currentTarget.setPointerCapture?.(event.pointerId);
     },
-    [isSessionChatMaximized, isSessionChatMinimized]
+    [isCompactViewport, isSessionChatMaximized, isSessionChatMinimized]
   );
 
   const updateDocumentState = async (patch: Partial<WorkbookDocumentState>) => {
@@ -7717,8 +7876,8 @@ export default function WorkbookSessionPage() {
 
       <div
         className={`workbook-session__layout${
-          showCollaborationPanels && !isParticipantsCollapsed
-            ? ""
+          showSidebarParticipants
+            ? " workbook-session__layout--sidebar-overlay"
             : " workbook-session__layout--workspace"
         }`}
       >
@@ -8087,7 +8246,9 @@ export default function WorkbookSessionPage() {
                 void commitStrokeDelete(strokeId, targetLayer)
               }
               onObjectCreate={handleCanvasObjectCreate}
-              onObjectUpdate={(objectId, patch) => void commitObjectUpdate(objectId, patch)}
+              onObjectUpdate={(objectId, patch, options) =>
+                void commitObjectUpdate(objectId, patch, options)
+              }
               onObjectDelete={(objectId) => void commitObjectDelete(objectId)}
               onObjectContextMenu={handleObjectContextMenu}
               onShapeVertexContextMenu={handleShapeVertexContextMenu}
@@ -8328,7 +8489,7 @@ export default function WorkbookSessionPage() {
         </div>
 
         <aside className="workbook-session__sidebar">
-          {showCollaborationPanels && !isParticipantsCollapsed ? (
+          {showSidebarParticipants ? (
             <div className="workbook-session__card">
               <div className="workbook-session__participants-head">
                 <h3>
@@ -8546,7 +8707,11 @@ export default function WorkbookSessionPage() {
           {isUtilityPanelOpen ? (
           <div
             className="workbook-session__utility-float"
-            style={{ left: utilityPanelPosition.x, top: utilityPanelPosition.y }}
+            style={
+              isCompactViewport
+                ? undefined
+                : { left: utilityPanelPosition.x, top: utilityPanelPosition.y }
+            }
           >
             <div
               className="workbook-session__utility-float-head"
@@ -10623,7 +10788,7 @@ export default function WorkbookSessionPage() {
                 isSessionChatMinimized ? " is-minimized" : ""
               }${isSessionChatMaximized ? " is-maximized" : ""}`}
               style={
-                isSessionChatMaximized
+                isSessionChatMaximized || isCompactViewport
                   ? undefined
                   : { left: sessionChatPosition.x, top: sessionChatPosition.y }
               }
