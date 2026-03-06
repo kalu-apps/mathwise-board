@@ -214,6 +214,47 @@ const WORKBOOK_CHAT_EMOJIS = [
   "⏱️",
 ];
 
+const WORKBOOK_PDF_IMPORT_MAX_BYTES = 15 * 1024 * 1024;
+const WORKBOOK_IMAGE_IMPORT_MAX_BYTES = 20 * 1024 * 1024;
+const SUPPORTED_IMAGE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "jpe",
+  "jfif",
+  "pjpeg",
+  "pjp",
+  "gif",
+  "bmp",
+  "webp",
+  "svg",
+  "avif",
+  "apng",
+  "tif",
+  "tiff",
+  "ico",
+  "heic",
+  "heif",
+]);
+
+const readFileExtension = (fileName: string) => {
+  const safeName = typeof fileName === "string" ? fileName.trim().toLowerCase() : "";
+  const dotIndex = safeName.lastIndexOf(".");
+  if (dotIndex <= 0 || dotIndex >= safeName.length - 1) return "";
+  return safeName.slice(dotIndex + 1);
+};
+
+const isPdfUploadFile = (file: File) =>
+  file.type.toLowerCase().includes("pdf") || readFileExtension(file.name) === "pdf";
+
+const isImageUploadFile = (file: File) => {
+  if (file.type.toLowerCase().startsWith("image/")) return true;
+  return SUPPORTED_IMAGE_EXTENSIONS.has(readFileExtension(file.name));
+};
+
+const formatFileSizeMb = (bytes: number) =>
+  `${(Math.max(0, bytes) / (1024 * 1024)).toFixed(1)} МБ`;
+
 const parseChatTimestamp = (value: string | null | undefined) => {
   if (!value) return 0;
   const parsed = Date.parse(value);
@@ -6837,13 +6878,28 @@ export default function WorkbookSessionPage() {
       setUploadingDoc(true);
       setUploadProgress(20);
       let renderedPages: WorkbookDocumentAsset["renderedPages"] = undefined;
-      const isPdf =
-        file.type.includes("pdf") || file.name.toLowerCase().endsWith(".pdf");
-      const isImage =
-        file.type.includes("image") ||
-        /\.(png|jpe?g|gif|bmp|webp|svg)$/i.test(file.name);
+      const isPdf = isPdfUploadFile(file);
+      const isImage = isImageUploadFile(file);
       if (!isPdf && !isImage) {
-        setError("Можно загрузить только PDF или изображение.");
+        setError(
+          "Не удалось добавить файл: поддерживаются PDF и изображения (PNG, JPG, WEBP, SVG, AVIF, TIFF и другие)."
+        );
+        return;
+      }
+      if (isPdf && file.size > WORKBOOK_PDF_IMPORT_MAX_BYTES) {
+        setError(
+          `Не удалось добавить PDF: размер файла ${formatFileSizeMb(file.size)} превышает лимит ${formatFileSizeMb(
+            WORKBOOK_PDF_IMPORT_MAX_BYTES
+          )}.`
+        );
+        return;
+      }
+      if (isImage && file.size > WORKBOOK_IMAGE_IMPORT_MAX_BYTES) {
+        setError(
+          `Не удалось добавить изображение: размер файла ${formatFileSizeMb(
+            file.size
+          )} превышает лимит ${formatFileSizeMb(WORKBOOK_IMAGE_IMPORT_MAX_BYTES)}.`
+        );
         return;
       }
       const sourceDataUrl = await readFileAsDataUrl(file);
@@ -6863,6 +6919,12 @@ export default function WorkbookSessionPage() {
           maxPages: 8,
         });
         renderedPages = rendered.pages.slice(0, 8);
+        if (!renderedPages.length) {
+          setError(
+            "Не удалось добавить PDF: документ не удалось обработать. Проверьте файл или загрузите другую версию."
+          );
+          return;
+        }
       }
       setUploadProgress(68);
       const insertOffset = boardObjects.length % 6;
@@ -6880,6 +6942,12 @@ export default function WorkbookSessionPage() {
                 maxChars: 46_000,
               })
             : undefined;
+      if (isImage && !objectImageUrl) {
+        setError(
+          "Не удалось добавить изображение: браузер не смог обработать файл. Попробуйте другой формат или меньший размер."
+        );
+        return;
+      }
       const object: WorkbookBoardObject = {
         id: generateId(),
         type: objectImageUrl ? "image" : "text",
@@ -6963,8 +7031,27 @@ export default function WorkbookSessionPage() {
         folderId: null,
       });
       setUploadProgress(100);
-    } catch {
-      setError("Не удалось загрузить документ.");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 413) {
+        setError(
+          "Не удалось добавить файл: объём слишком большой для обработки. Уменьшите размер файла и повторите попытку."
+        );
+      } else if (error instanceof ApiError && error.status === 503) {
+        setError(
+          "Не удалось обработать PDF на сервере. Попробуйте позже или загрузите изображение."
+        );
+      } else if (
+        error instanceof Error &&
+        (error.message === "image_decode_failed" || error.message === "read_failed")
+      ) {
+        setError(
+          "Не удалось прочитать файл. Проверьте целостность файла или выберите другое расширение."
+        );
+      } else {
+        setError(
+          "Импорт завершился с ошибкой. Проверьте формат/размер файла и повторите попытку."
+        );
+      }
     } finally {
       setUploadingDoc(false);
       setUploadProgress(0);
