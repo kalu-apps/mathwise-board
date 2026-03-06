@@ -4412,14 +4412,14 @@ export default function WorkbookSessionPage() {
         objectWithPage.type === "image" &&
         typeof objectWithPage.imageUrl === "string" &&
         objectWithPage.imageUrl.startsWith("data:image/") &&
-        objectWithPage.imageUrl.length > 220_000
+        objectWithPage.imageUrl.length > 46_000
       ) {
         objectWithPage = {
           ...objectWithPage,
           imageUrl: await optimizeImageDataUrl(objectWithPage.imageUrl, {
-            maxEdge: 960,
-            quality: 0.68,
-            maxChars: 180_000,
+            maxEdge: 820,
+            quality: 0.58,
+            maxChars: 46_000,
           }),
         };
       }
@@ -5343,7 +5343,6 @@ export default function WorkbookSessionPage() {
         markDirty: true,
       }
     );
-    selectedTextDraftDirtyRef.current = false;
   }, [selectedObjectId, selectedTextDraft, updateSelectedTextFormatting]);
 
   const scheduleSelectedTextDraftCommit = useCallback(
@@ -6850,9 +6849,9 @@ export default function WorkbookSessionPage() {
       const sourceDataUrl = await readFileAsDataUrl(file);
       const url = isImage
         ? await optimizeImageDataUrl(sourceDataUrl, {
-            maxEdge: 1_080,
-            quality: 0.72,
-            maxChars: 300_000,
+            maxEdge: 920,
+            quality: 0.62,
+            maxChars: 46_000,
           })
         : sourceDataUrl;
       if (isPdf) {
@@ -6876,9 +6875,9 @@ export default function WorkbookSessionPage() {
           ? url
           : renderedPage?.imageUrl
             ? await optimizeImageDataUrl(renderedPage.imageUrl, {
-                maxEdge: 960,
-                quality: 0.68,
-                maxChars: 180_000,
+                maxEdge: 820,
+                quality: 0.58,
+                maxChars: 46_000,
               })
             : undefined;
       const object: WorkbookBoardObject = {
@@ -6911,11 +6910,37 @@ export default function WorkbookSessionPage() {
         uploadedAt: new Date().toISOString(),
         renderedPages,
       };
+      setDocumentState((current) => ({
+        ...current,
+        assets: current.assets.some((item) => item.id === asset.id)
+          ? current.assets
+          : [...current.assets, asset],
+        activeAssetId: asset.id,
+        page: 1,
+      }));
+      const syncedAsset: WorkbookDocumentAsset = {
+        ...asset,
+        url:
+          objectImageUrl ||
+          (isImage ? url : "data:,"),
+        renderedPages:
+          renderedPage && objectImageUrl
+            ? [
+                {
+                  id: renderedPage.id,
+                  page: renderedPage.page,
+                  imageUrl: objectImageUrl,
+                  width: renderedPage.width,
+                  height: renderedPage.height,
+                },
+              ]
+            : undefined,
+      };
       void appendEventsAndApply(
         [
           {
             type: "document.asset.add",
-            payload: { asset },
+            payload: { asset: syncedAsset },
           },
         ],
         { trackHistory: false, markDirty: false }
@@ -6960,15 +6985,15 @@ export default function WorkbookSessionPage() {
     const snapshotImageUrl =
       active.type === "image"
         ? await optimizeImageDataUrl(active.url, {
-            maxEdge: 960,
-            quality: 0.7,
-            maxChars: 180_000,
+            maxEdge: 820,
+            quality: 0.58,
+            maxChars: 46_000,
           })
         : renderedPage
           ? await optimizeImageDataUrl(renderedPage.imageUrl, {
-              maxEdge: 960,
-              quality: 0.68,
-              maxChars: 180_000,
+              maxEdge: 820,
+              quality: 0.58,
+              maxChars: 46_000,
             })
           : undefined;
     const object: WorkbookBoardObject = {
@@ -7767,10 +7792,13 @@ export default function WorkbookSessionPage() {
       typeof selectedTextObject.text === "string" ? selectedTextObject.text : "";
     if (!selectedTextDraftDirtyRef.current) {
       setSelectedTextDraft((current) => (current === nextText ? current : nextText));
+    } else if (nextText === selectedTextDraft) {
+      selectedTextDraftDirtyRef.current = false;
     }
     const nextSize = Math.max(12, Math.round(selectedTextObject.fontSize ?? 18));
     setSelectedTextFontSizeDraft((current) => (current === nextSize ? current : nextSize));
   }, [
+    selectedTextDraft,
     selectedTextObject,
     selectedTextObject?.fontSize,
     selectedTextObject?.id,
