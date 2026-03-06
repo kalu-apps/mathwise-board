@@ -1117,13 +1117,8 @@ export function WorkbookCanvas({
     const nextText = inlineTextEdit.value.replace(/\r\n/g, "\n");
     const previousText = typeof target.text === "string" ? target.text : "";
     if (nextText !== previousText) {
-      const fontSize = Math.max(12, target.fontSize ?? 18);
-      const linesCount = Math.max(1, nextText.split("\n").length);
-      const estimatedHeight = Math.max(48, Math.ceil(fontSize * linesCount * 1.3 + 12));
       onObjectUpdate(target.id, {
         text: nextText,
-        height: Math.max(target.height, estimatedHeight),
-        width: Math.max(target.width, 140),
       });
     }
     setInlineTextEdit(null);

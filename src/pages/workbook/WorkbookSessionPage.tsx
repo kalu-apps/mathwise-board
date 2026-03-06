@@ -1508,6 +1508,7 @@ export default function WorkbookSessionPage() {
   const [selectedLineEndLabelDraft, setSelectedLineEndLabelDraft] = useState("");
   const [selectedTextDraft, setSelectedTextDraft] = useState("");
   const [selectedTextFontSizeDraft, setSelectedTextFontSizeDraft] = useState(18);
+  const selectedTextDraftValueRef = useRef("");
   const selectedTextDraftObjectIdRef = useRef<string | null>(null);
   const selectedTextDraftDirtyRef = useRef(false);
   const selectedTextDraftCommitTimerRef = useRef<number | null>(null);
@@ -4520,19 +4521,10 @@ export default function WorkbookSessionPage() {
       }
     ) => {
       if (!sessionId || !canSelect) return;
-      const isPreviewOnly =
-        options?.trackHistory === false && options?.markDirty === false;
-      if (isPreviewOnly) {
-        const pendingPatch = objectPreviewQueuedPatchRef.current.get(objectId) ?? {};
-        objectPreviewQueuedPatchRef.current.set(objectId, {
-          ...pendingPatch,
-          ...patch,
-        });
-        flushPreviewObjectUpdate(objectId);
-        return;
-      }
       const currentObject = boardObjects.find((item) => item.id === objectId);
       if (!currentObject) return;
+      const isPreviewOnly =
+        options?.trackHistory === false && options?.markDirty === false;
       const merged = mergeBoardObjectWithPatch(currentObject, patch);
       const constrained = applyConstraintsForObject(merged, boardObjects);
       const shouldApplyGeometryPatch =
@@ -4549,6 +4541,20 @@ export default function WorkbookSessionPage() {
             height: constrained.height,
           }
         : patch;
+      if (isPreviewOnly) {
+        setBoardObjects((current) =>
+          current.map((item) =>
+            item.id === objectId ? mergeBoardObjectWithPatch(item, normalizedPatch) : item
+          )
+        );
+        const pendingPatch = objectPreviewQueuedPatchRef.current.get(objectId) ?? {};
+        objectPreviewQueuedPatchRef.current.set(objectId, {
+          ...pendingPatch,
+          ...normalizedPatch,
+        });
+        flushPreviewObjectUpdate(objectId);
+        return;
+      }
       setBoardObjects((current) =>
         current.map((item) =>
           item.id === objectId ? mergeBoardObjectWithPatch(item, normalizedPatch) : item
@@ -5367,7 +5373,7 @@ export default function WorkbookSessionPage() {
     [boardObjects, canSelect, commitObjectUpdate, selectedObjectId]
   );
 
-  const flushSelectedTextDraftCommit = useCallback(async () => {
+  const flushSelectedTextDraftCommit = useCallback(async (draftOverride?: string) => {
     if (!selectedObjectId) return;
     const draftObjectId = selectedTextDraftObjectIdRef.current;
     if (!draftObjectId || draftObjectId !== selectedObjectId) return;
@@ -5375,27 +5381,51 @@ export default function WorkbookSessionPage() {
       window.clearTimeout(selectedTextDraftCommitTimerRef.current);
       selectedTextDraftCommitTimerRef.current = null;
     }
-    const textValue = selectedTextDraft;
+    const textValue = (draftOverride ?? selectedTextDraftValueRef.current).replace(
+      /\r\n/g,
+      "\n"
+    );
+    const selectedTextObject =
+      boardObjects.find((item) => item.id === selectedObjectId) ?? null;
+    if (selectedTextObject?.type !== "text") return;
+    const currentValue =
+      typeof selectedTextObject.text === "string" ? selectedTextObject.text : "";
+    if (currentValue === textValue) {
+      selectedTextDraftDirtyRef.current = false;
+      return;
+    }
     await updateSelectedTextFormatting(
-      { text: textValue.replace(/\r\n/g, "\n") },
+      { text: textValue },
       undefined,
       {
         trackHistory: true,
         markDirty: true,
       }
     );
-  }, [selectedObjectId, selectedTextDraft, updateSelectedTextFormatting]);
+  }, [boardObjects, selectedObjectId, updateSelectedTextFormatting]);
 
   const scheduleSelectedTextDraftCommit = useCallback(
     (value: string) => {
       if (!selectedObjectId) return;
+      const normalizedValue = value.replace(/\r\n/g, "\n");
+      selectedTextDraftValueRef.current = normalizedValue;
       selectedTextDraftObjectIdRef.current = selectedObjectId;
       selectedTextDraftDirtyRef.current = true;
       if (selectedTextDraftCommitTimerRef.current !== null) {
         window.clearTimeout(selectedTextDraftCommitTimerRef.current);
       }
+      const selectedTextObject =
+        boardObjects.find((item) => item.id === selectedObjectId) ?? null;
+      const currentValue =
+        selectedTextObject?.type === "text" && typeof selectedTextObject.text === "string"
+          ? selectedTextObject.text
+          : "";
+      if (currentValue === normalizedValue) {
+        selectedTextDraftDirtyRef.current = false;
+        return;
+      }
       void updateSelectedTextFormatting(
-        { text: value.replace(/\r\n/g, "\n") },
+        { text: normalizedValue },
         undefined,
         {
           trackHistory: false,
@@ -5403,10 +5433,15 @@ export default function WorkbookSessionPage() {
         }
       );
       selectedTextDraftCommitTimerRef.current = window.setTimeout(() => {
-        void flushSelectedTextDraftCommit();
-      }, 320);
+        void flushSelectedTextDraftCommit(normalizedValue);
+      }, 180);
     },
-    [flushSelectedTextDraftCommit, selectedObjectId, updateSelectedTextFormatting]
+    [
+      boardObjects,
+      flushSelectedTextDraftCommit,
+      selectedObjectId,
+      updateSelectedTextFormatting,
+    ]
   );
 
   const normalizeGraphExpressionDraft = useCallback(
@@ -7860,6 +7895,10 @@ export default function WorkbookSessionPage() {
   ]);
 
   useEffect(() => {
+    selectedTextDraftValueRef.current = selectedTextDraft;
+  }, [selectedTextDraft]);
+
+  useEffect(() => {
     if (!selectedTextObject) {
       selectedTextDraftObjectIdRef.current = null;
       selectedTextDraftDirtyRef.current = false;
@@ -8899,8 +8938,11 @@ export default function WorkbookSessionPage() {
                 });
               }}
               onInlineTextDraftChange={(objectId, value) => {
-                if (selectedObjectId !== objectId) return;
+                const selectedTextTarget =
+                  boardObjects.find((item) => item.id === objectId) ?? null;
+                if (!selectedTextTarget || selectedTextTarget.type !== "text") return;
                 setSelectedTextDraft((current) => (current === value ? current : value));
+                scheduleSelectedTextDraftCommit(value);
               }}
               onRequestSelectTool={() => setTool("select")}
               onLaserPoint={(point) => void handleLaserPoint(point)}
