@@ -1031,8 +1031,8 @@ const optimizeImageDataUrl = async (
   for (let attempt = 0; attempt < 7; attempt += 1) {
     nextQuality = Math.max(0.42, nextQuality * 0.86);
     if (attempt % 2 === 1) {
-      targetWidth = Math.max(480, Math.round(targetWidth * 0.84));
-      targetHeight = Math.max(320, Math.round(targetHeight * 0.84));
+      targetWidth = Math.max(320, Math.round(targetWidth * 0.84));
+      targetHeight = Math.max(180, Math.round(targetHeight * 0.84));
     }
     const candidate = renderCandidate(targetWidth, targetHeight, nextQuality);
     if (candidate && candidate.length < best.length) {
@@ -1469,6 +1469,9 @@ export default function WorkbookSessionPage() {
   const [selectedLineEndLabelDraft, setSelectedLineEndLabelDraft] = useState("");
   const [selectedTextDraft, setSelectedTextDraft] = useState("");
   const [selectedTextFontSizeDraft, setSelectedTextFontSizeDraft] = useState(18);
+  const selectedTextDraftObjectIdRef = useRef<string | null>(null);
+  const selectedTextDraftDirtyRef = useRef(false);
+  const selectedTextDraftCommitTimerRef = useRef<number | null>(null);
   const [shapeVertexLabelDrafts, setShapeVertexLabelDrafts] = useState<string[]>([]);
   const [shapeAngleNoteDrafts, setShapeAngleNoteDrafts] = useState<string[]>([]);
   const [shapeSegmentNoteDrafts, setShapeSegmentNoteDrafts] = useState<string[]>([]);
@@ -4399,7 +4402,7 @@ export default function WorkbookSessionPage() {
       if (!sessionId || !canDraw) return;
       const currentMeta =
         object.meta && typeof object.meta === "object" ? object.meta : {};
-      const objectWithPage: WorkbookBoardObject = {
+      let objectWithPage: WorkbookBoardObject = {
         ...object,
         page: object.page ?? boardSettings.currentPage,
         meta: {
@@ -4407,6 +4410,21 @@ export default function WorkbookSessionPage() {
           sceneLayerId: activeSceneLayerId,
         },
       };
+      if (
+        objectWithPage.type === "image" &&
+        typeof objectWithPage.imageUrl === "string" &&
+        objectWithPage.imageUrl.startsWith("data:image/") &&
+        objectWithPage.imageUrl.length > 220_000
+      ) {
+        objectWithPage = {
+          ...objectWithPage,
+          imageUrl: await optimizeImageDataUrl(objectWithPage.imageUrl, {
+            maxEdge: 960,
+            quality: 0.68,
+            maxChars: 180_000,
+          }),
+        };
+      }
       setBoardObjects((current) =>
         current.some((item) => item.id === objectWithPage.id)
           ? current
@@ -5281,25 +5299,76 @@ export default function WorkbookSessionPage() {
         textItalic: boolean;
         textUnderline: boolean;
         textAlign: "left" | "center" | "right";
-      }>
+      }>,
+      options?: {
+        trackHistory?: boolean;
+        markDirty?: boolean;
+      }
     ) => {
       if (!selectedObjectId || !canSelect) return;
       const selectedTextObject =
         boardObjects.find((item) => item.id === selectedObjectId) ?? null;
       if (!selectedTextObject || selectedTextObject.type !== "text") return;
-      await commitObjectUpdate(selectedTextObject.id, {
-        ...patch,
-        ...(metaPatch
-          ? {
-              meta: {
-                ...(selectedTextObject.meta ?? {}),
-                ...metaPatch,
-              },
-            }
-          : {}),
-      });
+      await commitObjectUpdate(
+        selectedTextObject.id,
+        {
+          ...patch,
+          ...(metaPatch
+            ? {
+                meta: {
+                  ...(selectedTextObject.meta ?? {}),
+                  ...metaPatch,
+                },
+              }
+            : {}),
+        },
+        options
+      );
     },
     [boardObjects, canSelect, commitObjectUpdate, selectedObjectId]
+  );
+
+  const flushSelectedTextDraftCommit = useCallback(async () => {
+    if (!selectedObjectId) return;
+    const draftObjectId = selectedTextDraftObjectIdRef.current;
+    if (!draftObjectId || draftObjectId !== selectedObjectId) return;
+    if (selectedTextDraftCommitTimerRef.current !== null) {
+      window.clearTimeout(selectedTextDraftCommitTimerRef.current);
+      selectedTextDraftCommitTimerRef.current = null;
+    }
+    const textValue = selectedTextDraft;
+    await updateSelectedTextFormatting(
+      { text: textValue.replace(/\r\n/g, "\n") },
+      undefined,
+      {
+        trackHistory: true,
+        markDirty: true,
+      }
+    );
+    selectedTextDraftDirtyRef.current = false;
+  }, [selectedObjectId, selectedTextDraft, updateSelectedTextFormatting]);
+
+  const scheduleSelectedTextDraftCommit = useCallback(
+    (value: string) => {
+      if (!selectedObjectId) return;
+      selectedTextDraftObjectIdRef.current = selectedObjectId;
+      selectedTextDraftDirtyRef.current = true;
+      if (selectedTextDraftCommitTimerRef.current !== null) {
+        window.clearTimeout(selectedTextDraftCommitTimerRef.current);
+      }
+      void updateSelectedTextFormatting(
+        { text: value.replace(/\r\n/g, "\n") },
+        undefined,
+        {
+          trackHistory: false,
+          markDirty: false,
+        }
+      );
+      selectedTextDraftCommitTimerRef.current = window.setTimeout(() => {
+        void flushSelectedTextDraftCommit();
+      }, 180);
+    },
+    [flushSelectedTextDraftCommit, selectedObjectId, updateSelectedTextFormatting]
   );
 
   const normalizeGraphExpressionDraft = useCallback(
@@ -6783,9 +6852,9 @@ export default function WorkbookSessionPage() {
       const sourceDataUrl = await readFileAsDataUrl(file);
       const url = isImage
         ? await optimizeImageDataUrl(sourceDataUrl, {
-            maxEdge: 1_280,
-            quality: 0.76,
-            maxChars: 420_000,
+            maxEdge: 1_080,
+            quality: 0.72,
+            maxChars: 300_000,
           })
         : sourceDataUrl;
       if (isPdf) {
@@ -6809,9 +6878,9 @@ export default function WorkbookSessionPage() {
           ? url
           : renderedPage?.imageUrl
             ? await optimizeImageDataUrl(renderedPage.imageUrl, {
-                maxEdge: 1_120,
-                quality: 0.72,
-                maxChars: 360_000,
+                maxEdge: 960,
+                quality: 0.68,
+                maxChars: 180_000,
               })
             : undefined;
       const object: WorkbookBoardObject = {
@@ -6893,15 +6962,15 @@ export default function WorkbookSessionPage() {
     const snapshotImageUrl =
       active.type === "image"
         ? await optimizeImageDataUrl(active.url, {
-            maxEdge: 1_120,
-            quality: 0.74,
-            maxChars: 360_000,
+            maxEdge: 960,
+            quality: 0.7,
+            maxChars: 180_000,
           })
         : renderedPage
           ? await optimizeImageDataUrl(renderedPage.imageUrl, {
-              maxEdge: 1_120,
-              quality: 0.72,
-              maxChars: 360_000,
+              maxEdge: 960,
+              quality: 0.68,
+              maxChars: 180_000,
             })
           : undefined;
     const object: WorkbookBoardObject = {
@@ -7682,15 +7751,46 @@ export default function WorkbookSessionPage() {
 
   useEffect(() => {
     if (!selectedTextObject) {
+      selectedTextDraftObjectIdRef.current = null;
+      selectedTextDraftDirtyRef.current = false;
+      if (selectedTextDraftCommitTimerRef.current !== null) {
+        window.clearTimeout(selectedTextDraftCommitTimerRef.current);
+        selectedTextDraftCommitTimerRef.current = null;
+      }
       setSelectedTextDraft("");
       return;
     }
+    const selectedId = selectedTextObject.id;
+    if (selectedTextDraftObjectIdRef.current !== selectedId) {
+      selectedTextDraftObjectIdRef.current = selectedId;
+      selectedTextDraftDirtyRef.current = false;
+    }
     const nextText =
       typeof selectedTextObject.text === "string" ? selectedTextObject.text : "";
-    setSelectedTextDraft((current) => (current === nextText ? current : nextText));
+    if (!selectedTextDraftDirtyRef.current) {
+      setSelectedTextDraft((current) => (current === nextText ? current : nextText));
+    } else if (nextText === selectedTextDraft) {
+      selectedTextDraftDirtyRef.current = false;
+    }
     const nextSize = Math.max(12, Math.round(selectedTextObject.fontSize ?? 18));
     setSelectedTextFontSizeDraft((current) => (current === nextSize ? current : nextSize));
-  }, [selectedTextObject, selectedTextObject?.fontSize, selectedTextObject?.id, selectedTextObject?.text]);
+  }, [
+    selectedTextDraft,
+    selectedTextObject,
+    selectedTextObject?.fontSize,
+    selectedTextObject?.id,
+    selectedTextObject?.text,
+  ]);
+
+  useEffect(
+    () => () => {
+      if (selectedTextDraftCommitTimerRef.current !== null) {
+        window.clearTimeout(selectedTextDraftCommitTimerRef.current);
+        selectedTextDraftCommitTimerRef.current = null;
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     if (!selectedFunctionGraphObject) {
@@ -10522,7 +10622,10 @@ export default function WorkbookSessionPage() {
                       if (!selectedTextObject) return;
                       const nextValue = event.target.value;
                       setSelectedTextDraft(nextValue);
-                      void updateSelectedTextFormatting({ text: nextValue });
+                      scheduleSelectedTextDraftCommit(nextValue);
+                    }}
+                    onBlur={() => {
+                      void flushSelectedTextDraftCommit();
                     }}
                   />
                   <div className="workbook-session__settings-row">

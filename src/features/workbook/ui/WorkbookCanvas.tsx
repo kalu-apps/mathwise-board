@@ -2286,6 +2286,7 @@ export function WorkbookCanvas({
               center,
               startLocal: hit,
             });
+            onAreaSelectionChange?.(null);
             svg.setPointerCapture(event.pointerId);
             return;
           }
@@ -2293,6 +2294,7 @@ export function WorkbookCanvas({
         if (selected.type !== "solid3d") {
           const resizeMode = resolveResizeMode(selected, point);
           if (resizeMode) {
+            onAreaSelectionChange?.(null);
             startResizing(selected, resizeMode, event, svg);
             return;
           }
@@ -2330,10 +2332,12 @@ export function WorkbookCanvas({
       const target = resolveTopObject(point);
       onSelectedConstraintChange(null);
       if (target && !target.pinned) {
+        onAreaSelectionChange?.(null);
         onSelectedObjectChange(target.id);
         startMoving(target, event, svg);
       } else {
         onSelectedObjectChange(null);
+        onAreaSelectionChange?.(null);
         pointerIdRef.current = event.pointerId;
         setAreaSelectionDraft({
           start: point,
@@ -3681,6 +3685,7 @@ export function WorkbookCanvas({
           ? object.meta.textAlign
           : "left";
       const textLines = (object.text ?? "Текст").split("\n");
+      const clipId = `wb-text-clip-${object.id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
       const textAnchor =
         textAlign === "center" ? "middle" : textAlign === "right" ? "end" : "start";
       const textX =
@@ -3733,16 +3738,6 @@ export function WorkbookCanvas({
                           ? { ...current, value: nextValue }
                           : current
                       );
-                      onObjectUpdate(
-                        object.id,
-                        {
-                          text: nextValue.replace(/\r\n/g, "\n"),
-                        },
-                        {
-                          trackHistory: false,
-                          markDirty: false,
-                        }
-                      );
                       onInlineTextDraftChange?.(object.id, nextValue);
                     }
                   }
@@ -3775,28 +3770,43 @@ export function WorkbookCanvas({
               </div>
             </foreignObject>
           ) : (
-            <text
-              x={textX}
-              y={normalized.y + fontSize + 4}
-              fill={textColor}
-              fontSize={fontSize}
-              fontFamily={fontFamily}
-              fontWeight={fontWeight}
-              fontStyle={fontStyle}
-              textDecoration={textDecoration}
-              textAnchor={textAnchor}
-              style={{ userSelect: "none" }}
-            >
-              {textLines.map((line, index) => (
-                <tspan
-                  key={`${object.id}-text-line-${index}`}
-                  x={textX}
-                  dy={index === 0 ? 0 : fontSize * 1.25}
-                >
-                  {line || " "}
-                </tspan>
-              ))}
-            </text>
+            <>
+              <defs>
+                <clipPath id={clipId}>
+                  <rect
+                    x={normalized.x + 4}
+                    y={normalized.y + 4}
+                    width={Math.max(1, normalized.width - 8)}
+                    height={Math.max(1, normalized.height - 8)}
+                    rx={4}
+                    ry={4}
+                  />
+                </clipPath>
+              </defs>
+              <text
+                x={textX}
+                y={normalized.y + fontSize + 4}
+                fill={textColor}
+                fontSize={fontSize}
+                fontFamily={fontFamily}
+                fontWeight={fontWeight}
+                fontStyle={fontStyle}
+                textDecoration={textDecoration}
+                textAnchor={textAnchor}
+                clipPath={`url(#${clipId})`}
+                style={{ userSelect: "none" }}
+              >
+                {textLines.map((line, index) => (
+                  <tspan
+                    key={`${object.id}-text-line-${index}`}
+                    x={textX}
+                    dy={index === 0 ? 0 : fontSize * 1.25}
+                  >
+                    {line || " "}
+                  </tspan>
+                ))}
+              </text>
+            </>
           )}
         </g>
       );
