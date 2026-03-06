@@ -198,6 +198,21 @@ export async function appendWorkbookEvents(params: {
   );
 }
 
+export async function appendWorkbookPreview(params: {
+  sessionId: string;
+  objectId: string;
+  patch: Partial<Record<string, unknown>>;
+}) {
+  return api.post<{ ok: true }>(
+    `/workbook/sessions/${encodeURIComponent(params.sessionId)}/events/preview`,
+    {
+      objectId: params.objectId,
+      patch: params.patch,
+    },
+    { notifyDataUpdate: false }
+  );
+}
+
 export async function getWorkbookSnapshot(sessionId: string, layer: WorkbookLayer) {
   const query = new URLSearchParams({ layer }).toString();
   return api.get<WorkbookSnapshot | null>(

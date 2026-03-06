@@ -401,6 +401,7 @@ export type WorkbookEventType =
   | "board.stroke"
   | "board.stroke.delete"
   | "board.object.create"
+  | "board.object.preview"
   | "board.object.update"
   | "board.object.delete"
   | "board.object.pin"

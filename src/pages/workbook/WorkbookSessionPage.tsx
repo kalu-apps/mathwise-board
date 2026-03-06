@@ -91,6 +91,7 @@ import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
 import { useAuth } from "@/features/auth/model/AuthContext";
 import {
   appendWorkbookEvents,
+  appendWorkbookPreview,
   createWorkbookInvite,
   getWorkbookEvents,
   getWorkbookSession,
@@ -176,6 +177,7 @@ const POLL_INTERVAL_STREAM_CONNECTED_MS = 1_400;
 const PRESENCE_INTERVAL_MS = 3_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 70;
+const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 42;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
@@ -273,7 +275,7 @@ const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
     pendingByObjectId.clear();
   };
   events.forEach((event) => {
-    if (event.type === "board.object.update") {
+    if (event.type === "board.object.update" || event.type === "board.object.preview") {
       const payload =
         event.payload && typeof event.payload === "object"
           ? (event.payload as { objectId?: unknown; patch?: unknown })
@@ -327,6 +329,17 @@ const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
   });
   flushPending();
   return compacted;
+};
+
+const resolveNextLatestSeq = (
+  currentLatestSeq: number,
+  responseLatestSeq: number,
+  events: WorkbookEvent[]
+) => {
+  if (events.length === 0) {
+    return Math.max(currentLatestSeq, responseLatestSeq);
+  }
+  return Math.max(currentLatestSeq, ...events.map((event) => event.seq));
 };
 
 const DEFAULT_SETTINGS: WorkbookSessionSettings = {
@@ -1480,6 +1493,10 @@ export default function WorkbookSessionPage() {
   const objectUpdateDispatchOptionsRef = useRef<
     Map<string, { trackHistory: boolean; markDirty: boolean }>
   >(new Map());
+  const objectPreviewQueuedPatchRef = useRef<
+    Map<string, Partial<WorkbookBoardObject>>
+  >(new Map());
+  const objectPreviewTimersRef = useRef<Map<string, number>>(new Map());
   const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const makingOfferPeerIdsRef = useRef<Set<string>>(new Set());
 
@@ -2247,6 +2264,28 @@ export default function WorkbookSessionPage() {
           });
           return;
         }
+        if (event.type === "board.object.preview") {
+          const payload = event.payload as {
+            objectId?: unknown;
+            patch?: unknown;
+          };
+          const objectId = typeof payload.objectId === "string" ? payload.objectId : "";
+          const patch =
+            payload.patch && typeof payload.patch === "object"
+              ? (payload.patch as Partial<WorkbookBoardObject>)
+              : null;
+          if (!objectId || !patch) return;
+          setBoardObjects((current) => {
+            let found = false;
+            const next = current.map((item) => {
+              if (item.id !== objectId) return item;
+              found = true;
+              return mergeBoardObjectWithPatch(item, patch);
+            });
+            return found ? next : current;
+          });
+          return;
+        }
         if (event.type === "board.object.delete") {
           const objectId = (event.payload as { objectId?: unknown })?.objectId;
           if (typeof objectId !== "string") return;
@@ -2284,9 +2323,14 @@ export default function WorkbookSessionPage() {
           objectUpdateTimersRef.current.forEach((timerId) => {
             window.clearTimeout(timerId);
           });
+          objectPreviewTimersRef.current.forEach((timerId) => {
+            window.clearTimeout(timerId);
+          });
           objectUpdateTimersRef.current.clear();
           objectUpdateInFlightRef.current.clear();
           objectUpdateDispatchOptionsRef.current.clear();
+          objectPreviewTimersRef.current.clear();
+          objectPreviewQueuedPatchRef.current.clear();
           setConstraints([]);
           setSelectedObjectId(null);
           setSelectedConstraintId(null);
@@ -2802,10 +2846,10 @@ export default function WorkbookSessionPage() {
         if (unseenEvents.length > 0) {
           applyIncomingEvents(unseenEvents);
         }
-        const nextLatest = Math.max(
+        const nextLatest = resolveNextLatestSeq(
           latestSeqRef.current,
           response.latestSeq,
-          ...unseenEvents.map((event) => event.seq)
+          unseenEvents
         );
         if (nextLatest > latestSeqRef.current) {
           latestSeqRef.current = nextLatest;
@@ -2844,10 +2888,10 @@ export default function WorkbookSessionPage() {
         if (unseenEvents.length > 0) {
           applyIncomingEvents(unseenEvents);
         }
-        const nextLatest = Math.max(
+        const nextLatest = resolveNextLatestSeq(
           latestSeqRef.current,
           payload.latestSeq,
-          ...unseenEvents.map((event) => event.seq)
+          unseenEvents
         );
         if (nextLatest > latestSeqRef.current) {
           latestSeqRef.current = nextLatest;
@@ -3389,10 +3433,15 @@ export default function WorkbookSessionPage() {
       objectUpdateTimersRef.current.forEach((timerId) => {
         window.clearTimeout(timerId);
       });
+      objectPreviewTimersRef.current.forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
       objectUpdateTimersRef.current.clear();
       objectUpdateQueuedPatchRef.current.clear();
       objectUpdateInFlightRef.current.clear();
       objectUpdateDispatchOptionsRef.current.clear();
+      objectPreviewTimersRef.current.clear();
+      objectPreviewQueuedPatchRef.current.clear();
     },
     []
   );
@@ -3430,10 +3479,10 @@ export default function WorkbookSessionPage() {
         if (unseenEvents.length > 0) {
           applyIncomingEvents(unseenEvents);
         }
-        const nextLatest = Math.max(
+        const nextLatest = resolveNextLatestSeq(
           latestSeqRef.current,
           response.latestSeq,
-          ...unseenEvents.map((event) => event.seq)
+          unseenEvents
         );
         if (nextLatest > latestSeqRef.current) {
           latestSeqRef.current = nextLatest;
@@ -3457,6 +3506,30 @@ export default function WorkbookSessionPage() {
       rollbackHistorySnapshot,
       sessionId,
     ]
+  );
+
+  const flushPreviewObjectUpdate = useCallback(
+    (objectId: string) => {
+      if (objectPreviewTimersRef.current.has(objectId)) return;
+      const timerId = window.setTimeout(() => {
+        objectPreviewTimersRef.current.delete(objectId);
+        const queuedPatch = objectPreviewQueuedPatchRef.current.get(objectId);
+        if (!queuedPatch || !sessionId || !canSelect) return;
+        objectPreviewQueuedPatchRef.current.delete(objectId);
+        void appendWorkbookPreview({
+          sessionId,
+          objectId,
+          patch: queuedPatch as Partial<Record<string, unknown>>,
+        }).catch(() => {
+          // ignore preview delivery errors: final committed patch will reconcile state
+        });
+        if (objectPreviewQueuedPatchRef.current.has(objectId)) {
+          flushPreviewObjectUpdate(objectId);
+        }
+      }, OBJECT_PREVIEW_FLUSH_INTERVAL_MS);
+      objectPreviewTimersRef.current.set(objectId, timerId);
+    },
+    [canSelect, sessionId]
   );
 
   const flushQueuedObjectUpdate = useCallback(
@@ -4179,6 +4252,17 @@ export default function WorkbookSessionPage() {
       }
     ) => {
       if (!sessionId || !canSelect) return;
+      const isPreviewOnly =
+        options?.trackHistory === false && options?.markDirty === false;
+      if (isPreviewOnly) {
+        const pendingPatch = objectPreviewQueuedPatchRef.current.get(objectId) ?? {};
+        objectPreviewQueuedPatchRef.current.set(objectId, {
+          ...pendingPatch,
+          ...patch,
+        });
+        flushPreviewObjectUpdate(objectId);
+        return;
+      }
       const currentObject = boardObjects.find((item) => item.id === objectId);
       if (!currentObject) return;
       const merged = mergeBoardObjectWithPatch(currentObject, patch);
@@ -4223,6 +4307,7 @@ export default function WorkbookSessionPage() {
       applyConstraintsForObject,
       boardObjects,
       canSelect,
+      flushPreviewObjectUpdate,
       flushQueuedObjectUpdate,
       sessionId,
     ]
@@ -4232,10 +4317,16 @@ export default function WorkbookSessionPage() {
     if (!sessionId || !canDelete) return;
     objectUpdateQueuedPatchRef.current.delete(objectId);
     objectUpdateDispatchOptionsRef.current.delete(objectId);
+    objectPreviewQueuedPatchRef.current.delete(objectId);
     const pendingTimer = objectUpdateTimersRef.current.get(objectId);
     if (pendingTimer !== undefined) {
       window.clearTimeout(pendingTimer);
       objectUpdateTimersRef.current.delete(objectId);
+    }
+    const previewTimer = objectPreviewTimersRef.current.get(objectId);
+    if (previewTimer !== undefined) {
+      window.clearTimeout(previewTimer);
+      objectPreviewTimersRef.current.delete(objectId);
     }
     objectUpdateInFlightRef.current.delete(objectId);
     const targetObject = boardObjects.find((item) => item.id === objectId);

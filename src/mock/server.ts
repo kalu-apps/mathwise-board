@@ -7535,6 +7535,9 @@ export function setupMockServer(server: ServerWithMiddlewares) {
       const workbookEventsMatch = path.match(
         /^\/api\/workbook\/sessions\/([^/]+)\/events$/
       );
+      const workbookEventsPreviewMatch = path.match(
+        /^\/api\/workbook\/sessions\/([^/]+)\/events\/preview$/
+      );
       const workbookEventsStreamMatch = path.match(
         /^\/api\/workbook\/sessions\/([^/]+)\/events\/stream$/
       );
@@ -7675,6 +7678,9 @@ export function setupMockServer(server: ServerWithMiddlewares) {
           .map((candidate) => {
             const type = typeof candidate.type === "string" ? candidate.type : "";
             if (!type) return null;
+            if (type === "board.object.preview") {
+              return null;
+            }
             let normalizedPayload = candidate.payload ?? {};
             if (type === "board.stroke" && !permissions.canDraw) return null;
             if (type === "annotations.stroke" && !permissions.canAnnotate) return null;
@@ -7974,6 +7980,61 @@ export function setupMockServer(server: ServerWithMiddlewares) {
           latestSeq: created[created.length - 1].seq,
           events: serializedEvents,
         });
+      }
+
+      if (workbookEventsPreviewMatch && method === "POST") {
+        if (!actorUser) {
+          return json(res, 401, { error: "Требуется авторизация." });
+        }
+        const sessionId = decodeURIComponent(workbookEventsPreviewMatch[1]);
+        const session = getWorkbookSessionById(db, sessionId);
+        if (!session) return json(res, 404, { error: "Сессия не найдена." });
+        const participant = getWorkbookParticipant(db, sessionId, actorUser.id);
+        if (!participant) return json(res, 403, { error: "Нет доступа к сессии." });
+        const permissions = parseWorkbookPermissions(
+          participant.permissions,
+          actorUser.role,
+          session.kind
+        );
+        if (!permissions.canSelect || !permissions.canDraw) {
+          return json(res, 403, { error: "Недостаточно прав на редактирование объекта." });
+        }
+        const body = (await readBody(req)) as {
+          objectId?: unknown;
+          patch?: unknown;
+        };
+        const objectId = typeof body?.objectId === "string" ? body.objectId.trim() : "";
+        const patch =
+          body?.patch && typeof body.patch === "object"
+            ? (body.patch as Record<string, unknown>)
+            : null;
+        if (!objectId || !patch) {
+          return json(res, 400, { error: "Некорректный preview-патч объекта." });
+        }
+        const timestamp = nowIso();
+        participant.lastSeenAt = timestamp;
+        participant.isActive = true;
+        participant.leftAt = null;
+        touchWorkbookSessionActivity(session, timestamp);
+        const latestSeq = getWorkbookLatestSeq(db, sessionId);
+        const previewEvent = {
+          id: ensureId(),
+          sessionId,
+          seq: latestSeq,
+          authorUserId: actorUser.id,
+          type: "board.object.preview",
+          payload: {
+            objectId,
+            patch,
+          },
+          createdAt: timestamp,
+        };
+        publishWorkbookStreamEvents(db, {
+          sessionId,
+          latestSeq,
+          events: [previewEvent],
+        });
+        return json(res, 200, { ok: true });
       }
 
       const workbookSnapshotMatch = path.match(
