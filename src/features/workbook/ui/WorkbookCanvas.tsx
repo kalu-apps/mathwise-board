@@ -75,6 +75,8 @@ type WorkbookCanvasProps = {
   selectedConstraintId: string | null;
   focusPoint?: WorkbookPoint | null;
   pointerPoint?: WorkbookPoint | null;
+  focusPoints?: WorkbookPoint[];
+  pointerPoints?: WorkbookPoint[];
   viewportOffset?: WorkbookPoint;
   onViewportOffsetChange?: (offset: WorkbookPoint) => void;
   forcePanMode?: boolean;
@@ -933,6 +935,8 @@ export function WorkbookCanvas({
   selectedConstraintId,
   focusPoint,
   pointerPoint,
+  focusPoints = [],
+  pointerPoints = [],
   viewportOffset = { x: 0, y: 0 },
   onViewportOffsetChange,
   forcePanMode = false,
@@ -996,6 +1000,29 @@ export function WorkbookCanvas({
     0.3,
     Math.min(3, Number.isFinite(viewportZoom) ? viewportZoom : 1)
   );
+  const effectiveFocusPoints = useMemo(() => {
+    const base = focusPoints.length > 0 ? focusPoints : focusPoint ? [focusPoint] : [];
+    if (base.length <= 1) return base;
+    const seen = new Set<string>();
+    return base.filter((point) => {
+      const key = `${Math.round(point.x)}:${Math.round(point.y)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [focusPoint, focusPoints]);
+  const effectivePointerPoints = useMemo(() => {
+    const base =
+      pointerPoints.length > 0 ? pointerPoints : pointerPoint ? [pointerPoint] : [];
+    if (base.length <= 1) return base;
+    const seen = new Set<string>();
+    return base.filter((point) => {
+      const key = `${Math.round(point.x)}:${Math.round(point.y)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [pointerPoint, pointerPoints]);
 
   const flushStrokePointsToState = useCallback(() => {
     strokeFlushFrameRef.current = null;
@@ -3247,8 +3274,31 @@ export function WorkbookCanvas({
       const segmentColorsRaw = Array.isArray(object.meta?.segmentColors)
         ? object.meta.segmentColors
         : [];
+      const segmentDash =
+        object.meta?.lineStyle === "dashed" ? `${Math.max(4, (object.strokeWidth ?? 2) * 2.2)} ${Math.max(3, (object.strokeWidth ?? 2) * 1.8)}` : undefined;
       return (
         <>
+          {segments.map((segment, index) => {
+            const segmentColor =
+              typeof segmentColorsRaw[index] === "string" && segmentColorsRaw[index]
+                ? segmentColorsRaw[index]
+                : object.color ?? "#4f63ff";
+            return (
+              <line
+                key={`${object.id}-segment-color-${index}`}
+                x1={segment.start.x}
+                y1={segment.start.y}
+                x2={segment.end.x}
+                y2={segment.end.y}
+                stroke={segmentColor}
+                strokeWidth={Math.max(1, (object.strokeWidth ?? 2) * 0.92)}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeDasharray={segmentDash}
+                opacity={0.98}
+              />
+            );
+          })}
           {vertices.map((vertex, index) => (
             <g key={`${object.id}-vertex-label-${index}`}>
               {(() => {
@@ -5192,11 +5242,17 @@ export function WorkbookCanvas({
     : null;
   const selectedPreviewObject = (() => {
     if (!selectedObject) return null;
-    let preview: WorkbookBoardObject = { ...selectedObject };
-    if (selectedObject.type === "solid3d" && solid3dPreviewMetaById[selectedObject.id]) {
+    const interactionSource =
+      (moving && moving.object.id === selectedObject.id && moving.object) ||
+      (resizing && resizing.object.id === selectedObject.id && resizing.object) ||
+      (graphPan && graphPan.object.id === selectedObject.id && graphPan.object) ||
+      (solid3dResize && solid3dResize.object.id === selectedObject.id && solid3dResize.object) ||
+      selectedObject;
+    let preview: WorkbookBoardObject = { ...interactionSource };
+    if (interactionSource.type === "solid3d" && solid3dPreviewMetaById[interactionSource.id]) {
       preview = {
         ...preview,
-        meta: solid3dPreviewMetaById[selectedObject.id],
+        meta: solid3dPreviewMetaById[interactionSource.id],
       };
     }
     if (moving && moving.object.id === selectedObject.id) {
@@ -5204,23 +5260,23 @@ export function WorkbookCanvas({
       const deltaY = moving.current.y - moving.start.y;
       preview = {
         ...preview,
-        x: selectedObject.x + deltaX,
-        y: selectedObject.y + deltaY,
-        points: Array.isArray(selectedObject.points)
-          ? selectedObject.points.map((point) => ({
+        x: moving.object.x + deltaX,
+        y: moving.object.y + deltaY,
+        points: Array.isArray(moving.object.points)
+          ? moving.object.points.map((point) => ({
               x: point.x + deltaX,
               y: point.y + deltaY,
             }))
-          : selectedObject.points,
+          : moving.object.points,
       };
     }
     if (graphPan && graphPan.object.id === selectedObject.id) {
       const deltaX = graphPan.current.x - graphPan.start.x;
       const deltaY = graphPan.current.y - graphPan.start.y;
       preview = {
-        ...preview,
+        ...graphPan.object,
         meta: {
-          ...(preview.meta ?? {}),
+          ...(graphPan.object.meta ?? {}),
           functions: applyGraphPanToFunctions(
             graphPan.initialFunctions,
             deltaX,
@@ -5235,16 +5291,16 @@ export function WorkbookCanvas({
       if (resizing.mode === "line-start") {
         preview = {
           ...preview,
-          x: selectedObject.x + (resizing.current.x - resizing.start.x),
-          y: selectedObject.y + (resizing.current.y - resizing.start.y),
-          width: selectedObject.width - (resizing.current.x - resizing.start.x),
-          height: selectedObject.height - (resizing.current.y - resizing.start.y),
+          x: resizing.object.x + (resizing.current.x - resizing.start.x),
+          y: resizing.object.y + (resizing.current.y - resizing.start.y),
+          width: resizing.object.width - (resizing.current.x - resizing.start.x),
+          height: resizing.object.height - (resizing.current.y - resizing.start.y),
         };
       } else if (resizing.mode === "line-end") {
         preview = {
           ...preview,
-          width: selectedObject.width + (resizing.current.x - resizing.start.x),
-          height: selectedObject.height + (resizing.current.y - resizing.start.y),
+          width: resizing.object.width + (resizing.current.x - resizing.start.x),
+          height: resizing.object.height + (resizing.current.y - resizing.start.y),
         };
       } else if (
         resizing.mode === "n" ||
@@ -5475,6 +5531,22 @@ export function WorkbookCanvas({
   const isLiveInteractionActive = Boolean(
     moving || resizing || graphPan || solid3dGesture || solid3dResize
   );
+  const realtimePatchBaseObject = useMemo(() => {
+    if (!selectedObject) return null;
+    if (moving && moving.object.id === selectedObject.id) {
+      return moving.object;
+    }
+    if (resizing && resizing.object.id === selectedObject.id) {
+      return resizing.object;
+    }
+    if (graphPan && graphPan.object.id === selectedObject.id) {
+      return graphPan.object;
+    }
+    if (solid3dResize && solid3dResize.object.id === selectedObject.id) {
+      return solid3dResize.object;
+    }
+    return selectedObject;
+  }, [graphPan, moving, resizing, selectedObject, solid3dResize]);
 
   const emitRealtimeObjectUpdate = useCallback(
     (objectId: string, patch: Partial<WorkbookBoardObject>) => {
@@ -5499,15 +5571,15 @@ export function WorkbookCanvas({
   );
 
   useEffect(() => {
-    if (!isLiveInteractionActive || !selectedObject || !selectedPreviewObject) return;
-    if (selectedObject.id !== selectedPreviewObject.id) return;
-    const patch = buildRealtimeObjectPatch(selectedObject, selectedPreviewObject);
+    if (!isLiveInteractionActive || !realtimePatchBaseObject || !selectedPreviewObject) return;
+    if (realtimePatchBaseObject.id !== selectedPreviewObject.id) return;
+    const patch = buildRealtimeObjectPatch(realtimePatchBaseObject, selectedPreviewObject);
     if (!patch) return;
-    emitRealtimeObjectUpdate(selectedObject.id, patch);
+    emitRealtimeObjectUpdate(realtimePatchBaseObject.id, patch);
   }, [
     emitRealtimeObjectUpdate,
     isLiveInteractionActive,
-    selectedObject,
+    realtimePatchBaseObject,
     selectedPreviewObject,
   ]);
 
@@ -6445,18 +6517,22 @@ export function WorkbookCanvas({
           </>
         ) : null}
 
-        {focusPoint ? (
-          <g className="workbook-session__focus-blink">
-            <circle cx={focusPoint.x} cy={focusPoint.y} r={18} />
-            <line x1={focusPoint.x - 8} y1={focusPoint.y} x2={focusPoint.x + 8} y2={focusPoint.y} />
-            <line x1={focusPoint.x} y1={focusPoint.y - 8} x2={focusPoint.x} y2={focusPoint.y + 8} />
-          </g>
-        ) : null}
-
-        {pointerPoint ? (
+        {effectiveFocusPoints.map((focus, index) => (
           <g
+            key={`focus-point-${Math.round(focus.x)}-${Math.round(focus.y)}-${index}`}
+            className="workbook-session__focus-blink"
+          >
+            <circle cx={focus.x} cy={focus.y} r={18} />
+            <line x1={focus.x - 8} y1={focus.y} x2={focus.x + 8} y2={focus.y} />
+            <line x1={focus.x} y1={focus.y - 8} x2={focus.x} y2={focus.y + 8} />
+          </g>
+        ))}
+
+        {effectivePointerPoints.map((pointer, index) => (
+          <g
+            key={`laser-pointer-${Math.round(pointer.x)}-${Math.round(pointer.y)}-${index}`}
             className="workbook-session__teacher-pointer"
-            transform={`translate(${pointerPoint.x} ${pointerPoint.y}) rotate(-22)`}
+            transform={`translate(${pointer.x} ${pointer.y}) rotate(-22)`}
           >
             <path
               className="workbook-session__teacher-pointer-shaft"
@@ -6473,7 +6549,7 @@ export function WorkbookCanvas({
             <circle className="workbook-session__teacher-pointer-glow" cx={15} cy={0} r={7.4} />
             <circle className="workbook-session__teacher-pointer-point" cx={15} cy={0} r={3.4} />
           </g>
-        ) : null}
+        ))}
         </g>
         </g>
       </svg>

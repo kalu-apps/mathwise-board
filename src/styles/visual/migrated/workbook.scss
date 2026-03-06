@@ -3177,10 +3177,10 @@
 
   .workbook-session__utility-float.is-collapsed {
     height: auto;
-    max-height: none;
+    max-height: min(42dvh, 260px);
     min-height: 0;
-    bottom: auto;
-    top: auto;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    top: auto !important;
   }
 
   .workbook-session__utility-float-head {
@@ -3327,7 +3327,7 @@
 
   .workbook-session__utility-float.is-collapsed {
     height: auto;
-    max-height: none;
+    max-height: min(40dvh, 230px);
     min-height: 0;
   }
 

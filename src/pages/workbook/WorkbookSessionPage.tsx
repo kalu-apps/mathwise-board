@@ -172,8 +172,8 @@ import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
-const POLL_INTERVAL_MS = 220;
-const POLL_INTERVAL_STREAM_CONNECTED_MS = 450;
+const POLL_INTERVAL_MS = 620;
+const POLL_INTERVAL_STREAM_CONNECTED_MS = 1_250;
 const PRESENCE_INTERVAL_MS = 3_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 48;
@@ -268,11 +268,11 @@ const HISTORY_EVENT_TYPES = new Set<WorkbookEvent["type"]>([
 const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
   if (events.length <= 1) return events;
   const compacted: WorkbookEvent[] = [];
-  const pendingByObjectId = new Map<string, WorkbookEvent>();
+  const pendingByTypeAndObjectId = new Map<string, WorkbookEvent>();
   const flushPending = () => {
-    if (pendingByObjectId.size === 0) return;
-    pendingByObjectId.forEach((event) => compacted.push(event));
-    pendingByObjectId.clear();
+    if (pendingByTypeAndObjectId.size === 0) return;
+    pendingByTypeAndObjectId.forEach((event) => compacted.push(event));
+    pendingByTypeAndObjectId.clear();
   };
   events.forEach((event) => {
     if (event.type === "board.object.update" || event.type === "board.object.preview") {
@@ -290,7 +290,8 @@ const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
         compacted.push(event);
         return;
       }
-      const previous = pendingByObjectId.get(objectId);
+      const eventKey = `${event.type}:${objectId}`;
+      const previous = pendingByTypeAndObjectId.get(eventKey);
       if (previous) {
         const previousPayload =
           previous.payload && typeof previous.payload === "object"
@@ -299,7 +300,7 @@ const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
                 patch: Partial<WorkbookBoardObject>;
               })
             : { objectId, patch: {} as Partial<WorkbookBoardObject> };
-        pendingByObjectId.set(objectId, {
+        pendingByTypeAndObjectId.set(eventKey, {
           ...event,
           payload: {
             objectId,
@@ -310,7 +311,7 @@ const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
           },
         });
       } else {
-        pendingByObjectId.set(objectId, event);
+        pendingByTypeAndObjectId.set(eventKey, event);
       }
       return;
     }
@@ -1381,6 +1382,12 @@ export default function WorkbookSessionPage() {
   const [selectedConstraintId, setSelectedConstraintId] = useState<string | null>(null);
   const [focusPoint, setFocusPoint] = useState<WorkbookPoint | null>(null);
   const [pointerPoint, setPointerPoint] = useState<WorkbookPoint | null>(null);
+  const [focusPointsByUser, setFocusPointsByUser] = useState<
+    Record<string, WorkbookPoint>
+  >({});
+  const [pointerPointsByUser, setPointerPointsByUser] = useState<
+    Record<string, WorkbookPoint>
+  >({});
   const [objectContextMenu, setObjectContextMenu] = useState<{
     objectId: string;
     x: number;
@@ -1490,7 +1497,7 @@ export default function WorkbookSessionPage() {
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const boardFileInputRef = useRef<HTMLInputElement | null>(null);
   const docsInputRef = useRef<HTMLInputElement | null>(null);
-  const focusResetTimerRef = useRef<number | null>(null);
+  const focusResetTimersByUserRef = useRef<Map<string, number>>(new Map());
   const dirtyRef = useRef(false);
   const isSavingRef = useRef(false);
   const laserClearInFlightRef = useRef(false);
@@ -1559,6 +1566,14 @@ export default function WorkbookSessionPage() {
   const isClassSession = session?.kind === "CLASS";
   const showCollaborationPanels = Boolean(isClassSession);
   const showSidebarParticipants = showCollaborationPanels && !isParticipantsCollapsed;
+  const focusPoints = useMemo(
+    () => Object.values(focusPointsByUser),
+    [focusPointsByUser]
+  );
+  const pointerPoints = useMemo(
+    () => Object.values(pointerPointsByUser),
+    [pointerPointsByUser]
+  );
 
   useEffect(() => {
     if (!showCollaborationPanels) {
@@ -1728,6 +1743,26 @@ export default function WorkbookSessionPage() {
       });
     }
     return unseen;
+  }, []);
+
+  const clearObjectSyncRuntime = useCallback((options?: { cancelIncomingFrame?: boolean }) => {
+    objectUpdateQueuedPatchRef.current.clear();
+    objectUpdateTimersRef.current.forEach((timerId) => {
+      window.clearTimeout(timerId);
+    });
+    objectPreviewTimersRef.current.forEach((timerId) => {
+      window.clearTimeout(timerId);
+    });
+    objectUpdateTimersRef.current.clear();
+    objectUpdateInFlightRef.current.clear();
+    objectUpdateDispatchOptionsRef.current.clear();
+    objectPreviewTimersRef.current.clear();
+    objectPreviewQueuedPatchRef.current.clear();
+    incomingPreviewQueuedPatchRef.current.clear();
+    if (options?.cancelIncomingFrame !== false && incomingPreviewFrameRef.current !== null) {
+      window.cancelAnimationFrame(incomingPreviewFrameRef.current);
+      incomingPreviewFrameRef.current = null;
+    }
   }, []);
 
   const flushIncomingPreviewQueue = useCallback(() => {
@@ -2270,6 +2305,7 @@ export default function WorkbookSessionPage() {
         if (event.type === "board.undo" || event.type === "board.redo") {
           const payload = event.payload as { scene?: unknown };
           if (!payload.scene || typeof payload.scene !== "object") return;
+          clearObjectSyncRuntime();
           const normalized = normalizeScenePayload(payload.scene);
           restoreSceneSnapshot({
             boardStrokes: normalized.strokes.filter((stroke) => stroke.layer === "board"),
@@ -2347,6 +2383,7 @@ export default function WorkbookSessionPage() {
           return;
         }
         if (event.type === "board.object.preview") {
+          if (event.authorUserId === user?.id) return;
           const payload = event.payload as {
             objectId?: unknown;
             patch?: unknown;
@@ -2363,7 +2400,21 @@ export default function WorkbookSessionPage() {
         if (event.type === "board.object.delete") {
           const objectId = (event.payload as { objectId?: unknown })?.objectId;
           if (typeof objectId !== "string") return;
+          objectUpdateQueuedPatchRef.current.delete(objectId);
+          objectUpdateDispatchOptionsRef.current.delete(objectId);
+          objectPreviewQueuedPatchRef.current.delete(objectId);
+          objectUpdateInFlightRef.current.delete(objectId);
           incomingPreviewQueuedPatchRef.current.delete(objectId);
+          const pendingUpdateTimer = objectUpdateTimersRef.current.get(objectId);
+          if (pendingUpdateTimer !== undefined) {
+            window.clearTimeout(pendingUpdateTimer);
+            objectUpdateTimersRef.current.delete(objectId);
+          }
+          const pendingPreviewTimer = objectPreviewTimersRef.current.get(objectId);
+          if (pendingPreviewTimer !== undefined) {
+            window.clearTimeout(pendingPreviewTimer);
+            objectPreviewTimersRef.current.delete(objectId);
+          }
           setBoardObjects((current) => current.filter((item) => item.id !== objectId));
           setConstraints((current) =>
             current.filter(
@@ -2394,23 +2445,15 @@ export default function WorkbookSessionPage() {
         if (event.type === "board.clear") {
           setBoardStrokes([]);
           setBoardObjects([]);
-          objectUpdateQueuedPatchRef.current.clear();
-          objectUpdateTimersRef.current.forEach((timerId) => {
+          clearObjectSyncRuntime();
+          setFocusPoint(null);
+          setPointerPoint(null);
+          setFocusPointsByUser({});
+          setPointerPointsByUser({});
+          focusResetTimersByUserRef.current.forEach((timerId) => {
             window.clearTimeout(timerId);
           });
-          objectPreviewTimersRef.current.forEach((timerId) => {
-            window.clearTimeout(timerId);
-          });
-          objectUpdateTimersRef.current.clear();
-          objectUpdateInFlightRef.current.clear();
-          objectUpdateDispatchOptionsRef.current.clear();
-          objectPreviewTimersRef.current.clear();
-          objectPreviewQueuedPatchRef.current.clear();
-          incomingPreviewQueuedPatchRef.current.clear();
-          if (incomingPreviewFrameRef.current !== null) {
-            window.cancelAnimationFrame(incomingPreviewFrameRef.current);
-            incomingPreviewFrameRef.current = null;
-          }
+          focusResetTimersByUserRef.current.clear();
           setConstraints([]);
           setSelectedObjectId(null);
           setSelectedConstraintId(null);
@@ -2469,23 +2512,53 @@ export default function WorkbookSessionPage() {
             payload.mode === "pin" || payload.mode === "move" || payload.mode === "clear"
               ? payload.mode
               : "flash";
+          const authorKey = event.authorUserId || "unknown";
           if (mode === "clear") {
             setPointerPoint(null);
+            setFocusPoint(null);
+            setPointerPointsByUser({});
+            setFocusPointsByUser({});
+            focusResetTimersByUserRef.current.forEach((timerId) => {
+              window.clearTimeout(timerId);
+            });
+            focusResetTimersByUserRef.current.clear();
             return;
           }
           const point = payload.point as Partial<WorkbookPoint> | undefined;
           if (!point || typeof point.x !== "number" || typeof point.y !== "number") return;
           if (mode === "pin" || mode === "move") {
-            setPointerPoint({ x: point.x, y: point.y });
+            if (event.authorUserId === user?.id) {
+              setPointerPoint({ x: point.x, y: point.y });
+            }
+            setPointerPointsByUser((current) => ({
+              ...current,
+              [authorKey]: { x: point.x, y: point.y },
+            }));
           }
-          setFocusPoint({ x: point.x, y: point.y });
-          if (focusResetTimerRef.current !== null) {
-            window.clearTimeout(focusResetTimerRef.current);
+          if (event.authorUserId === user?.id) {
+            setFocusPoint({ x: point.x, y: point.y });
           }
-          focusResetTimerRef.current = window.setTimeout(() => {
-            setFocusPoint(null);
-            focusResetTimerRef.current = null;
+          setFocusPointsByUser((current) => ({
+            ...current,
+            [authorKey]: { x: point.x, y: point.y },
+          }));
+          const previousTimer = focusResetTimersByUserRef.current.get(authorKey);
+          if (previousTimer !== undefined) {
+            window.clearTimeout(previousTimer);
+          }
+          const nextTimer = window.setTimeout(() => {
+            setFocusPointsByUser((current) => {
+              if (!(authorKey in current)) return current;
+              const next = { ...current };
+              delete next[authorKey];
+              return next;
+            });
+            if (event.authorUserId === user?.id) {
+              setFocusPoint(null);
+            }
+            focusResetTimersByUserRef.current.delete(authorKey);
           }, 800);
+          focusResetTimersByUserRef.current.set(authorKey, nextTimer);
           return;
         }
         if (event.type === "media.signal") {
@@ -2785,6 +2858,7 @@ export default function WorkbookSessionPage() {
     },
     [
       awaitingClearRequest,
+      clearObjectSyncRuntime,
       handleIncomingMediaSignal,
       queueIncomingPreviewPatch,
       restoreSceneSnapshot,
@@ -2863,17 +2937,21 @@ export default function WorkbookSessionPage() {
         processedEventIdsRef.current.clear();
         smartInkStrokeBufferRef.current = [];
         smartInkProcessedStrokeIdsRef.current = new Set();
-        incomingPreviewQueuedPatchRef.current.clear();
-        if (incomingPreviewFrameRef.current !== null) {
-          window.cancelAnimationFrame(incomingPreviewFrameRef.current);
-          incomingPreviewFrameRef.current = null;
-        }
+        clearObjectSyncRuntime();
         dirtyRef.current = false;
         undoStackRef.current = [];
         redoStackRef.current = [];
         setUndoDepth(0);
         setRedoDepth(0);
         setSaveState("saved");
+        setFocusPoint(null);
+        setPointerPoint(null);
+        setFocusPointsByUser({});
+        setPointerPointsByUser({});
+        focusResetTimersByUserRef.current.forEach((timerId) => {
+          window.clearTimeout(timerId);
+        });
+        focusResetTimersByUserRef.current.clear();
         try {
           await openWorkbookSession(sessionId);
         } catch (openError) {
@@ -2921,7 +2999,7 @@ export default function WorkbookSessionPage() {
       }
     }
     setLoading(false);
-  }, [sessionId]);
+  }, [clearObjectSyncRuntime, sessionId]);
 
   useEffect(() => {
     void loadSession();
@@ -3492,10 +3570,10 @@ export default function WorkbookSessionPage() {
 
   useEffect(
     () => () => {
-      if (focusResetTimerRef.current !== null) {
-        window.clearTimeout(focusResetTimerRef.current);
-        focusResetTimerRef.current = null;
-      }
+      focusResetTimersByUserRef.current.forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      focusResetTimersByUserRef.current.clear();
     },
     []
   );
@@ -3522,25 +3600,9 @@ export default function WorkbookSessionPage() {
 
   useEffect(
     () => () => {
-      objectUpdateTimersRef.current.forEach((timerId) => {
-        window.clearTimeout(timerId);
-      });
-      objectPreviewTimersRef.current.forEach((timerId) => {
-        window.clearTimeout(timerId);
-      });
-      objectUpdateTimersRef.current.clear();
-      objectUpdateQueuedPatchRef.current.clear();
-      objectUpdateInFlightRef.current.clear();
-      objectUpdateDispatchOptionsRef.current.clear();
-      objectPreviewTimersRef.current.clear();
-      objectPreviewQueuedPatchRef.current.clear();
-      incomingPreviewQueuedPatchRef.current.clear();
-      if (incomingPreviewFrameRef.current !== null) {
-        window.cancelAnimationFrame(incomingPreviewFrameRef.current);
-        incomingPreviewFrameRef.current = null;
-      }
+      clearObjectSyncRuntime();
     },
-    []
+    [clearObjectSyncRuntime]
   );
 
   useEffect(() => {
@@ -3654,10 +3716,28 @@ export default function WorkbookSessionPage() {
           },
         ], dispatchOptions)
           .catch((error) => {
+            if (error instanceof ApiError && error.code === "not_found") {
+              objectUpdateQueuedPatchRef.current.delete(objectId);
+              objectUpdateDispatchOptionsRef.current.delete(objectId);
+              incomingPreviewQueuedPatchRef.current.delete(objectId);
+              return;
+            }
+            if (
+              error instanceof ApiError &&
+              error.code === "conflict" &&
+              error.status === 409
+            ) {
+              // Usually means invalid stale patch (object already changed/removed or rights updated).
+              // Drop stale patch to avoid infinite retry loops.
+              objectUpdateQueuedPatchRef.current.delete(objectId);
+              objectUpdateDispatchOptionsRef.current.delete(objectId);
+              objectPreviewQueuedPatchRef.current.delete(objectId);
+              incomingPreviewQueuedPatchRef.current.delete(objectId);
+              return;
+            }
             const isTransientError =
               error instanceof ApiError &&
-              (error.code === "conflict" ||
-                error.code === "server_unavailable" ||
+              (error.code === "server_unavailable" ||
                 error.code === "network_error" ||
                 error.code === "timeout" ||
                 error.code === "rate_limited");
@@ -4446,22 +4526,47 @@ export default function WorkbookSessionPage() {
               : boardSettings.activeSceneLayerId,
         }
       : null;
-    try {
-      const events: Array<{ type: WorkbookEvent["type"]; payload: unknown }> = [
-        {
-          type: "board.object.delete",
-          payload: { objectId },
-        },
-      ];
-      if (nextSettings) {
-        events.push({
-          type: "board.settings.update",
-          payload: { boardSettings: nextSettings },
-        });
+    const events: Array<{ type: WorkbookEvent["type"]; payload: unknown }> = [
+      {
+        type: "board.object.delete",
+        payload: { objectId },
+      },
+    ];
+    if (nextSettings) {
+      events.push({
+        type: "board.settings.update",
+        payload: { boardSettings: nextSettings },
+      });
+    }
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await appendEventsAndApply(events);
+        return;
+      } catch (error) {
+        if (error instanceof ApiError && error.code === "not_found") {
+          setBoardObjects((current) => current.filter((item) => item.id !== objectId));
+          setConstraints((current) =>
+            current.filter(
+              (constraint) =>
+                constraint.sourceObjectId !== objectId &&
+                constraint.targetObjectId !== objectId
+            )
+          );
+          return;
+        }
+        const transient =
+          error instanceof ApiError &&
+          (error.code === "server_unavailable" ||
+            error.code === "network_error" ||
+            error.code === "timeout" ||
+            error.code === "rate_limited");
+        if (transient && attempt === 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, 140));
+          continue;
+        }
+        setError("Не удалось удалить объект.");
+        return;
       }
-      await appendEventsAndApply(events);
-    } catch {
-      setError("Не удалось удалить объект.");
     }
   };
 
@@ -6100,6 +6205,32 @@ export default function WorkbookSessionPage() {
   const handleLaserPoint = useCallback(
     async (point: WorkbookPoint) => {
       if (!canUseLaser) return;
+      const authorKey = user?.id ?? "unknown";
+      setPointerPoint(point);
+      setFocusPoint(point);
+      setPointerPointsByUser((current) => ({
+        ...current,
+        [authorKey]: point,
+      }));
+      setFocusPointsByUser((current) => ({
+        ...current,
+        [authorKey]: point,
+      }));
+      const previousTimer = focusResetTimersByUserRef.current.get(authorKey);
+      if (previousTimer !== undefined) {
+        window.clearTimeout(previousTimer);
+      }
+      const nextTimer = window.setTimeout(() => {
+        setFocusPointsByUser((current) => {
+          if (!(authorKey in current)) return current;
+          const next = { ...current };
+          delete next[authorKey];
+          return next;
+        });
+        setFocusPoint(null);
+        focusResetTimersByUserRef.current.delete(authorKey);
+      }, 800);
+      focusResetTimersByUserRef.current.set(authorKey, nextTimer);
       try {
         await appendEventsAndApply([
           {
@@ -6115,13 +6246,21 @@ export default function WorkbookSessionPage() {
         setError("Не удалось передать фокус.");
       }
     },
-    [appendEventsAndApply, canUseLaser]
+    [appendEventsAndApply, canUseLaser, user?.id]
   );
 
   const clearLaserPointer = useCallback(async (options?: { keepTool?: boolean }) => {
     if (!canUseLaser) return;
     if (laserClearInFlightRef.current) return;
     laserClearInFlightRef.current = true;
+    setPointerPoint(null);
+    setFocusPoint(null);
+    setPointerPointsByUser({});
+    setFocusPointsByUser({});
+    focusResetTimersByUserRef.current.forEach((timerId) => {
+      window.clearTimeout(timerId);
+    });
+    focusResetTimersByUserRef.current.clear();
     try {
       await appendEventsAndApply([
         {
@@ -6163,6 +6302,7 @@ export default function WorkbookSessionPage() {
     const previousSnapshot = undoStackRef.current[undoStackRef.current.length - 1];
     if (!previousSnapshot) return;
     const currentSnapshot = captureSceneSnapshot();
+    clearObjectSyncRuntime();
     undoStackRef.current = undoStackRef.current.slice(0, -1);
     redoStackRef.current = [...redoStackRef.current, currentSnapshot].slice(-80);
     setUndoDepth(undoStackRef.current.length);
@@ -6177,17 +6317,26 @@ export default function WorkbookSessionPage() {
             scene: toScenePayload(previousSnapshot),
           },
         },
-      ]);
+      ], { trackHistory: false, markDirty: false });
     } catch {
       setError("Не удалось выполнить отмену действия.");
     }
-  }, [appendEventsAndApply, canUseUndo, captureSceneSnapshot, markDirty, restoreSceneSnapshot, toScenePayload]);
+  }, [
+    appendEventsAndApply,
+    canUseUndo,
+    captureSceneSnapshot,
+    clearObjectSyncRuntime,
+    markDirty,
+    restoreSceneSnapshot,
+    toScenePayload,
+  ]);
 
   const handleRedo = useCallback(async () => {
     if (!canUseUndo || redoStackRef.current.length === 0) return;
     const nextSnapshot = redoStackRef.current[redoStackRef.current.length - 1];
     if (!nextSnapshot) return;
     const currentSnapshot = captureSceneSnapshot();
+    clearObjectSyncRuntime();
     redoStackRef.current = redoStackRef.current.slice(0, -1);
     undoStackRef.current = [...undoStackRef.current, currentSnapshot].slice(-80);
     setUndoDepth(undoStackRef.current.length);
@@ -6202,11 +6351,19 @@ export default function WorkbookSessionPage() {
             scene: toScenePayload(nextSnapshot),
           },
         },
-      ]);
+      ], { trackHistory: false, markDirty: false });
     } catch {
       setError("Не удалось повторить действие.");
     }
-  }, [appendEventsAndApply, canUseUndo, captureSceneSnapshot, markDirty, restoreSceneSnapshot, toScenePayload]);
+  }, [
+    appendEventsAndApply,
+    canUseUndo,
+    captureSceneSnapshot,
+    clearObjectSyncRuntime,
+    markDirty,
+    restoreSceneSnapshot,
+    toScenePayload,
+  ]);
 
   useEffect(() => {
     const onHotkey = (event: KeyboardEvent) => {
@@ -6597,14 +6754,41 @@ export default function WorkbookSessionPage() {
         const rendered = await renderWorkbookPdfPages({
           fileName: file.name,
           dataUrl: url,
-          dpi: 144,
-          maxPages: 12,
+          dpi: 128,
+          maxPages: 8,
         });
-        renderedPages = rendered.pages;
+        renderedPages = rendered.pages.slice(0, 8);
       }
-      setUploadProgress(100);
-      const asset: WorkbookDocumentAsset = {
+      setUploadProgress(68);
+      const insertOffset = boardObjects.length % 6;
+      const renderedPage =
+        isPdf
+          ? renderedPages?.find((page) => page.page === 1) ?? renderedPages?.[0]
+          : null;
+      const objectImageUrl = isImage ? url : renderedPage?.imageUrl;
+      const object: WorkbookBoardObject = {
         id: generateId(),
+        type: objectImageUrl ? "image" : "text",
+        layer: "board",
+        x: canvasViewport.x + 96 + insertOffset * 20,
+        y: canvasViewport.y + 92 + insertOffset * 16,
+        width: objectImageUrl ? 380 : 320,
+        height: objectImageUrl ? 260 : 120,
+        color: "#16213e",
+        fill: "transparent",
+        strokeWidth: 2,
+        opacity: 1,
+        imageUrl: objectImageUrl,
+        imageName: file.name,
+        text: objectImageUrl ? undefined : `PDF: ${file.name}`,
+        fontSize: objectImageUrl ? undefined : 18,
+        authorUserId: user?.id ?? "unknown",
+        createdAt: new Date().toISOString(),
+      };
+      await commitObjectCreate(object);
+      const assetId = generateId();
+      const asset: WorkbookDocumentAsset = {
+        id: assetId,
         name: file.name,
         type: isPdf ? "pdf" : isImage ? "image" : "file",
         url,
@@ -6612,56 +6796,33 @@ export default function WorkbookSessionPage() {
         uploadedAt: new Date().toISOString(),
         renderedPages,
       };
-      await appendEventsAndApply([
-        {
-          type: "document.asset.add",
-          payload: { asset },
-        },
-      ]);
-      await upsertLibraryItem({
+      void appendEventsAndApply(
+        [
+          {
+            type: "document.asset.add",
+            payload: { asset },
+          },
+        ],
+        { trackHistory: false, markDirty: false }
+      )
+        .then(() =>
+          updateDocumentState({
+            activeAssetId: assetId,
+            page: 1,
+          })
+        )
+        .catch(() => undefined);
+      void upsertLibraryItem({
         id: generateId(),
         name: file.name,
         type: isPdf ? "pdf" : isImage ? "image" : "office",
         ownerUserId: user?.id ?? "unknown",
-        sourceUrl: url,
+        sourceUrl: objectImageUrl ?? url,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         folderId: null,
       });
-      await updateDocumentState({
-        activeAssetId: asset.id,
-        page: 1,
-      });
-      const insertOffset = boardObjects.length % 6;
-      const renderedPage =
-        asset.type === "pdf"
-          ? asset.renderedPages?.find((page) => page.page === 1) ?? asset.renderedPages?.[0]
-          : null;
-      const object: WorkbookBoardObject = {
-        id: generateId(),
-        type: asset.type === "image" || renderedPage ? "image" : "text",
-        layer: "board",
-        x: canvasViewport.x + 96 + insertOffset * 20,
-        y: canvasViewport.y + 92 + insertOffset * 16,
-        width: asset.type === "image" || renderedPage ? 380 : 320,
-        height: asset.type === "image" || renderedPage ? 260 : 120,
-        color: "#16213e",
-        fill: "transparent",
-        strokeWidth: 2,
-        opacity: 1,
-        imageUrl:
-          asset.type === "image"
-            ? asset.url
-            : renderedPage
-              ? renderedPage.imageUrl
-              : undefined,
-        imageName: asset.name,
-        text: renderedPage ? undefined : `PDF: ${asset.name}`,
-        fontSize: renderedPage ? undefined : 18,
-        authorUserId: user?.id ?? "unknown",
-        createdAt: new Date().toISOString(),
-      };
-      await commitObjectCreate(object);
+      setUploadProgress(100);
     } catch {
       setError("Не удалось загрузить документ.");
     } finally {
@@ -8394,6 +8555,8 @@ export default function WorkbookSessionPage() {
               selectedConstraintId={selectedConstraintId}
               focusPoint={focusPoint}
               pointerPoint={pointerPoint}
+              focusPoints={focusPoints}
+              pointerPoints={pointerPoints}
               viewportOffset={canvasViewport}
               onViewportOffsetChange={setCanvasViewport}
               forcePanMode={spacePanActive}
