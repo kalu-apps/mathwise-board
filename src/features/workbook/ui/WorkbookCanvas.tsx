@@ -3226,21 +3226,30 @@ export function WorkbookCanvas({
         : null;
     const isInMovingGroup =
       moving?.groupObjects.some((entry) => entry.id === objectSource.id) ?? false;
+    const movingBaseObject =
+      isInMovingGroup && moving
+        ? moving.groupObjects.find((entry) => entry.id === objectSource.id) ??
+          (moving.object.id === objectSource.id ? moving.object : null)
+        : null;
     let object =
       previewMeta && objectSource.type === "solid3d"
         ? { ...objectSource, meta: previewMeta }
         : objectSource;
-    if (isInMovingGroup && movingDelta) {
+    if (movingBaseObject && movingDelta) {
+      const sourceForMove =
+        previewMeta && movingBaseObject.type === "solid3d"
+          ? { ...movingBaseObject, meta: previewMeta }
+          : movingBaseObject;
       object = {
-        ...object,
-        x: object.x + movingDelta.x,
-        y: object.y + movingDelta.y,
-        points: Array.isArray(object.points)
-          ? object.points.map((point) => ({
+        ...sourceForMove,
+        x: sourceForMove.x + movingDelta.x,
+        y: sourceForMove.y + movingDelta.y,
+        points: Array.isArray(sourceForMove.points)
+          ? sourceForMove.points.map((point) => ({
               x: point.x + movingDelta.x,
               y: point.y + movingDelta.y,
             }))
-          : object.points,
+          : sourceForMove.points,
       };
     }
     const rect =
@@ -3684,16 +3693,7 @@ export function WorkbookCanvas({
         object.meta?.textAlign === "center" || object.meta?.textAlign === "right"
           ? object.meta.textAlign
           : "left";
-      const textLines = (object.text ?? "Текст").split("\n");
-      const clipId = `wb-text-clip-${object.id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
-      const textAnchor =
-        textAlign === "center" ? "middle" : textAlign === "right" ? "end" : "start";
-      const textX =
-        textAlign === "center"
-          ? normalized.x + normalized.width / 2
-          : textAlign === "right"
-            ? normalized.x + normalized.width - 8
-            : normalized.x + 8;
+      const textContent = typeof object.text === "string" ? object.text : "Текст";
       const backgroundFill =
         typeof object.meta?.textBackground === "string" && object.meta.textBackground
           ? object.meta.textBackground
@@ -3770,43 +3770,29 @@ export function WorkbookCanvas({
               </div>
             </foreignObject>
           ) : (
-            <>
-              <defs>
-                <clipPath id={clipId}>
-                  <rect
-                    x={normalized.x + 4}
-                    y={normalized.y + 4}
-                    width={Math.max(1, normalized.width - 8)}
-                    height={Math.max(1, normalized.height - 8)}
-                    rx={4}
-                    ry={4}
-                  />
-                </clipPath>
-              </defs>
-              <text
-                x={textX}
-                y={normalized.y + fontSize + 4}
-                fill={textColor}
-                fontSize={fontSize}
-                fontFamily={fontFamily}
-                fontWeight={fontWeight}
-                fontStyle={fontStyle}
-                textDecoration={textDecoration}
-                textAnchor={textAnchor}
-                clipPath={`url(#${clipId})`}
-                style={{ userSelect: "none" }}
+            <foreignObject
+              x={normalized.x + 6}
+              y={normalized.y + 6}
+              width={Math.max(1, normalized.width - 12)}
+              height={Math.max(1, normalized.height - 12)}
+              requiredExtensions="http://www.w3.org/1999/xhtml"
+              pointerEvents="none"
+            >
+              <div
+                className="workbook-session__text-render"
+                style={{
+                  color: textColor,
+                  fontSize: `${fontSize}px`,
+                  fontFamily,
+                  fontWeight,
+                  fontStyle,
+                  textDecoration,
+                  textAlign,
+                }}
               >
-                {textLines.map((line, index) => (
-                  <tspan
-                    key={`${object.id}-text-line-${index}`}
-                    x={textX}
-                    dy={index === 0 ? 0 : fontSize * 1.25}
-                  >
-                    {line || " "}
-                  </tspan>
-                ))}
-              </text>
-            </>
+                {textContent}
+              </div>
+            </foreignObject>
           )}
         </g>
       );

@@ -1020,27 +1020,25 @@ const optimizeImageDataUrl = async (
     context.drawImage(image, 0, 0, width, height);
     return canvas.toDataURL("image/jpeg", outputQuality);
   };
+  const original = typeof dataUrl === "string" ? dataUrl : "";
   let best = renderCandidate(targetWidth, targetHeight, quality);
-  if (!best || best.length >= dataUrl.length) {
-    best = dataUrl;
+  if (!best) best = original;
+  if (original && original.length < best.length) {
+    best = original;
   }
-  if (best.length <= maxChars) {
-    return best;
-  }
+  if (best.length <= maxChars) return best;
   let nextQuality = quality;
-  for (let attempt = 0; attempt < 7; attempt += 1) {
-    nextQuality = Math.max(0.42, nextQuality * 0.86);
-    if (attempt % 2 === 1) {
-      targetWidth = Math.max(320, Math.round(targetWidth * 0.84));
-      targetHeight = Math.max(180, Math.round(targetHeight * 0.84));
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    nextQuality = Math.max(0.28, nextQuality * 0.86);
+    if (attempt % 2 === 1 || best.length > maxChars * 1.6) {
+      targetWidth = Math.max(96, Math.round(targetWidth * 0.82));
+      targetHeight = Math.max(96, Math.round(targetHeight * 0.82));
     }
     const candidate = renderCandidate(targetWidth, targetHeight, nextQuality);
     if (candidate && candidate.length < best.length) {
       best = candidate;
     }
-    if (best.length <= maxChars) {
-      break;
-    }
+    if (best.length <= maxChars) break;
   }
   return best;
 };
@@ -5366,7 +5364,7 @@ export default function WorkbookSessionPage() {
       );
       selectedTextDraftCommitTimerRef.current = window.setTimeout(() => {
         void flushSelectedTextDraftCommit();
-      }, 180);
+      }, 320);
     },
     [flushSelectedTextDraftCommit, selectedObjectId, updateSelectedTextFormatting]
   );
@@ -7769,13 +7767,10 @@ export default function WorkbookSessionPage() {
       typeof selectedTextObject.text === "string" ? selectedTextObject.text : "";
     if (!selectedTextDraftDirtyRef.current) {
       setSelectedTextDraft((current) => (current === nextText ? current : nextText));
-    } else if (nextText === selectedTextDraft) {
-      selectedTextDraftDirtyRef.current = false;
     }
     const nextSize = Math.max(12, Math.round(selectedTextObject.fontSize ?? 18));
     setSelectedTextFontSizeDraft((current) => (current === nextSize ? current : nextSize));
   }, [
-    selectedTextDraft,
     selectedTextObject,
     selectedTextObject?.fontSize,
     selectedTextObject?.id,

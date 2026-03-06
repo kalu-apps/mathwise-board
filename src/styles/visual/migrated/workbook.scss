@@ -1401,11 +1401,29 @@
   outline: none;
   box-sizing: border-box;
   line-height: 1.3;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .workbook-session__text-editor-input:focus {
   border-color: color-mix(in srgb, var(--brand-solid) 72%, var(--border-strong));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-soft) 34%, transparent);
+}
+
+.workbook-session__text-render {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  line-height: 1.3;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  user-select: none;
 }
 
 .workbook-session__graph-builder {

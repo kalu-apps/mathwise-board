@@ -326,10 +326,23 @@ const serializeAuditMetadata = (value: unknown) => {
   }
 };
 
-const safeStringify = (value: unknown) => {
+const safeStringify = (
+  value: unknown,
+  options?: {
+    maxLength?: number;
+  }
+) => {
   try {
     const raw = JSON.stringify(value);
-    return raw.length > 8000 ? raw.slice(0, 8000) : raw;
+    if (typeof raw !== "string") return "{}";
+    const maxLength =
+      typeof options?.maxLength === "number" && Number.isFinite(options.maxLength)
+        ? Math.max(0, Math.floor(options.maxLength))
+        : 0;
+    if (maxLength > 0 && raw.length > maxLength) {
+      return raw.slice(0, maxLength);
+    }
+    return raw;
   } catch {
     return "{}";
   }
