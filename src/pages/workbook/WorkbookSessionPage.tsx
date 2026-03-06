@@ -172,12 +172,12 @@ import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
-const POLL_INTERVAL_MS = 650;
-const POLL_INTERVAL_STREAM_CONNECTED_MS = 1_400;
+const POLL_INTERVAL_MS = 220;
+const POLL_INTERVAL_STREAM_CONNECTED_MS = 450;
 const PRESENCE_INTERVAL_MS = 3_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
-const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 70;
-const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 42;
+const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 48;
+const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 24;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
@@ -976,6 +976,40 @@ const readFileAsDataUrl = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
+const loadImageFromDataUrl = (dataUrl: string): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("image_decode_failed"));
+    image.src = dataUrl;
+  });
+
+const optimizeImageDataUrl = async (
+  dataUrl: string,
+  options?: { maxEdge?: number; quality?: number }
+) => {
+  if (typeof document === "undefined") return dataUrl;
+  const image = await loadImageFromDataUrl(dataUrl);
+  const maxEdge = Math.max(720, options?.maxEdge ?? 1_920);
+  const quality = Math.max(0.5, Math.min(0.95, options?.quality ?? 0.84));
+  const sourceWidth = Math.max(1, image.naturalWidth || image.width);
+  const sourceHeight = Math.max(1, image.naturalHeight || image.height);
+  const ratio = Math.min(1, maxEdge / Math.max(sourceWidth, sourceHeight));
+  const targetWidth = Math.max(1, Math.round(sourceWidth * ratio));
+  const targetHeight = Math.max(1, Math.round(sourceHeight * ratio));
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const context = canvas.getContext("2d");
+  if (!context) return dataUrl;
+  context.drawImage(image, 0, 0, targetWidth, targetHeight);
+  const optimized = canvas.toDataURL("image/webp", quality);
+  if (!optimized || optimized.length >= dataUrl.length) {
+    return dataUrl;
+  }
+  return optimized;
+};
+
 const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
   const template = getSolid3dTemplate(presetId);
   const isRoundPreset =
@@ -1497,6 +1531,10 @@ export default function WorkbookSessionPage() {
     Map<string, Partial<WorkbookBoardObject>>
   >(new Map());
   const objectPreviewTimersRef = useRef<Map<string, number>>(new Map());
+  const incomingPreviewQueuedPatchRef = useRef<
+    Map<string, Partial<WorkbookBoardObject>>
+  >(new Map());
+  const incomingPreviewFrameRef = useRef<number | null>(null);
   const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const makingOfferPeerIdsRef = useRef<Set<string>>(new Set());
 
@@ -1614,6 +1652,11 @@ export default function WorkbookSessionPage() {
   }, []);
 
   useEffect(() => {
+    if (!isCompactViewport || !isUtilityPanelOpen) return;
+    setIsUtilityPanelCollapsed(true);
+  }, [isCompactViewport, isUtilityPanelOpen]);
+
+  useEffect(() => {
     latestSeqRef.current = latestSeq;
   }, [latestSeq]);
 
@@ -1686,6 +1729,44 @@ export default function WorkbookSessionPage() {
     }
     return unseen;
   }, []);
+
+  const flushIncomingPreviewQueue = useCallback(() => {
+    incomingPreviewFrameRef.current = null;
+    const queue = incomingPreviewQueuedPatchRef.current;
+    if (queue.size === 0) return;
+    const patches = new Map(queue);
+    queue.clear();
+    setBoardObjects((current) => {
+      if (current.length === 0) return current;
+      let changed = false;
+      const next = current.map((item) => {
+        const patch = patches.get(item.id);
+        if (!patch) return item;
+        changed = true;
+        return mergeBoardObjectWithPatch(item, patch);
+      });
+      return changed ? next : current;
+    });
+  }, []);
+
+  const queueIncomingPreviewPatch = useCallback(
+    (objectId: string, patch: Partial<WorkbookBoardObject>) => {
+      const pendingPatch = incomingPreviewQueuedPatchRef.current.get(objectId) ?? {};
+      incomingPreviewQueuedPatchRef.current.set(objectId, {
+        ...pendingPatch,
+        ...patch,
+      });
+      if (incomingPreviewFrameRef.current !== null) return;
+      if (typeof window === "undefined") {
+        flushIncomingPreviewQueue();
+        return;
+      }
+      incomingPreviewFrameRef.current = window.requestAnimationFrame(() => {
+        flushIncomingPreviewQueue();
+      });
+    },
+    [flushIncomingPreviewQueue]
+  );
 
   const isParticipantBoardToolsEnabled = useCallback(
     (participant: WorkbookSessionParticipant) =>
@@ -2253,6 +2334,7 @@ export default function WorkbookSessionPage() {
               ? (payload.patch as Partial<WorkbookBoardObject>)
               : null;
           if (!objectId || !patch) return;
+          incomingPreviewQueuedPatchRef.current.delete(objectId);
           setBoardObjects((current) => {
             let found = false;
             const next = current.map((item) => {
@@ -2275,20 +2357,13 @@ export default function WorkbookSessionPage() {
               ? (payload.patch as Partial<WorkbookBoardObject>)
               : null;
           if (!objectId || !patch) return;
-          setBoardObjects((current) => {
-            let found = false;
-            const next = current.map((item) => {
-              if (item.id !== objectId) return item;
-              found = true;
-              return mergeBoardObjectWithPatch(item, patch);
-            });
-            return found ? next : current;
-          });
+          queueIncomingPreviewPatch(objectId, patch);
           return;
         }
         if (event.type === "board.object.delete") {
           const objectId = (event.payload as { objectId?: unknown })?.objectId;
           if (typeof objectId !== "string") return;
+          incomingPreviewQueuedPatchRef.current.delete(objectId);
           setBoardObjects((current) => current.filter((item) => item.id !== objectId));
           setConstraints((current) =>
             current.filter(
@@ -2331,6 +2406,11 @@ export default function WorkbookSessionPage() {
           objectUpdateDispatchOptionsRef.current.clear();
           objectPreviewTimersRef.current.clear();
           objectPreviewQueuedPatchRef.current.clear();
+          incomingPreviewQueuedPatchRef.current.clear();
+          if (incomingPreviewFrameRef.current !== null) {
+            window.cancelAnimationFrame(incomingPreviewFrameRef.current);
+            incomingPreviewFrameRef.current = null;
+          }
           setConstraints([]);
           setSelectedObjectId(null);
           setSelectedConstraintId(null);
@@ -2703,7 +2783,14 @@ export default function WorkbookSessionPage() {
         }
       });
     },
-    [awaitingClearRequest, handleIncomingMediaSignal, restoreSceneSnapshot, selectedObjectId, user?.id]
+    [
+      awaitingClearRequest,
+      handleIncomingMediaSignal,
+      queueIncomingPreviewPatch,
+      restoreSceneSnapshot,
+      selectedObjectId,
+      user?.id,
+    ]
   );
 
   const loadSession = useCallback(async () => {
@@ -2776,6 +2863,11 @@ export default function WorkbookSessionPage() {
         processedEventIdsRef.current.clear();
         smartInkStrokeBufferRef.current = [];
         smartInkProcessedStrokeIdsRef.current = new Set();
+        incomingPreviewQueuedPatchRef.current.clear();
+        if (incomingPreviewFrameRef.current !== null) {
+          window.cancelAnimationFrame(incomingPreviewFrameRef.current);
+          incomingPreviewFrameRef.current = null;
+        }
         dirtyRef.current = false;
         undoStackRef.current = [];
         redoStackRef.current = [];
@@ -3442,6 +3534,11 @@ export default function WorkbookSessionPage() {
       objectUpdateDispatchOptionsRef.current.clear();
       objectPreviewTimersRef.current.clear();
       objectPreviewQueuedPatchRef.current.clear();
+      incomingPreviewQueuedPatchRef.current.clear();
+      if (incomingPreviewFrameRef.current !== null) {
+        window.cancelAnimationFrame(incomingPreviewFrameRef.current);
+        incomingPreviewFrameRef.current = null;
+      }
     },
     []
   );
@@ -3763,7 +3860,7 @@ export default function WorkbookSessionPage() {
       }
       setUtilityTab(tab);
       setIsUtilityPanelOpen(true);
-      setIsUtilityPanelCollapsed(false);
+      setIsUtilityPanelCollapsed(isCompactViewport);
       if (isCompactViewport) {
         return;
       }
@@ -6478,7 +6575,6 @@ export default function WorkbookSessionPage() {
     try {
       setUploadingDoc(true);
       setUploadProgress(20);
-      const url = await readFileAsDataUrl(file);
       let renderedPages: WorkbookDocumentAsset["renderedPages"] = undefined;
       const isPdf =
         file.type.includes("pdf") || file.name.toLowerCase().endsWith(".pdf");
@@ -6489,6 +6585,13 @@ export default function WorkbookSessionPage() {
         setError("Можно загрузить только PDF или изображение.");
         return;
       }
+      const sourceDataUrl = await readFileAsDataUrl(file);
+      const url = isImage
+        ? await optimizeImageDataUrl(sourceDataUrl, {
+            maxEdge: 1_680,
+            quality: 0.82,
+          })
+        : sourceDataUrl;
       if (isPdf) {
         setUploadProgress(45);
         const rendered = await renderWorkbookPdfPages({
@@ -8797,7 +8900,9 @@ export default function WorkbookSessionPage() {
 
           {isUtilityPanelOpen ? (
           <div
-            className="workbook-session__utility-float"
+            className={`workbook-session__utility-float${
+              isUtilityPanelCollapsed ? " is-collapsed" : ""
+            }`}
             style={
               isCompactViewport
                 ? undefined

@@ -13,7 +13,7 @@ const toSessionPath = (sessionId: string) =>
 
 export default function WorkbookLaunchPage() {
   const navigate = useNavigate();
-  const { user, isAuthReady, openAuthModal, logout } = useAuth();
+  const { user, isAuthReady, openAuthModal } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,6 +59,19 @@ export default function WorkbookLaunchPage() {
     };
   }, [isAuthReady, navigate, openAuthModal, user]);
 
+  if (isAuthReady && user?.role === "teacher" && (loading || !error)) {
+    return (
+      <section className="workbook-launch">
+        <article className="workbook-launch__card">
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <CircularProgress size={22} />
+            <Typography variant="body2">{t("route.loadingPage")}</Typography>
+          </Stack>
+        </article>
+      </section>
+    );
+  }
+
   return (
     <section className="workbook-launch">
       <article className="workbook-launch__card">
@@ -78,17 +91,13 @@ export default function WorkbookLaunchPage() {
             {t("whiteboardLaunch.waitingStudent")}
           </Alert>
         ) : null}
-        <Stack direction="row" spacing={1} className="workbook-launch__actions">
-          {!user ? (
+        {!user ? (
+          <Stack direction="row" spacing={1} className="workbook-launch__actions">
             <Button variant="contained" onClick={openAuthModal}>
               {t("header.login")}
             </Button>
-          ) : (
-            <Button variant="outlined" onClick={logout}>
-              {t("header.logout")}
-            </Button>
-          )}
-        </Stack>
+          </Stack>
+        ) : null}
       </article>
     </section>
   );

@@ -3665,6 +3665,16 @@ export function WorkbookCanvas({
                           ? { ...current, value: nextValue }
                           : current
                       );
+                      onObjectUpdate(
+                        object.id,
+                        {
+                          text: nextValue.replace(/\r\n/g, "\n"),
+                        },
+                        {
+                          trackHistory: false,
+                          markDirty: false,
+                        }
+                      );
                       onInlineTextDraftChange?.(object.id, nextValue);
                     }
                   }

@@ -730,6 +730,13 @@
   will-change: left, top;
 }
 
+.workbook-session__utility-float.is-collapsed {
+  height: auto;
+  max-height: none;
+  min-height: 0;
+  gap: 6px;
+}
+
 .workbook-session__utility-float-body {
   position: relative;
   flex: 1 1 auto;
@@ -3168,6 +3175,14 @@
     gap: 8px;
   }
 
+  .workbook-session__utility-float.is-collapsed {
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    bottom: auto;
+    top: auto;
+  }
+
   .workbook-session__utility-float-head {
     margin: 0;
     padding-top: 4px;
@@ -3308,6 +3323,12 @@
     height: min(78dvh, 560px);
     border-radius: 12px;
     padding: 7px;
+  }
+
+  .workbook-session__utility-float.is-collapsed {
+    height: auto;
+    max-height: none;
+    min-height: 0;
   }
 
   .workbook-session__utility-float-body {
