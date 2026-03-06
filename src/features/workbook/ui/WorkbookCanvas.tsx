@@ -196,8 +196,6 @@ type MovingState = {
   current: WorkbookPoint;
   startClientX: number;
   startClientY: number;
-  startObjectX: number;
-  startObjectY: number;
 };
 
 type ResizeState = {
@@ -494,8 +492,6 @@ const getLinePathD = (object: WorkbookBoardObject) => {
 };
 
 const getObjectRect = (object: WorkbookBoardObject): Rect => {
-  const width = Math.max(1, Math.abs(object.width));
-  const height = Math.max(1, Math.abs(object.height));
   if (object.type === "line" || object.type === "arrow") {
     const controls = getLineControlPoints(object);
     const minX = Math.min(controls.start.x, controls.end.x, controls.c1.x, controls.c2.x);
@@ -509,6 +505,26 @@ const getObjectRect = (object: WorkbookBoardObject): Rect => {
       height: Math.max(1, maxY - minY) + 16,
     };
   }
+  if (Array.isArray(object.points) && object.points.length > 0) {
+    let minX = object.points[0].x;
+    let minY = object.points[0].y;
+    let maxX = object.points[0].x;
+    let maxY = object.points[0].y;
+    object.points.forEach((point) => {
+      minX = Math.min(minX, point.x);
+      minY = Math.min(minY, point.y);
+      maxX = Math.max(maxX, point.x);
+      maxY = Math.max(maxY, point.y);
+    });
+    return {
+      x: minX,
+      y: minY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY),
+    };
+  }
+  const width = Math.max(1, Math.abs(object.width));
+  const height = Math.max(1, Math.abs(object.height));
   return {
     x: Math.min(object.x, object.x + object.width),
     y: Math.min(object.y, object.y + object.height),
@@ -1139,12 +1155,13 @@ export function WorkbookCanvas({
     if (!moving) return null;
     const deltaX = moving.current.x - moving.start.x;
     const deltaY = moving.current.y - moving.start.y;
+    const baseRect = getObjectRect(moving.object);
     return {
       id: moving.object.id,
-      x: moving.startObjectX + deltaX,
-      y: moving.startObjectY + deltaY,
-      width: moving.object.width,
-      height: moving.object.height,
+      x: baseRect.x + deltaX,
+      y: baseRect.y + deltaY,
+      width: baseRect.width,
+      height: baseRect.height,
     };
   }, [moving]);
 
@@ -1788,8 +1805,6 @@ export function WorkbookCanvas({
       current: start,
       startClientX: event.clientX,
       startClientY: event.clientY,
-      startObjectX: object.x,
-      startObjectY: object.y,
     });
     svg.setPointerCapture(event.pointerId);
   };
@@ -3236,10 +3251,13 @@ export function WorkbookCanvas({
             width: object.width,
             height: object.height,
           };
-    const normalized = normalizeRect(
-      { x: rect.x, y: rect.y },
-      { x: rect.x + rect.width, y: rect.y + rect.height }
-    );
+    const normalized =
+      Array.isArray(object.points) && object.points.length > 0
+        ? getObjectRect(object)
+        : normalizeRect(
+            { x: rect.x, y: rect.y },
+            { x: rect.x + rect.width, y: rect.y + rect.height }
+          );
     const commonProps = {
       stroke: object.color ?? "#4f63ff",
       strokeWidth: object.strokeWidth ?? 2,
@@ -5555,11 +5573,11 @@ export function WorkbookCanvas({
           ? performance.now()
           : Date.now();
       const previousTs = lastRealtimeUpdateAtRef.current.get(objectId) ?? 0;
-      if (now - previousTs < 42) return;
+      if (now - previousTs < 28) return;
       const signature = toStableSignature(patch);
       const previousSignature =
         lastRealtimePatchSignatureRef.current.get(objectId) ?? "";
-      if (signature === previousSignature && now - previousTs < 180) return;
+      if (signature === previousSignature && now - previousTs < 120) return;
       lastRealtimeUpdateAtRef.current.set(objectId, now);
       lastRealtimePatchSignatureRef.current.set(objectId, signature);
       onObjectUpdate(objectId, patch, {
@@ -5591,7 +5609,11 @@ export function WorkbookCanvas({
 
   const selectedRect = useMemo(() => {
     if (!selectedPreviewObject) return null;
-    if (selectedPreviewObject.type === "line" || selectedPreviewObject.type === "arrow") {
+    if (
+      selectedPreviewObject.type === "line" ||
+      selectedPreviewObject.type === "arrow" ||
+      (Array.isArray(selectedPreviewObject.points) && selectedPreviewObject.points.length > 0)
+    ) {
       return getObjectRect(selectedPreviewObject);
     }
     return normalizeRect(

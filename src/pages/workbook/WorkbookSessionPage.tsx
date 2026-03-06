@@ -172,12 +172,12 @@ import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
-const POLL_INTERVAL_MS = 620;
-const POLL_INTERVAL_STREAM_CONNECTED_MS = 1_250;
+const POLL_INTERVAL_MS = 420;
+const POLL_INTERVAL_STREAM_CONNECTED_MS = 760;
 const PRESENCE_INTERVAL_MS = 3_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
-const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 48;
-const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 24;
+const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 38;
+const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 16;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
@@ -269,6 +269,15 @@ const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
   if (events.length <= 1) return events;
   const compacted: WorkbookEvent[] = [];
   const pendingByTypeAndObjectId = new Map<string, WorkbookEvent>();
+  const removePendingByObjectId = (objectId: string) => {
+    if (!objectId || pendingByTypeAndObjectId.size === 0) return;
+    const suffix = `:${objectId}`;
+    Array.from(pendingByTypeAndObjectId.keys()).forEach((key) => {
+      if (key.endsWith(suffix)) {
+        pendingByTypeAndObjectId.delete(key);
+      }
+    });
+  };
   const flushPending = () => {
     if (pendingByTypeAndObjectId.size === 0) return;
     pendingByTypeAndObjectId.forEach((event) => compacted.push(event));
@@ -323,7 +332,7 @@ const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
         ? ((event.payload as { objectId: string }).objectId ?? "")
         : "";
     if (deletedObjectId) {
-      pendingByObjectId.delete(deletedObjectId);
+      removePendingByObjectId(deletedObjectId);
     }
     flushPending();
     compacted.push(event);
@@ -987,28 +996,53 @@ const loadImageFromDataUrl = (dataUrl: string): Promise<HTMLImageElement> =>
 
 const optimizeImageDataUrl = async (
   dataUrl: string,
-  options?: { maxEdge?: number; quality?: number }
+  options?: { maxEdge?: number; quality?: number; maxChars?: number }
 ) => {
   if (typeof document === "undefined") return dataUrl;
   const image = await loadImageFromDataUrl(dataUrl);
   const maxEdge = Math.max(720, options?.maxEdge ?? 1_920);
   const quality = Math.max(0.5, Math.min(0.95, options?.quality ?? 0.84));
+  const maxChars = Math.max(120_000, options?.maxChars ?? 420_000);
   const sourceWidth = Math.max(1, image.naturalWidth || image.width);
   const sourceHeight = Math.max(1, image.naturalHeight || image.height);
   const ratio = Math.min(1, maxEdge / Math.max(sourceWidth, sourceHeight));
-  const targetWidth = Math.max(1, Math.round(sourceWidth * ratio));
-  const targetHeight = Math.max(1, Math.round(sourceHeight * ratio));
+  let targetWidth = Math.max(1, Math.round(sourceWidth * ratio));
+  let targetHeight = Math.max(1, Math.round(sourceHeight * ratio));
   const canvas = document.createElement("canvas");
   canvas.width = targetWidth;
   canvas.height = targetHeight;
   const context = canvas.getContext("2d");
   if (!context) return dataUrl;
-  context.drawImage(image, 0, 0, targetWidth, targetHeight);
-  const optimized = canvas.toDataURL("image/webp", quality);
-  if (!optimized || optimized.length >= dataUrl.length) {
-    return dataUrl;
+  const renderCandidate = (width: number, height: number, outputQuality: number) => {
+    canvas.width = width;
+    canvas.height = height;
+    context.clearRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", outputQuality);
+  };
+  let best = renderCandidate(targetWidth, targetHeight, quality);
+  if (!best || best.length >= dataUrl.length) {
+    best = dataUrl;
   }
-  return optimized;
+  if (best.length <= maxChars) {
+    return best;
+  }
+  let nextQuality = quality;
+  for (let attempt = 0; attempt < 7; attempt += 1) {
+    nextQuality = Math.max(0.42, nextQuality * 0.86);
+    if (attempt % 2 === 1) {
+      targetWidth = Math.max(480, Math.round(targetWidth * 0.84));
+      targetHeight = Math.max(320, Math.round(targetHeight * 0.84));
+    }
+    const candidate = renderCandidate(targetWidth, targetHeight, nextQuality);
+    if (candidate && candidate.length < best.length) {
+      best = candidate;
+    }
+    if (best.length <= maxChars) {
+      break;
+    }
+  }
+  return best;
 };
 
 const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
@@ -5391,6 +5425,10 @@ export default function WorkbookSessionPage() {
 
   const connectPointObjectsChronologically = useCallback(async () => {
     if (!sessionId || !canDraw) return;
+    if (!canDelete) {
+      setError("Для объединения точек нужно разрешение на удаление.");
+      return;
+    }
     const points = boardObjects
       .filter((object): object is WorkbookBoardObject & { type: "point" } => object.type === "point")
       .slice()
@@ -5495,7 +5533,7 @@ export default function WorkbookSessionPage() {
     } catch {
       setError("Не удалось объединить точки.");
     }
-  }, [activeSceneLayerId, appendEventsAndApply, boardObjects, canDraw, sessionId, user?.id]);
+  }, [activeSceneLayerId, appendEventsAndApply, boardObjects, canDelete, canDraw, sessionId, user?.id]);
 
   const updateSelectedShape2dMeta = useCallback(
     async (patch: Record<string, unknown>) => {
@@ -6745,8 +6783,9 @@ export default function WorkbookSessionPage() {
       const sourceDataUrl = await readFileAsDataUrl(file);
       const url = isImage
         ? await optimizeImageDataUrl(sourceDataUrl, {
-            maxEdge: 1_680,
-            quality: 0.82,
+            maxEdge: 1_280,
+            quality: 0.76,
+            maxChars: 420_000,
           })
         : sourceDataUrl;
       if (isPdf) {
@@ -6765,7 +6804,16 @@ export default function WorkbookSessionPage() {
         isPdf
           ? renderedPages?.find((page) => page.page === 1) ?? renderedPages?.[0]
           : null;
-      const objectImageUrl = isImage ? url : renderedPage?.imageUrl;
+      const objectImageUrl =
+        isImage
+          ? url
+          : renderedPage?.imageUrl
+            ? await optimizeImageDataUrl(renderedPage.imageUrl, {
+                maxEdge: 1_120,
+                quality: 0.72,
+                maxChars: 360_000,
+              })
+            : undefined;
       const object: WorkbookBoardObject = {
         id: generateId(),
         type: objectImageUrl ? "image" : "text",
@@ -6842,6 +6890,20 @@ export default function WorkbookSessionPage() {
         ? active.renderedPages?.find((page) => page.page === documentState.page) ??
           active.renderedPages?.[0]
         : null;
+    const snapshotImageUrl =
+      active.type === "image"
+        ? await optimizeImageDataUrl(active.url, {
+            maxEdge: 1_120,
+            quality: 0.74,
+            maxChars: 360_000,
+          })
+        : renderedPage
+          ? await optimizeImageDataUrl(renderedPage.imageUrl, {
+              maxEdge: 1_120,
+              quality: 0.72,
+              maxChars: 360_000,
+            })
+          : undefined;
     const object: WorkbookBoardObject = {
       id: generateId(),
       type: active.type === "image" || renderedPage ? "image" : "text",
@@ -6854,12 +6916,7 @@ export default function WorkbookSessionPage() {
       fill: "transparent",
       strokeWidth: 2,
       opacity: 1,
-      imageUrl:
-        active.type === "image"
-          ? active.url
-          : renderedPage
-            ? renderedPage.imageUrl
-            : undefined,
+      imageUrl: snapshotImageUrl,
       imageName: active.name,
       text:
         active.type === "pdf"
@@ -10453,6 +10510,7 @@ export default function WorkbookSessionPage() {
                       : "Выберите текстовый блок на доске, чтобы включить параметры форматирования."}
                   </p>
                   <TextField
+                    className="workbook-session__text-transform-field"
                     size="small"
                     multiline
                     minRows={2}
@@ -10907,7 +10965,10 @@ export default function WorkbookSessionPage() {
                     <Button
                       size="small"
                       variant="outlined"
-                      disabled={boardObjects.filter((item) => item.type === "point").length < 2}
+                      disabled={
+                        !canDelete ||
+                        boardObjects.filter((item) => item.type === "point").length < 2
+                      }
                       onClick={() => void connectPointObjectsChronologically()}
                     >
                       Объединить точки
