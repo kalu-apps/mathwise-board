@@ -5,8 +5,8 @@ meta:
     version: 20
 
 build:
-  additionalCommands: npm run build:showcase
+  additionalCommands: npm run build:board
 
 run:
-  command: PORT=4173 npm run backend:start:showcase
+  command: PORT=4173 npm run backend:start:board
   containerPort: 4173

@@ -148,7 +148,7 @@ const start = async () => {
     await access(INDEX_FILE);
   } catch {
     console.warn(
-      `[backend] static dist not found at ${INDEX_FILE}. Run "npm run build:showcase" first.`
+      `[backend] static dist not found at ${INDEX_FILE}. Run "npm run build:board" first.`
     );
   }
 

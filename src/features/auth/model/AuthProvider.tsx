@@ -13,12 +13,12 @@ import {
 import { getAuthSession, logoutAuthSession, requestPasswordLogin } from "./api";
 import { t } from "@/shared/i18n";
 
-const SHOWCASE_AUTO_LOGIN_EMAIL =
-  import.meta.env.VITE_SHOWCASE_AUTO_LOGIN_EMAIL?.trim().toLowerCase() ?? "";
-const SHOWCASE_AUTO_LOGIN_PASSWORD =
-  import.meta.env.VITE_SHOWCASE_AUTO_LOGIN_PASSWORD ?? "magic";
+const BOARD_AUTO_LOGIN_EMAIL =
+  import.meta.env.VITE_BOARD_AUTO_LOGIN_EMAIL?.trim().toLowerCase() ?? "";
+const BOARD_AUTO_LOGIN_PASSWORD =
+  import.meta.env.VITE_BOARD_AUTO_LOGIN_PASSWORD ?? "magic";
 const DISABLE_IDLE_AUTO_LOGOUT =
-  import.meta.env.VITE_SHOWCASE_MODE?.trim().toLowerCase() === "realtime" ||
+  import.meta.env.VITE_BOARD_MODE?.trim().toLowerCase() === "realtime" ||
   String(import.meta.env.VITE_WHITEBOARD_ONLY ?? "").trim() === "1";
 
 const readIdleActivityTimestamp = () => {
@@ -63,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const lastActivityRef = useRef<number | null>(null);
   const lastPersistedActivityRef = useRef<number>(0);
   const autoLogoutInProgressRef = useRef(false);
-  const showcaseAutoLoginStartedRef = useRef(false);
+  const autoLoginStartedRef = useRef(false);
 
   const syncSession = useCallback(async () => {
     try {
@@ -87,24 +87,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [syncSession]);
 
   useEffect(() => {
-    if (!SHOWCASE_AUTO_LOGIN_EMAIL) return;
+    if (!BOARD_AUTO_LOGIN_EMAIL) return;
     if (!isAuthReady || user) return;
-    if (showcaseAutoLoginStartedRef.current) return;
-    showcaseAutoLoginStartedRef.current = true;
+    if (autoLoginStartedRef.current) return;
+    autoLoginStartedRef.current = true;
     let cancelled = false;
 
     const autoLogin = async () => {
       try {
         const safeUser = await requestPasswordLogin(
-          SHOWCASE_AUTO_LOGIN_EMAIL,
-          SHOWCASE_AUTO_LOGIN_PASSWORD
+          BOARD_AUTO_LOGIN_EMAIL,
+          BOARD_AUTO_LOGIN_PASSWORD
         );
         if (cancelled) return;
         setUser(safeUser);
         writeStorage(AUTH_STORAGE_KEY, safeUser, { ttlMs: AUTH_STORAGE_TTL_MS });
       } catch {
         if (cancelled) return;
-        showcaseAutoLoginStartedRef.current = false;
+        autoLoginStartedRef.current = false;
       }
     };
 

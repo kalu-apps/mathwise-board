@@ -204,7 +204,7 @@ const persistNow = () => {
   fs.writeFile(DB_FILE, payload, (error) => {
     persistInFlight = false;
     if (error) {
-      // keep runtime resilient in showcase mode
+      // keep runtime resilient in board service mode
       return;
     }
     if (persistRequestedWhileWriting) {
