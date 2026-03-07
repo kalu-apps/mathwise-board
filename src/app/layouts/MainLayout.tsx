@@ -7,8 +7,7 @@ import { ConnectivityBanner } from "@/shared/ui/ConnectivityBanner";
 import { PerformanceModeBanner } from "@/shared/ui/PerformanceModeBanner";
 
 export function MainLayout() {
-  const { user, isAuthReady, isAuthModalOpen, closeAuthModal, authModalMode, authModalEmail } =
-    useAuth();
+  const { user, isAuthReady, isAuthModalOpen, closeAuthModal, authModalEmail } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -32,7 +31,6 @@ export function MainLayout() {
       <AuthModal
         open={isAuthModalOpen}
         onClose={closeAuthModal}
-        mode={authModalMode}
         initialEmail={authModalEmail}
       />
     </>

@@ -1,100 +1,67 @@
-import fs from "fs";
-import path from "path";
-import type { Course } from "../entities/course/model/types";
-import type { Lesson } from "../entities/lesson/model/types";
-import type { Purchase } from "../entities/purchase/model/types";
-import type { LessonProgress } from "../entities/progress/model/types";
-import type { User } from "../entities/user/model/types";
-import type { TeacherProfile } from "../features/teacher-profile/model/types";
-import type { Booking } from "../entities/booking/model/types";
-import type { NewsPost } from "../entities/news/model/types";
-import type {
-  AssessmentSession,
-  AssessmentStorageState,
-} from "../features/assessments/model/types";
-import type {
-  AuthAuditRecord,
-  AuthCredentialRecord,
-  AuthOneTimeCodeRecord,
-  AuthSessionRecord,
-  BookingLifecycleRecord,
-  CheckoutProcess,
-  ConsentRecord,
-  EntitlementRecord,
-  IdempotencyRecord,
-  IdentityRecord,
-  OutboxRecord,
-  PasswordResetTokenRecord,
-  PaymentEventRecord,
-  SupportActionRecord,
-} from "../domain/auth-payments/model/types";
+import fs from "node:fs";
+import path from "node:path";
 
-type StoredUser = User & { password: string };
-type RumTelemetryRecord = {
+export type UserRole = "teacher" | "student";
+
+export type UserRecord = {
   id: string;
-  type: string;
-  payload: string;
+  role: UserRole;
+  email: string;
+  firstName: string;
+  lastName: string;
+  photo?: string;
   createdAt: string;
-  route?: string;
-  userId?: string | null;
 };
 
-export type ChatThreadRecord = {
-  id: string;
-  teacherId: string;
-  studentId: string;
+export type AuthSessionRecord = {
+  token: string;
+  userId: string;
   createdAt: string;
-  updatedAt: string;
-  lastMessageId?: string | null;
-  studentLastReadAt?: string | null;
-  teacherLastReadAt?: string | null;
-};
-
-export type ChatMessageRecord = {
-  id: string;
-  threadId: string;
-  senderId: string;
-  senderRole: "student" | "teacher";
-  text: string;
-  createdAt: string;
-  editedAt?: string | null;
-  attachments?: Array<{
-    id: string;
-    name: string;
-    mimeType: string;
-    size: number;
-    url: string;
-  }>;
-  deletedForAll?: boolean;
-  deletedForUserIds?: string[];
+  lastSeenAt: string;
+  expiresAt: string;
 };
 
 export type WorkbookSessionKind = "PERSONAL" | "CLASS";
 export type WorkbookSessionStatus = "draft" | "in_progress" | "ended";
-export type WorkbookParticipantRole = "teacher" | "student";
+export type WorkbookRoleInSession = "teacher" | "student";
 
 export type WorkbookSessionRecord = {
   id: string;
   kind: WorkbookSessionKind;
   createdBy: string;
-  status: WorkbookSessionStatus;
   title: string;
+  status: WorkbookSessionStatus;
   createdAt: string;
   startedAt?: string | null;
   endedAt?: string | null;
   lastActivityAt: string;
-  context?: string | null;
+  context: string;
+};
+
+export type WorkbookParticipantPermissions = {
+  canDraw: boolean;
+  canAnnotate: boolean;
+  canUseMedia: boolean;
+  canUseChat: boolean;
+  canInvite: boolean;
+  canManageSession: boolean;
+  canSelect: boolean;
+  canDelete: boolean;
+  canInsertImage: boolean;
+  canClear: boolean;
+  canExport: boolean;
+  canUseLaser: boolean;
 };
 
 export type WorkbookSessionParticipantRecord = {
   sessionId: string;
   userId: string;
-  roleInSession: WorkbookParticipantRole;
-  permissions: string;
+  roleInSession: WorkbookRoleInSession;
   joinedAt: string;
   leftAt?: string | null;
   isActive: boolean;
   lastSeenAt?: string | null;
+  permissions: WorkbookParticipantPermissions;
 };
 
 export type WorkbookDraftRecord = {
@@ -103,11 +70,10 @@ export type WorkbookDraftRecord = {
   sessionId: string;
   redirectSessionId?: string | null;
   title: string;
-  statusForCard: "draft" | "in_progress" | "ended";
+  statusForCard: WorkbookSessionStatus;
   createdAt: string;
   updatedAt: string;
   lastOpenedAt?: string | null;
-  previewAssetId?: string | null;
 };
 
 export type WorkbookInviteRecord = {
@@ -116,7 +82,7 @@ export type WorkbookInviteRecord = {
   token: string;
   createdBy: string;
   createdAt: string;
-  expiresAt?: string | null;
+  expiresAt: string;
   maxUses?: number | null;
   useCount: number;
   revokedAt?: string | null;
@@ -141,155 +107,79 @@ export type WorkbookSnapshotRecord = {
   createdAt: string;
 };
 
-export type AssistantSessionRecord = {
-  id: string;
-  userId: string;
-  role: "student" | "teacher";
-  mode:
-    | "study-cabinet"
-    | "course"
-    | "lesson"
-    | "whiteboard"
-    | "teacher-dashboard"
-    | "test-library";
-  title: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type AssistantMessageRecord = {
-  id: string;
-  sessionId: string;
-  role: "user" | "assistant";
-  text: string;
-  blocks?: string | null;
-  createdAt: string;
-};
-
-export type AssistantEventRecord = {
-  id: string;
-  userId: string;
-  type:
-    | "course_purchased"
-    | "lesson_opened"
-    | "lesson_completed"
-    | "test_submitted"
-    | "whiteboard_session_started"
-    | "assistant_action_clicked";
-  payload: string;
-  createdAt: string;
-};
-
-export type MediaPipelineJobRecord = {
-  id: string;
-  status: "queued" | "processing" | "ready" | "failed";
-  lessonTitle?: string | null;
-  createdAt: string;
-  updatedAt: string;
-  result?: string | null;
-  error?: string | null;
-};
-
 export type MockDb = {
-  users: StoredUser[];
-  courses: Course[];
-  lessons: Lesson[];
-  purchases: Purchase[];
-  progress: LessonProgress[];
-  teacherProfiles: Record<string, TeacherProfile>;
-  teacherAvailability: Record<
-    string,
-    { id: string; date: string; startTime: string; endTime: string }[]
-  >;
-  bookings: Booking[];
-  news: NewsPost[];
-  checkoutProcesses: CheckoutProcess[];
-  entitlements: EntitlementRecord[];
-  identity: IdentityRecord[];
-  consents: ConsentRecord[];
-  bookingLifecycle: BookingLifecycleRecord[];
-  paymentEvents: PaymentEventRecord[];
-  outbox: OutboxRecord[];
-  supportActions: SupportActionRecord[];
+  users: UserRecord[];
   authSessions: AuthSessionRecord[];
-  authCredentials: AuthCredentialRecord[];
-  authOneTimeCodes: AuthOneTimeCodeRecord[];
-  passwordResetTokens: PasswordResetTokenRecord[];
-  authAudit: AuthAuditRecord[];
-  idempotency: IdempotencyRecord[];
-  rumTelemetry: RumTelemetryRecord[];
-  chatThreads: ChatThreadRecord[];
-  chatMessages: ChatMessageRecord[];
   workbookSessions: WorkbookSessionRecord[];
   workbookParticipants: WorkbookSessionParticipantRecord[];
   workbookDrafts: WorkbookDraftRecord[];
   workbookInvites: WorkbookInviteRecord[];
   workbookEvents: WorkbookEventRecord[];
   workbookSnapshots: WorkbookSnapshotRecord[];
-  assistantSessions: AssistantSessionRecord[];
-  assistantMessages: AssistantMessageRecord[];
-  assistantEvents: AssistantEventRecord[];
-  mediaJobs: MediaPipelineJobRecord[];
-  assessments: AssessmentStorageState;
-  assessmentSessions: Record<string, AssessmentSession>;
 };
 
 const DB_FILE = path.resolve(process.cwd(), "mock-db.json");
-
-const createDefaultDb = (): MockDb => ({
-  users: [],
-  courses: [],
-  lessons: [],
-  purchases: [],
-  progress: [],
-  teacherProfiles: {},
-  teacherAvailability: {},
-  bookings: [],
-  news: [],
-  checkoutProcesses: [],
-  entitlements: [],
-  identity: [],
-  consents: [],
-  bookingLifecycle: [],
-  paymentEvents: [],
-  outbox: [],
-  supportActions: [],
-  authSessions: [],
-  authCredentials: [],
-  authOneTimeCodes: [],
-  passwordResetTokens: [],
-  authAudit: [],
-  idempotency: [],
-  rumTelemetry: [],
-  chatThreads: [],
-  chatMessages: [],
-  workbookSessions: [],
-  workbookParticipants: [],
-  workbookDrafts: [],
-  workbookInvites: [],
-  workbookEvents: [],
-  workbookSnapshots: [],
-  assistantSessions: [],
-  assistantMessages: [],
-  assistantEvents: [],
-  mediaJobs: [],
-  assessments: {
-    templates: [],
-    courseContent: {},
-    courseBlocks: {},
-    attempts: [],
-  },
-  assessmentSessions: {},
-});
+const PERSIST_DEBOUNCE_MS = 120;
 
 let db: MockDb | null = null;
 let persistTimer: NodeJS.Timeout | null = null;
 let persistInFlight = false;
 let persistRequestedWhileWriting = false;
 
-const PERSIST_DEBOUNCE_MS = 120;
+const defaultTeacherUser = (): UserRecord => ({
+  id: "teacher-axiom",
+  role: "teacher",
+  email: "teacher@axiom.demo",
+  firstName: "Анна",
+  lastName: "Викторовна",
+  createdAt: new Date().toISOString(),
+});
 
-function readDbFile(): MockDb {
+const createDefaultDb = (): MockDb => ({
+  users: [defaultTeacherUser()],
+  authSessions: [],
+  workbookSessions: [],
+  workbookParticipants: [],
+  workbookDrafts: [],
+  workbookInvites: [],
+  workbookEvents: [],
+  workbookSnapshots: [],
+});
+
+const ensureShape = (raw: unknown): MockDb => {
+  const source = typeof raw === "object" && raw ? (raw as Partial<MockDb>) : {};
+  const base = createDefaultDb();
+  const next: MockDb = {
+    users: Array.isArray(source.users) ? source.users : base.users,
+    authSessions: Array.isArray(source.authSessions) ? source.authSessions : base.authSessions,
+    workbookSessions: Array.isArray(source.workbookSessions)
+      ? source.workbookSessions
+      : base.workbookSessions,
+    workbookParticipants: Array.isArray(source.workbookParticipants)
+      ? source.workbookParticipants
+      : base.workbookParticipants,
+    workbookDrafts: Array.isArray(source.workbookDrafts)
+      ? source.workbookDrafts
+      : base.workbookDrafts,
+    workbookInvites: Array.isArray(source.workbookInvites)
+      ? source.workbookInvites
+      : base.workbookInvites,
+    workbookEvents: Array.isArray(source.workbookEvents)
+      ? source.workbookEvents
+      : base.workbookEvents,
+    workbookSnapshots: Array.isArray(source.workbookSnapshots)
+      ? source.workbookSnapshots
+      : base.workbookSnapshots,
+  };
+
+  if (!next.users.some((user) => user.role === "teacher" && user.email === "teacher@axiom.demo")) {
+    next.users.push(defaultTeacherUser());
+  }
+
+  return next;
+};
+
+const readDbFile = (): MockDb => {
   try {
     if (!fs.existsSync(DB_FILE)) {
       const fresh = createDefaultDb();
@@ -297,69 +187,60 @@ function readDbFile(): MockDb {
       return fresh;
     }
     const raw = fs.readFileSync(DB_FILE, "utf-8");
-    const parsed = JSON.parse(raw) as MockDb;
-    const base = createDefaultDb();
-    const merged = { ...base, ...parsed };
-    return {
-      ...merged,
-      assessments: {
-        ...base.assessments,
-        ...(parsed.assessments ?? {}),
-      },
-      assessmentSessions: parsed.assessmentSessions ?? {},
-    };
+    return ensureShape(JSON.parse(raw));
   } catch {
     return createDefaultDb();
   }
-}
-
-export function getDb(): MockDb {
-  if (!db) db = readDbFile();
-  return db;
-}
-
-const persistDbNow = () => {
-  if (!db || persistInFlight) return;
-  persistInFlight = true;
-  const payload = JSON.stringify(db, null, 2);
-  fs.writeFile(DB_FILE, payload, (error) => {
-    void error;
-    persistInFlight = false;
-    if (persistRequestedWhileWriting) {
-      persistRequestedWhileWriting = false;
-      if (persistTimer) {
-        clearTimeout(persistTimer);
-      }
-      persistTimer = setTimeout(() => {
-        persistTimer = null;
-        persistDbNow();
-      }, PERSIST_DEBOUNCE_MS);
-    }
-  });
 };
 
-export function saveDb() {
+const persistNow = () => {
   if (!db) return;
   if (persistInFlight) {
     persistRequestedWhileWriting = true;
     return;
   }
+  persistInFlight = true;
+  const payload = JSON.stringify(db, null, 2);
+  fs.writeFile(DB_FILE, payload, (error) => {
+    persistInFlight = false;
+    if (error) {
+      // keep runtime resilient in showcase mode
+      return;
+    }
+    if (persistRequestedWhileWriting) {
+      persistRequestedWhileWriting = false;
+      persistNow();
+    }
+  });
+};
+
+const schedulePersist = () => {
   if (persistTimer) {
     clearTimeout(persistTimer);
   }
   persistTimer = setTimeout(() => {
     persistTimer = null;
-    persistDbNow();
+    persistNow();
   }, PERSIST_DEBOUNCE_MS);
-}
+};
 
-export function resetDb() {
+export const getDb = (): MockDb => {
+  if (!db) {
+    db = readDbFile();
+  }
+  return db;
+};
+
+export const saveDb = () => {
+  if (!db) return;
+  schedulePersist();
+};
+
+export const resetDb = () => {
+  db = createDefaultDb();
   if (persistTimer) {
     clearTimeout(persistTimer);
     persistTimer = null;
   }
-  persistInFlight = false;
-  persistRequestedWhileWriting = false;
-  db = createDefaultDb();
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-}
+  persistNow();
+};

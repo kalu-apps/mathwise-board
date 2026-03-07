@@ -10,23 +10,16 @@ import {
   AUTH_STORAGE_KEY,
   AUTH_STORAGE_TTL_MS,
 } from "./constants";
-import {
-  confirmMagicLink,
-  getAuthSession,
-  logoutAuthSession,
-  requestMagicLink,
-  requestPasswordLogin,
-} from "./api";
-import { ApiError } from "@/shared/api/client";
+import { getAuthSession, logoutAuthSession, requestPasswordLogin } from "./api";
 import { t } from "@/shared/i18n";
 
-const blurActiveElement = () => {
-  if (typeof document === "undefined") return;
-  const active = document.activeElement;
-  if (active instanceof HTMLElement) {
-    active.blur();
-  }
-};
+const SHOWCASE_AUTO_LOGIN_EMAIL =
+  import.meta.env.VITE_SHOWCASE_AUTO_LOGIN_EMAIL?.trim().toLowerCase() ?? "";
+const SHOWCASE_AUTO_LOGIN_PASSWORD =
+  import.meta.env.VITE_SHOWCASE_AUTO_LOGIN_PASSWORD ?? "magic";
+const DISABLE_IDLE_AUTO_LOGOUT =
+  import.meta.env.VITE_SHOWCASE_MODE?.trim().toLowerCase() === "realtime" ||
+  String(import.meta.env.VITE_WHITEBOARD_ONLY ?? "").trim() === "1";
 
 const readIdleActivityTimestamp = () => {
   if (typeof localStorage === "undefined") return null;
@@ -45,7 +38,7 @@ const writeIdleActivityTimestamp = (timestamp: number) => {
   try {
     localStorage.setItem(AUTH_IDLE_ACTIVITY_KEY, String(timestamp));
   } catch {
-    // ignore storage errors in reliability mode
+    // ignore storage errors
   }
 };
 
@@ -54,31 +47,22 @@ const clearIdleActivityTimestamp = () => {
   try {
     localStorage.removeItem(AUTH_IDLE_ACTIVITY_KEY);
   } catch {
-    // ignore storage errors in reliability mode
+    // ignore storage errors
   }
 };
-
-const SHOWCASE_AUTO_LOGIN_EMAIL =
-  import.meta.env.VITE_SHOWCASE_AUTO_LOGIN_EMAIL?.trim().toLowerCase() ?? "";
-const SHOWCASE_AUTO_LOGIN_PASSWORD =
-  import.meta.env.VITE_SHOWCASE_AUTO_LOGIN_PASSWORD ?? "magic";
-const DISABLE_IDLE_AUTO_LOGOUT =
-  import.meta.env.VITE_SHOWCASE_MODE?.trim().toLowerCase() === "realtime" ||
-  String(import.meta.env.VITE_WHITEBOARD_ONLY ?? "").trim() === "1";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() =>
     readStorage<User | null>(AUTH_STORAGE_KEY, null)
   );
   const [isAuthReady, setAuthReady] = useState(false);
+  const [isAuthModalOpen, setAuthModalOpen] = useState(false);
+  const [authModalEmail, setAuthModalEmail] = useState("");
+
   const idleTimerRef = useRef<number | null>(null);
   const lastActivityRef = useRef<number | null>(null);
   const lastPersistedActivityRef = useRef<number>(0);
   const autoLogoutInProgressRef = useRef(false);
-
-  const [isAuthModalOpen, setAuthModalOpen] = useState(false);
-  const [authModalMode, setAuthModalMode] = useState<"login" | "recover">("login");
-  const [authModalEmail, setAuthModalEmail] = useState("");
   const showcaseAutoLoginStartedRef = useRef(false);
 
   const syncSession = useCallback(async () => {
@@ -99,28 +83,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    let active = true;
-    getAuthSession()
-      .then((sessionUser) => {
-        if (!active) return;
-        setUser(sessionUser);
-        if (sessionUser) {
-          writeStorage(AUTH_STORAGE_KEY, sessionUser, { ttlMs: AUTH_STORAGE_TTL_MS });
-        } else {
-          removeStorage(AUTH_STORAGE_KEY);
-        }
-        setAuthReady(true);
-      })
-      .catch(() => {
-        if (!active) return;
-        setUser(null);
-        removeStorage(AUTH_STORAGE_KEY);
-        setAuthReady(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+    void syncSession();
+  }, [syncSession]);
 
   useEffect(() => {
     if (!SHOWCASE_AUTO_LOGIN_EMAIL) return;
@@ -128,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (showcaseAutoLoginStartedRef.current) return;
     showcaseAutoLoginStartedRef.current = true;
     let cancelled = false;
+
     const autoLogin = async () => {
       try {
         const safeUser = await requestPasswordLogin(
@@ -140,14 +105,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {
         if (cancelled) return;
         showcaseAutoLoginStartedRef.current = false;
-        await syncSession();
       }
     };
+
     void autoLogin();
     return () => {
       cancelled = true;
     };
-  }, [isAuthReady, syncSession, user]);
+  }, [isAuthReady, user]);
 
   const logout = useCallback(() => {
     setUser(null);
@@ -238,10 +203,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     persistActivity(lastActivityRef.current, true);
     scheduleIdleLogout();
 
-    const onActivity = () => {
-      markActivity(false);
-    };
-
+    const onActivity = () => markActivity(false);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         if (hasExceededIdleTimeout()) {
@@ -251,7 +213,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         markActivity(true);
       }
     };
-
     const onWindowFocus = () => {
       if (hasExceededIdleTimeout()) {
         triggerAutoLogout();
@@ -259,7 +220,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       markActivity(true);
     };
-
     const onStorageChange = (event: StorageEvent) => {
       if (event.key === AUTH_IDLE_ACTIVITY_KEY) {
         const externalTimestamp = readIdleActivityTimestamp();
@@ -295,70 +255,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [logout, user]);
 
-  /* ================= LOGIN ================= */
-
-  const requestLoginCode = async (email: string) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail) {
-      return {
-        ok: false,
-        error: t("auth.emailRequired"),
-      };
-    }
-
-    try {
-      const response = await requestMagicLink(normalizedEmail);
-      if (!response.ok) {
-        return {
-          ok: false,
-          error: response.message || t("auth.loginFailed"),
-        };
-      }
-      return {
-        ok: true,
-        message: response.message,
-        debugCode: response.debugCode ?? null,
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : t("auth.loginFailed"),
-      };
-    }
-  };
-
-  const confirmLoginCode = async (email: string, code: string) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    const normalizedCode = code.trim();
-    if (!normalizedEmail || !normalizedCode) {
-      return {
-        ok: false,
-        error: t("auth.magicCodeRequired"),
-      };
-    }
-    try {
-      const safeUser = await confirmMagicLink(normalizedEmail, normalizedCode);
-      setUser(safeUser);
-      writeStorage(AUTH_STORAGE_KEY, safeUser, { ttlMs: AUTH_STORAGE_TTL_MS });
-      setAuthModalOpen(false);
-      return { ok: true };
-    } catch (error) {
-      await syncSession();
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : t("auth.loginFailed"),
-      };
-    }
-  };
-
-  const loginWithPassword = async (email: string, password: string) => {
+  const loginWithPassword = useCallback(async (email: string, password: string) => {
     const normalizedEmail = email.trim().toLowerCase();
     const normalizedPassword = password.normalize("NFKC");
     if (!normalizedEmail || !normalizedPassword) {
-      return {
-        ok: false,
-        error: t("auth.passwordRequired"),
-      };
+      return { ok: false as const, error: t("auth.passwordRequired") };
     }
 
     try {
@@ -366,62 +267,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(safeUser);
       writeStorage(AUTH_STORAGE_KEY, safeUser, { ttlMs: AUTH_STORAGE_TTL_MS });
       setAuthModalOpen(false);
-      return { ok: true };
+      return { ok: true as const };
     } catch (error) {
       await syncSession();
-      if (error instanceof ApiError) {
-        const details = error.details as
-          | { code?: string; lockedUntil?: string | null; error?: string }
-          | undefined;
-        return {
-          ok: false,
-          error: details?.error ?? error.message ?? t("auth.loginFailed"),
-          code: details?.code,
-          lockedUntil: details?.lockedUntil ?? null,
-        };
-      }
       return {
-        ok: false,
-        error: error instanceof Error ? error.message : t("auth.loginFailed"),
+        ok: false as const,
+        error: error instanceof Error ? error.message : t("auth.passwordLoginFailed"),
       };
     }
-  };
+  }, [syncSession]);
 
-  const updateUser = (nextUser: User) => {
+  const updateUser = useCallback((nextUser: User) => {
     setUser(nextUser);
     writeStorage(AUTH_STORAGE_KEY, nextUser, { ttlMs: AUTH_STORAGE_TTL_MS });
-  };
+  }, []);
+
+  const openAuthModal = useCallback((initialEmail?: string) => {
+    setAuthModalEmail((initialEmail ?? "").trim().toLowerCase());
+    setAuthModalOpen(true);
+  }, []);
+
+  const closeAuthModal = useCallback(() => {
+    setAuthModalOpen(false);
+  }, []);
 
   return (
     <AuthContext.Provider
       value={{
         user,
         isAuthReady,
-        requestLoginCode,
-        confirmLoginCode,
         loginWithPassword,
         updateUser,
         logout,
         isAuthModalOpen,
-        authModalMode,
+        openAuthModal,
+        closeAuthModal,
         authModalEmail,
-        openAuthModal: () => {
-          blurActiveElement();
-          setAuthModalMode("login");
-          setAuthModalEmail("");
-          setAuthModalOpen(true);
-        },
-        openRecoverModal: (email?: string) => {
-          blurActiveElement();
-          setAuthModalMode("recover");
-          setAuthModalEmail(email?.trim().toLowerCase() ?? "");
-          setAuthModalOpen(true);
-        },
-        closeAuthModal: () => {
-          setAuthModalOpen(false);
-          setAuthModalMode("login");
-          setAuthModalEmail("");
-        },
       }}
     >
       {children}

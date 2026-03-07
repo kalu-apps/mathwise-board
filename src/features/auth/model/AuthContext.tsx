@@ -4,25 +4,16 @@ import type { User } from "@/entities/user/model/types";
 type AuthContextType = {
   user: User | null;
   isAuthReady: boolean;
-  requestLoginCode: (
-    email: string
-  ) => Promise<{ ok: boolean; error?: string; message?: string; debugCode?: string | null }>;
-  confirmLoginCode: (
-    email: string,
-    code: string
-  ) => Promise<{ ok: boolean; error?: string }>;
   loginWithPassword: (
     email: string,
     password: string
-  ) => Promise<{ ok: boolean; error?: string; code?: string; lockedUntil?: string | null }>;
+  ) => Promise<{ ok: boolean; error?: string }>;
   updateUser: (nextUser: User) => void;
   logout: () => void;
   isAuthModalOpen: boolean;
-  authModalMode: "login" | "recover";
-  authModalEmail: string;
-  openAuthModal: () => void;
-  openRecoverModal: (email?: string) => void;
+  openAuthModal: (initialEmail?: string) => void;
   closeAuthModal: () => void;
+  authModalEmail: string;
 };
 
 export const AuthContext = createContext<AuthContextType>(

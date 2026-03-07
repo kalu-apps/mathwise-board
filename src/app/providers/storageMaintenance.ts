@@ -2,7 +2,8 @@ import { readStorage } from "@/shared/lib/localDb";
 import { AUTH_STORAGE_KEY } from "@/features/auth/model/constants";
 import { OUTBOX_STORAGE_KEY } from "@/shared/lib/outbox";
 import { APP_DATA_UPDATED_STORAGE_KEY } from "@/shared/lib/dataUpdateBus";
-import { NEWS_FEED_UPDATED_STORAGE_KEY } from "@/entities/news/model/storage";
+
+const NEWS_FEED_UPDATED_STORAGE_KEY = "news-feed-updated";
 
 const LEGACY_TIMED_KEYS: Array<{ key: string; maxAgeMs: number }> = [
   { key: APP_DATA_UPDATED_STORAGE_KEY, maxAgeMs: 24 * 60 * 60 * 1000 },
