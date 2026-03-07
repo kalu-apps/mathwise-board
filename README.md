@@ -31,13 +31,20 @@ npm run backend:start:board
 ```
 
 ## Переменные окружения
-Обязательные:
+Обязательные для frontend-сборки:
 - `VITE_BOARD_MODE=realtime`
-- `WHITEBOARD_ONLY=1`
-- `VITE_WHITEBOARD_TEACHER_LOGIN=teacher@axiom.demo`
-- `VITE_WHITEBOARD_TEACHER_PASSWORD=magic`
+- `VITE_WHITEBOARD_ONLY=1`
+- `VITE_API_BASE_URL=https://api.your-domain.tld` (если backend на отдельном домене)
+
+Обязательные для backend runtime:
+- `VITE_WHITEBOARD_TEACHER_PASSWORD=<strong-password>`
 
 Опционально:
+- `VITE_PUBLIC_BASE_URL=https://board.your-domain.tld`
+- `CORS_ALLOWED_ORIGINS=https://board.your-domain.tld`
+- `AUTH_COOKIE_DOMAIN=.your-domain.tld`
+- `AUTH_COOKIE_SAME_SITE=Lax|None|Strict`
+- `AUTH_COOKIE_SECURE=1`
 - `VITE_BOARD_AUTO_LOGIN_EMAIL`
 - `VITE_BOARD_AUTO_LOGIN_PASSWORD`
 - `PORT`
@@ -48,5 +55,5 @@ npm run backend:start:board
 - Преподаватель: вход по логину/паролю.
 - Ученик: вход по временной invite-ссылке без пароля.
 
-## Деплой на Amvera
-См. инструкцию: `AMVERA_DEPLOY.md`.
+## Деплой в Timeweb
+См. инструкцию: `TIMEWEB_DEPLOY.md`.

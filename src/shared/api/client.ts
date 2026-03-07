@@ -1,4 +1,5 @@
 import { dispatchDataUpdate } from "@/shared/lib/dataUpdateBus";
+import { buildApiUrl } from "@/shared/api/base";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
 
@@ -39,7 +40,6 @@ type RequestOptions = {
   idempotencyPrefix?: string;
 };
 
-const API_BASE = "/api";
 const DEFAULT_TIMEOUT_MS = 12_000;
 const CIRCUIT_WINDOW_MS = 30_000;
 const CIRCUIT_FAILURE_THRESHOLD = 4;
@@ -467,7 +467,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       }
 
       try {
-        const res = await fetch(`${API_BASE}${path}`, {
+        const res = await fetch(buildApiUrl(path), {
           method,
           credentials: "include",
           signal: controller.signal,

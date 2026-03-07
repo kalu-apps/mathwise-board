@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "start:board": "vite preview --mode board --host 0.0.0.0 --port ${PORT:-4173}",
     "backend:start": "node --import tsx backend/src/server.ts",
-    "backend:start:board": "VITE_BOARD_MODE=realtime WHITEBOARD_ONLY=1 VITE_WHITEBOARD_TEACHER_LOGIN=teacher@axiom.demo VITE_WHITEBOARD_TEACHER_PASSWORD=magic node --import tsx backend/src/server.ts"
+    "backend:start:board": "VITE_BOARD_MODE=realtime VITE_WHITEBOARD_ONLY=1 node --import tsx backend/src/server.ts"
   },
   "browserslist": {
     "production": [

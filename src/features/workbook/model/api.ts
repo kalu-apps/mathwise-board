@@ -1,4 +1,5 @@
 import { api } from "@/shared/api/client";
+import { buildApiUrl } from "@/shared/api/base";
 import type { User } from "@/entities/user/model/types";
 import type {
   WorkbookDraftCard,
@@ -140,7 +141,8 @@ export function subscribeWorkbookEventsStream(params: {
     };
   }
   const source = new EventSource(
-    `/api/workbook/sessions/${encodeURIComponent(params.sessionId)}/events/stream`
+    buildApiUrl(`/workbook/sessions/${encodeURIComponent(params.sessionId)}/events/stream`),
+    { withCredentials: true }
   );
 
   const handlePayload = (raw: unknown) => {

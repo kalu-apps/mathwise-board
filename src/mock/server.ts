@@ -37,6 +37,23 @@ const ONLINE_TIMEOUT_MS = 20_000;
 const INVITE_TTL_MS = 2 * 60 * 60 * 1000;
 const WORKBOOK_EVENT_LIMIT = 1_200;
 const WORKBOOK_PDF_RENDER_MAX_BYTES = 20 * 1024 * 1024;
+const CORS_ALLOWED_ORIGINS = String(process.env.CORS_ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+const AUTH_COOKIE_DOMAIN = String(process.env.AUTH_COOKIE_DOMAIN ?? "").trim();
+const AUTH_COOKIE_SAME_SITE_RAW = String(process.env.AUTH_COOKIE_SAME_SITE ?? "Lax")
+  .trim()
+  .toLowerCase();
+const AUTH_COOKIE_SAME_SITE =
+  AUTH_COOKIE_SAME_SITE_RAW === "strict"
+    ? "Strict"
+    : AUTH_COOKIE_SAME_SITE_RAW === "none"
+      ? "None"
+      : "Lax";
+const AUTH_COOKIE_SECURE =
+  String(process.env.AUTH_COOKIE_SECURE ?? "").trim() === "1" ||
+  AUTH_COOKIE_SAME_SITE === "None";
 
 type MiddlewareHost =
   | ViteDevServer
@@ -132,17 +149,64 @@ const parseCookies = (req: IncomingMessage): Record<string, string> => {
 const writeAuthCookie = (res: ServerResponse, token: string) => {
   res.setHeader(
     "Set-Cookie",
-    `${AUTH_COOKIE_NAME}=${encodeURIComponent(
-      token
-    )}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(AUTH_SESSION_TTL_MS / 1000)}`
+    [
+      `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}`,
+      "Path=/",
+      "HttpOnly",
+      `SameSite=${AUTH_COOKIE_SAME_SITE}`,
+      `Max-Age=${Math.floor(AUTH_SESSION_TTL_MS / 1000)}`,
+      ...(AUTH_COOKIE_DOMAIN ? [`Domain=${AUTH_COOKIE_DOMAIN}`] : []),
+      ...(AUTH_COOKIE_SECURE ? ["Secure"] : []),
+    ].join("; ")
   );
 };
 
 const clearAuthCookie = (res: ServerResponse) => {
   res.setHeader(
     "Set-Cookie",
-    `${AUTH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+    [
+      `${AUTH_COOKIE_NAME}=`,
+      "Path=/",
+      "HttpOnly",
+      `SameSite=${AUTH_COOKIE_SAME_SITE}`,
+      "Max-Age=0",
+      ...(AUTH_COOKIE_DOMAIN ? [`Domain=${AUTH_COOKIE_DOMAIN}`] : []),
+      ...(AUTH_COOKIE_SECURE ? ["Secure"] : []),
+    ].join("; ")
   );
+};
+
+const isOriginAllowed = (origin: string) =>
+  CORS_ALLOWED_ORIGINS.length === 0 || CORS_ALLOWED_ORIGINS.includes(origin);
+
+const appendVary = (res: ServerResponse, value: string) => {
+  const existing = res.getHeader("Vary");
+  if (!existing) {
+    res.setHeader("Vary", value);
+    return;
+  }
+  const normalized = Array.isArray(existing) ? existing.join(",") : String(existing);
+  const parts = normalized
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (!parts.includes(value)) {
+    parts.push(value);
+  }
+  res.setHeader("Vary", parts.join(", "));
+};
+
+const applyCors = (req: IncomingMessage, res: ServerResponse) => {
+  const origin = typeof req.headers.origin === "string" ? req.headers.origin.trim() : "";
+  if (!origin || !isOriginAllowed(origin)) return;
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, X-Request-Id, X-Retry-Attempt, X-Idempotency-Key"
+  );
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  appendVary(res, "Origin");
 };
 
 const readBody = async (req: IncomingMessage): Promise<unknown> => {
@@ -718,6 +782,13 @@ export function setupMockServer(host: MiddlewareHost) {
 
     if (!pathname.startsWith("/api/")) {
       next();
+      return;
+    }
+
+    applyCors(req, res);
+    if (method === "OPTIONS") {
+      res.statusCode = 204;
+      res.end();
       return;
     }
 
