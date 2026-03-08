@@ -2163,25 +2163,58 @@ export default function WorkbookSessionPage() {
       if (!localStream) return false;
       const localTrack = localStream.getAudioTracks()[0] ?? null;
       if (!localTrack) return false;
-      const audioTransceiver =
-        connection
-          .getTransceivers()
-          .find((transceiver) => transceiver.receiver.track?.kind === "audio") ?? null;
-      if (audioTransceiver) {
-        const senderTrackId = audioTransceiver.sender.track?.id;
-        if (senderTrackId === localTrack.id) return false;
-        await audioTransceiver.sender.replaceTrack(localTrack).catch(() => undefined);
-        if (audioTransceiver.direction === "recvonly") {
+      let changed = false;
+      const hasSyncedSender = connection
+        .getSenders()
+        .some((sender) => sender.track?.id === localTrack.id);
+      if (!hasSyncedSender) {
+        const audioTransceiver =
+          connection.getTransceivers().find((transceiver) => {
+            const senderTrackKind = transceiver.sender.track?.kind;
+            const receiverTrackKind = transceiver.receiver.track?.kind;
+            return senderTrackKind === "audio" || receiverTrackKind === "audio";
+          }) ?? null;
+        if (audioTransceiver) {
           try {
-            audioTransceiver.direction = "sendrecv";
+            await audioTransceiver.sender.replaceTrack(localTrack);
+            changed = true;
+          } catch {
+            // Safari/Yandex mobile can reject replaceTrack on recvonly sender; fallback to addTrack.
+          }
+        }
+      }
+      let senderWithTrack =
+        connection.getSenders().find((sender) => sender.track?.id === localTrack.id) ?? null;
+      if (!senderWithTrack) {
+        try {
+          senderWithTrack = connection.addTrack(localTrack, localStream);
+          changed = true;
+        } catch {
+          return false;
+        }
+      }
+      connection.getTransceivers().forEach((transceiver) => {
+        const senderTrackId = transceiver.sender.track?.id;
+        const receiverKind = transceiver.receiver.track?.kind;
+        const isAudioTransceiver =
+          transceiver.sender === senderWithTrack ||
+          senderTrackId === localTrack.id ||
+          receiverKind === "audio";
+        if (!isAudioTransceiver) return;
+        if (
+          transceiver.direction === "recvonly" ||
+          transceiver.direction === "sendonly" ||
+          transceiver.direction === "inactive"
+        ) {
+          try {
+            transceiver.direction = "sendrecv";
+            changed = true;
           } catch {
             // ignore direction update issues
           }
         }
-        return true;
-      }
-      connection.addTrack(localTrack, localStream);
-      return true;
+      });
+      return changed;
     },
     []
   );
