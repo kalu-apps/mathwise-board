@@ -28,6 +28,14 @@ export default function WorkbookInviteJoinPage() {
   });
   const [guestName, setGuestName] = useState("");
   const [guestNameError, setGuestNameError] = useState<string | null>(null);
+  const shouldCollectGuestName = !user || user.role !== "teacher";
+
+  useEffect(() => {
+    if (!user || user.role === "teacher") return;
+    const suggestedName = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim();
+    if (!suggestedName) return;
+    setGuestName((current) => (current.trim().length > 0 ? current : suggestedName));
+  }, [user]);
 
   const canJoin = useMemo(
     () =>
@@ -35,9 +43,9 @@ export default function WorkbookInviteJoinPage() {
         token &&
           !state.loading &&
           !state.error &&
-          (user || guestName.trim().length >= 2)
+          (!shouldCollectGuestName || guestName.trim().length >= 2)
       ),
-    [guestName, state.error, state.loading, token, user]
+    [guestName, shouldCollectGuestName, state.error, state.loading, token]
   );
 
   useEffect(() => {
@@ -103,14 +111,17 @@ export default function WorkbookInviteJoinPage() {
   const handleJoin = async () => {
     if (!token) return;
     const guestDisplayName = guestName.trim();
-    if (!user && guestDisplayName.length < 2) {
+    if (shouldCollectGuestName && guestDisplayName.length < 2) {
       setGuestNameError(t("workbookInvite.guestNameRequired"));
       return;
     }
     setGuestNameError(null);
     try {
       setState((prev) => ({ ...prev, loading: true }));
-      const joined = await joinWorkbookInvite(token, user ? undefined : guestDisplayName);
+      const joined = await joinWorkbookInvite(
+        token,
+        shouldCollectGuestName ? guestDisplayName : undefined
+      );
       const authSession = joined.user ? null : await getAuthSession();
       const resolvedUser = joined.user ?? authSession;
       if (resolvedUser) {
@@ -169,7 +180,7 @@ export default function WorkbookInviteJoinPage() {
             <p>
               {t("workbookInvite.teacherLabel")}: <strong>{state.hostName}</strong>
             </p>
-            {!user ? (
+            {shouldCollectGuestName ? (
               <div className="workbook-invite__guest-field">
                 <TextField
                   size="small"

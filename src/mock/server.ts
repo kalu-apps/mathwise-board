@@ -353,6 +353,31 @@ const defaultPermissions = (role: "teacher" | "student"): WorkbookParticipantPer
   };
 };
 
+const participantPermissionKeys: Array<keyof WorkbookParticipantPermissions> = [
+  "canDraw",
+  "canAnnotate",
+  "canUseMedia",
+  "canUseChat",
+  "canInvite",
+  "canManageSession",
+  "canSelect",
+  "canDelete",
+  "canInsertImage",
+  "canClear",
+  "canExport",
+  "canUseLaser",
+];
+
+const sanitizePermissionPatch = (value: unknown): Partial<WorkbookParticipantPermissions> => {
+  if (!value || typeof value !== "object") return {};
+  const source = value as Partial<Record<keyof WorkbookParticipantPermissions, unknown>>;
+  return participantPermissionKeys.reduce<Partial<WorkbookParticipantPermissions>>((acc, key) => {
+    if (typeof source[key] !== "boolean") return acc;
+    acc[key] = source[key] as boolean;
+    return acc;
+  }, {});
+};
+
 type WorkbookMediaIceServerPayload = {
   urls: string[];
   username?: string;
@@ -775,6 +800,15 @@ const createGuestUser = (db: MockDb, displayName: string): UserRecord => {
   };
   db.users.push(user);
   return user;
+};
+
+const applyStudentDisplayName = (user: UserRecord, displayName: string) => {
+  if (user.role === "teacher") return false;
+  const { firstName, lastName } = splitName(displayName);
+  if (user.firstName === firstName && user.lastName === lastName) return false;
+  user.firstName = firstName;
+  user.lastName = lastName;
+  return true;
 };
 
 const getInviteByToken = (db: MockDb, token: string) =>
@@ -1458,9 +1492,14 @@ export function setupMockServer(host: MiddlewareHost) {
 
         let actor = resolveAuthUser(req, db);
         const body = (await readBody(req)) as { guestName?: string } | null;
+        const requestedGuestName =
+          typeof body?.guestName === "string" ? body.guestName.trim() : "";
         if (!actor) {
-          actor = createGuestUser(db, body?.guestName ?? "Ученик");
+          actor = createGuestUser(db, requestedGuestName || "Ученик");
           setAuthSession(db, res, actor);
+        }
+        if (requestedGuestName) {
+          applyStudentDisplayName(actor, requestedGuestName);
         }
 
         ensureParticipant(db, {
@@ -1563,6 +1602,36 @@ export function setupMockServer(host: MiddlewareHost) {
         if (!events.length) {
           badRequest(res, "Нет событий для сохранения.");
           return;
+        }
+
+        for (const event of events) {
+          if (event.type === "media.signal" && !participant.permissions.canUseMedia) {
+            forbidden(res, "media_disabled");
+            return;
+          }
+          if (event.type === "chat.message" && !participant.permissions.canUseChat) {
+            forbidden(res, "chat_disabled");
+            return;
+          }
+          if (event.type !== "permissions.update") continue;
+          if (!participant.permissions.canManageSession) {
+            forbidden(res);
+            return;
+          }
+          const payload =
+            event.payload && typeof event.payload === "object"
+              ? (event.payload as { userId?: unknown; permissions?: unknown })
+              : null;
+          const targetUserId = typeof payload?.userId === "string" ? payload.userId : "";
+          if (!targetUserId) continue;
+          const targetParticipant = getWorkbookParticipant(db, sessionId, targetUserId);
+          if (!targetParticipant || targetParticipant.roleInSession !== "student") continue;
+          const patch = sanitizePermissionPatch(payload?.permissions ?? null);
+          if (Object.keys(patch).length === 0) continue;
+          targetParticipant.permissions = {
+            ...targetParticipant.permissions,
+            ...patch,
+          };
         }
 
         const appendResult = appendEvents(db, {

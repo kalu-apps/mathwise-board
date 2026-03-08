@@ -1409,7 +1409,7 @@ type WorkbookSceneSnapshot = {
 };
 
 export default function WorkbookSessionPage() {
-  const { user } = useAuth();
+  const { user, openAuthModal } = useAuth();
   const { sessionId = "" } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -1943,7 +1943,6 @@ export default function WorkbookSessionPage() {
           participant.permissions.canDelete &&
           participant.permissions.canInsertImage &&
           participant.permissions.canClear &&
-          participant.permissions.canExport &&
           participant.permissions.canUseLaser
       ),
     []
@@ -3152,7 +3151,8 @@ export default function WorkbookSessionPage() {
         }
         if (error instanceof ApiError) {
           if (error.status === 401) {
-            setError("Сессия недоступна: авторизация истекла. Обновите страницу и войдите снова.");
+            setError("Сессия недоступна: требуется повторная авторизация.");
+            openAuthModal();
           } else if (error.status === 403) {
             setError("Нет доступа к этой сессии. Запросите новую ссылку у преподавателя.");
           } else if (error.status === 404) {
@@ -3169,7 +3169,7 @@ export default function WorkbookSessionPage() {
       }
     }
     setLoading(false);
-  }, [clearObjectSyncRuntime, sessionId]);
+  }, [clearObjectSyncRuntime, openAuthModal, sessionId]);
 
   useEffect(() => {
     void loadSession();
@@ -6947,7 +6947,6 @@ export default function WorkbookSessionPage() {
         canDelete: enabled,
         canInsertImage: enabled,
         canClear: enabled,
-        canExport: enabled,
         canUseLaser: enabled,
       });
     },

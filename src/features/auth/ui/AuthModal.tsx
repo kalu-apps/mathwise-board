@@ -5,11 +5,10 @@ import {
   Dialog,
   DialogContent,
   DialogTitle,
-  IconButton,
   Stack,
   TextField,
 } from "@mui/material";
-import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
+import IconButton from "@mui/material/IconButton";
 import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
 import { useAuth } from "@/features/auth/model/AuthContext";
@@ -57,18 +56,18 @@ export function AuthModal({ open, onClose, initialEmail = "" }: AuthModalProps) 
 
   return (
     <Dialog
+      className="auth-modal"
       open={open}
       onClose={onClose}
-      maxWidth="xs"
-      fullWidth
+      maxWidth={false}
+      PaperProps={{
+        sx: {
+          width: "min(92vw, 320px)",
+        },
+      }}
       TransitionProps={{ onEnter: resetForm }}
     >
-      <DialogTitle className="auth-modal__title-row">
-        {t("auth.emailLoginTitle")}
-        <IconButton size="small" onClick={onClose} aria-label={t("common.close")}>
-          <CloseRoundedIcon fontSize="small" />
-        </IconButton>
-      </DialogTitle>
+      <DialogTitle className="auth-modal__title">{t("auth.emailLoginTitle")}</DialogTitle>
       <DialogContent className="auth-modal__content">
         <Stack spacing={1.25} sx={{ pt: 1 }}>
           <TextField

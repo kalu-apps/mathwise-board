@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Button, CircularProgress, Stack, Typography } from "@mui/material";
+import { Alert, CircularProgress, Stack, Typography } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/features/auth/model/AuthContext";
 import {
@@ -59,6 +59,10 @@ export default function WorkbookLaunchPage() {
     };
   }, [isAuthReady, navigate, openAuthModal, user]);
 
+  if (isAuthReady && !user) {
+    return <section className="workbook-launch workbook-launch--auth-only" />;
+  }
+
   if (isAuthReady && user?.role === "teacher" && (loading || !error)) {
     return (
       <section className="workbook-launch">
@@ -90,13 +94,6 @@ export default function WorkbookLaunchPage() {
           <Alert severity="warning">
             {t("whiteboardLaunch.waitingStudent")}
           </Alert>
-        ) : null}
-        {!user ? (
-          <Stack direction="row" spacing={1} className="workbook-launch__actions">
-            <Button variant="contained" onClick={openAuthModal}>
-              {t("header.login")}
-            </Button>
-          </Stack>
         ) : null}
       </article>
     </section>
