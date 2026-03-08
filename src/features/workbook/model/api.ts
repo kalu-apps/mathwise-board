@@ -7,6 +7,7 @@ import type {
   WorkbookEventsResponse,
   WorkbookInviteInfo,
   WorkbookLayer,
+  WorkbookMediaConfig,
   WorkbookSessionSettings,
   WorkbookSession,
   WorkbookSessionKind,
@@ -122,6 +123,16 @@ export async function getWorkbookEvents(sessionId: string, afterSeq: number) {
   const query = new URLSearchParams({ afterSeq: String(afterSeq) }).toString();
   return api.get<WorkbookEventsResponse>(
     `/workbook/sessions/${encodeURIComponent(sessionId)}/events?${query}`,
+    {
+      cacheTtlMs: 0,
+      dedupe: false,
+    }
+  );
+}
+
+export async function getWorkbookMediaConfig(sessionId: string) {
+  return api.get<WorkbookMediaConfig>(
+    `/workbook/sessions/${encodeURIComponent(sessionId)}/media/config`,
     {
       cacheTtlMs: 0,
       dedupe: false,

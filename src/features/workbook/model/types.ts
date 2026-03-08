@@ -460,3 +460,16 @@ export type WorkbookEventsResponse = {
   events: WorkbookEvent[];
   latestSeq: number;
 };
+
+export type WorkbookMediaIceServer = {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+  credentialType?: "password" | "oauth";
+};
+
+export type WorkbookMediaConfig = {
+  generatedAt: string;
+  ttlSeconds: number;
+  iceServers: WorkbookMediaIceServer[];
+};

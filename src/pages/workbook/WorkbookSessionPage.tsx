@@ -94,6 +94,7 @@ import {
   appendWorkbookPreview,
   createWorkbookInvite,
   getWorkbookEvents,
+  getWorkbookMediaConfig,
   getWorkbookSession,
   getWorkbookSnapshot,
   heartbeatWorkbookPresence,
@@ -115,6 +116,7 @@ import type {
   WorkbookEvent,
   WorkbookLayer,
   WorkbookLibraryState,
+  WorkbookMediaConfig,
   WorkbookPoint,
   WorkbookSceneLayer,
   WorkbookSession,
@@ -236,6 +238,55 @@ const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   "heic",
   "heif",
 ]);
+
+const DEFAULT_MEDIA_ICE_SERVERS: RTCIceServer[] = [
+  {
+    urls: "stun:stun.l.google.com:19302",
+  },
+];
+
+const normalizeWorkbookMediaIceServers = (
+  iceServers: WorkbookMediaConfig["iceServers"] | null | undefined
+): RTCIceServer[] => {
+  if (!Array.isArray(iceServers) || iceServers.length === 0) {
+    return DEFAULT_MEDIA_ICE_SERVERS;
+  }
+
+  const normalized: RTCIceServer[] = [];
+  const seen = new Set<string>();
+
+  iceServers.forEach((server) => {
+    const urlsRaw = Array.isArray(server.urls) ? server.urls : [server.urls];
+    const urls = urlsRaw
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.trim())
+      .filter((value) => /^(stun|stuns|turn|turns):/i.test(value))
+      .filter((value) => {
+        if (seen.has(value)) return false;
+        seen.add(value);
+        return true;
+      });
+    if (urls.length === 0) return;
+    const username =
+      typeof server.username === "string" && server.username.trim().length > 0
+        ? server.username.trim()
+        : undefined;
+    const credential =
+      typeof server.credential === "string" && server.credential.trim().length > 0
+        ? server.credential.trim()
+        : undefined;
+    const nextServer: RTCIceServer = {
+      urls,
+    };
+    if (username && credential) {
+      nextServer.username = username;
+      nextServer.credential = credential;
+    }
+    normalized.push(nextServer);
+  });
+
+  return normalized.length > 0 ? normalized : DEFAULT_MEDIA_ICE_SERVERS;
+};
 
 const readFileExtension = (fileName: string) => {
   const safeName = typeof fileName === "string" ? fileName.trim().toLowerCase() : "";
@@ -1546,6 +1597,9 @@ export default function WorkbookSessionPage() {
   const [mediaState, setMediaState] = useState({
     micEnabled: false,
   });
+  const [mediaIceServers, setMediaIceServers] =
+    useState<RTCIceServer[]>(DEFAULT_MEDIA_ICE_SERVERS);
+  const [isMediaConfigReady, setIsMediaConfigReady] = useState(false);
   const [isSessionChatOpen, setIsSessionChatOpen] = useState(false);
   const [isSessionChatMinimized, setIsSessionChatMinimized] = useState(false);
   const [isSessionChatMaximized, setIsSessionChatMaximized] = useState(false);
@@ -2042,7 +2096,7 @@ export default function WorkbookSessionPage() {
       const existing = peerConnectionsRef.current.get(remoteUserId);
       if (existing) return existing;
       const connection = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        iceServers: mediaIceServers,
       });
       peerConnectionsRef.current.set(remoteUserId, connection);
       connection.onicecandidate = (event) => {
@@ -2094,7 +2148,13 @@ export default function WorkbookSessionPage() {
       }
       return connection;
     },
-    [closePeerConnection, ensureLocalAudioStream, mediaState.micEnabled, sendMediaSignal]
+    [
+      closePeerConnection,
+      ensureLocalAudioStream,
+      mediaIceServers,
+      mediaState.micEnabled,
+      sendMediaSignal,
+    ]
   );
 
   const syncLocalAudioTrackToConnection = useCallback(
@@ -3231,6 +3291,40 @@ export default function WorkbookSessionPage() {
   }, [sessionId, showCollaborationPanels, user?.id]);
 
   useEffect(() => {
+    if (
+      !sessionId ||
+      session?.kind !== "CLASS" ||
+      !canUseMedia ||
+      isEnded ||
+      !user?.id
+    ) {
+      setMediaIceServers(DEFAULT_MEDIA_ICE_SERVERS);
+      setIsMediaConfigReady(false);
+      return;
+    }
+    let cancelled = false;
+    setIsMediaConfigReady(false);
+    const loadMediaConfig = async () => {
+      try {
+        const config = await getWorkbookMediaConfig(sessionId);
+        if (cancelled) return;
+        setMediaIceServers(normalizeWorkbookMediaIceServers(config.iceServers));
+      } catch {
+        if (cancelled) return;
+        setMediaIceServers(DEFAULT_MEDIA_ICE_SERVERS);
+      } finally {
+        if (!cancelled) {
+          setIsMediaConfigReady(true);
+        }
+      }
+    };
+    void loadMediaConfig();
+    return () => {
+      cancelled = true;
+    };
+  }, [canUseMedia, isEnded, session?.kind, sessionId, user?.id]);
+
+  useEffect(() => {
     let cancelled = false;
     const syncMicState = async () => {
       if (!session || session.kind !== "CLASS" || !canUseMedia || isEnded) return;
@@ -3419,7 +3513,14 @@ export default function WorkbookSessionPage() {
   }, [isCompactViewport]);
 
   useEffect(() => {
-    if (!session || session.kind !== "CLASS" || !canUseMedia || isEnded || !user?.id) {
+    if (
+      !session ||
+      session.kind !== "CLASS" ||
+      !canUseMedia ||
+      isEnded ||
+      !user?.id ||
+      !isMediaConfigReady
+    ) {
       closeAllPeerConnections();
       if (isEnded || !session || session?.kind !== "CLASS") {
         const stream = localAudioStreamRef.current;
@@ -3483,6 +3584,7 @@ export default function WorkbookSessionPage() {
     closePeerConnection,
     createAndSendOffer,
     ensurePeerConnection,
+    isMediaConfigReady,
     isEnded,
     session,
     syncLocalAudioTrackToConnection,

@@ -48,6 +48,11 @@ npm run backend:start:board
 - `AUTH_COOKIE_SAME_SITE=Lax|None|Strict`
 - `AUTH_COOKIE_SECURE=1`
 - `REDIS_URL=redis://...` (runtime connectivity/ping)
+- `MEDIA_STUN_URLS=stun:stun.l.google.com:19302`
+- `MEDIA_TURN_URLS=turn:turn.your-domain.tld:3478?transport=udp,turns:turn.your-domain.tld:5349?transport=tcp`
+- `MEDIA_TURN_SECRET=<coturn static-auth-secret>` (предпочтительно)  
+  или пара `MEDIA_TURN_STATIC_USERNAME` + `MEDIA_TURN_STATIC_CREDENTIAL`
+- `MEDIA_TURN_TTL_SECONDS=3600`
 - `VITE_BOARD_AUTO_LOGIN_EMAIL`
 - `VITE_BOARD_AUTO_LOGIN_PASSWORD`
 - `PORT`
@@ -62,6 +67,9 @@ npm run backend:start:board
 `GET /healthz` возвращает статус сервиса и runtime-диагностику:
 - активный драйвер хранения (`file`/`postgres`);
 - состояние подключения к Redis (если `REDIS_URL` задан).
+
+WebRTC ICE-конфиг для аудио выдаётся runtime-эндпоинтом:
+- `GET /api/workbook/sessions/:sessionId/media/config`
 
 ## Деплой в Timeweb
 См. инструкцию: `TIMEWEB_DEPLOY.md`.

@@ -54,6 +54,30 @@ const AUTH_COOKIE_SAME_SITE =
 const AUTH_COOKIE_SECURE =
   String(process.env.AUTH_COOKIE_SECURE ?? "").trim() === "1" ||
   AUTH_COOKIE_SAME_SITE === "None";
+const DEFAULT_MEDIA_STUN_URL = "stun:stun.l.google.com:19302";
+const parseCsvEnv = (name: string) =>
+  String(process.env[name] ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+const sanitizeIceUrls = (urls: string[]) => {
+  const allowed = urls.filter((value) => /^(stun|stuns|turn|turns):/i.test(value));
+  return Array.from(new Set(allowed));
+};
+const readPositiveInt = (name: string, fallback: number) => {
+  const raw = Number.parseInt(String(process.env[name] ?? "").trim(), 10);
+  if (!Number.isFinite(raw) || raw <= 0) return fallback;
+  return raw;
+};
+const MEDIA_STUN_URLS_RAW = sanitizeIceUrls(parseCsvEnv("MEDIA_STUN_URLS"));
+const MEDIA_STUN_URLS = MEDIA_STUN_URLS_RAW.length
+  ? MEDIA_STUN_URLS_RAW
+  : [DEFAULT_MEDIA_STUN_URL];
+const MEDIA_TURN_URLS = sanitizeIceUrls(parseCsvEnv("MEDIA_TURN_URLS"));
+const MEDIA_TURN_SECRET = String(process.env.MEDIA_TURN_SECRET ?? "").trim();
+const MEDIA_TURN_STATIC_USERNAME = String(process.env.MEDIA_TURN_STATIC_USERNAME ?? "").trim();
+const MEDIA_TURN_STATIC_CREDENTIAL = String(process.env.MEDIA_TURN_STATIC_CREDENTIAL ?? "").trim();
+const MEDIA_TURN_TTL_SECONDS = readPositiveInt("MEDIA_TURN_TTL_SECONDS", 3600);
 
 type MiddlewareHost =
   | ViteDevServer
@@ -297,6 +321,60 @@ const defaultPermissions = (role: "teacher" | "student"): WorkbookParticipantPer
     canClear: false,
     canExport: false,
     canUseLaser: true,
+  };
+};
+
+type WorkbookMediaIceServerPayload = {
+  urls: string[];
+  username?: string;
+  credential?: string;
+  credentialType?: "password";
+};
+
+const buildWorkbookMediaIceConfig = (userId: string) => {
+  const servers: WorkbookMediaIceServerPayload[] = [];
+  if (MEDIA_STUN_URLS.length > 0) {
+    servers.push({
+      urls: MEDIA_STUN_URLS,
+    });
+  }
+  if (MEDIA_TURN_URLS.length > 0) {
+    if (MEDIA_TURN_SECRET.length > 0) {
+      const expiresAtUnix = Math.floor(nowTs() / 1000) + MEDIA_TURN_TTL_SECONDS;
+      const username = `${expiresAtUnix}:${userId}`;
+      const credential = crypto
+        .createHmac("sha1", MEDIA_TURN_SECRET)
+        .update(username)
+        .digest("base64");
+      servers.push({
+        urls: MEDIA_TURN_URLS,
+        username,
+        credential,
+        credentialType: "password",
+      });
+    } else if (
+      MEDIA_TURN_STATIC_USERNAME.length > 0 &&
+      MEDIA_TURN_STATIC_CREDENTIAL.length > 0
+    ) {
+      servers.push({
+        urls: MEDIA_TURN_URLS,
+        username: MEDIA_TURN_STATIC_USERNAME,
+        credential: MEDIA_TURN_STATIC_CREDENTIAL,
+        credentialType: "password",
+      });
+    }
+  }
+
+  if (servers.length === 0) {
+    servers.push({
+      urls: [DEFAULT_MEDIA_STUN_URL],
+    });
+  }
+
+  return {
+    generatedAt: nowIso(),
+    ttlSeconds: MEDIA_TURN_TTL_SECONDS,
+    iceServers: servers,
   };
 };
 
@@ -1378,6 +1456,31 @@ export function setupMockServer(host: MiddlewareHost) {
           draft: serializeDraft(db, draft, actor.id),
           user: safeUser(actor),
         });
+        return;
+      }
+
+      const workbookMediaConfigMatch = pathname.match(
+        /^\/api\/workbook\/sessions\/([^/]+)\/media\/config$/
+      );
+      if (workbookMediaConfigMatch && method === "GET") {
+        const actor = requireAuthUser(req, res, db);
+        if (!actor) return;
+        const sessionId = decodeURIComponent(workbookMediaConfigMatch[1]);
+        const session = getWorkbookSessionById(db, sessionId);
+        if (!session) {
+          notFound(res);
+          return;
+        }
+        const participant = getWorkbookParticipant(db, sessionId, actor.id);
+        if (!participant) {
+          forbidden(res);
+          return;
+        }
+        if (!participant.permissions.canUseMedia) {
+          forbidden(res, "media_disabled");
+          return;
+        }
+        json(res, 200, buildWorkbookMediaIceConfig(actor.id));
         return;
       }
 
