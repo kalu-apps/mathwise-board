@@ -38,6 +38,8 @@ npm run backend:start:board
 
 Обязательные для backend runtime:
 - `VITE_WHITEBOARD_TEACHER_PASSWORD=<strong-password>`
+- `BOARD_STORAGE_DRIVER=postgres|file|auto`
+- `DATABASE_URL=postgresql://...` (для `BOARD_STORAGE_DRIVER=postgres` или `auto`)
 
 Опционально:
 - `VITE_PUBLIC_BASE_URL=https://board.your-domain.tld`
@@ -45,6 +47,7 @@ npm run backend:start:board
 - `AUTH_COOKIE_DOMAIN=.your-domain.tld`
 - `AUTH_COOKIE_SAME_SITE=Lax|None|Strict`
 - `AUTH_COOKIE_SECURE=1`
+- `REDIS_URL=redis://...` (runtime connectivity/ping)
 - `VITE_BOARD_AUTO_LOGIN_EMAIL`
 - `VITE_BOARD_AUTO_LOGIN_PASSWORD`
 - `PORT`
@@ -54,6 +57,11 @@ npm run backend:start:board
 ## Доступ
 - Преподаватель: вход по логину/паролю.
 - Ученик: вход по временной invite-ссылке без пароля.
+
+## Healthcheck
+`GET /healthz` возвращает статус сервиса и runtime-диагностику:
+- активный драйвер хранения (`file`/`postgres`);
+- состояние подключения к Redis (если `REDIS_URL` задан).
 
 ## Деплой в Timeweb
 См. инструкцию: `TIMEWEB_DEPLOY.md`.

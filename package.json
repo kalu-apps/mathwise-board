@@ -38,14 +38,16 @@
     "connect": "^3.7.0",
     "jspdf": "^4.1.0",
     "mathjs": "^15.1.1",
+    "pg": "^8.20.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.12.0",
+    "redis": "^5.11.0",
     "tsx": "^4.20.6"
   },
   "devDependencies": {
-    "@types/connect": "^3.4.38",
     "@eslint/js": "^9.39.1",
+    "@types/connect": "^3.4.38",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",

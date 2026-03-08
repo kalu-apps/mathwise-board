@@ -4,6 +4,12 @@ import { access, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, resolve } from "node:path";
 import type { ViteDevServer } from "vite";
+import { getStorageDiagnostics, initializeDb, shutdownDb } from "../../src/mock/db";
+import {
+  getRuntimeServicesStatus,
+  initializeRuntimeServices,
+  shutdownRuntimeServices,
+} from "../../src/mock/runtimeServices";
 import { setupMockServer } from "../../src/mock/server";
 
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -99,6 +105,8 @@ const staticMiddleware: NextHandleFunction = async (req, res, next) => {
       ok: true,
       service: "mathboard-monolith",
       timestamp: new Date().toISOString(),
+      storage: getStorageDiagnostics(),
+      runtime: getRuntimeServicesStatus(),
     });
   }
 
@@ -145,6 +153,17 @@ server.headersTimeout = 66_000;
 
 const start = async () => {
   try {
+    await initializeDb();
+    await initializeRuntimeServices();
+  } catch (error) {
+    console.warn(
+      `[backend] runtime init warning: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+
+  try {
     await access(INDEX_FILE);
   } catch {
     console.warn(
@@ -160,7 +179,8 @@ const start = async () => {
 };
 
 const stop = () => {
-  server.close(() => {
+  server.close(async () => {
+    await Promise.allSettled([shutdownDb(), shutdownRuntimeServices()]);
     process.exit(0);
   });
   setTimeout(() => process.exit(1), 8_000).unref();
