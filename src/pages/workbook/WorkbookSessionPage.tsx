@@ -174,11 +174,11 @@ import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
-const POLL_INTERVAL_MS = 140;
-const POLL_INTERVAL_STREAM_CONNECTED_MS = 280;
+const POLL_INTERVAL_MS = 80;
+const POLL_INTERVAL_STREAM_CONNECTED_MS = 120;
 const PRESENCE_INTERVAL_MS = 3_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
-const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 24;
+const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
 const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 16;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
@@ -2163,33 +2163,54 @@ export default function WorkbookSessionPage() {
       const localTrack = localStream.getAudioTracks()[0] ?? null;
       if (!localTrack) return false;
       let changed = false;
-      const hasSyncedSender = connection
-        .getSenders()
-        .some((sender) => sender.track?.id === localTrack.id);
-      if (!hasSyncedSender) {
-        const audioTransceiver =
-          connection.getTransceivers().find((transceiver) => {
-            const senderTrackKind = transceiver.sender.track?.kind;
-            const receiverTrackKind = transceiver.receiver.track?.kind;
-            return senderTrackKind === "audio" || receiverTrackKind === "audio";
-          }) ?? null;
-        if (audioTransceiver) {
-          try {
-            await audioTransceiver.sender.replaceTrack(localTrack);
-            changed = true;
-          } catch {
-            // Safari/Yandex mobile can reject replaceTrack on recvonly sender; fallback to addTrack.
-          }
-        }
-      }
+      let audioTransceiver =
+        connection.getTransceivers().find((transceiver) => {
+          const senderTrackKind = transceiver.sender.track?.kind;
+          const receiverTrackKind = transceiver.receiver.track?.kind;
+          return senderTrackKind === "audio" || receiverTrackKind === "audio";
+        }) ?? null;
       let senderWithTrack =
         connection.getSenders().find((sender) => sender.track?.id === localTrack.id) ?? null;
+      if (!senderWithTrack && audioTransceiver) {
+        try {
+          await audioTransceiver.sender.replaceTrack(localTrack);
+          senderWithTrack = audioTransceiver.sender;
+          changed = true;
+        } catch {
+          // On Safari/Yandex mobile replaceTrack can fail on recvonly sender.
+        }
+      }
       if (!senderWithTrack) {
         try {
           senderWithTrack = connection.addTrack(localTrack, localStream);
           changed = true;
         } catch {
-          return false;
+          if (!audioTransceiver) {
+            try {
+              audioTransceiver = connection.addTransceiver(localTrack, {
+                direction: "sendrecv",
+              });
+              senderWithTrack = audioTransceiver.sender;
+              changed = true;
+            } catch {
+              return false;
+            }
+          } else {
+            try {
+              if (
+                audioTransceiver.direction === "recvonly" ||
+                audioTransceiver.direction === "sendonly" ||
+                audioTransceiver.direction === "inactive"
+              ) {
+                audioTransceiver.direction = "sendrecv";
+              }
+              await audioTransceiver.sender.replaceTrack(localTrack);
+              senderWithTrack = audioTransceiver.sender;
+              changed = true;
+            } catch {
+              return false;
+            }
+          }
         }
       }
       connection.getTransceivers().forEach((transceiver) => {
