@@ -17,6 +17,30 @@ const PORT = Number(process.env.PORT ?? 4173);
 const DIST_DIR = resolve(process.cwd(), process.env.WEB_DIST_DIR ?? "dist");
 const INDEX_FILE = resolve(DIST_DIR, "index.html");
 
+const parseEnvList = (name: string) =>
+  String(process.env[name] ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+const getMediaDiagnostics = () => {
+  const stun = parseEnvList("MEDIA_STUN_URLS");
+  const turn = parseEnvList("MEDIA_TURN_URLS");
+  const hasTurnSecret = String(process.env.MEDIA_TURN_SECRET ?? "").trim().length > 0;
+  const hasStaticTurnCredentials =
+    String(process.env.MEDIA_TURN_STATIC_USERNAME ?? "").trim().length > 0 &&
+    String(process.env.MEDIA_TURN_STATIC_CREDENTIAL ?? "").trim().length > 0;
+  return {
+    stunUrlsConfigured: stun.length,
+    turnUrlsConfigured: turn.length,
+    turnAuthMode: hasTurnSecret
+      ? "secret"
+      : hasStaticTurnCredentials
+        ? "static"
+        : "none",
+  };
+};
+
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -107,6 +131,7 @@ const staticMiddleware: NextHandleFunction = async (req, res, next) => {
       timestamp: new Date().toISOString(),
       storage: getStorageDiagnostics(),
       runtime: getRuntimeServicesStatus(),
+      media: getMediaDiagnostics(),
     });
   }
 

@@ -67,6 +67,7 @@ npm run backend:start:board
 `GET /healthz` возвращает статус сервиса и runtime-диагностику:
 - активный драйвер хранения (`file`/`postgres`);
 - состояние подключения к Redis (если `REDIS_URL` задан).
+- медиа-конфиг (`media.turnAuthMode`, количество STUN/TURN URL).
 
 WebRTC ICE-конфиг для аудио выдаётся runtime-эндпоинтом:
 - `GET /api/workbook/sessions/:sessionId/media/config`

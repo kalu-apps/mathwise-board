@@ -6860,7 +6860,19 @@ export default function WorkbookSessionPage() {
     try {
       setCopyingInviteLink(true);
       const invite = await createWorkbookInvite(sessionId);
-      await navigator.clipboard.writeText(invite.inviteUrl);
+      const rawInviteUrl = typeof invite.inviteUrl === "string" ? invite.inviteUrl.trim() : "";
+      const invitePath = rawInviteUrl.startsWith("http://") || rawInviteUrl.startsWith("https://")
+        ? rawInviteUrl
+        : rawInviteUrl.length > 0
+          ? rawInviteUrl.startsWith("/")
+            ? rawInviteUrl
+            : `/${rawInviteUrl}`
+          : `/workbook/invite/${encodeURIComponent(invite.token)}`;
+      const absoluteInviteUrl =
+        invitePath.startsWith("http://") || invitePath.startsWith("https://")
+          ? invitePath
+          : new URL(invitePath, window.location.origin).toString();
+      await navigator.clipboard.writeText(absoluteInviteUrl);
       setError(null);
     } catch {
       setError("Не удалось скопировать ссылку приглашения.");

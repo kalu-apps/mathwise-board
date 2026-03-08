@@ -78,6 +78,7 @@ const MEDIA_TURN_SECRET = String(process.env.MEDIA_TURN_SECRET ?? "").trim();
 const MEDIA_TURN_STATIC_USERNAME = String(process.env.MEDIA_TURN_STATIC_USERNAME ?? "").trim();
 const MEDIA_TURN_STATIC_CREDENTIAL = String(process.env.MEDIA_TURN_STATIC_CREDENTIAL ?? "").trim();
 const MEDIA_TURN_TTL_SECONDS = readPositiveInt("MEDIA_TURN_TTL_SECONDS", 3600);
+const PUBLIC_BASE_URL = String(process.env.VITE_PUBLIC_BASE_URL ?? "").trim().replace(/\/+$/g, "");
 
 type MiddlewareHost =
   | ViteDevServer
@@ -231,6 +232,34 @@ const applyCors = (req: IncomingMessage, res: ServerResponse) => {
   );
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   appendVary(res, "Origin");
+};
+
+const inferPublicOrigin = (req: IncomingMessage) => {
+  const forwardedProtoHeader = req.headers["x-forwarded-proto"];
+  const forwardedHostHeader = req.headers["x-forwarded-host"];
+  const hostHeader = req.headers.host;
+  const protoRaw = Array.isArray(forwardedProtoHeader)
+    ? forwardedProtoHeader[0]
+    : typeof forwardedProtoHeader === "string"
+      ? forwardedProtoHeader.split(",")[0]
+      : "";
+  const hostRaw = Array.isArray(forwardedHostHeader)
+    ? forwardedHostHeader[0]
+    : typeof forwardedHostHeader === "string"
+      ? forwardedHostHeader.split(",")[0]
+      : typeof hostHeader === "string"
+        ? hostHeader
+        : "";
+  const proto = protoRaw.trim().toLowerCase() || "https";
+  const host = hostRaw.trim();
+  if (!host) return "";
+  return `${proto}://${host}`.replace(/\/+$/g, "");
+};
+
+const buildInviteUrl = (req: IncomingMessage, token: string) => {
+  const base = PUBLIC_BASE_URL || inferPublicOrigin(req);
+  const path = `/workbook/invite/${encodeURIComponent(token)}`;
+  return base ? `${base}${path}` : path;
 };
 
 const readBody = async (req: IncomingMessage): Promise<unknown> => {
@@ -1368,9 +1397,7 @@ export function setupMockServer(host: MiddlewareHost) {
           inviteId: invite.id,
           sessionId: invite.sessionId,
           token: invite.token,
-          inviteUrl: `${(process.env.VITE_PUBLIC_BASE_URL || "").trim() || ""}/workbook/invite/${encodeURIComponent(
-            invite.token
-          )}`,
+          inviteUrl: buildInviteUrl(req, invite.token),
           expiresAt: invite.expiresAt,
           maxUses: invite.maxUses ?? null,
           useCount: invite.useCount,
