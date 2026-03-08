@@ -174,11 +174,11 @@ import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
-const POLL_INTERVAL_MS = 420;
-const POLL_INTERVAL_STREAM_CONNECTED_MS = 760;
+const POLL_INTERVAL_MS = 140;
+const POLL_INTERVAL_STREAM_CONNECTED_MS = 280;
 const PRESENCE_INTERVAL_MS = 3_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
-const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 38;
+const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 24;
 const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 16;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";

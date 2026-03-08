@@ -353,6 +353,42 @@ const defaultPermissions = (role: "teacher" | "student"): WorkbookParticipantPer
   };
 };
 
+const normalizeParticipantPermissions = (
+  roleInSession: "teacher" | "student",
+  permissions: Partial<WorkbookParticipantPermissions> | null | undefined
+): WorkbookParticipantPermissions => ({
+  ...defaultPermissions(roleInSession),
+  ...(permissions ?? {}),
+});
+
+const normalizeParticipantPermissionsInPlace = (
+  participant: WorkbookSessionParticipantRecord
+) => {
+  const normalized = normalizeParticipantPermissions(
+    participant.roleInSession,
+    participant.permissions
+  );
+  const hadChanges = participantPermissionKeys.some(
+    (key) => participant.permissions?.[key] !== normalized[key]
+  );
+  if (hadChanges) {
+    participant.permissions = normalized;
+  }
+  return hadChanges;
+};
+
+const normalizeDbParticipantPermissions = (db: MockDb) => {
+  let changed = false;
+  for (const participant of db.workbookParticipants) {
+    if (normalizeParticipantPermissionsInPlace(participant)) {
+      changed = true;
+    }
+  }
+  if (changed) {
+    saveDb();
+  }
+};
+
 const participantPermissionKeys: Array<keyof WorkbookParticipantPermissions> = [
   "canDraw",
   "canAnnotate",
@@ -519,6 +555,10 @@ const ensureDraftForOwner = (
 };
 
 const serializeParticipant = (db: MockDb, participant: WorkbookSessionParticipantRecord) => {
+  const normalizedPermissions = normalizeParticipantPermissions(
+    participant.roleInSession,
+    participant.permissions
+  );
   const user = db.users.find((item) => item.id === participant.userId);
   const displayName = user
     ? `${user.firstName} ${user.lastName}`.trim() || user.email
@@ -531,14 +571,16 @@ const serializeParticipant = (db: MockDb, participant: WorkbookSessionParticipan
     isActive: participant.isActive,
     isOnline: isParticipantOnline(participant),
     lastSeenAt: participant.lastSeenAt ?? null,
-    permissions: participant.permissions,
+    permissions: normalizedPermissions,
   };
 };
 
 const serializeSession = (db: MockDb, session: WorkbookSessionRecord, actorUserId: string) => {
   const participants = getWorkbookParticipants(db, session.id);
   const actor = participants.find((item) => item.userId === actorUserId) ?? null;
-  const actorPermissions = actor?.permissions ?? defaultPermissions("student");
+  const actorPermissions = actor
+    ? normalizeParticipantPermissions(actor.roleInSession, actor.permissions)
+    : defaultPermissions("student");
   return {
     id: session.id,
     kind: session.kind,
@@ -835,7 +877,10 @@ const ensureParticipant = (
   if (existing) {
     existing.isActive = true;
     existing.lastSeenAt = nowIso();
-    existing.permissions = params.permissions;
+    existing.permissions = normalizeParticipantPermissions(
+      params.roleInSession,
+      params.permissions
+    );
     return existing;
   }
 
@@ -847,7 +892,7 @@ const ensureParticipant = (
     leftAt: null,
     isActive: true,
     lastSeenAt: nowIso(),
-    permissions: params.permissions,
+    permissions: normalizeParticipantPermissions(params.roleInSession, params.permissions),
   };
   db.workbookParticipants.push(created);
   return created;
@@ -935,6 +980,7 @@ export function setupMockServer(host: MiddlewareHost) {
 
     const db = getDb();
     pickTeacher(db);
+    normalizeDbParticipantPermissions(db);
 
     try {
       if (pathname === "/api/auth/session" && method === "GET") {
