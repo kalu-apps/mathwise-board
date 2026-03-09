@@ -8,6 +8,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ViteDevServer } from "vite";
 import {
   appendWorkbookSessionEvents,
+  appendWorkbookSessionEventsWithKnownSeq,
   copyWorkbookSessionSnapshots,
   deleteWorkbookSessionArtifacts,
   getWorkbookSessionLatestSeq,
@@ -18,6 +19,7 @@ import {
   upsertWorkbookSessionSnapshot,
   type AuthSessionRecord,
   type MockDb,
+  type PersistedWorkbookEvent,
   type UserRecord,
   type WorkbookDraftRecord,
   type WorkbookInviteRecord,
@@ -26,6 +28,13 @@ import {
   type WorkbookSessionParticipantRecord,
   type WorkbookSessionRecord,
 } from "./db";
+import {
+  allocateWorkbookRuntimeSequence,
+  getWorkbookRuntimeSequence,
+  publishWorkbookRealtimePayload,
+  subscribeWorkbookRealtimePayload,
+  type WorkbookRealtimePayload,
+} from "./runtimeServices";
 
 const execFileAsync = promisify(execFileCallback);
 
@@ -140,6 +149,24 @@ type WorkbookStreamClient = {
 };
 
 const workbookStreamClientsBySession = new Map<string, Map<string, WorkbookStreamClient>>();
+const workbookRealtimeUnsubscribeBySession = new Map<
+  string,
+  () => Promise<void>
+>();
+const WORKBOOK_REALTIME_NODE_ID =
+  typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `node_${Math.random().toString(36).slice(2, 10)}`;
+const WORKBOOK_EVENT_PERSIST_FLUSH_MS = 40;
+
+type PendingWorkbookPersistBatch = {
+  sessionId: string;
+  latestSeq: number;
+  events: PersistedWorkbookEvent[];
+};
+const pendingWorkbookPersistBySession = new Map<string, PendingWorkbookPersistBatch>();
+let workbookPersistTimer: NodeJS.Timeout | null = null;
+let workbookPersistInFlight = false;
 
 const nowIso = () => new Date().toISOString();
 const nowTs = () => Date.now();
@@ -833,21 +860,30 @@ const closeWorkbookStreamClient = (sessionId: string, clientId: string) => {
   }
 };
 
+const maybeReleaseWorkbookRealtimeSubscription = (sessionId: string) => {
+  const sessionClients = workbookStreamClientsBySession.get(sessionId);
+  if (sessionClients && sessionClients.size > 0) return;
+  const unsubscribe = workbookRealtimeUnsubscribeBySession.get(sessionId);
+  if (!unsubscribe) return;
+  workbookRealtimeUnsubscribeBySession.delete(sessionId);
+  void unsubscribe().catch(() => undefined);
+};
+
+const closeWorkbookStreamClientAndMaybeRelease = (sessionId: string, clientId: string) => {
+  closeWorkbookStreamClient(sessionId, clientId);
+  maybeReleaseWorkbookRealtimeSubscription(sessionId);
+};
+
+type WorkbookStreamPayload = {
+  sessionId: string;
+  latestSeq: number;
+  events: PersistedWorkbookEvent[];
+  nodeId?: string;
+};
+
 const publishWorkbookStreamEvents = (
   db: MockDb,
-  payload: {
-    sessionId: string;
-    latestSeq: number;
-    events: Array<{
-      id: string;
-      sessionId: string;
-      seq: number;
-      authorUserId: string;
-      type: string;
-      payload: unknown;
-      createdAt: string;
-    }>;
-  }
+  payload: WorkbookStreamPayload
 ) => {
   const sessionClients = workbookStreamClientsBySession.get(payload.sessionId);
   if (!sessionClients || sessionClients.size === 0) return;
@@ -858,15 +894,100 @@ const publishWorkbookStreamEvents = (
       (participant) => participant.sessionId === payload.sessionId && participant.userId === client.userId
     );
     if (!hasAccess) {
-      closeWorkbookStreamClient(payload.sessionId, clientId);
+      closeWorkbookStreamClientAndMaybeRelease(payload.sessionId, clientId);
       continue;
     }
     try {
       client.res.write(chunk);
     } catch {
-      closeWorkbookStreamClient(payload.sessionId, clientId);
+      closeWorkbookStreamClientAndMaybeRelease(payload.sessionId, clientId);
     }
   }
+};
+
+const ensureWorkbookRealtimeSubscription = async (db: MockDb, sessionId: string) => {
+  if (workbookRealtimeUnsubscribeBySession.has(sessionId)) return;
+  const unsubscribe = await subscribeWorkbookRealtimePayload(sessionId, (payload) => {
+    if (payload.nodeId && payload.nodeId === WORKBOOK_REALTIME_NODE_ID) return;
+    publishWorkbookStreamEvents(db, {
+      sessionId: payload.sessionId,
+      latestSeq: payload.latestSeq,
+      events: payload.events,
+      nodeId: payload.nodeId,
+    });
+  });
+  workbookRealtimeUnsubscribeBySession.set(sessionId, unsubscribe);
+};
+
+const publishWorkbookRealtimeEvents = (payload: WorkbookStreamPayload) => {
+  const realtimePayload: WorkbookRealtimePayload = {
+    sessionId: payload.sessionId,
+    latestSeq: payload.latestSeq,
+    events: payload.events,
+    nodeId: WORKBOOK_REALTIME_NODE_ID,
+  };
+  void publishWorkbookRealtimePayload(payload.sessionId, realtimePayload).catch(() => undefined);
+};
+
+const flushWorkbookPersistQueue = async () => {
+  if (workbookPersistInFlight) return;
+  if (pendingWorkbookPersistBySession.size === 0) return;
+  workbookPersistInFlight = true;
+  const batches = Array.from(pendingWorkbookPersistBySession.values());
+  pendingWorkbookPersistBySession.clear();
+  try {
+    await Promise.all(
+      batches.map((batch) =>
+        appendWorkbookSessionEventsWithKnownSeq({
+          sessionId: batch.sessionId,
+          events: batch.events,
+          latestSeq: batch.latestSeq,
+          limit: WORKBOOK_EVENT_LIMIT,
+        })
+      )
+    );
+  } catch {
+    // put batches back for retry on transient failures
+    for (const batch of batches) {
+      const existing = pendingWorkbookPersistBySession.get(batch.sessionId);
+      if (!existing) {
+        pendingWorkbookPersistBySession.set(batch.sessionId, batch);
+        continue;
+      }
+      existing.latestSeq = Math.max(existing.latestSeq, batch.latestSeq);
+      existing.events = [...existing.events, ...batch.events].sort((left, right) => left.seq - right.seq);
+    }
+  } finally {
+    workbookPersistInFlight = false;
+    if (pendingWorkbookPersistBySession.size > 0 && workbookPersistTimer === null) {
+      workbookPersistTimer = setTimeout(() => {
+        workbookPersistTimer = null;
+        void flushWorkbookPersistQueue();
+      }, WORKBOOK_EVENT_PERSIST_FLUSH_MS);
+    }
+  }
+};
+
+const queueWorkbookPersistEvents = (payload: WorkbookStreamPayload) => {
+  if (!payload.events.length) return;
+  const existing = pendingWorkbookPersistBySession.get(payload.sessionId);
+  if (!existing) {
+    pendingWorkbookPersistBySession.set(payload.sessionId, {
+      sessionId: payload.sessionId,
+      latestSeq: payload.latestSeq,
+      events: [...payload.events],
+    });
+  } else {
+    existing.latestSeq = Math.max(existing.latestSeq, payload.latestSeq);
+    existing.events = [...existing.events, ...payload.events].sort(
+      (left, right) => left.seq - right.seq
+    );
+  }
+  if (workbookPersistTimer !== null) return;
+  workbookPersistTimer = setTimeout(() => {
+    workbookPersistTimer = null;
+    void flushWorkbookPersistQueue();
+  }, WORKBOOK_EVENT_PERSIST_FLUSH_MS);
 };
 
 const appendEvents = async (
@@ -878,7 +999,11 @@ const appendEvents = async (
   }
 ) => {
   if (params.persist === false) {
-    const latestSeq = await getWorkbookSessionLatestSeq(params.sessionId);
+    const [dbLatestSeq, runtimeLatestSeq] = await Promise.all([
+      getWorkbookSessionLatestSeq(params.sessionId),
+      getWorkbookRuntimeSequence(params.sessionId),
+    ]);
+    const latestSeq = Math.max(dbLatestSeq, runtimeLatestSeq ?? 0);
     const timestamp = nowIso();
     return {
       events: params.events.map((event) => ({
@@ -895,12 +1020,46 @@ const appendEvents = async (
     };
   }
 
-  return appendWorkbookSessionEvents({
+  const timestamp = nowIso();
+  const dbLatestSeq = await getWorkbookSessionLatestSeq(params.sessionId);
+  const allocatedRange = await allocateWorkbookRuntimeSequence({
     sessionId: params.sessionId,
-    authorUserId: params.authorUserId,
-    events: params.events,
-    limit: WORKBOOK_EVENT_LIMIT,
+    count: params.events.length,
+    fallbackBaseSeq: dbLatestSeq,
   });
+
+  if (!allocatedRange) {
+    // Redis unavailable: fallback to direct durable write.
+    return appendWorkbookSessionEvents({
+      sessionId: params.sessionId,
+      authorUserId: params.authorUserId,
+      events: params.events,
+      limit: WORKBOOK_EVENT_LIMIT,
+    });
+  }
+
+  const persistedEvents: PersistedWorkbookEvent[] = params.events.map((event, index) => ({
+    id: ensureId(),
+    sessionId: params.sessionId,
+    seq: allocatedRange.from + index,
+    authorUserId: params.authorUserId,
+    type: event.type,
+    payload: event.payload ?? null,
+    createdAt: timestamp,
+  }));
+
+  const latestSeq = allocatedRange.to;
+  queueWorkbookPersistEvents({
+    sessionId: params.sessionId,
+    latestSeq,
+    events: persistedEvents,
+  });
+
+  return {
+    events: persistedEvents,
+    latestSeq,
+    timestamp,
+  };
 };
 
 const decodePdfDataUrl = (value: unknown) => {
@@ -1333,6 +1492,7 @@ export function setupMockServer(host: MiddlewareHost) {
         db.workbookInvites = db.workbookInvites.filter((item) => item.sessionId !== sessionId);
         await deleteWorkbookSessionArtifacts(sessionId);
         workbookStreamClientsBySession.delete(sessionId);
+        maybeReleaseWorkbookRealtimeSubscription(sessionId);
         saveDb();
         json(res, 200, {
           ok: true,
@@ -1809,9 +1969,14 @@ export function setupMockServer(host: MiddlewareHost) {
           afterSeq: Number.isFinite(afterSeq) ? afterSeq : 0,
           limit: WORKBOOK_EVENT_LIMIT,
         });
+        const runtimeLatestSeq = await getWorkbookRuntimeSequence(sessionId);
+        const latestSeq =
+          runtimeLatestSeq === null
+            ? response.latestSeq
+            : Math.max(response.latestSeq, runtimeLatestSeq);
         json(res, 200, {
           sessionId,
-          latestSeq: response.latestSeq,
+          latestSeq,
           events: response.events,
         });
         return;
@@ -1887,6 +2052,11 @@ export function setupMockServer(host: MiddlewareHost) {
           latestSeq: appendResult.latestSeq,
           events: appendResult.events,
         });
+        publishWorkbookRealtimeEvents({
+          sessionId,
+          latestSeq: appendResult.latestSeq,
+          events: appendResult.events,
+        });
 
         json(res, 200, {
           events: appendResult.events,
@@ -1945,6 +2115,11 @@ export function setupMockServer(host: MiddlewareHost) {
           latestSeq: appendResult.latestSeq,
           events: appendResult.events,
         });
+        publishWorkbookRealtimeEvents({
+          sessionId,
+          latestSeq: appendResult.latestSeq,
+          events: appendResult.events,
+        });
 
         json(res, 200, { ok: true });
         return;
@@ -1972,11 +2147,12 @@ export function setupMockServer(host: MiddlewareHost) {
         const sessionClients = workbookStreamClientsBySession.get(sessionId) ?? new Map();
         sessionClients.set(clientId, { id: clientId, userId: actor.id, res });
         workbookStreamClientsBySession.set(sessionId, sessionClients);
+        await ensureWorkbookRealtimeSubscription(db, sessionId);
 
         try {
           res.write(`event: ping\\ndata: ${JSON.stringify({ ts: nowIso() })}\\n\\n`);
         } catch {
-          closeWorkbookStreamClient(sessionId, clientId);
+          closeWorkbookStreamClientAndMaybeRelease(sessionId, clientId);
           res.end();
           return;
         }
@@ -1986,14 +2162,14 @@ export function setupMockServer(host: MiddlewareHost) {
             res.write(`event: ping\\ndata: ${JSON.stringify({ ts: nowIso() })}\\n\\n`);
           } catch {
             clearInterval(heartbeat);
-            closeWorkbookStreamClient(sessionId, clientId);
+            closeWorkbookStreamClientAndMaybeRelease(sessionId, clientId);
             res.end();
           }
         }, 15_000);
 
         const cleanup = () => {
           clearInterval(heartbeat);
-          closeWorkbookStreamClient(sessionId, clientId);
+          closeWorkbookStreamClientAndMaybeRelease(sessionId, clientId);
         };
 
         req.on("close", cleanup);

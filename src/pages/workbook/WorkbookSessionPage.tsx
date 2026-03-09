@@ -187,6 +187,7 @@ const PRESENCE_INTERVAL_MS = 3_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
 const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 16;
+const MICROPHONE_TOGGLE_TIMEOUT_MS = 9_000;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
@@ -2173,8 +2174,27 @@ export default function WorkbookSessionPage() {
             return;
           }
           try {
-            await room.localParticipant.setMicrophoneEnabled(desired);
+            const toggleResult = room.localParticipant.setMicrophoneEnabled(desired);
+            const timeoutResult = new Promise<never>((_, reject) => {
+              const timerId = window.setTimeout(() => {
+                reject(new Error("mic_toggle_timeout"));
+              }, MICROPHONE_TOGGLE_TIMEOUT_MS);
+              void toggleResult.finally(() => {
+                window.clearTimeout(timerId);
+              });
+            });
+            await Promise.race([toggleResult, timeoutResult]);
           } catch (reason) {
+            if (reason instanceof Error && reason.message === "mic_toggle_timeout") {
+              setError("Микрофон не ответил вовремя. Выполняем переподключение аудио.");
+              await disconnectLivekitRoom({ forceStopTracks: true });
+              await connectLivekitRoom();
+              desiredMicEnabledRef.current = false;
+              setMediaState((current) =>
+                current.micEnabled ? { ...current, micEnabled: false } : current
+              );
+              return;
+            }
             handleMicrophoneError(reason);
             desiredMicEnabledRef.current = false;
             setMediaState((current) =>
@@ -2190,7 +2210,7 @@ export default function WorkbookSessionPage() {
     })();
     livekitMicSyncInFlightRef.current = task;
     await task;
-  }, [handleMicrophoneError]);
+  }, [connectLivekitRoom, disconnectLivekitRoom, handleMicrophoneError]);
   const boardLocked = Boolean(awaitingClearRequest);
   const canEdit = !isEnded && (canDraw || canSelect);
   const isTeacherActor = Boolean(
@@ -3426,7 +3446,7 @@ export default function WorkbookSessionPage() {
   );
 
   useEffect(() => {
-    if (!session || session.kind !== "CLASS" || !canUseMedia || isEnded) return;
+    if (!session || session.kind !== "CLASS" || isEnded) return;
     const resumeRemoteAudio = () => {
       Array.from(remoteAudioBindingsRef.current.values()).forEach((binding) => {
         void binding.element.play().catch(() => undefined);
@@ -3438,7 +3458,7 @@ export default function WorkbookSessionPage() {
       window.removeEventListener("pointerdown", resumeRemoteAudio);
       window.removeEventListener("keydown", resumeRemoteAudio);
     };
-  }, [canUseMedia, isEnded, session]);
+  }, [isEnded, session]);
 
   const persistSnapshots = useCallback(async (options?: { silent?: boolean; force?: boolean }) => {
     if (!sessionId) return false;

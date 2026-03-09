@@ -863,6 +863,147 @@ export const appendWorkbookSessionEvents = async (params: {
   };
 };
 
+export const appendWorkbookSessionEventsWithKnownSeq = async (params: {
+  sessionId: string;
+  events: PersistedWorkbookEvent[];
+  latestSeq: number;
+  limit?: number;
+}) => {
+  const sessionId = params.sessionId;
+  const limit = normalizeLimit(params.limit);
+  const normalizedEvents = params.events
+    .filter(
+      (event) =>
+        event &&
+        typeof event.id === "string" &&
+        typeof event.type === "string" &&
+        Number.isFinite(event.seq)
+    )
+    .map((event) => ({
+      ...event,
+      seq: Math.max(0, Math.floor(event.seq)),
+      payload: event.payload ?? null,
+      createdAt: typeof event.createdAt === "string" ? event.createdAt : nowIso(),
+    }))
+    .sort((left, right) => left.seq - right.seq);
+
+  const computedLatestSeq = Math.max(
+    Number.isFinite(params.latestSeq) ? Math.floor(params.latestSeq) : 0,
+    normalizedEvents[normalizedEvents.length - 1]?.seq ?? 0
+  );
+
+  if (normalizedEvents.length === 0) {
+    if (storageDriver === "postgres") {
+      const pool = await ensurePgPool();
+      await pool.query(
+        `
+          INSERT INTO ${EVENT_SEQ_TABLE} (session_id, last_seq, updated_at)
+          VALUES ($1, $2, now())
+          ON CONFLICT (session_id)
+          DO UPDATE SET
+            last_seq = GREATEST(${EVENT_SEQ_TABLE}.last_seq, EXCLUDED.last_seq),
+            updated_at = now()
+        `,
+        [sessionId, computedLatestSeq]
+      );
+      return;
+    }
+    return;
+  }
+
+  if (storageDriver === "postgres") {
+    const pool = await ensurePgPool();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `
+          INSERT INTO ${EVENT_SEQ_TABLE} (session_id, last_seq, updated_at)
+          VALUES ($1, $2, now())
+          ON CONFLICT (session_id)
+          DO UPDATE SET
+            last_seq = GREATEST(${EVENT_SEQ_TABLE}.last_seq, EXCLUDED.last_seq),
+            updated_at = now()
+        `,
+        [sessionId, computedLatestSeq]
+      );
+
+      for (const event of normalizedEvents) {
+        await client.query(
+          `
+            INSERT INTO ${EVENT_TABLE}
+              (id, session_id, seq, author_user_id, type, payload, created_at)
+            VALUES
+              ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz)
+            ON CONFLICT (id) DO NOTHING
+          `,
+          [
+            event.id,
+            sessionId,
+            event.seq,
+            event.authorUserId,
+            event.type,
+            JSON.stringify(event.payload ?? null),
+            event.createdAt,
+          ]
+        );
+      }
+
+      await client.query(
+        `
+          WITH boundary AS (
+            SELECT seq
+            FROM ${EVENT_TABLE}
+            WHERE session_id = $1
+            ORDER BY seq DESC
+            OFFSET $2
+            LIMIT 1
+          )
+          DELETE FROM ${EVENT_TABLE}
+          WHERE session_id = $1
+            AND seq < COALESCE((SELECT seq FROM boundary), -1)
+        `,
+        [sessionId, Math.max(0, limit - 1)]
+      );
+
+      await client.query("COMMIT");
+      return;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  const localDb = getDb();
+  const existingIds = new Set(
+    localDb.workbookEvents.filter((event) => event.sessionId === sessionId).map((event) => event.id)
+  );
+  for (const event of normalizedEvents) {
+    if (existingIds.has(event.id)) continue;
+    localDb.workbookEvents.push({
+      id: event.id,
+      sessionId,
+      seq: event.seq,
+      authorUserId: event.authorUserId,
+      type: event.type,
+      payload: JSON.stringify(event.payload ?? null),
+      createdAt: event.createdAt,
+    });
+  }
+
+  const sessionEvents = localDb.workbookEvents
+    .filter((event) => event.sessionId === sessionId)
+    .sort((left, right) => left.seq - right.seq);
+  if (sessionEvents.length > limit) {
+    const overflow = sessionEvents.length - limit;
+    const overflowIds = new Set(sessionEvents.slice(0, overflow).map((event) => event.id));
+    localDb.workbookEvents = localDb.workbookEvents.filter((event) => !overflowIds.has(event.id));
+  }
+  saveDb();
+};
+
 export const readWorkbookSessionSnapshot = async (params: {
   sessionId: string;
   layer: "board" | "annotations";
