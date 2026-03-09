@@ -33,7 +33,8 @@ const WHITEBOARD_TEACHER_PASSWORD =
 
 const AUTH_COOKIE_NAME = "math_tutor_session";
 const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
-const ONLINE_TIMEOUT_MS = 8_000;
+const ONLINE_TIMEOUT_MS = 3_500;
+const PRESENCE_PERSIST_INTERVAL_MS = 15_000;
 const INVITE_TTL_MS = 2 * 60 * 60 * 1000;
 const WORKBOOK_EVENT_LIMIT = 1_200;
 const WORKBOOK_PDF_RENDER_MAX_BYTES = 20 * 1024 * 1024;
@@ -134,9 +135,24 @@ type WorkbookStreamClient = {
 };
 
 const workbookStreamClientsBySession = new Map<string, Map<string, WorkbookStreamClient>>();
+const presencePersistAtByParticipant = new Map<string, number>();
 
 const nowIso = () => new Date().toISOString();
 const nowTs = () => Date.now();
+
+const persistPresenceIfNeeded = (
+  participant: WorkbookSessionParticipantRecord,
+  options?: { force?: boolean }
+) => {
+  const key = `${participant.sessionId}:${participant.userId}`;
+  const now = nowTs();
+  const lastPersistAt = presencePersistAtByParticipant.get(key) ?? 0;
+  if (!options?.force && now - lastPersistAt < PRESENCE_PERSIST_INTERVAL_MS) {
+    return;
+  }
+  presencePersistAtByParticipant.set(key, now);
+  saveDb();
+};
 
 const ensureId = () =>
   typeof crypto.randomUUID === "function"
@@ -793,12 +809,13 @@ const appendEvents = (
   }
 ) => {
   const timestamp = nowIso();
+  const isPersisted = params.persist !== false;
   const currentMaxSeq = db.workbookEvents
     .filter((event) => event.sessionId === params.sessionId)
     .reduce((max, event) => Math.max(max, event.seq), 0);
 
   const appended = params.events.map((event, index) => {
-    const nextSeq = currentMaxSeq + index + 1;
+    const nextSeq = isPersisted ? currentMaxSeq + index + 1 : currentMaxSeq;
     const record: WorkbookEventRecord = {
       id: ensureId(),
       sessionId: params.sessionId,
@@ -808,7 +825,7 @@ const appendEvents = (
       payload: JSON.stringify(event.payload ?? null),
       createdAt: timestamp,
     };
-    if (params.persist !== false) {
+    if (isPersisted) {
       db.workbookEvents.push(record);
     }
     return {
@@ -822,7 +839,7 @@ const appendEvents = (
     };
   });
 
-  if (params.persist !== false) {
+  if (isPersisted) {
     const sessionEvents = db.workbookEvents
       .filter((event) => event.sessionId === params.sessionId)
       .sort((a, b) => a.seq - b.seq);
@@ -835,7 +852,9 @@ const appendEvents = (
 
   return {
     events: appended,
-    latestSeq: appended[appended.length - 1]?.seq ?? currentMaxSeq,
+    latestSeq: isPersisted
+      ? appended[appended.length - 1]?.seq ?? currentMaxSeq
+      : currentMaxSeq,
     timestamp,
   };
 };
@@ -1749,6 +1768,9 @@ export function setupMockServer(host: MiddlewareHost) {
         }
 
         const afterSeq = Number(searchParams.get("afterSeq") ?? "0");
+        const sessionLatestSeq = db.workbookEvents
+          .filter((event) => event.sessionId === sessionId)
+          .reduce((max, event) => Math.max(max, event.seq), 0);
         const events = db.workbookEvents
           .filter((event) => event.sessionId === sessionId && event.seq > (Number.isFinite(afterSeq) ? afterSeq : 0))
           .sort((a, b) => a.seq - b.seq)
@@ -1763,7 +1785,7 @@ export function setupMockServer(host: MiddlewareHost) {
             createdAt: event.createdAt,
           }));
 
-        const latestSeq = events[events.length - 1]?.seq ?? (Number.isFinite(afterSeq) ? afterSeq : 0);
+        const latestSeq = events[events.length - 1]?.seq ?? sessionLatestSeq;
         json(res, 200, { sessionId, latestSeq, events });
         return;
       }
@@ -1799,6 +1821,13 @@ export function setupMockServer(host: MiddlewareHost) {
           }
           if (event.type === "chat.message" && !participant.permissions.canUseChat) {
             forbidden(res, "chat_disabled");
+            return;
+          }
+          if (
+            (event.type === "chat.message.delete" || event.type === "chat.clear") &&
+            !participant.permissions.canManageSession
+          ) {
+            forbidden(res);
             return;
           }
           if (event.type !== "permissions.update") continue;
@@ -2053,12 +2082,13 @@ export function setupMockServer(host: MiddlewareHost) {
           return;
         }
 
-        participant.isActive = true;
+        const wasActive = participant.isActive;
         participant.leftAt = null;
+        participant.isActive = true;
         participant.lastSeenAt = nowIso();
         touchSessionActivity(session);
         ensureDraftForOwner(db, session, actor.id).updatedAt = session.lastActivityAt;
-        saveDb();
+        persistPresenceIfNeeded(participant, { force: !wasActive });
 
         json(res, 200, {
           ok: true,
@@ -2084,7 +2114,7 @@ export function setupMockServer(host: MiddlewareHost) {
         participant.isActive = false;
         participant.leftAt = nowIso();
         participant.lastSeenAt = participant.leftAt;
-        saveDb();
+        persistPresenceIfNeeded(participant, { force: true });
 
         json(res, 200, {
           ok: true,

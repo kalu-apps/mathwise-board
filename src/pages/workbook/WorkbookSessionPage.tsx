@@ -9,7 +9,6 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { jsPDF } from "jspdf";
 import {
   ConnectionState,
   Room,
@@ -181,12 +180,12 @@ import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
-const POLL_INTERVAL_MS = 80;
-const POLL_INTERVAL_STREAM_CONNECTED_MS = 120;
-const PRESENCE_INTERVAL_MS = 1_500;
+const POLL_INTERVAL_MS = 320;
+const POLL_INTERVAL_STREAM_CONNECTED_MS = 1_200;
+const PRESENCE_INTERVAL_MS = 1_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
-const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 40;
+const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 70;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
@@ -315,6 +314,18 @@ const HISTORY_EVENT_TYPES = new Set<WorkbookEvent["type"]>([
   "document.annotation.clear",
 ]);
 
+const DIRTY_EVENT_TYPES = new Set<WorkbookEvent["type"]>([
+  ...HISTORY_EVENT_TYPES,
+  "chat.message",
+  "chat.message.delete",
+  "chat.clear",
+  "comments.upsert",
+  "comments.remove",
+  "timer.update",
+  "settings.update",
+  "permissions.update",
+]);
+
 const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
   if (events.length <= 1) return events;
   const compacted: WorkbookEvent[] = [];
@@ -397,9 +408,9 @@ const resolveNextLatestSeq = (
   events: WorkbookEvent[]
 ) => {
   if (events.length === 0) {
-    return Math.max(currentLatestSeq, responseLatestSeq);
+    return Math.max(0, responseLatestSeq);
   }
-  return Math.max(currentLatestSeq, ...events.map((event) => event.seq));
+  return Math.max(0, ...events.map((event) => event.seq));
 };
 
 const DEFAULT_SETTINGS: WorkbookSessionSettings = {
@@ -1617,6 +1628,7 @@ export default function WorkbookSessionPage() {
     offsetY: number;
   } | null>(null);
   const presenceLeaveSentRef = useRef(false);
+  const boardObjectsRef = useRef<WorkbookBoardObject[]>([]);
   const objectUpdateQueuedPatchRef = useRef<
     Map<string, Partial<WorkbookBoardObject>>
   >(new Map());
@@ -1663,6 +1675,10 @@ export default function WorkbookSessionPage() {
     () => Object.values(pointerPointsByUser),
     [pointerPointsByUser]
   );
+
+  useEffect(() => {
+    boardObjectsRef.current = boardObjects;
+  }, [boardObjects]);
 
   useEffect(() => {
     if (!showCollaborationPanels) {
@@ -1832,6 +1848,33 @@ export default function WorkbookSessionPage() {
       });
     }
     return unseen;
+  }, []);
+
+  const recoverChatMessagesFromEvents = useCallback((events: WorkbookEvent[]) => {
+    if (events.length === 0) return [] as WorkbookChatMessage[];
+    const sorted = [...events].sort((left, right) => left.seq - right.seq);
+    let restored: WorkbookChatMessage[] = [];
+    sorted.forEach((event) => {
+      if (event.type === "chat.clear") {
+        restored = [];
+        return;
+      }
+      if (event.type === "chat.message.delete") {
+        const messageId = (event.payload as { messageId?: unknown })?.messageId;
+        if (typeof messageId === "string" && messageId) {
+          restored = restored.filter((message) => message.id !== messageId);
+        }
+        return;
+      }
+      if (event.type !== "chat.message") return;
+      const message = normalizeChatMessagePayload(
+        (event.payload as { message?: unknown })?.message
+      );
+      if (!message) return;
+      if (restored.some((item) => item.id === message.id)) return;
+      restored = [...restored, message];
+    });
+    return restored;
   }, []);
 
   const clearObjectSyncRuntime = useCallback((options?: { cancelIncomingFrame?: boolean }) => {
@@ -2384,13 +2427,24 @@ export default function WorkbookSessionPage() {
               ? (payload.patch as Partial<WorkbookBoardObject>)
               : null;
           if (!objectId || !patch) return;
+          const shouldKeepLocalTextDraft =
+            selectedTextDraftDirtyRef.current &&
+            selectedTextDraftObjectIdRef.current === objectId &&
+            event.authorUserId === user?.id &&
+            typeof patch.text === "string";
+          let safePatch = patch;
+          if (shouldKeepLocalTextDraft) {
+            const { text: _text, ...rest } = patch;
+            safePatch = rest;
+            if (Object.keys(safePatch).length === 0) return;
+          }
           incomingPreviewQueuedPatchRef.current.delete(objectId);
           setBoardObjects((current) => {
             let found = false;
             const next = current.map((item) => {
               if (item.id !== objectId) return item;
               found = true;
-              return mergeBoardObjectWithPatch(item, patch);
+              return mergeBoardObjectWithPatch(item, safePatch);
             });
             return found ? next : current;
           });
@@ -2860,6 +2914,17 @@ export default function WorkbookSessionPage() {
           setChatMessages((current) =>
             current.some((item) => item.id === message.id) ? current : [...current, message]
           );
+          return;
+        }
+        if (event.type === "chat.message.delete") {
+          const messageId = (event.payload as { messageId?: unknown })?.messageId;
+          if (typeof messageId !== "string" || !messageId) return;
+          setChatMessages((current) => current.filter((item) => item.id !== messageId));
+          return;
+        }
+        if (event.type === "chat.clear") {
+          setChatMessages([]);
+          return;
         }
         } catch (error) {
           console.warn("Workbook event apply failed", event.type, error);
@@ -2973,6 +3038,17 @@ export default function WorkbookSessionPage() {
             throw openError;
           }
         }
+        if (normalizedBoard.chat.length === 0) {
+          try {
+            const history = await getWorkbookEvents(sessionId, 0);
+            const recoveredChat = recoverChatMessagesFromEvents(history.events);
+            if (recoveredChat.length > 0) {
+              setChatMessages(recoveredChat);
+            }
+          } catch {
+            // ignore chat history recovery errors
+          }
+        }
         setLoading(false);
         return;
       } catch (error) {
@@ -3009,7 +3085,7 @@ export default function WorkbookSessionPage() {
       }
     }
     setLoading(false);
-  }, [clearObjectSyncRuntime, openAuthModal, sessionId]);
+  }, [clearObjectSyncRuntime, openAuthModal, recoverChatMessagesFromEvents, sessionId]);
 
   useEffect(() => {
     void loadSession();
@@ -3557,7 +3633,8 @@ export default function WorkbookSessionPage() {
       if (!sessionId) return;
       const trackHistory =
         options?.trackHistory ?? events.some((event) => HISTORY_EVENT_TYPES.has(event.type));
-      const shouldMarkDirty = options?.markDirty ?? trackHistory;
+      const shouldMarkDirty =
+        options?.markDirty ?? events.some((event) => DIRTY_EVENT_TYPES.has(event.type));
       if (trackHistory) {
         pushHistorySnapshot();
       }
@@ -4376,12 +4453,13 @@ export default function WorkbookSessionPage() {
       }
     ) => {
       if (!sessionId || !canSelect) return;
-      const currentObject = boardObjects.find((item) => item.id === objectId);
+      const objectsSnapshot = boardObjectsRef.current;
+      const currentObject = objectsSnapshot.find((item) => item.id === objectId);
       if (!currentObject) return;
       const isPreviewOnly =
         options?.trackHistory === false && options?.markDirty === false;
       const merged = mergeBoardObjectWithPatch(currentObject, patch);
-      const constrained = applyConstraintsForObject(merged, boardObjects);
+      const constrained = applyConstraintsForObject(merged, objectsSnapshot);
       const shouldApplyGeometryPatch =
         patch.x !== undefined ||
         patch.y !== undefined ||
@@ -4434,7 +4512,7 @@ export default function WorkbookSessionPage() {
     },
     [
       applyConstraintsForObject,
-      boardObjects,
+      boardObjectsRef,
       canSelect,
       flushPreviewObjectUpdate,
       flushQueuedObjectUpdate,
@@ -5228,7 +5306,12 @@ export default function WorkbookSessionPage() {
     [boardObjects, canSelect, commitObjectUpdate, selectedObjectId]
   );
 
-  const flushSelectedTextDraftCommit = useCallback(async (draftOverride?: string) => {
+  const flushSelectedTextDraftCommit = useCallback(async (
+    draftOverride?: string,
+    options?: {
+      trackHistory?: boolean;
+    }
+  ) => {
     if (!selectedObjectId) return;
     const draftObjectId = selectedTextDraftObjectIdRef.current;
     if (!draftObjectId || draftObjectId !== selectedObjectId) return;
@@ -5253,7 +5336,7 @@ export default function WorkbookSessionPage() {
       { text: textValue },
       undefined,
       {
-        trackHistory: true,
+        trackHistory: options?.trackHistory ?? true,
         markDirty: true,
       }
     );
@@ -5279,23 +5362,22 @@ export default function WorkbookSessionPage() {
         selectedTextDraftDirtyRef.current = false;
         return;
       }
-      void updateSelectedTextFormatting(
-        { text: normalizedValue },
-        undefined,
-        {
-          trackHistory: false,
-          markDirty: false,
-        }
+      setBoardObjects((current) =>
+        current.map((item) =>
+          item.id === selectedObjectId ? mergeBoardObjectWithPatch(item, { text: normalizedValue }) : item
+        )
       );
       selectedTextDraftCommitTimerRef.current = window.setTimeout(() => {
-        void flushSelectedTextDraftCommit(normalizedValue);
+        void flushSelectedTextDraftCommit(normalizedValue, {
+          trackHistory: false,
+        });
       }, 180);
     },
     [
       boardObjects,
+      setBoardObjects,
       flushSelectedTextDraftCommit,
       selectedObjectId,
-      updateSelectedTextFormatting,
     ]
   );
 
@@ -6752,6 +6834,43 @@ export default function WorkbookSessionPage() {
     user?.lastName,
   ]);
 
+  const handleDeleteSessionChatMessage = useCallback(
+    async (messageId: string) => {
+      if (!canManageSession || !messageId) return;
+      const previous = chatMessages;
+      setChatMessages((current) => current.filter((item) => item.id !== messageId));
+      try {
+        await appendEventsAndApply([
+          {
+            type: "chat.message.delete",
+            payload: { messageId },
+          },
+        ]);
+      } catch {
+        setChatMessages(previous);
+        setError("Не удалось удалить сообщение.");
+      }
+    },
+    [appendEventsAndApply, canManageSession, chatMessages]
+  );
+
+  const handleClearSessionChat = useCallback(async () => {
+    if (!canManageSession || chatMessages.length === 0) return;
+    const previous = chatMessages;
+    setChatMessages([]);
+    try {
+      await appendEventsAndApply([
+        {
+          type: "chat.clear",
+          payload: {},
+        },
+      ]);
+    } catch {
+      setChatMessages(previous);
+      setError("Не удалось очистить чат.");
+    }
+  }, [appendEventsAndApply, canManageSession, chatMessages]);
+
   const handleSessionChatDragStart = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (isCompactViewport || isSessionChatMinimized || isSessionChatMaximized) return;
@@ -7169,6 +7288,7 @@ export default function WorkbookSessionPage() {
       if (!rendered) return;
       const width = Math.max(1, Math.round(rendered.width));
       const height = Math.max(1, Math.round(rendered.height));
+      const { jsPDF } = await import("jspdf");
       const pdf = new jsPDF({
         orientation: width >= height ? "landscape" : "portrait",
         unit: "px",
@@ -7797,8 +7917,6 @@ export default function WorkbookSessionPage() {
       typeof selectedTextObject.text === "string" ? selectedTextObject.text : "";
     if (!selectedTextDraftDirtyRef.current) {
       setSelectedTextDraft((current) => (current === nextText ? current : nextText));
-    } else if (nextText === selectedTextDraft) {
-      selectedTextDraftDirtyRef.current = false;
     }
     const nextSize = Math.max(12, Math.round(selectedTextObject.fontSize ?? 18));
     setSelectedTextFontSizeDraft((current) => (current === nextSize ? current : nextSize));
@@ -11424,6 +11542,20 @@ export default function WorkbookSessionPage() {
                     </div>
                     <div className="workbook-session__session-chat-meta-right">
                       <span>{onlineParticipantsCount} онлайн</span>
+                      {canManageSession && chatMessages.length > 0 ? (
+                        <Tooltip title="Очистить чат" arrow>
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              if (!window.confirm("Очистить чат для всех участников?")) return;
+                              void handleClearSessionChat();
+                            }}
+                            aria-label="Очистить чат"
+                          >
+                            <DeleteSweepRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      ) : null}
                       {sessionChatUnreadCount > 0 || !isSessionChatAtBottom ? (
                         <Tooltip title="Перемотать к последнему сообщению" arrow>
                           <IconButton
@@ -11460,6 +11592,16 @@ export default function WorkbookSessionPage() {
                             }`}
                           >
                             <strong>{message.authorName}</strong>
+                            {canManageSession ? (
+                              <button
+                                type="button"
+                                className="workbook-session__chat-message-delete"
+                                aria-label="Удалить сообщение"
+                                onClick={() => void handleDeleteSessionChatMessage(message.id)}
+                              >
+                                <DeleteOutlineRoundedIcon fontSize="inherit" />
+                              </button>
+                            ) : null}
                             <p>{message.text}</p>
                             <time>
                               {new Date(message.createdAt).toLocaleTimeString("ru-RU", {

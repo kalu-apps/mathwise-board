@@ -436,6 +436,8 @@ export type WorkbookEventType =
   | "permissions.update"
   | "settings.update"
   | "chat.message"
+  | "chat.message.delete"
+  | "chat.clear"
   | "session.status";
 
 export type WorkbookEvent = {

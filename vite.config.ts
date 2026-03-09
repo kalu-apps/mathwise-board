@@ -67,16 +67,40 @@ export default defineConfig(({ mode }) => {
       include: ["react", "react-dom"],
     },
     build: {
-      chunkSizeWarningLimit: 650,
+      chunkSizeWarningLimit: 700,
       rollupOptions: {
         output: {
-          manualChunks: {
-            "vendor-ui": [
-              "@mui/material",
-              "@mui/icons-material",
-              "@emotion/react",
-              "@emotion/styled",
-            ],
+          manualChunks(id) {
+            const normalizedId = id.replace(/\\/g, "/");
+            if (normalizedId.includes("/node_modules/")) {
+              if (
+                normalizedId.includes("/@mui/") ||
+                normalizedId.includes("/@emotion/")
+              ) {
+                return "vendor-ui";
+              }
+              if (normalizedId.includes("/mathjs/")) {
+                return "vendor-mathjs";
+              }
+              if (normalizedId.includes("/livekit-client/")) {
+                return "vendor-livekit";
+              }
+              if (
+                normalizedId.includes("/jspdf/") ||
+                normalizedId.includes("/html2canvas/")
+              ) {
+                return "vendor-export";
+              }
+            }
+            if (normalizedId.includes("/src/features/workbook/model/solid3d")) {
+              return "workbook-solid3d";
+            }
+            if (normalizedId.includes("/src/features/workbook/model/functionGraph")) {
+              return "workbook-graph";
+            }
+            if (normalizedId.includes("/src/features/workbook/model/smartInk")) {
+              return "workbook-smartink";
+            }
           },
         },
       },
