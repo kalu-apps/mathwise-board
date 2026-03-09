@@ -529,7 +529,7 @@ const normalizeSmartInkOptions = (
 const FALLBACK_PERMISSIONS: WorkbookSessionParticipant["permissions"] = {
   canDraw: false,
   canAnnotate: false,
-  canUseMedia: false,
+  canUseMedia: true,
   canUseChat: false,
   canInvite: false,
   canManageSession: false,

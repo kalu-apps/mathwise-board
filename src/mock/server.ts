@@ -458,7 +458,7 @@ const defaultPermissions = (role: "teacher" | "student"): WorkbookParticipantPer
   return {
     canDraw: false,
     canAnnotate: false,
-    canUseMedia: false,
+    canUseMedia: true,
     canUseChat: false,
     canInvite: false,
     canManageSession: false,
@@ -1262,9 +1262,12 @@ const ensureParticipant = (
   if (existing) {
     existing.isActive = true;
     existing.lastSeenAt = nowIso();
+    existing.roleInSession = params.roleInSession;
+    // Preserve explicit permission changes (for example, teacher-granted media)
+    // when the participant rejoins the same session.
     existing.permissions = normalizeParticipantPermissions(
       params.roleInSession,
-      params.permissions
+      existing.permissions
     );
     return existing;
   }
