@@ -838,6 +838,7 @@ const clampGraphOffsetValue = (value: number) =>
 
 const COORD_DELTA_EPSILON = 0.01;
 const REALTIME_META_PATCH_MAX_SIGNATURE = 8_192;
+const REALTIME_PREVIEW_REPEAT_GUARD_MS = 120;
 
 const hasCoordChanged = (left: number, right: number) =>
   Math.abs(left - right) > COORD_DELTA_EPSILON;
@@ -5591,11 +5592,15 @@ export function WorkbookCanvas({
           ? performance.now()
           : Date.now();
       const previousTs = lastRealtimeUpdateAtRef.current.get(objectId) ?? 0;
-      if (now - previousTs < 70) return;
       const signature = toStableSignature(patch);
       const previousSignature =
         lastRealtimePatchSignatureRef.current.get(objectId) ?? "";
-      if (signature === previousSignature && now - previousTs < 240) return;
+      if (
+        signature === previousSignature &&
+        now - previousTs < REALTIME_PREVIEW_REPEAT_GUARD_MS
+      ) {
+        return;
+      }
       lastRealtimeUpdateAtRef.current.set(objectId, now);
       lastRealtimePatchSignatureRef.current.set(objectId, signature);
       onObjectUpdate(objectId, patch, {
