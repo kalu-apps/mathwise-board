@@ -226,12 +226,17 @@ export async function appendWorkbookPreview(params: {
   sessionId: string;
   objectId: string;
   patch: Partial<Record<string, unknown>>;
+  previewVersion?: number;
 }) {
   return api.post<{ ok: true }>(
     `/workbook/sessions/${encodeURIComponent(params.sessionId)}/events/preview`,
     {
       objectId: params.objectId,
       patch: params.patch,
+      previewVersion:
+        typeof params.previewVersion === "number" && Number.isFinite(params.previewVersion)
+          ? Math.max(1, Math.trunc(params.previewVersion))
+          : undefined,
     },
     { notifyDataUpdate: false }
   );

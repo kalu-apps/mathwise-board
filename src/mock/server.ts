@@ -21,6 +21,11 @@ import {
   type WorkbookSessionRecord,
   type WorkbookSnapshotRecord,
 } from "./db";
+import {
+  allocateWorkbookRuntimeSequence,
+  publishWorkbookRealtimePayload,
+  subscribeWorkbookRealtimePayload,
+} from "./runtimeServices";
 
 const execFileAsync = promisify(execFileCallback);
 
@@ -134,11 +139,36 @@ type WorkbookStreamClient = {
   res: ServerResponse;
 };
 
+type WorkbookRealtimeEnvelope = {
+  sessionId: string;
+  latestSeq: number;
+  events: Array<{
+    id: string;
+    sessionId: string;
+    seq: number;
+    authorUserId: string;
+    type: string;
+    payload: unknown;
+    createdAt: string;
+  }>;
+  nodeId?: string;
+};
+
 const workbookStreamClientsBySession = new Map<string, Map<string, WorkbookStreamClient>>();
 const presencePersistAtByParticipant = new Map<string, number>();
+const presenceSnapshotHashBySession = new Map<string, string>();
+const runtimeUnsubscribeBySession = new Map<string, () => Promise<void> | void>();
+const runtimeSubscribeInFlightBySession = new Map<string, Promise<void>>();
+const RUNTIME_NODE_ID = `${os.hostname()}-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
 
 const nowIso = () => new Date().toISOString();
 const nowTs = () => Date.now();
+const getSessionLatestSeq = (db: MockDb, sessionId: string) =>
+  db.workbookEvents
+    .filter((event) => event.sessionId === sessionId)
+    .reduce((max, event) => Math.max(max, event.seq), 0);
+const isVolatileWorkbookEventType = (type: string) =>
+  type === "board.object.preview" || type === "presence.sync";
 
 const persistPresenceIfNeeded = (
   participant: WorkbookSessionParticipantRecord,
@@ -754,38 +784,17 @@ const serializeDraft = (db: MockDb, draft: WorkbookDraftRecord, actorUserId: str
   };
 };
 
-const closeWorkbookStreamClient = (sessionId: string, clientId: string) => {
-  const sessionClients = workbookStreamClientsBySession.get(sessionId);
-  if (!sessionClients) return;
-  sessionClients.delete(clientId);
-  if (sessionClients.size === 0) {
-    workbookStreamClientsBySession.delete(sessionId);
-  }
-};
-
-const publishWorkbookStreamEvents = (
+const deliverWorkbookStreamEventsToLocalClients = (
   db: MockDb,
-  payload: {
-    sessionId: string;
-    latestSeq: number;
-    events: Array<{
-      id: string;
-      sessionId: string;
-      seq: number;
-      authorUserId: string;
-      type: string;
-      payload: unknown;
-      createdAt: string;
-    }>;
-  }
+  payload: WorkbookRealtimeEnvelope
 ) => {
   const sessionClients = workbookStreamClientsBySession.get(payload.sessionId);
   if (!sessionClients || sessionClients.size === 0) return;
   const chunk = `event: workbook\ndata: ${JSON.stringify(payload)}\n\n`;
-
   for (const [clientId, client] of sessionClients.entries()) {
     const hasAccess = db.workbookParticipants.some(
-      (participant) => participant.sessionId === payload.sessionId && participant.userId === client.userId
+      (participant) =>
+        participant.sessionId === payload.sessionId && participant.userId === client.userId
     );
     if (!hasAccess) {
       closeWorkbookStreamClient(payload.sessionId, clientId);
@@ -799,7 +808,128 @@ const publishWorkbookStreamEvents = (
   }
 };
 
-const appendEvents = (
+const trimWorkbookEventsOverflow = (db: MockDb, sessionId: string) => {
+  const sessionEvents = db.workbookEvents
+    .filter((event) => event.sessionId === sessionId)
+    .sort((a, b) => a.seq - b.seq);
+  if (sessionEvents.length <= WORKBOOK_EVENT_LIMIT) return;
+  const overflow = sessionEvents.length - WORKBOOK_EVENT_LIMIT;
+  const overflowIds = new Set(sessionEvents.slice(0, overflow).map((event) => event.id));
+  db.workbookEvents = db.workbookEvents.filter((event) => !overflowIds.has(event.id));
+};
+
+const mergeRuntimeEventsIntoDb = (db: MockDb, payload: WorkbookRealtimeEnvelope) => {
+  if (!Array.isArray(payload.events) || payload.events.length === 0) return false;
+  const existingEventIds = new Set(
+    db.workbookEvents
+      .filter((event) => event.sessionId === payload.sessionId)
+      .map((event) => event.id)
+  );
+  let inserted = false;
+  for (const runtimeEvent of payload.events) {
+    if (
+      !runtimeEvent ||
+      typeof runtimeEvent !== "object" ||
+      typeof runtimeEvent.id !== "string" ||
+      existingEventIds.has(runtimeEvent.id) ||
+      isVolatileWorkbookEventType(runtimeEvent.type)
+    ) {
+      continue;
+    }
+    const seq = Number.isFinite(runtimeEvent.seq)
+      ? Math.max(0, Math.trunc(runtimeEvent.seq))
+      : 0;
+    const record: WorkbookEventRecord = {
+      id: runtimeEvent.id,
+      sessionId: payload.sessionId,
+      seq,
+      authorUserId: String(runtimeEvent.authorUserId ?? "unknown"),
+      type: String(runtimeEvent.type ?? ""),
+      payload: JSON.stringify(runtimeEvent.payload ?? null),
+      createdAt:
+        typeof runtimeEvent.createdAt === "string" && runtimeEvent.createdAt.length > 0
+          ? runtimeEvent.createdAt
+          : nowIso(),
+    };
+    db.workbookEvents.push(record);
+    existingEventIds.add(record.id);
+    inserted = true;
+  }
+  if (!inserted) return false;
+  trimWorkbookEventsOverflow(db, payload.sessionId);
+  saveDb();
+  return true;
+};
+
+async function ensureRuntimeSessionBridge(sessionId: string) {
+  if (runtimeUnsubscribeBySession.has(sessionId)) return;
+  const inFlight = runtimeSubscribeInFlightBySession.get(sessionId);
+  if (inFlight) {
+    await inFlight;
+    return;
+  }
+  const task = (async () => {
+    const unsubscribe = await subscribeWorkbookRealtimePayload(
+      sessionId,
+      (payload: WorkbookRealtimeEnvelope) => {
+        if (!payload || payload.sessionId !== sessionId) return;
+        if (payload.nodeId && payload.nodeId === RUNTIME_NODE_ID) return;
+        const db = getDb();
+        mergeRuntimeEventsIntoDb(db, payload);
+        deliverWorkbookStreamEventsToLocalClients(db, payload);
+      }
+    );
+    runtimeUnsubscribeBySession.set(sessionId, unsubscribe);
+  })()
+    .catch(() => undefined)
+    .finally(() => {
+      runtimeSubscribeInFlightBySession.delete(sessionId);
+    });
+  runtimeSubscribeInFlightBySession.set(sessionId, task);
+  await task;
+}
+
+async function teardownRuntimeSessionBridgeIfIdle(sessionId: string) {
+  const sessionClients = workbookStreamClientsBySession.get(sessionId);
+  if (sessionClients && sessionClients.size > 0) return;
+  const inFlight = runtimeSubscribeInFlightBySession.get(sessionId);
+  if (inFlight) {
+    await inFlight.catch(() => undefined);
+  }
+  const unsubscribe = runtimeUnsubscribeBySession.get(sessionId);
+  if (!unsubscribe) return;
+  runtimeUnsubscribeBySession.delete(sessionId);
+  try {
+    await unsubscribe();
+  } catch {
+    // ignore redis unsubscribe errors
+  }
+}
+
+function closeWorkbookStreamClient(sessionId: string, clientId: string) {
+  const sessionClients = workbookStreamClientsBySession.get(sessionId);
+  if (!sessionClients) return;
+  sessionClients.delete(clientId);
+  if (sessionClients.size === 0) {
+    workbookStreamClientsBySession.delete(sessionId);
+    void teardownRuntimeSessionBridgeIfIdle(sessionId);
+  }
+}
+
+const publishWorkbookStreamEvents = (
+  db: MockDb,
+  payload: WorkbookRealtimeEnvelope,
+  options?: { publishRuntime?: boolean }
+) => {
+  deliverWorkbookStreamEventsToLocalClients(db, payload);
+  if (options?.publishRuntime === false) return;
+  void publishWorkbookRealtimePayload(payload.sessionId, {
+    ...payload,
+    nodeId: RUNTIME_NODE_ID,
+  });
+};
+
+const appendEvents = async (
   db: MockDb,
   params: {
     sessionId: string;
@@ -810,12 +940,22 @@ const appendEvents = (
 ) => {
   const timestamp = nowIso();
   const isPersisted = params.persist !== false;
-  const currentMaxSeq = db.workbookEvents
-    .filter((event) => event.sessionId === params.sessionId)
-    .reduce((max, event) => Math.max(max, event.seq), 0);
+  const currentMaxSeq = getSessionLatestSeq(db, params.sessionId);
+  const sequenceRange = isPersisted
+    ? await allocateWorkbookRuntimeSequence({
+        sessionId: params.sessionId,
+        count: params.events.length,
+        fallbackBaseSeq: currentMaxSeq,
+      })
+    : null;
+  const fallbackSeqStart = currentMaxSeq + 1;
 
   const appended = params.events.map((event, index) => {
-    const nextSeq = isPersisted ? currentMaxSeq + index + 1 : currentMaxSeq;
+    const nextSeq = isPersisted
+      ? sequenceRange
+        ? sequenceRange.from + index
+        : fallbackSeqStart + index
+      : currentMaxSeq;
     const record: WorkbookEventRecord = {
       id: ensureId(),
       sessionId: params.sessionId,
@@ -840,14 +980,7 @@ const appendEvents = (
   });
 
   if (isPersisted) {
-    const sessionEvents = db.workbookEvents
-      .filter((event) => event.sessionId === params.sessionId)
-      .sort((a, b) => a.seq - b.seq);
-    if (sessionEvents.length > WORKBOOK_EVENT_LIMIT) {
-      const overflow = sessionEvents.length - WORKBOOK_EVENT_LIMIT;
-      const overflowIds = new Set(sessionEvents.slice(0, overflow).map((event) => event.id));
-      db.workbookEvents = db.workbookEvents.filter((event) => !overflowIds.has(event.id));
-    }
+    trimWorkbookEventsOverflow(db, params.sessionId);
   }
 
   return {
@@ -857,6 +990,47 @@ const appendEvents = (
       : currentMaxSeq,
     timestamp,
   };
+};
+
+const hashParticipantsPresence = (participants: ReturnType<typeof serializeParticipant>[]) =>
+  JSON.stringify(
+    participants.map((participant) => ({
+      userId: participant.userId,
+      isActive: participant.isActive,
+      isOnline: participant.isOnline,
+    }))
+  );
+
+const maybePublishPresenceSync = (
+  db: MockDb,
+  sessionId: string,
+  authorUserId: string
+) => {
+  const participants = getWorkbookParticipants(db, sessionId).map((item) =>
+    serializeParticipant(db, item)
+  );
+  const nextHash = hashParticipantsPresence(participants);
+  if (presenceSnapshotHashBySession.get(sessionId) === nextHash) {
+    return participants;
+  }
+  presenceSnapshotHashBySession.set(sessionId, nextHash);
+  const latestSeq = getSessionLatestSeq(db, sessionId);
+  publishWorkbookStreamEvents(db, {
+    sessionId,
+    latestSeq,
+    events: [
+      {
+        id: ensureId(),
+        sessionId,
+        seq: latestSeq,
+        authorUserId,
+        type: "presence.sync",
+        payload: { participants },
+        createdAt: nowIso(),
+      },
+    ],
+  });
+  return participants;
 };
 
 const decodePdfDataUrl = (value: unknown) => {
@@ -1768,9 +1942,7 @@ export function setupMockServer(host: MiddlewareHost) {
         }
 
         const afterSeq = Number(searchParams.get("afterSeq") ?? "0");
-        const sessionLatestSeq = db.workbookEvents
-          .filter((event) => event.sessionId === sessionId)
-          .reduce((max, event) => Math.max(max, event.seq), 0);
+        const sessionLatestSeq = getSessionLatestSeq(db, sessionId);
         const events = db.workbookEvents
           .filter((event) => event.sessionId === sessionId && event.seq > (Number.isFinite(afterSeq) ? afterSeq : 0))
           .sort((a, b) => a.seq - b.seq)
@@ -1851,7 +2023,7 @@ export function setupMockServer(host: MiddlewareHost) {
           };
         }
 
-        const appendResult = appendEvents(db, {
+        const appendResult = await appendEvents(db, {
           sessionId,
           authorUserId: actor.id,
           events,
@@ -1896,16 +2068,21 @@ export function setupMockServer(host: MiddlewareHost) {
         const body = (await readBody(req)) as {
           objectId?: string;
           patch?: Record<string, unknown>;
+          previewVersion?: unknown;
         } | null;
 
         const objectId = typeof body?.objectId === "string" ? body.objectId : "";
         const patch = body?.patch && typeof body.patch === "object" ? body.patch : null;
+        const previewVersion =
+          typeof body?.previewVersion === "number" && Number.isFinite(body.previewVersion)
+            ? Math.max(1, Math.trunc(body.previewVersion))
+            : null;
         if (!objectId || !patch) {
           badRequest(res, "Некорректные данные preview.");
           return;
         }
 
-        const appendResult = appendEvents(db, {
+        const appendResult = await appendEvents(db, {
           sessionId,
           authorUserId: actor.id,
           events: [
@@ -1914,6 +2091,7 @@ export function setupMockServer(host: MiddlewareHost) {
               payload: {
                 objectId,
                 patch,
+                ...(previewVersion ? { previewVersion } : {}),
               },
             },
           ],
@@ -1956,6 +2134,7 @@ export function setupMockServer(host: MiddlewareHost) {
         const sessionClients = workbookStreamClientsBySession.get(sessionId) ?? new Map();
         sessionClients.set(clientId, { id: clientId, userId: actor.id, res });
         workbookStreamClientsBySession.set(sessionId, sessionClients);
+        void ensureRuntimeSessionBridge(sessionId);
 
         try {
           res.write(`event: ping\\ndata: ${JSON.stringify({ ts: nowIso() })}\\n\\n`);
@@ -2089,12 +2268,11 @@ export function setupMockServer(host: MiddlewareHost) {
         touchSessionActivity(session);
         ensureDraftForOwner(db, session, actor.id).updatedAt = session.lastActivityAt;
         persistPresenceIfNeeded(participant, { force: !wasActive });
+        const participants = maybePublishPresenceSync(db, sessionId, actor.id);
 
         json(res, 200, {
           ok: true,
-          participants: getWorkbookParticipants(db, sessionId).map((item) =>
-            serializeParticipant(db, item)
-          ),
+          participants,
         });
         return;
       }
@@ -2115,12 +2293,11 @@ export function setupMockServer(host: MiddlewareHost) {
         participant.leftAt = nowIso();
         participant.lastSeenAt = participant.leftAt;
         persistPresenceIfNeeded(participant, { force: true });
+        const participants = maybePublishPresenceSync(db, sessionId, actor.id);
 
         json(res, 200, {
           ok: true,
-          participants: getWorkbookParticipants(db, sessionId).map((item) =>
-            serializeParticipant(db, item)
-          ),
+          participants,
         });
         return;
       }

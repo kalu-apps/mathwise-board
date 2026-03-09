@@ -402,6 +402,7 @@ export type WorkbookEventType =
   | "board.stroke.delete"
   | "board.object.create"
   | "board.object.preview"
+  | "presence.sync"
   | "board.object.update"
   | "board.object.delete"
   | "board.object.pin"

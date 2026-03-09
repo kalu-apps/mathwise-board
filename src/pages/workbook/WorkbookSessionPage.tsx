@@ -14,6 +14,7 @@ import {
   Room,
   RoomEvent,
   Track,
+  type Room as LivekitRoom,
   type RemoteAudioTrack,
   type RemoteParticipant,
 } from "livekit-client";
@@ -186,7 +187,7 @@ const POLL_INTERVAL_STREAM_CONNECTED_MS = 400;
 const PRESENCE_INTERVAL_MS = 1_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
-const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 24;
+const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 16;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
@@ -403,6 +404,11 @@ const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
   return compacted;
 };
 
+const VOLATILE_WORKBOOK_EVENT_TYPES = new Set<WorkbookEvent["type"]>([
+  "board.object.preview",
+  "presence.sync",
+]);
+
 const resolveNextLatestSeq = (
   currentLatestSeq: number,
   responseLatestSeq: number,
@@ -418,7 +424,7 @@ const hasWorkbookEventGap = (currentLatestSeq: number, events: WorkbookEvent[]) 
   const sequenced = events
     .filter(
       (event) =>
-        event.type !== "board.object.preview" &&
+        !VOLATILE_WORKBOOK_EVENT_TYPES.has(event.type) &&
         typeof event.seq === "number" &&
         Number.isFinite(event.seq)
     )
@@ -1630,7 +1636,7 @@ export default function WorkbookSessionPage() {
   const redoStackRef = useRef<WorkbookSceneSnapshot[]>([]);
   const latestSeqRef = useRef(0);
   const processedEventIdsRef = useRef<Set<string>>(new Set());
-  const livekitRoomRef = useRef<Room | null>(null);
+  const livekitRoomRef = useRef<LivekitRoom | null>(null);
   const livekitRoomSessionIdRef = useRef<string | null>(null);
   const livekitConnectInFlightRef = useRef<Promise<void> | null>(null);
   const remoteAudioBindingsRef = useRef<
@@ -1665,9 +1671,13 @@ export default function WorkbookSessionPage() {
     Map<string, Partial<WorkbookBoardObject>>
   >(new Map());
   const objectPreviewTimersRef = useRef<Map<string, number>>(new Map());
+  const objectPreviewInFlightByObjectRef = useRef<Map<string, number>>(new Map());
+  const objectPreviewVersionRef = useRef<Map<string, number>>(new Map());
   const incomingPreviewQueuedPatchRef = useRef<
     Map<string, Partial<WorkbookBoardObject>>
   >(new Map());
+  const incomingPreviewVersionByAuthorObjectRef = useRef<Map<string, number>>(new Map());
+  const objectLastCommittedEventAtRef = useRef<Map<string, number>>(new Map());
   const incomingPreviewFrameRef = useRef<number | null>(null);
   const fallbackBackPath = "/workbook";
   const fromPath = searchParams.get("from") || fallbackBackPath;
@@ -1871,7 +1881,7 @@ export default function WorkbookSessionPage() {
     const unseen: WorkbookEvent[] = [];
     events.forEach((event) => {
       if (
-        event.type !== "board.object.preview" &&
+        !VOLATILE_WORKBOOK_EVENT_TYPES.has(event.type) &&
         typeof event?.seq === "number" &&
         Number.isFinite(event.seq) &&
         event.seq <= latestSeqRef.current
@@ -1933,7 +1943,11 @@ export default function WorkbookSessionPage() {
     objectUpdateDispatchOptionsRef.current.clear();
     objectPreviewTimersRef.current.clear();
     objectPreviewQueuedPatchRef.current.clear();
+    objectPreviewInFlightByObjectRef.current.clear();
+    objectPreviewVersionRef.current.clear();
     incomingPreviewQueuedPatchRef.current.clear();
+    incomingPreviewVersionByAuthorObjectRef.current.clear();
+    objectLastCommittedEventAtRef.current.clear();
     if (options?.cancelIncomingFrame !== false && incomingPreviewFrameRef.current !== null) {
       window.cancelAnimationFrame(incomingPreviewFrameRef.current);
       incomingPreviewFrameRef.current = null;
@@ -2402,6 +2416,26 @@ export default function WorkbookSessionPage() {
       const compactedEvents = compactWorkbookObjectUpdateEvents(events);
       compactedEvents.forEach((event) => {
         try {
+        const parsedEventTs = Date.parse(event.createdAt);
+        const eventTimestamp = Number.isFinite(parsedEventTs)
+          ? parsedEventTs
+          : Date.now();
+        if (event.type === "presence.sync") {
+          const payload = event.payload as { participants?: unknown };
+          if (!Array.isArray(payload.participants)) return;
+          const participants = payload.participants as WorkbookSessionParticipant[];
+          setSession((current) =>
+            current
+              ? areParticipantsEqual(current.participants, participants)
+                ? current
+                : {
+                    ...current,
+                    participants,
+                  }
+              : current
+          );
+          return;
+        }
         if (event.type === "board.undo" || event.type === "board.redo") {
           const payload = event.payload as { scene?: unknown };
           if (!payload.scene || typeof payload.scene !== "object") return;
@@ -2454,6 +2488,7 @@ export default function WorkbookSessionPage() {
         if (event.type === "board.object.create") {
           const object = normalizeObjectPayload((event.payload as { object?: unknown })?.object);
           if (!object) return;
+          objectLastCommittedEventAtRef.current.set(object.id, eventTimestamp);
           setBoardObjects((current) =>
             current.some((item) => item.id === object.id) ? current : [...current, object]
           );
@@ -2470,6 +2505,7 @@ export default function WorkbookSessionPage() {
               ? (payload.patch as Partial<WorkbookBoardObject>)
               : null;
           if (!objectId || !patch) return;
+          objectLastCommittedEventAtRef.current.set(objectId, eventTimestamp);
           const shouldKeepLocalTextDraft =
             selectedTextDraftDirtyRef.current &&
             selectedTextDraftObjectIdRef.current === objectId &&
@@ -2498,6 +2534,7 @@ export default function WorkbookSessionPage() {
           const payload = event.payload as {
             objectId?: unknown;
             patch?: unknown;
+            previewVersion?: unknown;
           };
           const objectId = typeof payload.objectId === "string" ? payload.objectId : "";
           const patch =
@@ -2505,17 +2542,38 @@ export default function WorkbookSessionPage() {
               ? (payload.patch as Partial<WorkbookBoardObject>)
               : null;
           if (!objectId || !patch) return;
+          const committedAt = objectLastCommittedEventAtRef.current.get(objectId) ?? 0;
+          if (committedAt > 0 && eventTimestamp <= committedAt) return;
+          const previewVersion =
+            typeof payload.previewVersion === "number" && Number.isFinite(payload.previewVersion)
+              ? Math.max(1, Math.trunc(payload.previewVersion))
+              : null;
+          if (previewVersion !== null) {
+            const versionKey = `${event.authorUserId ?? "unknown"}:${objectId}`;
+            const appliedVersion =
+              incomingPreviewVersionByAuthorObjectRef.current.get(versionKey) ?? 0;
+            if (previewVersion <= appliedVersion) return;
+            incomingPreviewVersionByAuthorObjectRef.current.set(versionKey, previewVersion);
+          }
           queueIncomingPreviewPatch(objectId, patch);
           return;
         }
         if (event.type === "board.object.delete") {
           const objectId = (event.payload as { objectId?: unknown })?.objectId;
           if (typeof objectId !== "string") return;
+          objectLastCommittedEventAtRef.current.set(objectId, eventTimestamp);
           objectUpdateQueuedPatchRef.current.delete(objectId);
           objectUpdateDispatchOptionsRef.current.delete(objectId);
           objectPreviewQueuedPatchRef.current.delete(objectId);
           objectUpdateInFlightRef.current.delete(objectId);
+          objectPreviewInFlightByObjectRef.current.delete(objectId);
+          objectPreviewVersionRef.current.delete(objectId);
           incomingPreviewQueuedPatchRef.current.delete(objectId);
+          Array.from(incomingPreviewVersionByAuthorObjectRef.current.keys()).forEach((key) => {
+            if (key.endsWith(`:${objectId}`)) {
+              incomingPreviewVersionByAuthorObjectRef.current.delete(key);
+            }
+          });
           const pendingUpdateTimer = objectUpdateTimersRef.current.get(objectId);
           if (pendingUpdateTimer !== undefined) {
             window.clearTimeout(pendingUpdateTimer);
@@ -2650,21 +2708,23 @@ export default function WorkbookSessionPage() {
           }
           const point = payload.point as Partial<WorkbookPoint> | undefined;
           if (!point || typeof point.x !== "number" || typeof point.y !== "number") return;
+          const pointX = point.x;
+          const pointY = point.y;
           if (mode === "pin" || mode === "move") {
             if (event.authorUserId === user?.id) {
-              setPointerPoint({ x: point.x, y: point.y });
+              setPointerPoint({ x: pointX, y: pointY });
             }
             setPointerPointsByUser((current) => ({
               ...current,
-              [authorKey]: { x: point.x, y: point.y },
+              [authorKey]: { x: pointX, y: pointY },
             }));
           }
           if (event.authorUserId === user?.id) {
-            setFocusPoint({ x: point.x, y: point.y });
+            setFocusPoint({ x: pointX, y: pointY });
           }
           setFocusPointsByUser((current) => ({
             ...current,
-            [authorKey]: { x: point.x, y: point.y },
+            [authorKey]: { x: pointX, y: pointY },
           }));
           const previousTimer = focusResetTimersByUserRef.current.get(authorKey);
           if (previousTimer !== undefined) {
@@ -2988,6 +3048,7 @@ export default function WorkbookSessionPage() {
       });
     },
     [
+      areParticipantsEqual,
       awaitingClearRequest,
       clearObjectSyncRuntime,
       queueIncomingPreviewPatch,
@@ -3754,19 +3815,38 @@ export default function WorkbookSessionPage() {
       if (objectPreviewTimersRef.current.has(objectId)) return;
       const timerId = window.setTimeout(() => {
         objectPreviewTimersRef.current.delete(objectId);
+        if (!sessionId || !canSelect) {
+          objectPreviewQueuedPatchRef.current.delete(objectId);
+          objectPreviewInFlightByObjectRef.current.delete(objectId);
+          return;
+        }
+        if (objectPreviewInFlightByObjectRef.current.has(objectId)) {
+          return;
+        }
         const queuedPatch = objectPreviewQueuedPatchRef.current.get(objectId);
-        if (!queuedPatch || !sessionId || !canSelect) return;
+        if (!queuedPatch) return;
         objectPreviewQueuedPatchRef.current.delete(objectId);
+        const nextPreviewVersion = (objectPreviewVersionRef.current.get(objectId) ?? 0) + 1;
+        objectPreviewVersionRef.current.set(objectId, nextPreviewVersion);
+        objectPreviewInFlightByObjectRef.current.set(objectId, nextPreviewVersion);
         void appendWorkbookPreview({
           sessionId,
           objectId,
           patch: queuedPatch as Partial<Record<string, unknown>>,
-        }).catch(() => {
-          // ignore preview delivery errors: final committed patch will reconcile state
-        });
-        if (objectPreviewQueuedPatchRef.current.has(objectId)) {
-          flushPreviewObjectUpdate(objectId);
-        }
+          previewVersion: nextPreviewVersion,
+        })
+          .catch(() => {
+            // ignore preview delivery errors: authoritative object.update will reconcile state
+          })
+          .finally(() => {
+            const inFlightVersion = objectPreviewInFlightByObjectRef.current.get(objectId);
+            if (inFlightVersion === nextPreviewVersion) {
+              objectPreviewInFlightByObjectRef.current.delete(objectId);
+            }
+            if (objectPreviewQueuedPatchRef.current.has(objectId)) {
+              flushPreviewObjectUpdate(objectId);
+            }
+          });
       }, OBJECT_PREVIEW_FLUSH_INTERVAL_MS);
       objectPreviewTimersRef.current.set(objectId, timerId);
     },
@@ -4598,6 +4678,13 @@ export default function WorkbookSessionPage() {
     objectUpdateQueuedPatchRef.current.delete(objectId);
     objectUpdateDispatchOptionsRef.current.delete(objectId);
     objectPreviewQueuedPatchRef.current.delete(objectId);
+    objectPreviewInFlightByObjectRef.current.delete(objectId);
+    objectPreviewVersionRef.current.delete(objectId);
+    Array.from(incomingPreviewVersionByAuthorObjectRef.current.keys()).forEach((key) => {
+      if (key.endsWith(`:${objectId}`)) {
+        incomingPreviewVersionByAuthorObjectRef.current.delete(key);
+      }
+    });
     const pendingTimer = objectUpdateTimersRef.current.get(objectId);
     if (pendingTimer !== undefined) {
       window.clearTimeout(pendingTimer);
