@@ -1871,6 +1871,7 @@ export default function WorkbookSessionPage() {
     const unseen: WorkbookEvent[] = [];
     events.forEach((event) => {
       if (
+        event.type !== "board.object.preview" &&
         typeof event?.seq === "number" &&
         Number.isFinite(event.seq) &&
         event.seq <= latestSeqRef.current
