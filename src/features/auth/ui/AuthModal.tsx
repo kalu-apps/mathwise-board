@@ -69,9 +69,20 @@ export function AuthModal({ open, onClose, initialEmail = "" }: AuthModalProps) 
       onClose={handleDialogClose}
       disableEscapeKeyDown
       maxWidth={false}
+      BackdropProps={{
+        sx: {
+          pointerEvents: "none",
+        },
+      }}
+      sx={{
+        pointerEvents: "none",
+        "& .MuiDialog-paper": {
+          pointerEvents: "auto",
+        },
+      }}
       PaperProps={{
         sx: {
-          width: "min(92vw, 220px)",
+          width: "min(92vw, 320px)",
         },
       }}
       TransitionProps={{ onEnter: resetForm }}

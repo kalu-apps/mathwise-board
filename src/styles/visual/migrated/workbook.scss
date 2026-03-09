@@ -364,7 +364,7 @@
 .workbook-session__contextbar {
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   width: 100%;
   box-sizing: border-box;
@@ -378,6 +378,18 @@
   position: sticky;
   top: 8px;
   z-index: 8;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.workbook-session__contextbar::-webkit-scrollbar {
+  display: none;
+}
+
+.workbook-session__contextbar > * {
+  flex: 0 0 auto;
 }
 
 .workbook-session__contextbar-inline {
@@ -3107,25 +3119,32 @@
     top: auto;
     flex-direction: row;
     align-items: stretch;
-    flex-wrap: wrap;
-    overflow: visible;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
     gap: 6px;
     padding: 6px;
     border-radius: 14px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .workbook-session__contextbar::-webkit-scrollbar {
+    display: none;
   }
 
   .workbook-session__contextbar-inline {
-    width: auto;
+    width: max-content;
     min-width: 0;
-    max-width: 100%;
-    flex: 1 1 auto;
-    flex-wrap: wrap;
+    max-width: none;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
   }
 
   .workbook-session__contextbar-inline--column {
-    min-width: 0;
-    width: 100%;
-    flex: 1 1 100%;
+    min-width: 320px;
+    width: max-content;
+    flex: 0 0 auto;
   }
 
   .workbook-session__docs-window {
@@ -3392,13 +3411,13 @@
 
   .workbook-session__contextbar-inline {
     min-width: 0;
-    width: 100%;
-    flex: 1 1 100%;
+    width: max-content;
+    flex: 0 0 auto;
   }
 
   .workbook-session__contextbar-inline--column {
-    min-width: 0;
-    width: 100%;
+    min-width: 280px;
+    width: max-content;
   }
 
   .workbook-session__graph-builder-item {

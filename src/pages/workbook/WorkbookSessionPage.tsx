@@ -183,10 +183,10 @@ import { ApiError } from "@/shared/api/client";
 
 const POLL_INTERVAL_MS = 80;
 const POLL_INTERVAL_STREAM_CONNECTED_MS = 120;
-const PRESENCE_INTERVAL_MS = 3_000;
+const PRESENCE_INTERVAL_MS = 1_500;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
-const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 16;
+const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 40;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
@@ -6633,6 +6633,19 @@ export default function WorkbookSessionPage() {
     }
   }, [sessionId]);
 
+  const handleMenuClearBoard = useCallback(async () => {
+    if (!canClear || isEnded) return;
+    setMenuAnchor(null);
+    const confirmed = window.confirm("Очистить доску целиком?");
+    if (!confirmed) return;
+    try {
+      await clearLayerNow("board");
+      setError(null);
+    } catch {
+      setError("Не удалось очистить доску.");
+    }
+  }, [canClear, clearLayerNow, isEnded]);
+
   const updateParticipantPermissions = useCallback(
     async (
       targetUserId: string,
@@ -8345,11 +8358,9 @@ export default function WorkbookSessionPage() {
                 size="small"
                 label={session.kind === "CLASS" ? "Коллективная сессия" : "Личная тетрадь"}
               />
-              <Chip
-                size="small"
-                label={session.status === "ended" ? "Завершено" : "В процессе"}
-                color={session.status === "ended" ? "default" : "primary"}
-              />
+              {session.status === "ended" ? (
+                <Chip size="small" label="Завершено" color="default" />
+              ) : null}
             </div>
           </div>
         </div>
@@ -8436,6 +8447,14 @@ export default function WorkbookSessionPage() {
                 disabled={exportingSections}
               >
                 Экспорт PDF
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  void handleMenuClearBoard();
+                }}
+                disabled={!canClear || isEnded}
+              >
+                Очистить доску
               </MenuItem>
             </Menu>
 

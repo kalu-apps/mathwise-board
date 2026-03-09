@@ -1,4 +1,9 @@
 .auth-modal {
+  .MuiDialog-paper {
+    width: min(92vw, 320px) !important;
+    max-width: min(92vw, 320px) !important;
+  }
+
   .MuiPaper-root {
     border-radius: 22px;
     padding-top: 8px;
@@ -190,8 +195,8 @@
   .auth-modal {
     .MuiPaper-root {
       margin: 0 !important;
-      width: 100% !important;
-      max-width: var(--dialog-mobile-width) !important;
+      width: min(94vw, 300px) !important;
+      max-width: min(94vw, 300px) !important;
       border-radius: 18px;
       box-sizing: border-box;
     }
