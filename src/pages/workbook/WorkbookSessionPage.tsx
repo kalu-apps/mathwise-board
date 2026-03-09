@@ -33,6 +33,7 @@ import {
   Switch,
   Tooltip,
   TextField,
+  useMediaQuery,
 } from "@mui/material";
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
@@ -180,8 +181,8 @@ import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
-const POLL_INTERVAL_MS = 320;
-const POLL_INTERVAL_STREAM_CONNECTED_MS = 1_200;
+const POLL_INTERVAL_MS = 220;
+const POLL_INTERVAL_STREAM_CONNECTED_MS = 400;
 const PRESENCE_INTERVAL_MS = 1_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
@@ -411,6 +412,27 @@ const resolveNextLatestSeq = (
     return Math.max(0, responseLatestSeq);
   }
   return Math.max(0, ...events.map((event) => event.seq));
+};
+
+const hasWorkbookEventGap = (currentLatestSeq: number, events: WorkbookEvent[]) => {
+  const sequenced = events
+    .filter(
+      (event) =>
+        event.type !== "board.object.preview" &&
+        typeof event.seq === "number" &&
+        Number.isFinite(event.seq)
+    )
+    .map((event) => Math.trunc(event.seq))
+    .sort((left, right) => left - right)
+    .filter((seq, index, source) => index === 0 || source[index - 1] !== seq);
+  if (sequenced.length === 0) return false;
+  let expected = Math.max(0, Math.trunc(currentLatestSeq)) + 1;
+  for (const seq of sequenced) {
+    if (seq < expected) continue;
+    if (seq > expected) return true;
+    expected = seq + 1;
+  }
+  return false;
 };
 
 const DEFAULT_SETTINGS: WorkbookSessionSettings = {
@@ -1572,6 +1594,7 @@ export default function WorkbookSessionPage() {
   const [isSessionChatEmojiOpen, setIsSessionChatEmojiOpen] = useState(false);
   const [sessionChatPosition, setSessionChatPosition] = useState({ x: 24, y: 96 });
   const [sessionChatReadAt, setSessionChatReadAt] = useState<string | null>(null);
+  const [isClearSessionChatDialogOpen, setIsClearSessionChatDialogOpen] = useState(false);
   const [areaSelection, setAreaSelection] = useState<{
     objectIds: string[];
     rect: { x: number; y: number; width: number; height: number };
@@ -1628,6 +1651,7 @@ export default function WorkbookSessionPage() {
     offsetY: number;
   } | null>(null);
   const presenceLeaveSentRef = useRef(false);
+  const sessionResyncInFlightRef = useRef(false);
   const boardObjectsRef = useRef<WorkbookBoardObject[]>([]);
   const objectUpdateQueuedPatchRef = useRef<
     Map<string, Partial<WorkbookBoardObject>>
@@ -1666,6 +1690,7 @@ export default function WorkbookSessionPage() {
   const canSendSessionChat = canUseSessionChat && !isEnded;
   const isClassSession = session?.kind === "CLASS";
   const showCollaborationPanels = Boolean(isClassSession);
+  const isCompactDialogViewport = useMediaQuery("(max-width: 640px)");
   const showSidebarParticipants = showCollaborationPanels && !isParticipantsCollapsed;
   const focusPoints = useMemo(
     () => Object.values(focusPointsByUser),
@@ -1744,12 +1769,22 @@ export default function WorkbookSessionPage() {
   );
   const unreadSessionChatMessages = useMemo(() => {
     if (!user?.id) return [];
-    const readTimestamp = parseChatTimestamp(sessionChatReadAt);
-    return chatMessages.filter(
-      (message) =>
-        message.authorUserId !== user.id &&
-        parseChatTimestamp(message.createdAt) > readTimestamp
-    );
+    let readIndex = sessionChatReadAt
+      ? chatMessages.findIndex((message) => message.id === sessionChatReadAt)
+      : -1;
+    if (readIndex < 0 && sessionChatReadAt) {
+      const readTimestamp = parseChatTimestamp(sessionChatReadAt);
+      if (readTimestamp > 0) {
+        chatMessages.forEach((message, index) => {
+          if (parseChatTimestamp(message.createdAt) <= readTimestamp) {
+            readIndex = index;
+          }
+        });
+      }
+    }
+    return chatMessages
+      .slice(readIndex + 1)
+      .filter((message) => message.authorUserId !== user.id);
   }, [chatMessages, sessionChatReadAt, user?.id]);
   const sessionChatUnreadCount = unreadSessionChatMessages.length;
   const firstUnreadSessionChatMessageId = unreadSessionChatMessages[0]?.id ?? null;
@@ -1795,13 +1830,13 @@ export default function WorkbookSessionPage() {
   const markSessionChatReadToLatest = useCallback(() => {
     const latestMessage = chatMessages[chatMessages.length - 1];
     if (!latestMessage) return;
-    const latestTimestamp = latestMessage.createdAt;
+    const latestMessageId = latestMessage.id;
     setSessionChatReadAt((current) => {
-      if (parseChatTimestamp(current) >= parseChatTimestamp(latestTimestamp)) {
+      if (current === latestMessageId) {
         return current;
       }
-      persistSessionChatReadAt(latestTimestamp);
-      return latestTimestamp;
+      persistSessionChatReadAt(latestMessageId);
+      return latestMessageId;
     });
   }, [chatMessages, persistSessionChatReadAt]);
 
@@ -1835,6 +1870,13 @@ export default function WorkbookSessionPage() {
   const filterUnseenWorkbookEvents = useCallback((events: WorkbookEvent[]) => {
     const unseen: WorkbookEvent[] = [];
     events.forEach((event) => {
+      if (
+        typeof event?.seq === "number" &&
+        Number.isFinite(event.seq) &&
+        event.seq <= latestSeqRef.current
+      ) {
+        return;
+      }
       if (!event?.id || processedEventIdsRef.current.has(event.id)) return;
       processedEventIdsRef.current.add(event.id);
       unseen.push(event);
@@ -2434,8 +2476,8 @@ export default function WorkbookSessionPage() {
             typeof patch.text === "string";
           let safePatch = patch;
           if (shouldKeepLocalTextDraft) {
-            const { text: _text, ...rest } = patch;
-            safePatch = rest;
+            safePatch = { ...patch };
+            delete safePatch.text;
             if (Object.keys(safePatch).length === 0) return;
           }
           incomingPreviewQueuedPatchRef.current.delete(objectId);
@@ -2582,14 +2624,27 @@ export default function WorkbookSessionPage() {
               : "flash";
           const authorKey = event.authorUserId || "unknown";
           if (mode === "clear") {
-            setPointerPoint(null);
-            setFocusPoint(null);
-            setPointerPointsByUser({});
-            setFocusPointsByUser({});
-            focusResetTimersByUserRef.current.forEach((timerId) => {
-              window.clearTimeout(timerId);
+            if (event.authorUserId === user?.id) {
+              setPointerPoint(null);
+              setFocusPoint(null);
+            }
+            setPointerPointsByUser((current) => {
+              if (!(authorKey in current)) return current;
+              const next = { ...current };
+              delete next[authorKey];
+              return next;
             });
-            focusResetTimersByUserRef.current.clear();
+            setFocusPointsByUser((current) => {
+              if (!(authorKey in current)) return current;
+              const next = { ...current };
+              delete next[authorKey];
+              return next;
+            });
+            const existingTimer = focusResetTimersByUserRef.current.get(authorKey);
+            if (existingTimer !== undefined) {
+              window.clearTimeout(existingTimer);
+              focusResetTimersByUserRef.current.delete(authorKey);
+            }
             return;
           }
           const point = payload.point as Partial<WorkbookPoint> | undefined;
@@ -3087,6 +3142,14 @@ export default function WorkbookSessionPage() {
     setLoading(false);
   }, [clearObjectSyncRuntime, openAuthModal, recoverChatMessagesFromEvents, sessionId]);
 
+  const triggerSessionResync = useCallback(() => {
+    if (sessionResyncInFlightRef.current) return;
+    sessionResyncInFlightRef.current = true;
+    void loadSession().finally(() => {
+      sessionResyncInFlightRef.current = false;
+    });
+  }, [loadSession]);
+
   useEffect(() => {
     void loadSession();
   }, [loadSession]);
@@ -3099,6 +3162,10 @@ export default function WorkbookSessionPage() {
         const response = await getWorkbookEvents(sessionId, latestSeqRef.current);
         if (!active) return;
         const unseenEvents = filterUnseenWorkbookEvents(response.events);
+        if (hasWorkbookEventGap(latestSeqRef.current, unseenEvents)) {
+          triggerSessionResync();
+          return;
+        }
         if (unseenEvents.length > 0) {
           applyIncomingEvents(unseenEvents);
         }
@@ -3132,6 +3199,7 @@ export default function WorkbookSessionPage() {
     isWorkbookStreamConnected,
     session,
     sessionId,
+    triggerSessionResync,
   ]);
 
   useEffect(() => {
@@ -3141,6 +3209,10 @@ export default function WorkbookSessionPage() {
       onEvents: (payload) => {
         if (payload.sessionId !== sessionId) return;
         const unseenEvents = filterUnseenWorkbookEvents(payload.events);
+        if (hasWorkbookEventGap(latestSeqRef.current, unseenEvents)) {
+          triggerSessionResync();
+          return;
+        }
         if (unseenEvents.length > 0) {
           applyIncomingEvents(unseenEvents);
         }
@@ -3160,7 +3232,7 @@ export default function WorkbookSessionPage() {
       setIsWorkbookStreamConnected(false);
       unsubscribe();
     };
-  }, [applyIncomingEvents, filterUnseenWorkbookEvents, session, sessionId]);
+  }, [applyIncomingEvents, filterUnseenWorkbookEvents, session, sessionId, triggerSessionResync]);
 
   useEffect(() => {
     const normalized = normalizeSmartInkOptions(smartInkOptions);
@@ -6370,14 +6442,26 @@ export default function WorkbookSessionPage() {
     if (!canUseLaser) return;
     if (laserClearInFlightRef.current) return;
     laserClearInFlightRef.current = true;
+    const actorKey = user?.id ?? "unknown";
     setPointerPoint(null);
     setFocusPoint(null);
-    setPointerPointsByUser({});
-    setFocusPointsByUser({});
-    focusResetTimersByUserRef.current.forEach((timerId) => {
-      window.clearTimeout(timerId);
+    setPointerPointsByUser((current) => {
+      if (!(actorKey in current)) return current;
+      const next = { ...current };
+      delete next[actorKey];
+      return next;
     });
-    focusResetTimersByUserRef.current.clear();
+    setFocusPointsByUser((current) => {
+      if (!(actorKey in current)) return current;
+      const next = { ...current };
+      delete next[actorKey];
+      return next;
+    });
+    const timerId = focusResetTimersByUserRef.current.get(actorKey);
+    if (timerId !== undefined) {
+      window.clearTimeout(timerId);
+      focusResetTimersByUserRef.current.delete(actorKey);
+    }
     try {
       await appendEventsAndApply([
         {
@@ -6396,7 +6480,7 @@ export default function WorkbookSessionPage() {
     } finally {
       laserClearInFlightRef.current = false;
     }
-  }, [appendEventsAndApply, canUseLaser]);
+  }, [appendEventsAndApply, canUseLaser, user?.id]);
 
   useEffect(() => {
     if (tool === "laser" || !pointerPoint) return;
@@ -6833,26 +6917,6 @@ export default function WorkbookSessionPage() {
     user?.id,
     user?.lastName,
   ]);
-
-  const handleDeleteSessionChatMessage = useCallback(
-    async (messageId: string) => {
-      if (!canManageSession || !messageId) return;
-      const previous = chatMessages;
-      setChatMessages((current) => current.filter((item) => item.id !== messageId));
-      try {
-        await appendEventsAndApply([
-          {
-            type: "chat.message.delete",
-            payload: { messageId },
-          },
-        ]);
-      } catch {
-        setChatMessages(previous);
-        setError("Не удалось удалить сообщение.");
-      }
-    },
-    [appendEventsAndApply, canManageSession, chatMessages]
-  );
 
   const handleClearSessionChat = useCallback(async () => {
     if (!canManageSession || chatMessages.length === 0) return;
@@ -8752,14 +8816,6 @@ export default function WorkbookSessionPage() {
                 >
                   Открыть модуль
                 </Button>
-              </div>
-            ) : null}
-
-            {tool === "text" ? (
-              <div className="workbook-session__contextbar-inline">
-                <span className="workbook-session__hint">
-                  Добавьте текстовый блок на доску и введите текст напрямую в него.
-                </span>
               </div>
             ) : null}
 
@@ -11546,10 +11602,7 @@ export default function WorkbookSessionPage() {
                         <Tooltip title="Очистить чат" arrow>
                           <IconButton
                             size="small"
-                            onClick={() => {
-                              if (!window.confirm("Очистить чат для всех участников?")) return;
-                              void handleClearSessionChat();
-                            }}
+                            onClick={() => setIsClearSessionChatDialogOpen(true)}
                             aria-label="Очистить чат"
                           >
                             <DeleteSweepRoundedIcon fontSize="small" />
@@ -11592,16 +11645,6 @@ export default function WorkbookSessionPage() {
                             }`}
                           >
                             <strong>{message.authorName}</strong>
-                            {canManageSession ? (
-                              <button
-                                type="button"
-                                className="workbook-session__chat-message-delete"
-                                aria-label="Удалить сообщение"
-                                onClick={() => void handleDeleteSessionChatMessage(message.id)}
-                              >
-                                <DeleteOutlineRoundedIcon fontSize="inherit" />
-                              </button>
-                            ) : null}
                             <p>{message.text}</p>
                             <time>
                               {new Date(message.createdAt).toLocaleTimeString("ru-RU", {
@@ -11673,6 +11716,38 @@ export default function WorkbookSessionPage() {
               ) : null}
             </div>
           ) : null}
+
+          <Dialog
+            container={overlayContainer}
+            open={isClearSessionChatDialogOpen}
+            onClose={() => setIsClearSessionChatDialogOpen(false)}
+            fullWidth
+            maxWidth="xs"
+            fullScreen={isCompactDialogViewport}
+            className="workbook-session__confirm-dialog"
+          >
+            <DialogTitle>Очистить чат?</DialogTitle>
+            <DialogContent>
+              <p className="workbook-session__hint">
+                Это действие удалит сообщения чата для всех участников текущей сессии.
+              </p>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setIsClearSessionChatDialogOpen(false)}>
+                Отмена
+              </Button>
+              <Button
+                color="error"
+                variant="contained"
+                onClick={() => {
+                  setIsClearSessionChatDialogOpen(false);
+                  void handleClearSessionChat();
+                }}
+              >
+                Очистить
+              </Button>
+            </DialogActions>
+          </Dialog>
 
           <Menu
             container={overlayContainer}
