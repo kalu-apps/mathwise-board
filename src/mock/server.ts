@@ -33,6 +33,7 @@ const WHITEBOARD_TEACHER_PASSWORD =
 
 const AUTH_COOKIE_NAME = "math_tutor_session";
 const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const AUTH_LAST_SEEN_TOUCH_INTERVAL_MS = 30_000;
 const ONLINE_TIMEOUT_MS = 20_000;
 const INVITE_TTL_MS = 2 * 60 * 60 * 1000;
 const WORKBOOK_EVENT_LIMIT = 1_200;
@@ -333,8 +334,12 @@ const resolveAuthUser = (req: IncomingMessage, db: MockDb): UserRecord | null =>
   if (!session) return null;
   const user = db.users.find((item) => item.id === session.userId) ?? null;
   if (!user) return null;
-  session.lastSeenAt = nowIso();
-  saveDb();
+  const currentTs = nowTs();
+  const lastSeenTs = new Date(session.lastSeenAt).getTime();
+  if (!Number.isFinite(lastSeenTs) || currentTs - lastSeenTs >= AUTH_LAST_SEEN_TOUCH_INTERVAL_MS) {
+    session.lastSeenAt = new Date(currentTs).toISOString();
+    saveDb();
+  }
   return user;
 };
 
@@ -357,18 +362,18 @@ const defaultPermissions = (role: "teacher" | "student"): WorkbookParticipantPer
   }
 
   return {
-    canDraw: true,
-    canAnnotate: true,
-    canUseMedia: true,
-    canUseChat: true,
+    canDraw: false,
+    canAnnotate: false,
+    canUseMedia: false,
+    canUseChat: false,
     canInvite: false,
     canManageSession: false,
-    canSelect: true,
-    canDelete: true,
-    canInsertImage: true,
+    canSelect: false,
+    canDelete: false,
+    canInsertImage: false,
     canClear: false,
     canExport: false,
-    canUseLaser: true,
+    canUseLaser: false,
   };
 };
 
@@ -431,6 +436,82 @@ const sanitizePermissionPatch = (value: unknown): Partial<WorkbookParticipantPer
     acc[key] = source[key] as boolean;
     return acc;
   }, {});
+};
+
+const DRAW_EVENT_TYPES = new Set<string>(["board.stroke", "board.object.create"]);
+const ANNOTATE_EVENT_TYPES = new Set<string>(["annotations.stroke"]);
+const SELECT_EVENT_TYPES = new Set<string>([
+  "board.object.update",
+  "board.object.preview",
+  "board.object.pin",
+  "board.undo",
+  "board.redo",
+]);
+const DELETE_EVENT_TYPES = new Set<string>([
+  "board.object.delete",
+  "board.stroke.delete",
+  "annotations.stroke.delete",
+  "document.annotation.clear",
+]);
+const CLEAR_EVENT_TYPES = new Set<string>([
+  "board.clear",
+  "board.clear.request",
+  "board.clear.confirm",
+  "annotations.clear",
+]);
+const INSERT_EVENT_TYPES = new Set<string>([
+  "document.asset.add",
+  "document.pdf",
+  "library.item.upsert",
+  "library.item.remove",
+  "library.folder.upsert",
+  "library.folder.remove",
+  "library.template.upsert",
+  "library.template.remove",
+]);
+
+const resolveEventPermissionError = (
+  eventType: string,
+  permissions: WorkbookParticipantPermissions,
+  sessionKind: WorkbookSessionKind
+) => {
+  if (eventType === "permissions.update") {
+    return permissions.canManageSession ? null : "permissions_manage_disabled";
+  }
+  if (eventType === "media.signal") {
+    return permissions.canUseMedia ? null : "media_disabled";
+  }
+  if (eventType === "chat.message") {
+    return permissions.canUseChat ? null : "chat_disabled";
+  }
+  if (eventType === "focus.point") {
+    return permissions.canUseLaser ? null : "laser_disabled";
+  }
+  if (eventType === "timer.update") {
+    return permissions.canManageSession ? null : "timer_manage_disabled";
+  }
+  if (eventType === "board.settings.update" && sessionKind === "CLASS") {
+    return permissions.canManageSession ? null : "settings_manage_disabled";
+  }
+  if (DRAW_EVENT_TYPES.has(eventType)) {
+    return permissions.canDraw ? null : "draw_disabled";
+  }
+  if (ANNOTATE_EVENT_TYPES.has(eventType)) {
+    return permissions.canAnnotate ? null : "annotate_disabled";
+  }
+  if (SELECT_EVENT_TYPES.has(eventType)) {
+    return permissions.canSelect ? null : "select_disabled";
+  }
+  if (DELETE_EVENT_TYPES.has(eventType)) {
+    return permissions.canDelete ? null : "delete_disabled";
+  }
+  if (CLEAR_EVENT_TYPES.has(eventType)) {
+    return permissions.canClear ? null : "clear_disabled";
+  }
+  if (INSERT_EVENT_TYPES.has(eventType)) {
+    return permissions.canInsertImage ? null : "insert_disabled";
+  }
+  return null;
 };
 
 type WorkbookMediaIceServerPayload = {
@@ -570,13 +651,13 @@ const defaultSettings = (): WorkbookSettings => ({
     smartMathOcr: true,
   },
   studentControls: {
-    canDraw: true,
-    canSelect: true,
-    canDelete: true,
-    canInsertImage: true,
-    canClear: true,
+    canDraw: false,
+    canSelect: false,
+    canDelete: false,
+    canInsertImage: false,
+    canClear: false,
     canExport: false,
-    canUseLaser: true,
+    canUseLaser: false,
   },
 });
 
@@ -1793,12 +1874,13 @@ export function setupMockServer(host: MiddlewareHost) {
         }
 
         for (const event of events) {
-          if (event.type === "media.signal" && !participant.permissions.canUseMedia) {
-            forbidden(res, "media_disabled");
-            return;
-          }
-          if (event.type === "chat.message" && !participant.permissions.canUseChat) {
-            forbidden(res, "chat_disabled");
+          const permissionError = resolveEventPermissionError(
+            event.type,
+            participant.permissions,
+            session.kind
+          );
+          if (permissionError) {
+            forbidden(res, permissionError);
             return;
           }
           if (event.type !== "permissions.update") continue;

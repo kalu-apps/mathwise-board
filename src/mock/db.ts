@@ -120,7 +120,7 @@ export type MockDb = {
 };
 
 const DB_FILE = path.resolve(process.cwd(), "mock-db.json");
-const PERSIST_DEBOUNCE_MS = 120;
+const PERSIST_DEBOUNCE_MS = 1_000;
 const STATE_ROW_KEY = "mock_db_v1";
 const DATABASE_URL = String(process.env.DATABASE_URL ?? "").trim();
 
@@ -294,7 +294,7 @@ const persistNow = () => {
     return;
   }
   persistInFlight = true;
-  const payload = JSON.stringify(db, null, 2);
+  const payload = JSON.stringify(db);
   const attempt = async () => {
     if (storageDriver === "postgres") {
       await writeDbToPostgres(payload);
