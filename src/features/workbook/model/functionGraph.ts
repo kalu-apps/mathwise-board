@@ -1,4 +1,3 @@
-import { compile, type EvalFunction } from "mathjs";
 import type { WorkbookPoint } from "./types";
 
 export type GraphFunctionDraft = {
@@ -29,7 +28,7 @@ type GraphViewport = {
   height: number;
 };
 
-type CompiledGraphExpression = EvalFunction;
+type CompiledGraphExpression = (x: number) => number | null;
 
 export type FunctionGraphPlot = {
   id: string;
@@ -49,6 +48,21 @@ const MAX_GRID_STEP = 64;
 const MIN_GRAPH_SCALE_ABS = 0.1;
 const MAX_GRAPH_SCALE_ABS = 12;
 const MAX_COMPILED_CACHE_SIZE = 240;
+const MAX_EXPRESSION_LENGTH = 180;
+const SAFE_EXPRESSION_PATTERN = /^[0-9a-z+\-*/^().,_]+$/i;
+const ALLOWED_EXPRESSION_IDENTIFIERS = new Set([
+  "x",
+  "pi",
+  "e",
+  "abs",
+  "sqrt",
+  "sin",
+  "cos",
+  "tan",
+  "cot",
+  "log",
+  "log10",
+]);
 
 export const GRAPH_FUNCTION_COLORS = [
   "#4f63ff",
@@ -160,41 +174,113 @@ const ensureCompiledCacheSize = () => {
   }
 };
 
-const getCompiledExpression = (expression: string): CompiledGraphExpression | null => {
-  const cached = compiledExpressionCache.get(expression);
-  if (cached) return cached;
+const hasBalancedParentheses = (expression: string): boolean => {
+  let depth = 0;
+  for (let index = 0; index < expression.length; index += 1) {
+    const char = expression[index];
+    if (char === "(") depth += 1;
+    if (char === ")") {
+      depth -= 1;
+      if (depth < 0) return false;
+    }
+  }
+  return depth === 0;
+};
+
+const compileGraphExpression = (expression: string): CompiledGraphExpression | null => {
+  if (!expression || expression.length > MAX_EXPRESSION_LENGTH) {
+    return null;
+  }
+  if (!SAFE_EXPRESSION_PATTERN.test(expression)) {
+    return null;
+  }
+  if (!hasBalancedParentheses(expression)) {
+    return null;
+  }
+  const identifierMatches = expression.match(/[a-z_]+/gi) ?? [];
+  for (const token of identifierMatches) {
+    const normalized = token.toLowerCase();
+    if (!ALLOWED_EXPRESSION_IDENTIFIERS.has(normalized)) {
+      return null;
+    }
+  }
+  const jsExpression = expression.replace(/\^/g, "**");
   try {
-    const compiled = compile(expression);
-    compiledExpressionCache.set(expression, compiled);
-    ensureCompiledCacheSize();
-    return compiled;
+    const evaluator = new Function(
+      "x",
+      "pi",
+      "e",
+      "abs",
+      "sqrt",
+      "sin",
+      "cos",
+      "tan",
+      "cot",
+      "log",
+      "log10",
+      `"use strict"; return (${jsExpression});`
+    ) as (
+      x: number,
+      pi: number,
+      e: number,
+      abs: (value: number) => number,
+      sqrt: (value: number) => number,
+      sin: (value: number) => number,
+      cos: (value: number) => number,
+      tan: (value: number) => number,
+      cot: (value: number) => number,
+      log: (value: number) => number,
+      log10: (value: number) => number
+    ) => unknown;
+
+    return (x: number): number | null => {
+      try {
+        const value = evaluator(
+          x,
+          Math.PI,
+          Math.E,
+          Math.abs,
+          Math.sqrt,
+          Math.sin,
+          Math.cos,
+          Math.tan,
+          (arg) => 1 / Math.tan(arg),
+          Math.log,
+          Math.log10
+        );
+        if (typeof value === "number" && Number.isFinite(value)) {
+          return value;
+        }
+        if (typeof value === "string" && value.trim()) {
+          const casted = Number(value);
+          return Number.isFinite(casted) ? casted : null;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    };
   } catch {
     return null;
   }
 };
 
+const getCompiledExpression = (expression: string): CompiledGraphExpression | null => {
+  const cached = compiledExpressionCache.get(expression);
+  if (cached) return cached;
+  const compiled = compileGraphExpression(expression);
+  if (!compiled) {
+    return null;
+  }
+  compiledExpressionCache.set(expression, compiled);
+  ensureCompiledCacheSize();
+  return compiled;
+};
+
 const evaluateCompiledExpression = (
   compiled: CompiledGraphExpression,
   x: number
-): number | null => {
-  try {
-    const value = compiled.evaluate({ x });
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === "bigint") {
-      const casted = Number(value);
-      return Number.isFinite(casted) ? casted : null;
-    }
-    if (typeof value === "string" && value.trim()) {
-      const casted = Number(value);
-      return Number.isFinite(casted) ? casted : null;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-};
+): number | null => compiled(x);
 
 export const normalizeFunctionExpression = (value: string): string => {
   let expression = value.trim();
@@ -216,6 +302,7 @@ export const normalizeFunctionExpression = (value: string): string => {
   expression = expression.replace(/\blg\(/gi, "log10(");
   expression = expression.replace(/x\(/gi, "x*(");
   expression = expression.replace(/\)(x|\d)/gi, ")*$1");
+  expression = expression.toLowerCase();
   return expression;
 };
 
