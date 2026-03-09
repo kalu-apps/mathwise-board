@@ -153,12 +153,6 @@ const workbookRealtimeUnsubscribeBySession = new Map<
   string,
   () => Promise<void>
 >();
-const WORKBOOK_PREVIEW_EVENT_BUFFER_TTL_MS = 20_000;
-const WORKBOOK_PREVIEW_EVENT_BUFFER_LIMIT = 6_000;
-const workbookPreviewEventBufferBySession = new Map<
-  string,
-  Array<PersistedWorkbookEvent & { createdTs: number }>
->();
 const WORKBOOK_REALTIME_NODE_ID =
   typeof crypto.randomUUID === "function"
     ? crypto.randomUUID()
@@ -176,62 +170,6 @@ let workbookPersistInFlight = false;
 
 const nowIso = () => new Date().toISOString();
 const nowTs = () => Date.now();
-
-const appendPreviewEventsToBuffer = (
-  sessionId: string,
-  events: PersistedWorkbookEvent[]
-) => {
-  if (events.length === 0) return;
-  const now = nowTs();
-  const minCreatedTs = now - WORKBOOK_PREVIEW_EVENT_BUFFER_TTL_MS;
-  const existing = workbookPreviewEventBufferBySession.get(sessionId) ?? [];
-  const incoming = events.map((event) => ({
-    ...event,
-    createdTs: Date.parse(event.createdAt) || now,
-  }));
-  const merged = [...existing, ...incoming]
-    .filter((event) => event.createdTs >= minCreatedTs)
-    .sort((left, right) => left.seq - right.seq);
-  const deduped: Array<PersistedWorkbookEvent & { createdTs: number }> = [];
-  const seen = new Set<string>();
-  for (let index = merged.length - 1; index >= 0; index -= 1) {
-    const current = merged[index];
-    if (!current.id || seen.has(current.id)) continue;
-    seen.add(current.id);
-    deduped.push(current);
-  }
-  deduped.reverse();
-  const trimmed =
-    deduped.length > WORKBOOK_PREVIEW_EVENT_BUFFER_LIMIT
-      ? deduped.slice(-WORKBOOK_PREVIEW_EVENT_BUFFER_LIMIT)
-      : deduped;
-  workbookPreviewEventBufferBySession.set(sessionId, trimmed);
-};
-
-const readPreviewEventsFromBuffer = (
-  sessionId: string,
-  afterSeq: number,
-  limit: number
-) => {
-  const events = workbookPreviewEventBufferBySession.get(sessionId);
-  if (!events || events.length === 0) return [] as PersistedWorkbookEvent[];
-  const now = nowTs();
-  const minCreatedTs = now - WORKBOOK_PREVIEW_EVENT_BUFFER_TTL_MS;
-  const liveEvents = events.filter((event) => event.createdTs >= minCreatedTs);
-  if (liveEvents.length !== events.length) {
-    workbookPreviewEventBufferBySession.set(sessionId, liveEvents);
-  }
-  const filtered = liveEvents.filter((event) => event.seq > afterSeq);
-  if (filtered.length === 0) return [] as PersistedWorkbookEvent[];
-  const normalizedLimit = Number.isFinite(limit)
-    ? Math.max(1, Math.floor(limit))
-    : WORKBOOK_EVENT_LIMIT;
-  return filtered.slice(-normalizedLimit).map((event) => {
-    const { createdTs, ...persistedEvent } = event;
-    void createdTs;
-    return persistedEvent;
-  });
-};
 
 const ensureId = () =>
   typeof crypto.randomUUID === "function"
@@ -2044,25 +1982,15 @@ export function setupMockServer(host: MiddlewareHost) {
           afterSeq: Number.isFinite(afterSeq) ? afterSeq : 0,
           limit: WORKBOOK_EVENT_LIMIT,
         });
-        const previewEvents = readPreviewEventsFromBuffer(
-          sessionId,
-          Number.isFinite(afterSeq) ? afterSeq : 0,
-          WORKBOOK_EVENT_LIMIT
-        );
-        const mergedEvents = [...response.events, ...previewEvents]
-          .sort((left, right) => left.seq - right.seq)
-          .slice(-WORKBOOK_EVENT_LIMIT);
         const runtimeLatestSeq = await getWorkbookRuntimeSequence(sessionId);
-        const previewLatestSeq =
-          previewEvents.length > 0 ? previewEvents[previewEvents.length - 1].seq : 0;
         const latestSeq =
           runtimeLatestSeq === null
-            ? Math.max(response.latestSeq, previewLatestSeq)
-            : Math.max(response.latestSeq, previewLatestSeq, runtimeLatestSeq);
+            ? response.latestSeq
+            : Math.max(response.latestSeq, runtimeLatestSeq);
         json(res, 200, {
           sessionId,
           latestSeq,
-          events: mergedEvents,
+          events: response.events,
         });
         return;
       }
@@ -2194,7 +2122,6 @@ export function setupMockServer(host: MiddlewareHost) {
           ],
           persist: false,
         });
-        appendPreviewEventsToBuffer(sessionId, appendResult.events);
 
         publishWorkbookStreamEvents(db, {
           sessionId,

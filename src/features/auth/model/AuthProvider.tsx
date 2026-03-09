@@ -4,6 +4,7 @@ import { AuthContext } from "./AuthContext";
 import type { User } from "@/entities/user/model/types";
 import { readStorage, removeStorage, writeStorage } from "@/shared/lib/localDb";
 import {
+  AUTH_GUEST_SESSION_KEY,
   AUTH_IDLE_ACTIVITY_KEY,
   AUTH_IDLE_ACTIVITY_THROTTLE_MS,
   AUTH_IDLE_TIMEOUT_MS,
@@ -51,9 +52,19 @@ const clearIdleActivityTimestamp = () => {
   }
 };
 
+const isGuestUser = (user: User | null | undefined) => {
+  if (!user || user.role !== "student") return false;
+  if (user.id.startsWith("guest_")) return true;
+  const normalizedEmail = user.email.trim().toLowerCase();
+  return normalizedEmail.startsWith("guest_") && normalizedEmail.endsWith("@axiom.demo");
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() =>
     readStorage<User | null>(AUTH_STORAGE_KEY, null)
+  );
+  const [isGuestSession, setGuestSession] = useState<boolean>(() =>
+    readStorage<boolean>(AUTH_GUEST_SESSION_KEY, false)
   );
   const [isAuthReady, setAuthReady] = useState(false);
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
@@ -70,13 +81,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const sessionUser = await getAuthSession();
       setUser(sessionUser);
       if (sessionUser) {
+        const nextGuestSession = isGuestUser(sessionUser);
+        setGuestSession(nextGuestSession);
         writeStorage(AUTH_STORAGE_KEY, sessionUser, { ttlMs: AUTH_STORAGE_TTL_MS });
+        if (nextGuestSession) {
+          writeStorage(AUTH_GUEST_SESSION_KEY, true, { ttlMs: AUTH_STORAGE_TTL_MS });
+        } else {
+          removeStorage(AUTH_GUEST_SESSION_KEY);
+        }
       } else {
+        setGuestSession(false);
         removeStorage(AUTH_STORAGE_KEY);
+        removeStorage(AUTH_GUEST_SESSION_KEY);
       }
     } catch {
       setUser(null);
+      setGuestSession(false);
       removeStorage(AUTH_STORAGE_KEY);
+      removeStorage(AUTH_GUEST_SESSION_KEY);
     } finally {
       setAuthReady(true);
     }
@@ -116,8 +138,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     setUser(null);
+    setGuestSession(false);
     removeStorage(AUTH_STORAGE_KEY);
+    removeStorage(AUTH_GUEST_SESSION_KEY);
     clearIdleActivityTimestamp();
+    setAuthModalEmail("");
+    setAuthModalOpen(true);
     void logoutAuthSession();
   }, []);
 
@@ -231,7 +257,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event.key === AUTH_STORAGE_KEY && event.newValue === null) {
         clearIdleTimer();
         setUser(null);
+        setGuestSession(false);
         removeStorage(AUTH_STORAGE_KEY);
+        removeStorage(AUTH_GUEST_SESSION_KEY);
+      }
+      if (event.key === AUTH_GUEST_SESSION_KEY) {
+        const nextGuestValue = readStorage<boolean>(AUTH_GUEST_SESSION_KEY, false);
+        setGuestSession(Boolean(nextGuestValue));
       }
     };
 
@@ -265,7 +297,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const safeUser = await requestPasswordLogin(normalizedEmail, normalizedPassword);
       setUser(safeUser);
+      setGuestSession(false);
       writeStorage(AUTH_STORAGE_KEY, safeUser, { ttlMs: AUTH_STORAGE_TTL_MS });
+      removeStorage(AUTH_GUEST_SESSION_KEY);
       setAuthModalOpen(false);
       return { ok: true as const };
     } catch (error) {
@@ -279,7 +313,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateUser = useCallback((nextUser: User) => {
     setUser(nextUser);
+    const nextGuestSession = isGuestUser(nextUser);
+    setGuestSession(nextGuestSession);
     writeStorage(AUTH_STORAGE_KEY, nextUser, { ttlMs: AUTH_STORAGE_TTL_MS });
+    if (nextGuestSession) {
+      writeStorage(AUTH_GUEST_SESSION_KEY, true, { ttlMs: AUTH_STORAGE_TTL_MS });
+    } else {
+      removeStorage(AUTH_GUEST_SESSION_KEY);
+    }
   }, []);
 
   const openAuthModal = useCallback((initialEmail?: string) => {
@@ -295,6 +336,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
+        isGuestSession,
         isAuthReady,
         loginWithPassword,
         updateUser,

@@ -1,4 +1,5 @@
 export const AUTH_STORAGE_KEY = "math-tutor-auth";
+export const AUTH_GUEST_SESSION_KEY = "math-tutor-auth:guest-session";
 export const AUTH_STORAGE_TTL_MS = 12 * 60 * 60 * 1000;
 export const AUTH_IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 export const AUTH_IDLE_ACTIVITY_KEY = "math-tutor-auth:last-activity";

@@ -3,6 +3,7 @@ import type { User } from "@/entities/user/model/types";
 
 type AuthContextType = {
   user: User | null;
+  isGuestSession: boolean;
   isAuthReady: boolean;
   loginWithPassword: (
     email: string,

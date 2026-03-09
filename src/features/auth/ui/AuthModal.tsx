@@ -7,11 +7,15 @@ import {
   DialogTitle,
   Stack,
   TextField,
+  Tooltip,
 } from "@mui/material";
 import IconButton from "@mui/material/IconButton";
 import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
+import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
+import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
 import { useAuth } from "@/features/auth/model/AuthContext";
+import { useThemeMode } from "@/app/theme/themeModeContext";
 import { t } from "@/shared/i18n";
 
 type AuthModalProps = {
@@ -22,6 +26,7 @@ type AuthModalProps = {
 
 export function AuthModal({ open, onClose, initialEmail = "" }: AuthModalProps) {
   const { loginWithPassword } = useAuth();
+  const { mode, toggleMode } = useThemeMode();
   const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +47,10 @@ export function AuthModal({ open, onClose, initialEmail = "" }: AuthModalProps) 
   );
 
   const handleSubmit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit) {
+      setError(t("auth.passwordRequired"));
+      return;
+    }
     setLoading(true);
     setError(null);
     const result = await loginWithPassword(email, password);
@@ -54,20 +62,52 @@ export function AuthModal({ open, onClose, initialEmail = "" }: AuthModalProps) 
     onClose();
   };
 
+  const handleDialogClose = (_event: object, reason: "backdropClick" | "escapeKeyDown") => {
+    if (reason === "backdropClick" || reason === "escapeKeyDown") return;
+    onClose();
+  };
+
   return (
     <Dialog
       className="auth-modal"
       open={open}
-      onClose={onClose}
+      onClose={handleDialogClose}
+      disableEscapeKeyDown
       maxWidth={false}
       PaperProps={{
         sx: {
-          width: "min(92vw, 320px)",
+          width: "min(92vw, 260px)",
         },
       }}
       TransitionProps={{ onEnter: resetForm }}
     >
-      <DialogTitle className="auth-modal__title">{t("auth.emailLoginTitle")}</DialogTitle>
+      <DialogTitle className="auth-modal__title">
+        <span>{t("auth.emailLoginTitle")}</span>
+        <Tooltip
+          title={
+            mode === "dark"
+              ? t("header.switchLightTheme")
+              : t("header.switchDarkTheme")
+          }
+        >
+          <IconButton
+            onClick={toggleMode}
+            size="small"
+            className="auth-modal__theme-toggle"
+            aria-label={
+              mode === "dark"
+                ? t("header.switchLightTheme")
+                : t("header.switchDarkTheme")
+            }
+          >
+            {mode === "dark" ? (
+              <LightModeRoundedIcon fontSize="small" />
+            ) : (
+              <DarkModeRoundedIcon fontSize="small" />
+            )}
+          </IconButton>
+        </Tooltip>
+      </DialogTitle>
       <DialogContent className="auth-modal__content">
         <Stack spacing={1.25} sx={{ pt: 1 }}>
           <TextField
@@ -114,7 +154,7 @@ export function AuthModal({ open, onClose, initialEmail = "" }: AuthModalProps) 
           <Button
             variant="contained"
             onClick={() => void handleSubmit()}
-            disabled={!canSubmit}
+            disabled={loading}
           >
             {loading ? t("common.loading") : t("auth.loginButton")}
           </Button>

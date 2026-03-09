@@ -11,7 +11,7 @@ import { useThemeMode } from "@/app/theme/themeModeContext";
 import { t } from "@/shared/i18n";
 
 export function Header() {
-  const { user, logout, openAuthModal } = useAuth();
+  const { user, isGuestSession, logout, openAuthModal } = useAuth();
   const { mode, toggleMode } = useThemeMode();
   const navigate = useNavigate();
 
@@ -64,7 +64,7 @@ export function Header() {
               )}
             </IconButton>
           </Tooltip>
-          {user ? (
+          {user && !isGuestSession ? (
             <>
               <Tooltip title={t("header.profile")}>
                 <Button
@@ -77,19 +77,21 @@ export function Header() {
                 </Button>
               </Tooltip>
 
-              <Tooltip title={t("header.logout")}>
-                <IconButton onClick={handleLogout} size="small">
-                  <LogoutIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              {user.role === "teacher" ? (
+                <Tooltip title={t("header.logout")}>
+                  <IconButton onClick={handleLogout} size="small">
+                    <LogoutIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              ) : null}
             </>
-          ) : (
+          ) : !isGuestSession ? (
             <Tooltip title={t("header.login")}>
               <IconButton onClick={openAuthModal}>
                 <LoginIcon />
               </IconButton>
             </Tooltip>
-          )}
+          ) : null}
         </div>
       </div>
     </header>
