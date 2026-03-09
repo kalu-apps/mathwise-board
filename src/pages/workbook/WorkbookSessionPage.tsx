@@ -181,12 +181,13 @@ import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
-const POLL_INTERVAL_MS = 220;
-const POLL_INTERVAL_STREAM_CONNECTED_MS = 450;
+const POLL_INTERVAL_MS = 1_200;
+const POLL_INTERVAL_STREAM_CONNECTED_MS = 4_000;
+const STREAM_POLL_GRACE_WINDOW_MS = 8_000;
 const PRESENCE_INTERVAL_MS = 3_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
-const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 16;
+const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 40;
 const MICROPHONE_TOGGLE_TIMEOUT_MS = 9_000;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
@@ -1598,6 +1599,7 @@ export default function WorkbookSessionPage() {
   const redoStackRef = useRef<WorkbookSceneSnapshot[]>([]);
   const latestSeqRef = useRef(0);
   const processedEventIdsRef = useRef<Set<string>>(new Set());
+  const workbookStreamLastEventAtRef = useRef(0);
   const livekitRoomRef = useRef<Room | null>(null);
   const livekitRoomSessionIdRef = useRef<string | null>(null);
   const livekitCanPublishRef = useRef<boolean | null>(null);
@@ -3076,6 +3078,12 @@ export default function WorkbookSessionPage() {
     if (!sessionId || !session) return;
     let active = true;
     const poll = async () => {
+      if (
+        isWorkbookStreamConnected &&
+        Date.now() - workbookStreamLastEventAtRef.current < STREAM_POLL_GRACE_WINDOW_MS
+      ) {
+        return;
+      }
       try {
         const response = await getWorkbookEvents(sessionId, latestSeqRef.current);
         if (!active) return;
@@ -3121,6 +3129,7 @@ export default function WorkbookSessionPage() {
       sessionId,
       onEvents: (payload) => {
         if (payload.sessionId !== sessionId) return;
+        workbookStreamLastEventAtRef.current = Date.now();
         const unseenEvents = filterUnseenWorkbookEvents(payload.events);
         if (unseenEvents.length > 0) {
           applyIncomingEvents(unseenEvents);
@@ -3135,7 +3144,12 @@ export default function WorkbookSessionPage() {
           setLatestSeq(nextLatest);
         }
       },
-      onConnectionChange: setIsWorkbookStreamConnected,
+      onConnectionChange: (connected) => {
+        if (connected) {
+          workbookStreamLastEventAtRef.current = Date.now();
+        }
+        setIsWorkbookStreamConnected(connected);
+      },
     });
     return () => {
       setIsWorkbookStreamConnected(false);
