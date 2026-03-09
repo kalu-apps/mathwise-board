@@ -1647,6 +1647,7 @@ export default function WorkbookSessionPage() {
   const canSelect = Boolean(actorPermissions.canSelect && !isEnded);
   const canInsertImage = Boolean(actorPermissions.canInsertImage && !isEnded);
   const canDelete = Boolean(actorPermissions.canDelete && !isEnded);
+  const canClear = Boolean(actorPermissions.canClear && !isEnded);
   const canUseLaser = Boolean(actorPermissions.canUseLaser && !isEnded);
   const canUseMedia = Boolean(actorPermissions.canUseMedia);
   const canUseSessionChat = Boolean(actorPermissions.canUseChat);
