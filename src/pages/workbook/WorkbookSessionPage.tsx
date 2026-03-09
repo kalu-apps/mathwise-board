@@ -1606,6 +1606,7 @@ export default function WorkbookSessionPage() {
   const livekitCanPublishRef = useRef<boolean | null>(null);
   const livekitConnectInFlightRef = useRef<Promise<void> | null>(null);
   const livekitMicSyncInFlightRef = useRef<Promise<void> | null>(null);
+  const livekitAudioUnlockInFlightRef = useRef<Promise<void> | null>(null);
   const desiredMicEnabledRef = useRef(false);
   const remoteAudioBindingsRef = useRef<
     Map<
@@ -1963,7 +1964,54 @@ export default function WorkbookSessionPage() {
         track: audioTrack,
         element,
       });
-      void element.play().catch(() => undefined);
+      void element.play().catch(() => {
+        setError((current) =>
+          current && current.trim().length > 0
+            ? current
+            : "Звук заблокирован браузером. Нажмите любую кнопку на странице, чтобы включить аудио."
+        );
+      });
+    },
+    []
+  );
+
+  const ensureLivekitAudioPlayback = useCallback(
+    async (source: "system" | "gesture" = "system") => {
+      const room = livekitRoomRef.current;
+      if (!room || room.state !== ConnectionState.Connected) return;
+      if (room.canPlaybackAudio) return;
+      if (livekitAudioUnlockInFlightRef.current) {
+        await livekitAudioUnlockInFlightRef.current;
+        return;
+      }
+      const task = room
+        .startAudio()
+        .then(() => {
+          setError((current) => {
+            if (!current) return current;
+            if (
+              current.includes("Звук заблокирован браузером") ||
+              current.includes("включить аудио")
+            ) {
+              return null;
+            }
+            return current;
+          });
+        })
+        .catch(() => {
+          setError((current) => {
+            if (current && current.trim().length > 0) return current;
+            if (source === "gesture") {
+              return "Браузер блокирует аудио. Разрешите звук для вкладки и повторите.";
+            }
+            return "Звук заблокирован браузером. Нажмите любую кнопку на странице, чтобы включить аудио.";
+          });
+        })
+        .finally(() => {
+          livekitAudioUnlockInFlightRef.current = null;
+        });
+      livekitAudioUnlockInFlightRef.current = task;
+      await task;
     },
     []
   );
@@ -2027,6 +2075,7 @@ export default function WorkbookSessionPage() {
     async (options?: { forceStopTracks?: boolean }) => {
       livekitConnectInFlightRef.current = null;
       livekitMicSyncInFlightRef.current = null;
+      livekitAudioUnlockInFlightRef.current = null;
       setIsMicSyncing(false);
       const room = livekitRoomRef.current;
       if (!room) {
@@ -2104,6 +2153,15 @@ export default function WorkbookSessionPage() {
       room.on(RoomEvent.ConnectionStateChanged, (state) => {
         setIsLivekitConnected(state === ConnectionState.Connected);
       });
+      room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
+        if (!room.canPlaybackAudio) {
+          setError((current) =>
+            current && current.trim().length > 0
+              ? current
+              : "Звук заблокирован браузером. Нажмите любую кнопку на странице, чтобы включить аудио."
+          );
+        }
+      });
       await room.connect(tokenConfig.wsUrl, tokenConfig.token, {
         autoSubscribe: true,
       });
@@ -2111,6 +2169,13 @@ export default function WorkbookSessionPage() {
       livekitRoomSessionIdRef.current = sessionId;
       livekitCanPublishRef.current = Boolean(tokenConfig.participant?.canPublish);
       setIsLivekitConnected(true);
+      if (!room.canPlaybackAudio) {
+        setError((current) =>
+          current && current.trim().length > 0
+            ? current
+            : "Звук заблокирован браузером. Нажмите любую кнопку на странице, чтобы включить аудио."
+        );
+      }
     })();
     livekitConnectInFlightRef.current = task;
     try {
@@ -3123,6 +3188,19 @@ export default function WorkbookSessionPage() {
     session,
     sessionId,
   ]);
+
+  useEffect(() => {
+    if (!showCollaborationPanels || isEnded) return;
+    const onUserGesture = () => {
+      void ensureLivekitAudioPlayback("gesture");
+    };
+    window.addEventListener("pointerdown", onUserGesture, { passive: true });
+    window.addEventListener("keydown", onUserGesture);
+    return () => {
+      window.removeEventListener("pointerdown", onUserGesture);
+      window.removeEventListener("keydown", onUserGesture);
+    };
+  }, [ensureLivekitAudioPlayback, isEnded, showCollaborationPanels]);
 
   useEffect(() => {
     if (!sessionId || !session) return;
