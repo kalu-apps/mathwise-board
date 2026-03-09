@@ -357,18 +357,18 @@ const defaultPermissions = (role: "teacher" | "student"): WorkbookParticipantPer
   }
 
   return {
-    canDraw: true,
-    canAnnotate: true,
+    canDraw: false,
+    canAnnotate: false,
     canUseMedia: true,
-    canUseChat: true,
+    canUseChat: false,
     canInvite: false,
     canManageSession: false,
-    canSelect: true,
-    canDelete: true,
-    canInsertImage: true,
+    canSelect: false,
+    canDelete: false,
+    canInsertImage: false,
     canClear: false,
     canExport: false,
-    canUseLaser: true,
+    canUseLaser: false,
   };
 };
 
