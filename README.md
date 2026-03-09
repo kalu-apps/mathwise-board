@@ -53,6 +53,10 @@ npm run backend:start:board
 - `MEDIA_TURN_SECRET=<coturn static-auth-secret>` (предпочтительно)  
   или пара `MEDIA_TURN_STATIC_USERNAME` + `MEDIA_TURN_STATIC_CREDENTIAL`
 - `MEDIA_TURN_TTL_SECONDS=3600`
+- `MEDIA_LIVEKIT_WS_URL=wss://rtc.your-domain.tld`
+- `MEDIA_LIVEKIT_API_KEY=<livekit-api-key>`
+- `MEDIA_LIVEKIT_API_SECRET=<livekit-api-secret>`
+- `MEDIA_LIVEKIT_TOKEN_TTL_SECONDS=3600`
 - `VITE_BOARD_AUTO_LOGIN_EMAIL`
 - `VITE_BOARD_AUTO_LOGIN_PASSWORD`
 - `PORT`
@@ -67,10 +71,13 @@ npm run backend:start:board
 `GET /healthz` возвращает статус сервиса и runtime-диагностику:
 - активный драйвер хранения (`file`/`postgres`);
 - состояние подключения к Redis (если `REDIS_URL` задан).
-- медиа-конфиг (`media.turnAuthMode`, количество STUN/TURN URL).
+- медиа-конфиг (`media.turnAuthMode`, количество STUN/TURN URL, статус `media.livekit.configured`).
 
 WebRTC ICE-конфиг для аудио выдаётся runtime-эндпоинтом:
 - `GET /api/workbook/sessions/:sessionId/media/config`
+
+LiveKit token для подключения к аудио-комнате:
+- `GET /api/workbook/sessions/:sessionId/media/livekit-token`
 
 ## Деплой в Timeweb
 См. инструкцию: `TIMEWEB_DEPLOY.md`.

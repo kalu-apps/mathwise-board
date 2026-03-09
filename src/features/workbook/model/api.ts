@@ -7,6 +7,7 @@ import type {
   WorkbookEventsResponse,
   WorkbookInviteInfo,
   WorkbookLayer,
+  WorkbookLivekitTokenResponse,
   WorkbookMediaConfig,
   WorkbookSessionSettings,
   WorkbookSession,
@@ -133,6 +134,16 @@ export async function getWorkbookEvents(sessionId: string, afterSeq: number) {
 export async function getWorkbookMediaConfig(sessionId: string) {
   return api.get<WorkbookMediaConfig>(
     `/workbook/sessions/${encodeURIComponent(sessionId)}/media/config`,
+    {
+      cacheTtlMs: 0,
+      dedupe: false,
+    }
+  );
+}
+
+export async function getWorkbookLivekitToken(sessionId: string) {
+  return api.get<WorkbookLivekitTokenResponse>(
+    `/workbook/sessions/${encodeURIComponent(sessionId)}/media/livekit-token`,
     {
       cacheTtlMs: 0,
       dedupe: false,

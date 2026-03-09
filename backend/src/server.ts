@@ -26,6 +26,9 @@ const parseEnvList = (name: string) =>
 const getMediaDiagnostics = () => {
   const stun = parseEnvList("MEDIA_STUN_URLS");
   const turn = parseEnvList("MEDIA_TURN_URLS");
+  const livekitWsUrl = String(process.env.MEDIA_LIVEKIT_WS_URL ?? "").trim();
+  const livekitApiKey = String(process.env.MEDIA_LIVEKIT_API_KEY ?? "").trim();
+  const livekitApiSecret = String(process.env.MEDIA_LIVEKIT_API_SECRET ?? "").trim();
   const hasTurnSecret = String(process.env.MEDIA_TURN_SECRET ?? "").trim().length > 0;
   const hasStaticTurnCredentials =
     String(process.env.MEDIA_TURN_STATIC_USERNAME ?? "").trim().length > 0 &&
@@ -38,6 +41,13 @@ const getMediaDiagnostics = () => {
       : hasStaticTurnCredentials
         ? "static"
         : "none",
+    livekit: {
+      configured:
+        livekitWsUrl.length > 0 &&
+        livekitApiKey.length > 0 &&
+        livekitApiSecret.length > 0,
+      wsUrlConfigured: livekitWsUrl.length > 0,
+    },
   };
 };
 

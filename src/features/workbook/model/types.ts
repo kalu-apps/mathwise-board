@@ -473,3 +473,17 @@ export type WorkbookMediaConfig = {
   ttlSeconds: number;
   iceServers: WorkbookMediaIceServer[];
 };
+
+export type WorkbookLivekitTokenResponse = {
+  generatedAt: string;
+  ttlSeconds: number;
+  wsUrl: string;
+  roomName: string;
+  participant: {
+    identity: string;
+    name: string;
+    canPublish: boolean;
+    roleInSession: WorkbookRoleInSession;
+  };
+  token: string;
+};

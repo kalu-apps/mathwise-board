@@ -37,6 +37,7 @@
     "@mui/material": "^7.3.7",
     "connect": "^3.7.0",
     "jspdf": "^4.1.0",
+    "livekit-client": "^2.17.2",
     "mathjs": "^15.1.1",
     "pg": "^8.20.0",
     "react": "^19.2.0",

@@ -11,6 +11,14 @@ import {
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { jsPDF } from "jspdf";
 import {
+  ConnectionState,
+  Room,
+  RoomEvent,
+  Track,
+  type RemoteAudioTrack,
+  type RemoteParticipant,
+} from "livekit-client";
+import {
   Alert,
   Avatar,
   Button,
@@ -94,7 +102,7 @@ import {
   appendWorkbookPreview,
   createWorkbookInvite,
   getWorkbookEvents,
-  getWorkbookMediaConfig,
+  getWorkbookLivekitToken,
   getWorkbookSession,
   getWorkbookSnapshot,
   heartbeatWorkbookPresence,
@@ -116,7 +124,6 @@ import type {
   WorkbookEvent,
   WorkbookLayer,
   WorkbookLibraryState,
-  WorkbookMediaConfig,
   WorkbookPoint,
   WorkbookSceneLayer,
   WorkbookSession,
@@ -238,55 +245,6 @@ const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   "heic",
   "heif",
 ]);
-
-const DEFAULT_MEDIA_ICE_SERVERS: RTCIceServer[] = [
-  {
-    urls: "stun:stun.l.google.com:19302",
-  },
-];
-
-const normalizeWorkbookMediaIceServers = (
-  iceServers: WorkbookMediaConfig["iceServers"] | null | undefined
-): RTCIceServer[] => {
-  if (!Array.isArray(iceServers) || iceServers.length === 0) {
-    return DEFAULT_MEDIA_ICE_SERVERS;
-  }
-
-  const normalized: RTCIceServer[] = [];
-  const seen = new Set<string>();
-
-  iceServers.forEach((server) => {
-    const urlsRaw = Array.isArray(server.urls) ? server.urls : [server.urls];
-    const urls = urlsRaw
-      .filter((value): value is string => typeof value === "string")
-      .map((value) => value.trim())
-      .filter((value) => /^(stun|stuns|turn|turns):/i.test(value))
-      .filter((value) => {
-        if (seen.has(value)) return false;
-        seen.add(value);
-        return true;
-      });
-    if (urls.length === 0) return;
-    const username =
-      typeof server.username === "string" && server.username.trim().length > 0
-        ? server.username.trim()
-        : undefined;
-    const credential =
-      typeof server.credential === "string" && server.credential.trim().length > 0
-        ? server.credential.trim()
-        : undefined;
-    const nextServer: RTCIceServer = {
-      urls,
-    };
-    if (username && credential) {
-      nextServer.username = username;
-      nextServer.credential = credential;
-    }
-    normalized.push(nextServer);
-  });
-
-  return normalized.length > 0 ? normalized : DEFAULT_MEDIA_ICE_SERVERS;
-};
 
 const readFileExtension = (fileName: string) => {
   const safeName = typeof fileName === "string" ? fileName.trim().toLowerCase() : "";
@@ -464,11 +422,6 @@ const DEFAULT_SETTINGS: WorkbookSessionSettings = {
     canUseLaser: true,
   },
 };
-
-type MediaSignalPayload =
-  | { kind: "offer"; sdp: RTCSessionDescriptionInit }
-  | { kind: "answer"; sdp: RTCSessionDescriptionInit }
-  | { kind: "ice"; candidate: RTCIceCandidateInit };
 
 const DEFAULT_BOARD_SETTINGS: WorkbookBoardSettings = {
   title: "Рабочая тетрадь",
@@ -1597,9 +1550,7 @@ export default function WorkbookSessionPage() {
   const [mediaState, setMediaState] = useState({
     micEnabled: false,
   });
-  const [mediaIceServers, setMediaIceServers] =
-    useState<RTCIceServer[]>(DEFAULT_MEDIA_ICE_SERVERS);
-  const [isMediaConfigReady, setIsMediaConfigReady] = useState(false);
+  const [isLivekitConnected, setIsLivekitConnected] = useState(false);
   const [isSessionChatOpen, setIsSessionChatOpen] = useState(false);
   const [isSessionChatMinimized, setIsSessionChatMinimized] = useState(false);
   const [isSessionChatMaximized, setIsSessionChatMaximized] = useState(false);
@@ -1645,9 +1596,18 @@ export default function WorkbookSessionPage() {
   const redoStackRef = useRef<WorkbookSceneSnapshot[]>([]);
   const latestSeqRef = useRef(0);
   const processedEventIdsRef = useRef<Set<string>>(new Set());
-  const localAudioStreamRef = useRef<MediaStream | null>(null);
-  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
-  const remoteAudioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const livekitRoomRef = useRef<Room | null>(null);
+  const livekitRoomSessionIdRef = useRef<string | null>(null);
+  const livekitConnectInFlightRef = useRef<Promise<void> | null>(null);
+  const remoteAudioBindingsRef = useRef<
+    Map<
+      string,
+      {
+        track: RemoteAudioTrack;
+        element: HTMLAudioElement;
+      }
+    >
+  >(new Map());
   const sessionChatListRef = useRef<HTMLDivElement | null>(null);
   const sessionChatRef = useRef<HTMLDivElement | null>(null);
   const sessionChatShouldScrollToUnreadRef = useRef(false);
@@ -1673,9 +1633,6 @@ export default function WorkbookSessionPage() {
     Map<string, Partial<WorkbookBoardObject>>
   >(new Map());
   const incomingPreviewFrameRef = useRef<number | null>(null);
-  const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
-  const makingOfferPeerIdsRef = useRef<Set<string>>(new Set());
-
   const fallbackBackPath = "/workbook";
   const fromPath = searchParams.get("from") || fallbackBackPath;
   const isEnded = session?.status === "ended";
@@ -1948,388 +1905,254 @@ export default function WorkbookSessionPage() {
     []
   );
 
-  const detachRemoteAudio = useCallback((remoteUserId: string) => {
-    const audioElement = remoteAudioElementsRef.current.get(remoteUserId);
-    if (audioElement) {
+  const detachRemoteAudio = useCallback((participantIdentity?: string) => {
+    Array.from(remoteAudioBindingsRef.current.entries()).forEach(([key, binding]) => {
+      if (participantIdentity && !key.startsWith(`${participantIdentity}:`)) return;
       try {
-        audioElement.pause();
+        binding.track.detach(binding.element);
+      } catch {
+        // ignore detach errors
+      }
+      try {
+        binding.element.pause();
       } catch {
         // ignore media pause errors
       }
-      audioElement.srcObject = null;
-      remoteAudioElementsRef.current.delete(remoteUserId);
-    }
+      binding.element.srcObject = null;
+      binding.element.remove();
+      remoteAudioBindingsRef.current.delete(key);
+    });
   }, []);
 
-  const closePeerConnection = useCallback(
-    (remoteUserId: string) => {
-      const connection = peerConnectionsRef.current.get(remoteUserId);
-      if (connection) {
-        try {
-          connection.onicecandidate = null;
-          connection.ontrack = null;
-          connection.onconnectionstatechange = null;
-          connection.close();
-        } catch {
-          // ignore close errors
-        }
-        peerConnectionsRef.current.delete(remoteUserId);
+  const detachAllRemoteAudio = useCallback(() => {
+    detachRemoteAudio();
+  }, [detachRemoteAudio]);
+
+  const handleLivekitTrackSubscribed = useCallback(
+    (
+      track: unknown,
+      _publication: unknown,
+      participant: RemoteParticipant
+    ) => {
+      if (!(track instanceof Track) || track.kind !== Track.Kind.Audio) return;
+      const audioTrack = track as RemoteAudioTrack;
+      const participantIdentity = participant.identity || participant.sid || "unknown";
+      const trackSid = audioTrack.sid || `${participantIdentity}-audio`;
+      const bindingKey = `${participantIdentity}:${trackSid}`;
+      if (remoteAudioBindingsRef.current.has(bindingKey)) return;
+      const element = audioTrack.attach() as HTMLAudioElement;
+      element.autoplay = true;
+      element.setAttribute("playsinline", "true");
+      element.muted = false;
+      element.volume = 1;
+      element.style.display = "none";
+      document.body.appendChild(element);
+      remoteAudioBindingsRef.current.set(bindingKey, {
+        track: audioTrack,
+        element,
+      });
+      void element.play().catch(() => undefined);
+    },
+    []
+  );
+
+  const handleLivekitTrackUnsubscribed = useCallback(
+    (
+      track: unknown,
+      _publication: unknown,
+      participant: RemoteParticipant
+    ) => {
+      if (!(track instanceof Track) || track.kind !== Track.Kind.Audio) return;
+      const participantIdentity = participant.identity || participant.sid || "unknown";
+      const trackSid = track.sid || "";
+      if (!trackSid) {
+        detachRemoteAudio(participantIdentity);
+        return;
       }
-      pendingIceCandidatesRef.current.delete(remoteUserId);
-      makingOfferPeerIdsRef.current.delete(remoteUserId);
-      detachRemoteAudio(remoteUserId);
+      const bindingKey = `${participantIdentity}:${trackSid}`;
+      const binding = remoteAudioBindingsRef.current.get(bindingKey);
+      if (!binding) return;
+      try {
+        binding.track.detach(binding.element);
+      } catch {
+        // ignore detach errors
+      }
+      try {
+        binding.element.pause();
+      } catch {
+        // ignore media pause errors
+      }
+      binding.element.srcObject = null;
+      binding.element.remove();
+      remoteAudioBindingsRef.current.delete(bindingKey);
     },
     [detachRemoteAudio]
   );
 
-  const closeAllPeerConnections = useCallback(() => {
-    Array.from(peerConnectionsRef.current.keys()).forEach((peerId) => {
-      closePeerConnection(peerId);
-    });
-  }, [closePeerConnection]);
+  const handleMicrophoneError = useCallback((reason: unknown) => {
+    if (reason instanceof DOMException) {
+      if (reason.name === "NotAllowedError") {
+        setError("Доступ к микрофону запрещён. Разрешите его в настройках браузера.");
+        return;
+      }
+      if (reason.name === "NotFoundError") {
+        setError("Не найдено доступное устройство микрофона.");
+        return;
+      }
+      if (reason.name === "NotReadableError") {
+        setError("Микрофон занят другим приложением. Освободите устройство и повторите.");
+        return;
+      }
+      if (reason.name === "SecurityError") {
+        setError("Браузер заблокировал микрофон: откройте страницу по HTTPS.");
+        return;
+      }
+    }
+    setError("Не удалось подключить микрофон.");
+  }, []);
 
-  const ensureLocalAudioStream = useCallback(async () => {
-    if (localAudioStreamRef.current) return localAudioStreamRef.current;
-    const hasWindow = typeof window !== "undefined";
-    const isLocalhost =
-      hasWindow &&
-      (window.location.hostname === "localhost" ||
-        window.location.hostname === "127.0.0.1" ||
-        window.location.hostname === "::1");
-    if (hasWindow && !window.isSecureContext && !isLocalhost) {
-      setError(
-        "Микрофон доступен только в защищённом режиме: откройте сайт по HTTPS (или localhost)."
-      );
-      return null;
+  const disconnectLivekitRoom = useCallback(
+    async (options?: { forceStopTracks?: boolean }) => {
+      livekitConnectInFlightRef.current = null;
+      const room = livekitRoomRef.current;
+      if (!room) {
+        setIsLivekitConnected(false);
+        if (options?.forceStopTracks) {
+          setMediaState((current) =>
+            current.micEnabled ? { ...current, micEnabled: false } : current
+          );
+        }
+        return;
+      }
+      room.removeAllListeners();
+      detachAllRemoteAudio();
+      await room.disconnect(options?.forceStopTracks ?? true).catch(() => undefined);
+      livekitRoomRef.current = null;
+      livekitRoomSessionIdRef.current = null;
+      setIsLivekitConnected(false);
+      if (options?.forceStopTracks) {
+        setMediaState((current) =>
+          current.micEnabled ? { ...current, micEnabled: false } : current
+        );
+      }
+    },
+    [detachAllRemoteAudio]
+  );
+
+  const connectLivekitRoom = useCallback(async () => {
+    if (!sessionId || !session || session.kind !== "CLASS" || !user?.id) return;
+    if (livekitConnectInFlightRef.current) {
+      await livekitConnectInFlightRef.current;
+      return;
     }
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setError("В текущем браузере недоступен API микрофона (getUserMedia).");
-      return null;
-    }
+    const task = (async () => {
+      const tokenConfig = await getWorkbookLivekitToken(sessionId);
+      if (!tokenConfig.wsUrl || !tokenConfig.token) {
+        throw new Error("livekit_token_invalid");
+      }
+      const hasWindow = typeof window !== "undefined";
+      const isLocalhost =
+        hasWindow &&
+        (window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1" ||
+          window.location.hostname === "::1");
+      if (hasWindow && !window.isSecureContext && !isLocalhost) {
+        throw new Error("media_secure_context_required");
+      }
+
+      const currentRoom = livekitRoomRef.current;
+      if (
+        currentRoom &&
+        livekitRoomSessionIdRef.current === sessionId &&
+        currentRoom.state === ConnectionState.Connected
+      ) {
+        return;
+      }
+      if (currentRoom) {
+        await disconnectLivekitRoom({ forceStopTracks: false });
+      }
+
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+      });
+      room.on(RoomEvent.TrackSubscribed, handleLivekitTrackSubscribed);
+      room.on(RoomEvent.TrackUnsubscribed, handleLivekitTrackUnsubscribed);
+      room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+        detachRemoteAudio(participant.identity || participant.sid || "");
+      });
+      room.on(RoomEvent.Disconnected, () => {
+        detachAllRemoteAudio();
+      });
+      room.on(RoomEvent.ConnectionStateChanged, (state) => {
+        setIsLivekitConnected(state === ConnectionState.Connected);
+      });
+      await room.connect(tokenConfig.wsUrl, tokenConfig.token, {
+        autoSubscribe: true,
+      });
+      livekitRoomRef.current = room;
+      livekitRoomSessionIdRef.current = sessionId;
+      setIsLivekitConnected(true);
+    })();
+    livekitConnectInFlightRef.current = task;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: false,
-      });
-      stream.getAudioTracks().forEach((track) => {
-        track.enabled = mediaState.micEnabled;
-      });
-      localAudioStreamRef.current = stream;
+      await task;
       setError((current) => {
         if (!current) return current;
-        return current.includes("микрофон") || current.includes("Микрофон") ? null : current;
-      });
-      return stream;
-    } catch (reason) {
-      if (reason instanceof DOMException) {
-        if (reason.name === "NotAllowedError") {
-          setError("Доступ к микрофону запрещён. Разрешите его в настройках браузера.");
-          return null;
-        }
-        if (reason.name === "NotFoundError") {
-          setError("Не найдено доступное устройство микрофона.");
-          return null;
-        }
-        if (reason.name === "NotReadableError") {
-          setError("Микрофон занят другим приложением. Освободите устройство и повторите.");
-          return null;
-        }
-        if (reason.name === "SecurityError") {
-          setError("Браузер заблокировал микрофон: откройте страницу по HTTPS.");
-          return null;
-        }
-      }
-      setError("Не удалось подключить микрофон.");
-      return null;
-    }
-  }, [mediaState.micEnabled]);
-
-  const queuePendingIceCandidate = useCallback(
-    (remoteUserId: string, candidate: RTCIceCandidateInit) => {
-      const pending = pendingIceCandidatesRef.current.get(remoteUserId) ?? [];
-      pending.push(candidate);
-      pendingIceCandidatesRef.current.set(remoteUserId, pending);
-    },
-    []
-  );
-
-  const flushPendingIceCandidates = useCallback(
-    async (remoteUserId: string, connection: RTCPeerConnection) => {
-      const pending = pendingIceCandidatesRef.current.get(remoteUserId);
-      if (!pending?.length) return;
-      for (const candidate of pending) {
-        await connection.addIceCandidate(candidate).catch(() => undefined);
-      }
-      pendingIceCandidatesRef.current.delete(remoteUserId);
-    },
-    []
-  );
-
-  const sendMediaSignal = useCallback(
-    async (toUserId: string, signal: MediaSignalPayload) => {
-      if (!sessionId) return;
-      try {
-        const response = await appendWorkbookEvents({
-          sessionId,
-          events: [
-            {
-              type: "media.signal",
-              payload: { toUserId, signal },
-            },
-          ],
-        });
-        setLatestSeq((current) => Math.max(current, response.latestSeq));
-      } catch {
-        // transient media signaling errors are tolerated
-      }
-    },
-    [sessionId]
-  );
-
-  const ensurePeerConnection = useCallback(
-    async (remoteUserId: string) => {
-      const existing = peerConnectionsRef.current.get(remoteUserId);
-      if (existing) return existing;
-      const connection = new RTCPeerConnection({
-        iceServers: mediaIceServers,
-      });
-      peerConnectionsRef.current.set(remoteUserId, connection);
-      connection.onicecandidate = (event) => {
-        if (!event.candidate) return;
-        void sendMediaSignal(remoteUserId, {
-          kind: "ice",
-          candidate: event.candidate.toJSON(),
-        });
-      };
-      connection.ontrack = (event) => {
-        const [remoteStream] = event.streams;
-        if (!remoteStream) return;
-        let audioElement = remoteAudioElementsRef.current.get(remoteUserId);
-        if (!audioElement) {
-          audioElement = new Audio();
-          audioElement.autoplay = true;
-          audioElement.muted = false;
-          audioElement.playsInline = true;
-          audioElement.volume = 1;
-          remoteAudioElementsRef.current.set(remoteUserId, audioElement);
-        }
-        if (audioElement.srcObject !== remoteStream) {
-          audioElement.srcObject = remoteStream;
-        }
-        void audioElement.play().catch(() => undefined);
-      };
-      connection.onconnectionstatechange = () => {
-        if (connection.connectionState === "failed" || connection.connectionState === "closed") {
-          closePeerConnection(remoteUserId);
-        }
-      };
-      const localStream =
-        localAudioStreamRef.current ??
-        (mediaState.micEnabled ? await ensureLocalAudioStream() : null);
-      if (localStream) {
-        const audioTrack = localStream.getAudioTracks()[0] ?? null;
-        if (audioTrack) {
-          const alreadyAdded = connection
-            .getSenders()
-            .some((sender) => sender.track && sender.track.id === audioTrack.id);
-          if (!alreadyAdded) {
-            connection.addTrack(audioTrack, localStream);
-          }
-        } else if (connection.getTransceivers().length === 0) {
-          connection.addTransceiver("audio", { direction: "recvonly" });
-        }
-      } else if (connection.getTransceivers().length === 0) {
-        connection.addTransceiver("audio", { direction: "recvonly" });
-      }
-      return connection;
-    },
-    [
-      closePeerConnection,
-      ensureLocalAudioStream,
-      mediaIceServers,
-      mediaState.micEnabled,
-      sendMediaSignal,
-    ]
-  );
-
-  const syncLocalAudioTrackToConnection = useCallback(
-    async (connection: RTCPeerConnection) => {
-      const localStream = localAudioStreamRef.current;
-      if (!localStream) return false;
-      const localTrack = localStream.getAudioTracks()[0] ?? null;
-      if (!localTrack) return false;
-      let changed = false;
-      let audioTransceiver =
-        connection.getTransceivers().find((transceiver) => {
-          const senderTrackKind = transceiver.sender.track?.kind;
-          const receiverTrackKind = transceiver.receiver.track?.kind;
-          return senderTrackKind === "audio" || receiverTrackKind === "audio";
-        }) ?? null;
-      let senderWithTrack =
-        connection.getSenders().find((sender) => sender.track?.id === localTrack.id) ?? null;
-      if (!senderWithTrack && audioTransceiver) {
-        try {
-          await audioTransceiver.sender.replaceTrack(localTrack);
-          senderWithTrack = audioTransceiver.sender;
-          changed = true;
-        } catch {
-          // On Safari/Yandex mobile replaceTrack can fail on recvonly sender.
-        }
-      }
-      if (!senderWithTrack) {
-        try {
-          senderWithTrack = connection.addTrack(localTrack, localStream);
-          changed = true;
-        } catch {
-          if (!audioTransceiver) {
-            try {
-              audioTransceiver = connection.addTransceiver(localTrack, {
-                direction: "sendrecv",
-              });
-              senderWithTrack = audioTransceiver.sender;
-              changed = true;
-            } catch {
-              return false;
-            }
-          } else {
-            try {
-              if (
-                audioTransceiver.direction === "recvonly" ||
-                audioTransceiver.direction === "sendonly" ||
-                audioTransceiver.direction === "inactive"
-              ) {
-                audioTransceiver.direction = "sendrecv";
-              }
-              await audioTransceiver.sender.replaceTrack(localTrack);
-              senderWithTrack = audioTransceiver.sender;
-              changed = true;
-            } catch {
-              return false;
-            }
-          }
-        }
-      }
-      connection.getTransceivers().forEach((transceiver) => {
-        const senderTrackId = transceiver.sender.track?.id;
-        const receiverKind = transceiver.receiver.track?.kind;
-        const isAudioTransceiver =
-          transceiver.sender === senderWithTrack ||
-          senderTrackId === localTrack.id ||
-          receiverKind === "audio";
-        if (!isAudioTransceiver) return;
         if (
-          transceiver.direction === "recvonly" ||
-          transceiver.direction === "sendonly" ||
-          transceiver.direction === "inactive"
+          current.includes("микрофон") ||
+          current.includes("Микрофон") ||
+          current.includes("LiveKit")
         ) {
-          try {
-            transceiver.direction = "sendrecv";
-            changed = true;
-          } catch {
-            // ignore direction update issues
-          }
+          return null;
         }
+        return current;
       });
-      return changed;
-    },
-    []
-  );
-
-  const createAndSendOffer = useCallback(
-    async (remoteUserId: string, connection?: RTCPeerConnection) => {
-      if (makingOfferPeerIdsRef.current.has(remoteUserId)) return;
-      makingOfferPeerIdsRef.current.add(remoteUserId);
-      try {
-        const targetConnection = connection ?? (await ensurePeerConnection(remoteUserId));
-        if (targetConnection.signalingState !== "stable") return;
-        const offer = await targetConnection.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: false,
-        });
-        await targetConnection.setLocalDescription(offer);
-        if (!targetConnection.localDescription) return;
-        await sendMediaSignal(remoteUserId, {
-          kind: "offer",
-          sdp: targetConnection.localDescription.toJSON() as RTCSessionDescriptionInit,
-        });
-      } catch {
-        // ignore transient offer errors; next polling cycle will retry
-      } finally {
-        makingOfferPeerIdsRef.current.delete(remoteUserId);
+    } catch (reason) {
+      if (reason instanceof Error && reason.message === "media_secure_context_required") {
+        setError(
+          "Микрофон доступен только в защищённом режиме: откройте сайт по HTTPS (или localhost)."
+        );
+      } else if (reason instanceof ApiError && reason.status === 503) {
+        setError("LiveKit не настроен на сервере. Проверьте MEDIA_LIVEKIT_* переменные.");
+      } else {
+        setError("Не удалось подключить аудио-комнату LiveKit.");
       }
-    },
-    [ensurePeerConnection, sendMediaSignal]
-  );
+      await disconnectLivekitRoom({ forceStopTracks: false });
+    } finally {
+      livekitConnectInFlightRef.current = null;
+    }
+  }, [
+    detachAllRemoteAudio,
+    detachRemoteAudio,
+    disconnectLivekitRoom,
+    handleLivekitTrackSubscribed,
+    handleLivekitTrackUnsubscribed,
+    session,
+    sessionId,
+    user?.id,
+  ]);
 
-  const handleIncomingMediaSignal = useCallback(
-    async (event: WorkbookEvent) => {
-      const payload =
-        event.payload && typeof event.payload === "object"
-          ? (event.payload as { toUserId?: unknown; signal?: unknown })
-          : null;
-      if (!payload || payload.toUserId !== user?.id) return;
-      const signal =
-        payload.signal && typeof payload.signal === "object"
-          ? (payload.signal as Partial<MediaSignalPayload>)
-          : null;
-      if (!signal || typeof signal.kind !== "string") return;
-      const remoteUserId = event.authorUserId;
-      try {
-        const connection = await ensurePeerConnection(remoteUserId);
-        if (signal.kind === "offer" && signal.sdp) {
-          if (connection.signalingState !== "stable") {
-            await connection.setLocalDescription({ type: "rollback" }).catch(() => undefined);
-          }
-          await connection.setRemoteDescription(signal.sdp);
-          await flushPendingIceCandidates(remoteUserId, connection);
-          if (mediaState.micEnabled && !localAudioStreamRef.current) {
-            await ensureLocalAudioStream();
-          }
-          await syncLocalAudioTrackToConnection(connection);
-          const answer = await connection.createAnswer();
-          await connection.setLocalDescription(answer);
-          if (connection.localDescription) {
-            await sendMediaSignal(remoteUserId, {
-              kind: "answer",
-              sdp: connection.localDescription.toJSON() as RTCSessionDescriptionInit,
-            });
-          }
-          return;
-        }
-        if (signal.kind === "answer" && signal.sdp) {
-          await connection.setRemoteDescription(signal.sdp);
-          await flushPendingIceCandidates(remoteUserId, connection);
-          return;
-        }
-        if (signal.kind === "ice" && signal.candidate) {
-          const candidate = signal.candidate;
-          if (connection.remoteDescription || connection.pendingRemoteDescription) {
-            await connection.addIceCandidate(candidate).catch(() => {
-              queuePendingIceCandidate(remoteUserId, candidate);
-            });
-          } else {
-            queuePendingIceCandidate(remoteUserId, candidate);
-          }
-        }
-      } catch {
-        // signaling or SDP errors can happen during reconnect; ignore and wait for next offer
+  const syncLivekitMicState = useCallback(async () => {
+    const room = livekitRoomRef.current;
+    if (!room || room.state !== ConnectionState.Connected) return;
+    try {
+      await room.localParticipant.setMicrophoneEnabled(mediaState.micEnabled);
+      if (mediaState.micEnabled) {
+        setError((current) => {
+          if (!current) return current;
+          return current.includes("микрофон") || current.includes("Микрофон")
+            ? null
+            : current;
+        });
       }
-    },
-    [
-      ensureLocalAudioStream,
-      ensurePeerConnection,
-      flushPendingIceCandidates,
-      mediaState.micEnabled,
-      queuePendingIceCandidate,
-      sendMediaSignal,
-      syncLocalAudioTrackToConnection,
-      user?.id,
-    ]
-  );
+    } catch (reason) {
+      handleMicrophoneError(reason);
+      setMediaState((current) =>
+        current.micEnabled ? { ...current, micEnabled: false } : current
+      );
+    }
+  }, [handleMicrophoneError, mediaState.micEnabled]);
   const boardLocked = Boolean(awaitingClearRequest);
   const canEdit = !isEnded && (canDraw || canSelect);
   const isTeacherActor = Boolean(
@@ -2751,10 +2574,6 @@ export default function WorkbookSessionPage() {
           focusResetTimersByUserRef.current.set(authorKey, nextTimer);
           return;
         }
-        if (event.type === "media.signal") {
-          void handleIncomingMediaSignal(event);
-          return;
-        }
         if (event.type === "document.asset.add") {
           const asset = normalizeDocumentAssetPayload(
             (event.payload as { asset?: unknown })?.asset
@@ -3049,7 +2868,6 @@ export default function WorkbookSessionPage() {
     [
       awaitingClearRequest,
       clearObjectSyncRuntime,
-      handleIncomingMediaSignal,
       queueIncomingPreviewPatch,
       restoreSceneSnapshot,
       selectedObjectId,
@@ -3352,70 +3170,35 @@ export default function WorkbookSessionPage() {
       isEnded ||
       !user?.id
     ) {
-      setMediaIceServers(DEFAULT_MEDIA_ICE_SERVERS);
-      setIsMediaConfigReady(false);
+      void disconnectLivekitRoom({
+        forceStopTracks: isEnded || !session || session.kind !== "CLASS" || !canUseMedia,
+      });
       return;
     }
-    let cancelled = false;
-    setIsMediaConfigReady(false);
-    const loadMediaConfig = async () => {
-      try {
-        const config = await getWorkbookMediaConfig(sessionId);
-        if (cancelled) return;
-        setMediaIceServers(normalizeWorkbookMediaIceServers(config.iceServers));
-      } catch {
-        if (cancelled) return;
-        setMediaIceServers(DEFAULT_MEDIA_ICE_SERVERS);
-      } finally {
-        if (!cancelled) {
-          setIsMediaConfigReady(true);
-        }
-      }
-    };
-    void loadMediaConfig();
-    return () => {
-      cancelled = true;
-    };
-  }, [canUseMedia, isEnded, session?.kind, sessionId, user?.id]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const syncMicState = async () => {
-      if (!session || session.kind !== "CLASS" || !canUseMedia || isEnded) return;
-      if (!mediaState.micEnabled) {
-        const stream = localAudioStreamRef.current;
-        if (!stream) return;
-        stream.getAudioTracks().forEach((track) => {
-          track.enabled = false;
-        });
-        return;
-      }
-      const stream = localAudioStreamRef.current ?? (await ensureLocalAudioStream());
-      if (cancelled || !stream) return;
-      stream.getAudioTracks().forEach((track) => {
-        track.enabled = true;
-      });
-      const connections = Array.from(peerConnectionsRef.current.entries());
-      for (const [remoteUserId, connection] of connections) {
-        const updated = await syncLocalAudioTrackToConnection(connection);
-        if (updated) {
-          await createAndSendOffer(remoteUserId, connection);
-        }
-      }
-    };
-    void syncMicState();
-    return () => {
-      cancelled = true;
-    };
+    void connectLivekitRoom();
   }, [
     canUseMedia,
-    createAndSendOffer,
-    ensureLocalAudioStream,
+    connectLivekitRoom,
+    disconnectLivekitRoom,
     isEnded,
-    mediaState.micEnabled,
     session,
-    syncLocalAudioTrackToConnection,
+    session?.kind,
+    sessionId,
+    user?.id,
   ]);
+
+  useEffect(() => {
+    if (
+      !session ||
+      session.kind !== "CLASS" ||
+      !canUseMedia ||
+      isEnded ||
+      !isLivekitConnected
+    ) {
+      return;
+    }
+    void syncLivekitMicState();
+  }, [canUseMedia, isEnded, isLivekitConnected, mediaState.micEnabled, session, syncLivekitMicState]);
 
   useEffect(() => {
     if (canUseMedia || !mediaState.micEnabled) return;
@@ -3566,103 +3349,18 @@ export default function WorkbookSessionPage() {
     setSessionChatPosition({ x: 8, y: 56 });
   }, [isCompactViewport]);
 
-  useEffect(() => {
-    if (
-      !session ||
-      session.kind !== "CLASS" ||
-      !canUseMedia ||
-      isEnded ||
-      !user?.id ||
-      !isMediaConfigReady
-    ) {
-      closeAllPeerConnections();
-      if (isEnded || !session || session?.kind !== "CLASS") {
-        const stream = localAudioStreamRef.current;
-        if (stream) {
-          stream.getTracks().forEach((track) => track.stop());
-        }
-        localAudioStreamRef.current = null;
-      }
-      return;
-    }
-    const relevantParticipantIds = new Set(
-      session.participants
-        .filter((participant) => participant.isOnline)
-        .filter((participant) => participant.userId !== user.id)
-        .filter((participant) =>
-          user.role === "teacher"
-            ? participant.roleInSession === "student"
-            : participant.roleInSession === "teacher"
-        )
-        .map((participant) => participant.userId)
-    );
-
-    Array.from(peerConnectionsRef.current.keys()).forEach((peerId) => {
-      if (!relevantParticipantIds.has(peerId)) {
-        closePeerConnection(peerId);
-      }
-    });
-
-    const connectToOnlineStudents = async () => {
-      for (const participant of session.participants) {
-        if (
-          participant.userId === user.id ||
-          !participant.isOnline ||
-          !(
-            (user.role === "teacher" && participant.roleInSession === "student") ||
-            (user.role === "student" && participant.roleInSession === "teacher")
-          )
-        ) {
-          continue;
-        }
-        try {
-          const connection = await ensurePeerConnection(participant.userId);
-          if (localAudioStreamRef.current) {
-            await syncLocalAudioTrackToConnection(connection);
-          }
-          if (connection.signalingState !== "stable") continue;
-          if (connection.remoteDescription) continue;
-          const shouldInitiateOffer =
-            user.role === "teacher" || user.id.localeCompare(participant.userId) < 0;
-          if (!shouldInitiateOffer) continue;
-          await createAndSendOffer(participant.userId, connection);
-        } catch {
-          // ignore one-off connection errors and keep reconnect loop alive
-        }
-      }
-    };
-    void connectToOnlineStudents();
-  }, [
-    canUseMedia,
-    closeAllPeerConnections,
-    closePeerConnection,
-    createAndSendOffer,
-    ensurePeerConnection,
-    isMediaConfigReady,
-    isEnded,
-    session,
-    syncLocalAudioTrackToConnection,
-    user?.id,
-    user?.role,
-  ]);
-
   useEffect(
     () => () => {
-      closeAllPeerConnections();
-      const stream = localAudioStreamRef.current;
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-      localAudioStreamRef.current = null;
+      void disconnectLivekitRoom({ forceStopTracks: true });
     },
-    [closeAllPeerConnections]
+    [disconnectLivekitRoom]
   );
 
   useEffect(() => {
     if (!session || session.kind !== "CLASS" || !canUseMedia || isEnded) return;
     const resumeRemoteAudio = () => {
-      Array.from(remoteAudioElementsRef.current.values()).forEach((audio) => {
-        void audio.play().catch(() => undefined);
+      Array.from(remoteAudioBindingsRef.current.values()).forEach((binding) => {
+        void binding.element.play().catch(() => undefined);
       });
     };
     window.addEventListener("pointerdown", resumeRemoteAudio, { passive: true });

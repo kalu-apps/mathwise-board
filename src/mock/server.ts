@@ -78,6 +78,21 @@ const MEDIA_TURN_SECRET = String(process.env.MEDIA_TURN_SECRET ?? "").trim();
 const MEDIA_TURN_STATIC_USERNAME = String(process.env.MEDIA_TURN_STATIC_USERNAME ?? "").trim();
 const MEDIA_TURN_STATIC_CREDENTIAL = String(process.env.MEDIA_TURN_STATIC_CREDENTIAL ?? "").trim();
 const MEDIA_TURN_TTL_SECONDS = readPositiveInt("MEDIA_TURN_TTL_SECONDS", 3600);
+const MEDIA_LIVEKIT_WS_URL = String(process.env.MEDIA_LIVEKIT_WS_URL ?? "").trim();
+const MEDIA_LIVEKIT_API_KEY = String(process.env.MEDIA_LIVEKIT_API_KEY ?? "").trim();
+const MEDIA_LIVEKIT_API_SECRET = String(process.env.MEDIA_LIVEKIT_API_SECRET ?? "").trim();
+const MEDIA_LIVEKIT_ROOM_PREFIX = String(process.env.MEDIA_LIVEKIT_ROOM_PREFIX ?? "workbook")
+  .trim()
+  .replace(/[^a-zA-Z0-9_-]/g, "")
+  .slice(0, 32) || "workbook";
+const MEDIA_LIVEKIT_TOKEN_TTL_SECONDS = readPositiveInt(
+  "MEDIA_LIVEKIT_TOKEN_TTL_SECONDS",
+  3600
+);
+const MEDIA_LIVEKIT_ENABLED =
+  MEDIA_LIVEKIT_WS_URL.length > 0 &&
+  MEDIA_LIVEKIT_API_KEY.length > 0 &&
+  MEDIA_LIVEKIT_API_SECRET.length > 0;
 const PUBLIC_BASE_URL = String(process.env.VITE_PUBLIC_BASE_URL ?? "").trim().replace(/\/+$/g, "");
 
 type MiddlewareHost =
@@ -157,6 +172,10 @@ const forbidden = (res: ServerResponse, message = "Forbidden") => {
 
 const badRequest = (res: ServerResponse, message = "Bad request") => {
   json(res, 400, { error: message });
+};
+
+const serviceUnavailable = (res: ServerResponse, message = "Service unavailable") => {
+  json(res, 503, { error: message });
 };
 
 const parseCookies = (req: IncomingMessage): Record<string, string> => {
@@ -421,6 +440,25 @@ type WorkbookMediaIceServerPayload = {
   credentialType?: "password";
 };
 
+type WorkbookLivekitGrantPayload = {
+  roomJoin: true;
+  room: string;
+  canPublish: boolean;
+  canSubscribe: boolean;
+  canPublishData: boolean;
+};
+
+type WorkbookLivekitTokenPayload = {
+  jti: string;
+  iss: string;
+  sub: string;
+  name: string;
+  nbf: number;
+  iat: number;
+  exp: number;
+  video: WorkbookLivekitGrantPayload;
+};
+
 const buildWorkbookMediaIceConfig = (userId: string) => {
   const servers: WorkbookMediaIceServerPayload[] = [];
   if (MEDIA_STUN_URLS.length > 0) {
@@ -465,6 +503,59 @@ const buildWorkbookMediaIceConfig = (userId: string) => {
     generatedAt: nowIso(),
     ttlSeconds: MEDIA_TURN_TTL_SECONDS,
     iceServers: servers,
+  };
+};
+
+const base64UrlEncode = (value: string | Buffer) =>
+  Buffer.from(value).toString("base64url");
+
+const signJwtHs256 = (payload: WorkbookLivekitTokenPayload, secret: string) => {
+  const encodedHeader = base64UrlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+  const signature = crypto
+    .createHmac("sha256", secret)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest("base64url");
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
+};
+
+const formatUserDisplayName = (user: UserRecord) => {
+  const fullName = `${user.firstName} ${user.lastName}`.trim();
+  if (fullName.length > 0) return fullName;
+  return user.email || user.id;
+};
+
+const buildWorkbookLivekitRoomName = (sessionId: string) =>
+  `${MEDIA_LIVEKIT_ROOM_PREFIX}-${sessionId}`.slice(0, 128);
+
+const buildWorkbookLivekitTokenPayload = (
+  sessionId: string,
+  user: UserRecord,
+  canPublish: boolean
+) => {
+  const issuedAtUnix = Math.floor(nowTs() / 1000);
+  const roomName = buildWorkbookLivekitRoomName(sessionId);
+  const identity = user.id;
+  const payload: WorkbookLivekitTokenPayload = {
+    jti: ensureId(),
+    iss: MEDIA_LIVEKIT_API_KEY,
+    sub: identity,
+    name: formatUserDisplayName(user),
+    iat: issuedAtUnix,
+    nbf: issuedAtUnix - 5,
+    exp: issuedAtUnix + MEDIA_LIVEKIT_TOKEN_TTL_SECONDS,
+    video: {
+      roomJoin: true,
+      room: roomName,
+      canPublish,
+      canSubscribe: true,
+      canPublishData: true,
+    },
+  };
+  return {
+    roomName,
+    identity,
+    payload,
   };
 };
 
@@ -1593,6 +1684,57 @@ export function setupMockServer(host: MiddlewareHost) {
           return;
         }
         json(res, 200, buildWorkbookMediaIceConfig(actor.id));
+        return;
+      }
+
+      const workbookMediaLivekitTokenMatch = pathname.match(
+        /^\/api\/workbook\/sessions\/([^/]+)\/media\/livekit-token$/
+      );
+      if (workbookMediaLivekitTokenMatch && method === "GET") {
+        const actor = requireAuthUser(req, res, db);
+        if (!actor) return;
+        const sessionId = decodeURIComponent(workbookMediaLivekitTokenMatch[1]);
+        const session = getWorkbookSessionById(db, sessionId);
+        if (!session) {
+          notFound(res);
+          return;
+        }
+        const participant = getWorkbookParticipant(db, sessionId, actor.id);
+        if (!participant) {
+          forbidden(res);
+          return;
+        }
+        if (!participant.permissions.canUseMedia) {
+          forbidden(res, "media_disabled");
+          return;
+        }
+        if (!MEDIA_LIVEKIT_ENABLED) {
+          serviceUnavailable(res, "livekit_unavailable");
+          return;
+        }
+        const permissions = normalizeParticipantPermissions(
+          participant.roleInSession,
+          participant.permissions
+        );
+        const tokenConfig = buildWorkbookLivekitTokenPayload(
+          session.id,
+          actor,
+          Boolean(permissions.canUseMedia)
+        );
+        const token = signJwtHs256(tokenConfig.payload, MEDIA_LIVEKIT_API_SECRET);
+        json(res, 200, {
+          generatedAt: nowIso(),
+          ttlSeconds: MEDIA_LIVEKIT_TOKEN_TTL_SECONDS,
+          wsUrl: MEDIA_LIVEKIT_WS_URL,
+          roomName: tokenConfig.roomName,
+          participant: {
+            identity: tokenConfig.identity,
+            name: tokenConfig.payload.name,
+            canPublish: tokenConfig.payload.video.canPublish,
+            roleInSession: participant.roleInSession,
+          },
+          token,
+        });
         return;
       }
 
