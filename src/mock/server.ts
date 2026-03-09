@@ -7,34 +7,20 @@ import { promises as fsPromises } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ViteDevServer } from "vite";
 import {
-  appendWorkbookSessionEvents,
-  appendWorkbookSessionEventsWithKnownSeq,
-  copyWorkbookSessionSnapshots,
-  deleteWorkbookSessionArtifacts,
-  getWorkbookSessionLatestSeq,
   getDb,
-  readWorkbookSessionEvents,
-  readWorkbookSessionSnapshot,
   saveDb,
-  upsertWorkbookSessionSnapshot,
   type AuthSessionRecord,
   type MockDb,
-  type PersistedWorkbookEvent,
   type UserRecord,
   type WorkbookDraftRecord,
+  type WorkbookEventRecord,
   type WorkbookInviteRecord,
   type WorkbookParticipantPermissions,
   type WorkbookSessionKind,
   type WorkbookSessionParticipantRecord,
   type WorkbookSessionRecord,
+  type WorkbookSnapshotRecord,
 } from "./db";
-import {
-  allocateWorkbookRuntimeSequence,
-  getWorkbookRuntimeSequence,
-  publishWorkbookRealtimePayload,
-  subscribeWorkbookRealtimePayload,
-  type WorkbookRealtimePayload,
-} from "./runtimeServices";
 
 const execFileAsync = promisify(execFileCallback);
 
@@ -47,7 +33,6 @@ const WHITEBOARD_TEACHER_PASSWORD =
 
 const AUTH_COOKIE_NAME = "math_tutor_session";
 const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
-const AUTH_LAST_SEEN_TOUCH_INTERVAL_MS = 30_000;
 const ONLINE_TIMEOUT_MS = 20_000;
 const INVITE_TTL_MS = 2 * 60 * 60 * 1000;
 const WORKBOOK_EVENT_LIMIT = 1_200;
@@ -149,24 +134,6 @@ type WorkbookStreamClient = {
 };
 
 const workbookStreamClientsBySession = new Map<string, Map<string, WorkbookStreamClient>>();
-const workbookRealtimeUnsubscribeBySession = new Map<
-  string,
-  () => Promise<void>
->();
-const WORKBOOK_REALTIME_NODE_ID =
-  typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : `node_${Math.random().toString(36).slice(2, 10)}`;
-const WORKBOOK_EVENT_PERSIST_FLUSH_MS = 40;
-
-type PendingWorkbookPersistBatch = {
-  sessionId: string;
-  latestSeq: number;
-  events: PersistedWorkbookEvent[];
-};
-const pendingWorkbookPersistBySession = new Map<string, PendingWorkbookPersistBatch>();
-let workbookPersistTimer: NodeJS.Timeout | null = null;
-let workbookPersistInFlight = false;
 
 const nowIso = () => new Date().toISOString();
 const nowTs = () => Date.now();
@@ -366,12 +333,8 @@ const resolveAuthUser = (req: IncomingMessage, db: MockDb): UserRecord | null =>
   if (!session) return null;
   const user = db.users.find((item) => item.id === session.userId) ?? null;
   if (!user) return null;
-  const currentTs = nowTs();
-  const lastSeenTs = new Date(session.lastSeenAt).getTime();
-  if (!Number.isFinite(lastSeenTs) || currentTs - lastSeenTs >= AUTH_LAST_SEEN_TOUCH_INTERVAL_MS) {
-    session.lastSeenAt = new Date(currentTs).toISOString();
-    saveDb();
-  }
+  session.lastSeenAt = nowIso();
+  saveDb();
   return user;
 };
 
@@ -394,18 +357,18 @@ const defaultPermissions = (role: "teacher" | "student"): WorkbookParticipantPer
   }
 
   return {
-    canDraw: false,
-    canAnnotate: false,
+    canDraw: true,
+    canAnnotate: true,
     canUseMedia: true,
-    canUseChat: false,
+    canUseChat: true,
     canInvite: false,
     canManageSession: false,
-    canSelect: false,
-    canDelete: false,
-    canInsertImage: false,
+    canSelect: true,
+    canDelete: true,
+    canInsertImage: true,
     canClear: false,
     canExport: false,
-    canUseLaser: false,
+    canUseLaser: true,
   };
 };
 
@@ -470,82 +433,6 @@ const sanitizePermissionPatch = (value: unknown): Partial<WorkbookParticipantPer
   }, {});
 };
 
-const DRAW_EVENT_TYPES = new Set<string>(["board.stroke", "board.object.create"]);
-const ANNOTATE_EVENT_TYPES = new Set<string>(["annotations.stroke"]);
-const SELECT_EVENT_TYPES = new Set<string>([
-  "board.object.update",
-  "board.object.preview",
-  "board.object.pin",
-  "board.undo",
-  "board.redo",
-]);
-const DELETE_EVENT_TYPES = new Set<string>([
-  "board.object.delete",
-  "board.stroke.delete",
-  "annotations.stroke.delete",
-  "document.annotation.clear",
-]);
-const CLEAR_EVENT_TYPES = new Set<string>([
-  "board.clear",
-  "board.clear.request",
-  "board.clear.confirm",
-  "annotations.clear",
-]);
-const INSERT_EVENT_TYPES = new Set<string>([
-  "document.asset.add",
-  "document.pdf",
-  "library.item.upsert",
-  "library.item.remove",
-  "library.folder.upsert",
-  "library.folder.remove",
-  "library.template.upsert",
-  "library.template.remove",
-]);
-
-const resolveEventPermissionError = (
-  eventType: string,
-  permissions: WorkbookParticipantPermissions,
-  sessionKind: WorkbookSessionKind
-) => {
-  if (eventType === "permissions.update") {
-    return permissions.canManageSession ? null : "permissions_manage_disabled";
-  }
-  if (eventType === "media.signal") {
-    return permissions.canUseMedia ? null : "media_disabled";
-  }
-  if (eventType === "chat.message") {
-    return permissions.canUseChat ? null : "chat_disabled";
-  }
-  if (eventType === "focus.point") {
-    return permissions.canUseLaser ? null : "laser_disabled";
-  }
-  if (eventType === "timer.update") {
-    return permissions.canManageSession ? null : "timer_manage_disabled";
-  }
-  if (eventType === "board.settings.update" && sessionKind === "CLASS") {
-    return permissions.canManageSession ? null : "settings_manage_disabled";
-  }
-  if (DRAW_EVENT_TYPES.has(eventType)) {
-    return permissions.canDraw ? null : "draw_disabled";
-  }
-  if (ANNOTATE_EVENT_TYPES.has(eventType)) {
-    return permissions.canAnnotate ? null : "annotate_disabled";
-  }
-  if (SELECT_EVENT_TYPES.has(eventType)) {
-    return permissions.canSelect ? null : "select_disabled";
-  }
-  if (DELETE_EVENT_TYPES.has(eventType)) {
-    return permissions.canDelete ? null : "delete_disabled";
-  }
-  if (CLEAR_EVENT_TYPES.has(eventType)) {
-    return permissions.canClear ? null : "clear_disabled";
-  }
-  if (INSERT_EVENT_TYPES.has(eventType)) {
-    return permissions.canInsertImage ? null : "insert_disabled";
-  }
-  return null;
-};
-
 type WorkbookMediaIceServerPayload = {
   urls: string[];
   username?: string;
@@ -556,7 +443,6 @@ type WorkbookMediaIceServerPayload = {
 type WorkbookLivekitGrantPayload = {
   roomJoin: true;
   room: string;
-  roomCreate: true;
   canPublish: boolean;
   canSubscribe: boolean;
   canPublishData: boolean;
@@ -661,7 +547,6 @@ const buildWorkbookLivekitTokenPayload = (
     video: {
       roomJoin: true,
       room: roomName,
-      roomCreate: true,
       canPublish,
       canSubscribe: true,
       canPublishData: true,
@@ -685,13 +570,13 @@ const defaultSettings = (): WorkbookSettings => ({
     smartMathOcr: true,
   },
   studentControls: {
-    canDraw: false,
-    canSelect: false,
-    canDelete: false,
-    canInsertImage: false,
-    canClear: false,
+    canDraw: true,
+    canSelect: true,
+    canDelete: true,
+    canInsertImage: true,
+    canClear: true,
     canExport: false,
-    canUseLaser: false,
+    canUseLaser: true,
   },
 });
 
@@ -862,30 +747,21 @@ const closeWorkbookStreamClient = (sessionId: string, clientId: string) => {
   }
 };
 
-const maybeReleaseWorkbookRealtimeSubscription = (sessionId: string) => {
-  const sessionClients = workbookStreamClientsBySession.get(sessionId);
-  if (sessionClients && sessionClients.size > 0) return;
-  const unsubscribe = workbookRealtimeUnsubscribeBySession.get(sessionId);
-  if (!unsubscribe) return;
-  workbookRealtimeUnsubscribeBySession.delete(sessionId);
-  void unsubscribe().catch(() => undefined);
-};
-
-const closeWorkbookStreamClientAndMaybeRelease = (sessionId: string, clientId: string) => {
-  closeWorkbookStreamClient(sessionId, clientId);
-  maybeReleaseWorkbookRealtimeSubscription(sessionId);
-};
-
-type WorkbookStreamPayload = {
-  sessionId: string;
-  latestSeq: number;
-  events: PersistedWorkbookEvent[];
-  nodeId?: string;
-};
-
 const publishWorkbookStreamEvents = (
   db: MockDb,
-  payload: WorkbookStreamPayload
+  payload: {
+    sessionId: string;
+    latestSeq: number;
+    events: Array<{
+      id: string;
+      sessionId: string;
+      seq: number;
+      authorUserId: string;
+      type: string;
+      payload: unknown;
+      createdAt: string;
+    }>;
+  }
 ) => {
   const sessionClients = workbookStreamClientsBySession.get(payload.sessionId);
   if (!sessionClients || sessionClients.size === 0) return;
@@ -896,103 +772,19 @@ const publishWorkbookStreamEvents = (
       (participant) => participant.sessionId === payload.sessionId && participant.userId === client.userId
     );
     if (!hasAccess) {
-      closeWorkbookStreamClientAndMaybeRelease(payload.sessionId, clientId);
+      closeWorkbookStreamClient(payload.sessionId, clientId);
       continue;
     }
     try {
       client.res.write(chunk);
     } catch {
-      closeWorkbookStreamClientAndMaybeRelease(payload.sessionId, clientId);
+      closeWorkbookStreamClient(payload.sessionId, clientId);
     }
   }
 };
 
-const ensureWorkbookRealtimeSubscription = async (db: MockDb, sessionId: string) => {
-  if (workbookRealtimeUnsubscribeBySession.has(sessionId)) return;
-  const unsubscribe = await subscribeWorkbookRealtimePayload(sessionId, (payload) => {
-    if (payload.nodeId && payload.nodeId === WORKBOOK_REALTIME_NODE_ID) return;
-    publishWorkbookStreamEvents(db, {
-      sessionId: payload.sessionId,
-      latestSeq: payload.latestSeq,
-      events: payload.events,
-      nodeId: payload.nodeId,
-    });
-  });
-  workbookRealtimeUnsubscribeBySession.set(sessionId, unsubscribe);
-};
-
-const publishWorkbookRealtimeEvents = (payload: WorkbookStreamPayload) => {
-  const realtimePayload: WorkbookRealtimePayload = {
-    sessionId: payload.sessionId,
-    latestSeq: payload.latestSeq,
-    events: payload.events,
-    nodeId: WORKBOOK_REALTIME_NODE_ID,
-  };
-  void publishWorkbookRealtimePayload(payload.sessionId, realtimePayload).catch(() => undefined);
-};
-
-const flushWorkbookPersistQueue = async () => {
-  if (workbookPersistInFlight) return;
-  if (pendingWorkbookPersistBySession.size === 0) return;
-  workbookPersistInFlight = true;
-  const batches = Array.from(pendingWorkbookPersistBySession.values());
-  pendingWorkbookPersistBySession.clear();
-  try {
-    await Promise.all(
-      batches.map((batch) =>
-        appendWorkbookSessionEventsWithKnownSeq({
-          sessionId: batch.sessionId,
-          events: batch.events,
-          latestSeq: batch.latestSeq,
-          limit: WORKBOOK_EVENT_LIMIT,
-        })
-      )
-    );
-  } catch {
-    // put batches back for retry on transient failures
-    for (const batch of batches) {
-      const existing = pendingWorkbookPersistBySession.get(batch.sessionId);
-      if (!existing) {
-        pendingWorkbookPersistBySession.set(batch.sessionId, batch);
-        continue;
-      }
-      existing.latestSeq = Math.max(existing.latestSeq, batch.latestSeq);
-      existing.events = [...existing.events, ...batch.events].sort((left, right) => left.seq - right.seq);
-    }
-  } finally {
-    workbookPersistInFlight = false;
-    if (pendingWorkbookPersistBySession.size > 0 && workbookPersistTimer === null) {
-      workbookPersistTimer = setTimeout(() => {
-        workbookPersistTimer = null;
-        void flushWorkbookPersistQueue();
-      }, WORKBOOK_EVENT_PERSIST_FLUSH_MS);
-    }
-  }
-};
-
-const queueWorkbookPersistEvents = (payload: WorkbookStreamPayload) => {
-  if (!payload.events.length) return;
-  const existing = pendingWorkbookPersistBySession.get(payload.sessionId);
-  if (!existing) {
-    pendingWorkbookPersistBySession.set(payload.sessionId, {
-      sessionId: payload.sessionId,
-      latestSeq: payload.latestSeq,
-      events: [...payload.events],
-    });
-  } else {
-    existing.latestSeq = Math.max(existing.latestSeq, payload.latestSeq);
-    existing.events = [...existing.events, ...payload.events].sort(
-      (left, right) => left.seq - right.seq
-    );
-  }
-  if (workbookPersistTimer !== null) return;
-  workbookPersistTimer = setTimeout(() => {
-    workbookPersistTimer = null;
-    void flushWorkbookPersistQueue();
-  }, WORKBOOK_EVENT_PERSIST_FLUSH_MS);
-};
-
-const appendEvents = async (
+const appendEvents = (
+  db: MockDb,
   params: {
     sessionId: string;
     authorUserId: string;
@@ -1000,74 +792,50 @@ const appendEvents = async (
     persist?: boolean;
   }
 ) => {
-  if (params.persist === false) {
-    const dbLatestSeq = await getWorkbookSessionLatestSeq(params.sessionId);
-    const allocatedRange = await allocateWorkbookRuntimeSequence({
-      sessionId: params.sessionId,
-      count: params.events.length,
-      fallbackBaseSeq: dbLatestSeq,
-    });
-    const runtimeLatestSeq = await getWorkbookRuntimeSequence(params.sessionId);
-    const baseSeq =
-      allocatedRange?.from ??
-      Math.max(dbLatestSeq, runtimeLatestSeq ?? 0) + 1;
-    const timestamp = nowIso();
-    const events = params.events.map((event, index) => ({
+  const timestamp = nowIso();
+  const currentMaxSeq = db.workbookEvents
+    .filter((event) => event.sessionId === params.sessionId)
+    .reduce((max, event) => Math.max(max, event.seq), 0);
+
+  const appended = params.events.map((event, index) => {
+    const nextSeq = currentMaxSeq + index + 1;
+    const record: WorkbookEventRecord = {
       id: ensureId(),
       sessionId: params.sessionId,
-      seq: baseSeq + index,
+      seq: nextSeq,
       authorUserId: params.authorUserId,
       type: event.type,
-      payload: event.payload ?? null,
+      payload: JSON.stringify(event.payload ?? null),
       createdAt: timestamp,
-    }));
-    const latestSeq =
-      events.length > 0 ? events[events.length - 1].seq : Math.max(dbLatestSeq, runtimeLatestSeq ?? 0);
-    return {
-      events,
-      latestSeq,
-      timestamp,
     };
-  }
-
-  const timestamp = nowIso();
-  const dbLatestSeq = await getWorkbookSessionLatestSeq(params.sessionId);
-  const allocatedRange = await allocateWorkbookRuntimeSequence({
-    sessionId: params.sessionId,
-    count: params.events.length,
-    fallbackBaseSeq: dbLatestSeq,
+    if (params.persist !== false) {
+      db.workbookEvents.push(record);
+    }
+    return {
+      id: record.id,
+      sessionId: record.sessionId,
+      seq: record.seq,
+      authorUserId: record.authorUserId,
+      type: record.type,
+      payload: event.payload ?? null,
+      createdAt: record.createdAt,
+    };
   });
 
-  if (!allocatedRange) {
-    // Redis unavailable: fallback to direct durable write.
-    return appendWorkbookSessionEvents({
-      sessionId: params.sessionId,
-      authorUserId: params.authorUserId,
-      events: params.events,
-      limit: WORKBOOK_EVENT_LIMIT,
-    });
+  if (params.persist !== false) {
+    const sessionEvents = db.workbookEvents
+      .filter((event) => event.sessionId === params.sessionId)
+      .sort((a, b) => a.seq - b.seq);
+    if (sessionEvents.length > WORKBOOK_EVENT_LIMIT) {
+      const overflow = sessionEvents.length - WORKBOOK_EVENT_LIMIT;
+      const overflowIds = new Set(sessionEvents.slice(0, overflow).map((event) => event.id));
+      db.workbookEvents = db.workbookEvents.filter((event) => !overflowIds.has(event.id));
+    }
   }
-
-  const persistedEvents: PersistedWorkbookEvent[] = params.events.map((event, index) => ({
-    id: ensureId(),
-    sessionId: params.sessionId,
-    seq: allocatedRange.from + index,
-    authorUserId: params.authorUserId,
-    type: event.type,
-    payload: event.payload ?? null,
-    createdAt: timestamp,
-  }));
-
-  const latestSeq = allocatedRange.to;
-  queueWorkbookPersistEvents({
-    sessionId: params.sessionId,
-    latestSeq,
-    events: persistedEvents,
-  });
 
   return {
-    events: persistedEvents,
-    latestSeq,
+    events: appended,
+    latestSeq: appended[appended.length - 1]?.seq ?? currentMaxSeq,
     timestamp,
   };
 };
@@ -1200,12 +968,9 @@ const ensureParticipant = (
   if (existing) {
     existing.isActive = true;
     existing.lastSeenAt = nowIso();
-    existing.roleInSession = params.roleInSession;
-    // Preserve explicit permission changes (for example, teacher-granted media)
-    // when the participant rejoins the same session.
     existing.permissions = normalizeParticipantPermissions(
       params.roleInSession,
-      existing.permissions
+      params.permissions
     );
     return existing;
   }
@@ -1226,9 +991,8 @@ const ensureParticipant = (
 
 const parsePath = (req: IncomingMessage) => {
   const url = new URL(req.url ?? "/", "http://localhost");
-  const pathname = url.pathname.length > 1 ? url.pathname.replace(/\/+$/g, "") : url.pathname;
   return {
-    pathname,
+    pathname: url.pathname,
     searchParams: url.searchParams,
   };
 };
@@ -1503,9 +1267,9 @@ export function setupMockServer(host: MiddlewareHost) {
         );
         db.workbookDrafts = db.workbookDrafts.filter((item) => item.sessionId !== sessionId);
         db.workbookInvites = db.workbookInvites.filter((item) => item.sessionId !== sessionId);
-        await deleteWorkbookSessionArtifacts(sessionId);
+        db.workbookEvents = db.workbookEvents.filter((item) => item.sessionId !== sessionId);
+        db.workbookSnapshots = db.workbookSnapshots.filter((item) => item.sessionId !== sessionId);
         workbookStreamClientsBySession.delete(sessionId);
-        maybeReleaseWorkbookRealtimeSubscription(sessionId);
         saveDb();
         json(res, 200, {
           ok: true,
@@ -1714,10 +1478,14 @@ export function setupMockServer(host: MiddlewareHost) {
           roleInSession: actor.role === "teacher" ? "teacher" : "student",
           permissions: defaultPermissions(actor.role),
         });
-        await copyWorkbookSessionSnapshots({
-          sourceSessionId: source.id,
-          targetSessionId: session.id,
-          createdAt: timestamp,
+        const sourceSnapshots = db.workbookSnapshots.filter((item) => item.sessionId === source.id);
+        sourceSnapshots.forEach((snapshot) => {
+          db.workbookSnapshots.push({
+            ...snapshot,
+            id: ensureId(),
+            sessionId: session.id,
+            createdAt: timestamp,
+          });
         });
 
         const draft = ensureDraftForOwner(db, session, actor.id);
@@ -1936,6 +1704,10 @@ export function setupMockServer(host: MiddlewareHost) {
           forbidden(res);
           return;
         }
+        if (!participant.permissions.canUseMedia) {
+          forbidden(res, "media_disabled");
+          return;
+        }
         if (!MEDIA_LIVEKIT_ENABLED) {
           serviceUnavailable(res, "livekit_unavailable");
           return;
@@ -1977,21 +1749,22 @@ export function setupMockServer(host: MiddlewareHost) {
         }
 
         const afterSeq = Number(searchParams.get("afterSeq") ?? "0");
-        const response = await readWorkbookSessionEvents({
-          sessionId,
-          afterSeq: Number.isFinite(afterSeq) ? afterSeq : 0,
-          limit: WORKBOOK_EVENT_LIMIT,
-        });
-        const runtimeLatestSeq = await getWorkbookRuntimeSequence(sessionId);
-        const latestSeq =
-          runtimeLatestSeq === null
-            ? response.latestSeq
-            : Math.max(response.latestSeq, runtimeLatestSeq);
-        json(res, 200, {
-          sessionId,
-          latestSeq,
-          events: response.events,
-        });
+        const events = db.workbookEvents
+          .filter((event) => event.sessionId === sessionId && event.seq > (Number.isFinite(afterSeq) ? afterSeq : 0))
+          .sort((a, b) => a.seq - b.seq)
+          .slice(-WORKBOOK_EVENT_LIMIT)
+          .map((event) => ({
+            id: event.id,
+            sessionId: event.sessionId,
+            seq: event.seq,
+            authorUserId: event.authorUserId,
+            type: event.type,
+            payload: safeParseJson(event.payload, null),
+            createdAt: event.createdAt,
+          }));
+
+        const latestSeq = events[events.length - 1]?.seq ?? (Number.isFinite(afterSeq) ? afterSeq : 0);
+        json(res, 200, { sessionId, latestSeq, events });
         return;
       }
 
@@ -2020,13 +1793,12 @@ export function setupMockServer(host: MiddlewareHost) {
         }
 
         for (const event of events) {
-          const permissionError = resolveEventPermissionError(
-            event.type,
-            participant.permissions,
-            session.kind
-          );
-          if (permissionError) {
-            forbidden(res, permissionError);
+          if (event.type === "media.signal" && !participant.permissions.canUseMedia) {
+            forbidden(res, "media_disabled");
+            return;
+          }
+          if (event.type === "chat.message" && !participant.permissions.canUseChat) {
+            forbidden(res, "chat_disabled");
             return;
           }
           if (event.type !== "permissions.update") continue;
@@ -2050,10 +1822,11 @@ export function setupMockServer(host: MiddlewareHost) {
           };
         }
 
-        const appendResult = await appendEvents({
+        const appendResult = appendEvents(db, {
           sessionId,
           authorUserId: actor.id,
           events,
+          persist: true,
         });
 
         touchSessionActivity(session, appendResult.timestamp);
@@ -2061,11 +1834,6 @@ export function setupMockServer(host: MiddlewareHost) {
         saveDb();
 
         publishWorkbookStreamEvents(db, {
-          sessionId,
-          latestSeq: appendResult.latestSeq,
-          events: appendResult.events,
-        });
-        publishWorkbookRealtimeEvents({
           sessionId,
           latestSeq: appendResult.latestSeq,
           events: appendResult.events,
@@ -2108,7 +1876,7 @@ export function setupMockServer(host: MiddlewareHost) {
           return;
         }
 
-        const appendResult = await appendEvents({
+        const appendResult = appendEvents(db, {
           sessionId,
           authorUserId: actor.id,
           events: [
@@ -2123,12 +1891,11 @@ export function setupMockServer(host: MiddlewareHost) {
           persist: false,
         });
 
+        touchSessionActivity(session, appendResult.timestamp);
+        ensureDraftForOwner(db, session, actor.id).updatedAt = appendResult.timestamp;
+        saveDb();
+
         publishWorkbookStreamEvents(db, {
-          sessionId,
-          latestSeq: appendResult.latestSeq,
-          events: appendResult.events,
-        });
-        publishWorkbookRealtimeEvents({
           sessionId,
           latestSeq: appendResult.latestSeq,
           events: appendResult.events,
@@ -2160,12 +1927,11 @@ export function setupMockServer(host: MiddlewareHost) {
         const sessionClients = workbookStreamClientsBySession.get(sessionId) ?? new Map();
         sessionClients.set(clientId, { id: clientId, userId: actor.id, res });
         workbookStreamClientsBySession.set(sessionId, sessionClients);
-        await ensureWorkbookRealtimeSubscription(db, sessionId);
 
         try {
           res.write(`event: ping\\ndata: ${JSON.stringify({ ts: nowIso() })}\\n\\n`);
         } catch {
-          closeWorkbookStreamClientAndMaybeRelease(sessionId, clientId);
+          closeWorkbookStreamClient(sessionId, clientId);
           res.end();
           return;
         }
@@ -2175,14 +1941,14 @@ export function setupMockServer(host: MiddlewareHost) {
             res.write(`event: ping\\ndata: ${JSON.stringify({ ts: nowIso() })}\\n\\n`);
           } catch {
             clearInterval(heartbeat);
-            closeWorkbookStreamClientAndMaybeRelease(sessionId, clientId);
+            closeWorkbookStreamClient(sessionId, clientId);
             res.end();
           }
         }, 15_000);
 
         const cleanup = () => {
           clearInterval(heartbeat);
-          closeWorkbookStreamClientAndMaybeRelease(sessionId, clientId);
+          closeWorkbookStreamClient(sessionId, clientId);
         };
 
         req.on("close", cleanup);
@@ -2201,10 +1967,9 @@ export function setupMockServer(host: MiddlewareHost) {
           return;
         }
         const layer = searchParams.get("layer") === "annotations" ? "annotations" : "board";
-        const snapshot = await readWorkbookSessionSnapshot({
-          sessionId,
-          layer,
-        });
+        const snapshot = db.workbookSnapshots
+          .filter((item) => item.sessionId === sessionId && item.layer === layer)
+          .sort((a, b) => b.version - a.version)[0];
         if (!snapshot) {
           json(res, 200, null);
           return;
@@ -2214,7 +1979,7 @@ export function setupMockServer(host: MiddlewareHost) {
           sessionId: snapshot.sessionId,
           layer: snapshot.layer,
           version: snapshot.version,
-          payload: snapshot.payload,
+          payload: safeParseJson(snapshot.payload, null),
           createdAt: snapshot.createdAt,
         });
         return;
@@ -2237,12 +2002,29 @@ export function setupMockServer(host: MiddlewareHost) {
         const version = typeof body?.version === "number" && body.version > 0 ? body.version : 1;
         const payload = body?.payload ?? null;
 
-        const snapshot = await upsertWorkbookSessionSnapshot({
-          sessionId,
-          layer,
-          version,
-          payload,
-        });
+        const existing = db.workbookSnapshots.find(
+          (item) => item.sessionId === sessionId && item.layer === layer
+        );
+        const timestamp = nowIso();
+
+        let snapshot: WorkbookSnapshotRecord;
+        if (existing) {
+          existing.version = version;
+          existing.payload = JSON.stringify(payload);
+          existing.createdAt = timestamp;
+          snapshot = existing;
+        } else {
+          snapshot = {
+            id: ensureId(),
+            sessionId,
+            layer,
+            version,
+            payload: JSON.stringify(payload),
+            createdAt: timestamp,
+          };
+          db.workbookSnapshots.push(snapshot);
+        }
+        saveDb();
 
         json(res, 200, {
           id: snapshot.id,

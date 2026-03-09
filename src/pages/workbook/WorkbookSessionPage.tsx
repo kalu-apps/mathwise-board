@@ -181,15 +181,12 @@ import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
-const POLL_INTERVAL_MS = 220;
-const POLL_INTERVAL_STREAM_CONNECTED_MS = 450;
-const STREAM_POLL_GRACE_WINDOW_MS = 700;
+const POLL_INTERVAL_MS = 80;
+const POLL_INTERVAL_STREAM_CONNECTED_MS = 120;
 const PRESENCE_INTERVAL_MS = 3_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
-const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 80;
-const MICROPHONE_TOGGLE_TIMEOUT_MS = 9_000;
-const LIVEKIT_RECONNECT_INTERVAL_MS = 2_500;
+const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 16;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
@@ -416,13 +413,13 @@ const DEFAULT_SETTINGS: WorkbookSessionSettings = {
     smartMathOcr: false,
   },
   studentControls: {
-    canDraw: false,
-    canSelect: false,
+    canDraw: true,
+    canSelect: true,
     canDelete: false,
-    canInsertImage: false,
+    canInsertImage: true,
     canClear: false,
-    canExport: false,
-    canUseLaser: false,
+    canExport: true,
+    canUseLaser: true,
   },
 };
 
@@ -1553,7 +1550,6 @@ export default function WorkbookSessionPage() {
   const [mediaState, setMediaState] = useState({
     micEnabled: false,
   });
-  const [isMicSyncing, setIsMicSyncing] = useState(false);
   const [isLivekitConnected, setIsLivekitConnected] = useState(false);
   const [isSessionChatOpen, setIsSessionChatOpen] = useState(false);
   const [isSessionChatMinimized, setIsSessionChatMinimized] = useState(false);
@@ -1600,14 +1596,9 @@ export default function WorkbookSessionPage() {
   const redoStackRef = useRef<WorkbookSceneSnapshot[]>([]);
   const latestSeqRef = useRef(0);
   const processedEventIdsRef = useRef<Set<string>>(new Set());
-  const workbookStreamLastEventAtRef = useRef(0);
   const livekitRoomRef = useRef<Room | null>(null);
   const livekitRoomSessionIdRef = useRef<string | null>(null);
-  const livekitCanPublishRef = useRef<boolean | null>(null);
   const livekitConnectInFlightRef = useRef<Promise<void> | null>(null);
-  const livekitMicSyncInFlightRef = useRef<Promise<void> | null>(null);
-  const livekitAudioUnlockInFlightRef = useRef<Promise<void> | null>(null);
-  const desiredMicEnabledRef = useRef(false);
   const remoteAudioBindingsRef = useRef<
     Map<
       string,
@@ -1771,10 +1762,6 @@ export default function WorkbookSessionPage() {
   useEffect(() => {
     latestSeqRef.current = latestSeq;
   }, [latestSeq]);
-
-  useEffect(() => {
-    desiredMicEnabledRef.current = mediaState.micEnabled;
-  }, [mediaState.micEnabled]);
 
   const persistSessionChatReadAt = useCallback(
     (value: string | null) => {
@@ -1964,54 +1951,7 @@ export default function WorkbookSessionPage() {
         track: audioTrack,
         element,
       });
-      void element.play().catch(() => {
-        setError((current) =>
-          current && current.trim().length > 0
-            ? current
-            : "Звук заблокирован браузером. Нажмите любую кнопку на странице, чтобы включить аудио."
-        );
-      });
-    },
-    []
-  );
-
-  const ensureLivekitAudioPlayback = useCallback(
-    async (source: "system" | "gesture" = "system") => {
-      const room = livekitRoomRef.current;
-      if (!room || room.state !== ConnectionState.Connected) return;
-      if (room.canPlaybackAudio) return;
-      if (livekitAudioUnlockInFlightRef.current) {
-        await livekitAudioUnlockInFlightRef.current;
-        return;
-      }
-      const task = room
-        .startAudio()
-        .then(() => {
-          setError((current) => {
-            if (!current) return current;
-            if (
-              current.includes("Звук заблокирован браузером") ||
-              current.includes("включить аудио")
-            ) {
-              return null;
-            }
-            return current;
-          });
-        })
-        .catch(() => {
-          setError((current) => {
-            if (current && current.trim().length > 0) return current;
-            if (source === "gesture") {
-              return "Браузер блокирует аудио. Разрешите звук для вкладки и повторите.";
-            }
-            return "Звук заблокирован браузером. Нажмите любую кнопку на странице, чтобы включить аудио.";
-          });
-        })
-        .finally(() => {
-          livekitAudioUnlockInFlightRef.current = null;
-        });
-      livekitAudioUnlockInFlightRef.current = task;
-      await task;
+      void element.play().catch(() => undefined);
     },
     []
   );
@@ -2074,14 +2014,10 @@ export default function WorkbookSessionPage() {
   const disconnectLivekitRoom = useCallback(
     async (options?: { forceStopTracks?: boolean }) => {
       livekitConnectInFlightRef.current = null;
-      livekitMicSyncInFlightRef.current = null;
-      livekitAudioUnlockInFlightRef.current = null;
-      setIsMicSyncing(false);
       const room = livekitRoomRef.current;
       if (!room) {
         setIsLivekitConnected(false);
         if (options?.forceStopTracks) {
-          desiredMicEnabledRef.current = false;
           setMediaState((current) =>
             current.micEnabled ? { ...current, micEnabled: false } : current
           );
@@ -2093,10 +2029,8 @@ export default function WorkbookSessionPage() {
       await room.disconnect(options?.forceStopTracks ?? true).catch(() => undefined);
       livekitRoomRef.current = null;
       livekitRoomSessionIdRef.current = null;
-      livekitCanPublishRef.current = null;
       setIsLivekitConnected(false);
       if (options?.forceStopTracks) {
-        desiredMicEnabledRef.current = false;
         setMediaState((current) =>
           current.micEnabled ? { ...current, micEnabled: false } : current
         );
@@ -2153,29 +2087,12 @@ export default function WorkbookSessionPage() {
       room.on(RoomEvent.ConnectionStateChanged, (state) => {
         setIsLivekitConnected(state === ConnectionState.Connected);
       });
-      room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
-        if (!room.canPlaybackAudio) {
-          setError((current) =>
-            current && current.trim().length > 0
-              ? current
-              : "Звук заблокирован браузером. Нажмите любую кнопку на странице, чтобы включить аудио."
-          );
-        }
-      });
       await room.connect(tokenConfig.wsUrl, tokenConfig.token, {
         autoSubscribe: true,
       });
       livekitRoomRef.current = room;
       livekitRoomSessionIdRef.current = sessionId;
-      livekitCanPublishRef.current = Boolean(tokenConfig.participant?.canPublish);
       setIsLivekitConnected(true);
-      if (!room.canPlaybackAudio) {
-        setError((current) =>
-          current && current.trim().length > 0
-            ? current
-            : "Звук заблокирован браузером. Нажмите любую кнопку на странице, чтобы включить аудио."
-        );
-      }
     })();
     livekitConnectInFlightRef.current = task;
     try {
@@ -2196,8 +2113,6 @@ export default function WorkbookSessionPage() {
         setError(
           "Микрофон доступен только в защищённом режиме: откройте сайт по HTTPS (или localhost)."
         );
-      } else if (reason instanceof ApiError && reason.status === 403) {
-        setError("Доступ к аудио ограничен настройками урока.");
       } else if (reason instanceof ApiError && reason.status === 503) {
         setError("LiveKit не настроен на сервере. Проверьте MEDIA_LIVEKIT_* переменные.");
       } else {
@@ -2219,66 +2134,25 @@ export default function WorkbookSessionPage() {
   ]);
 
   const syncLivekitMicState = useCallback(async () => {
-    if (livekitMicSyncInFlightRef.current) {
-      await livekitMicSyncInFlightRef.current;
-      return;
-    }
-    const task = (async () => {
-      setIsMicSyncing(true);
-      try {
-        while (true) {
-          const room = livekitRoomRef.current;
-          if (!room || room.state !== ConnectionState.Connected) return;
-          const desired = desiredMicEnabledRef.current;
-          if (room.localParticipant.isMicrophoneEnabled === desired) {
-            if (desired) {
-              setError((current) => {
-                if (!current) return current;
-                return current.includes("микрофон") || current.includes("Микрофон")
-                  ? null
-                  : current;
-              });
-            }
-            return;
-          }
-          try {
-            const toggleResult = room.localParticipant.setMicrophoneEnabled(desired);
-            const timeoutResult = new Promise<never>((_, reject) => {
-              const timerId = window.setTimeout(() => {
-                reject(new Error("mic_toggle_timeout"));
-              }, MICROPHONE_TOGGLE_TIMEOUT_MS);
-              void toggleResult.finally(() => {
-                window.clearTimeout(timerId);
-              });
-            });
-            await Promise.race([toggleResult, timeoutResult]);
-          } catch (reason) {
-            if (reason instanceof Error && reason.message === "mic_toggle_timeout") {
-              setError("Микрофон не ответил вовремя. Выполняем переподключение аудио.");
-              await disconnectLivekitRoom({ forceStopTracks: true });
-              await connectLivekitRoom();
-              desiredMicEnabledRef.current = false;
-              setMediaState((current) =>
-                current.micEnabled ? { ...current, micEnabled: false } : current
-              );
-              return;
-            }
-            handleMicrophoneError(reason);
-            desiredMicEnabledRef.current = false;
-            setMediaState((current) =>
-              current.micEnabled ? { ...current, micEnabled: false } : current
-            );
-            return;
-          }
-        }
-      } finally {
-        setIsMicSyncing(false);
-        livekitMicSyncInFlightRef.current = null;
+    const room = livekitRoomRef.current;
+    if (!room || room.state !== ConnectionState.Connected) return;
+    try {
+      await room.localParticipant.setMicrophoneEnabled(mediaState.micEnabled);
+      if (mediaState.micEnabled) {
+        setError((current) => {
+          if (!current) return current;
+          return current.includes("микрофон") || current.includes("Микрофон")
+            ? null
+            : current;
+        });
       }
-    })();
-    livekitMicSyncInFlightRef.current = task;
-    await task;
-  }, [connectLivekitRoom, disconnectLivekitRoom, handleMicrophoneError]);
+    } catch (reason) {
+      handleMicrophoneError(reason);
+      setMediaState((current) =>
+        current.micEnabled ? { ...current, micEnabled: false } : current
+      );
+    }
+  }, [handleMicrophoneError, mediaState.micEnabled]);
   const boardLocked = Boolean(awaitingClearRequest);
   const canEdit = !isEnded && (canDraw || canSelect);
   const isTeacherActor = Boolean(
@@ -3144,12 +3018,6 @@ export default function WorkbookSessionPage() {
     if (!sessionId || !session) return;
     let active = true;
     const poll = async () => {
-      if (
-        isWorkbookStreamConnected &&
-        Date.now() - workbookStreamLastEventAtRef.current < STREAM_POLL_GRACE_WINDOW_MS
-      ) {
-        return;
-      }
       try {
         const response = await getWorkbookEvents(sessionId, latestSeqRef.current);
         if (!active) return;
@@ -3190,25 +3058,11 @@ export default function WorkbookSessionPage() {
   ]);
 
   useEffect(() => {
-    if (!showCollaborationPanels || isEnded) return;
-    const onUserGesture = () => {
-      void ensureLivekitAudioPlayback("gesture");
-    };
-    window.addEventListener("pointerdown", onUserGesture, { passive: true });
-    window.addEventListener("keydown", onUserGesture);
-    return () => {
-      window.removeEventListener("pointerdown", onUserGesture);
-      window.removeEventListener("keydown", onUserGesture);
-    };
-  }, [ensureLivekitAudioPlayback, isEnded, showCollaborationPanels]);
-
-  useEffect(() => {
     if (!sessionId || !session) return;
     const unsubscribe = subscribeWorkbookEventsStream({
       sessionId,
       onEvents: (payload) => {
         if (payload.sessionId !== sessionId) return;
-        workbookStreamLastEventAtRef.current = Date.now();
         const unseenEvents = filterUnseenWorkbookEvents(payload.events);
         if (unseenEvents.length > 0) {
           applyIncomingEvents(unseenEvents);
@@ -3223,12 +3077,7 @@ export default function WorkbookSessionPage() {
           setLatestSeq(nextLatest);
         }
       },
-      onConnectionChange: (connected) => {
-        if (connected) {
-          workbookStreamLastEventAtRef.current = Date.now();
-        }
-        setIsWorkbookStreamConnected(connected);
-      },
+      onConnectionChange: setIsWorkbookStreamConnected,
     });
     return () => {
       setIsWorkbookStreamConnected(false);
@@ -3317,69 +3166,24 @@ export default function WorkbookSessionPage() {
     if (
       !sessionId ||
       session?.kind !== "CLASS" ||
+      !canUseMedia ||
       isEnded ||
       !user?.id
     ) {
       void disconnectLivekitRoom({
-        forceStopTracks: isEnded || !session || session.kind !== "CLASS",
+        forceStopTracks: isEnded || !session || session.kind !== "CLASS" || !canUseMedia,
       });
       return;
     }
-    if (isLivekitConnected) return;
-    let disposed = false;
-    const tryConnect = async () => {
-      if (disposed || livekitConnectInFlightRef.current) return;
-      await connectLivekitRoom();
-    };
-    void tryConnect();
-    const timerId = window.setInterval(() => {
-      void tryConnect();
-    }, LIVEKIT_RECONNECT_INTERVAL_MS);
-    return () => {
-      disposed = true;
-      window.clearInterval(timerId);
-    };
-  }, [
-    connectLivekitRoom,
-    disconnectLivekitRoom,
-    isEnded,
-    isLivekitConnected,
-    session,
-    session?.kind,
-    sessionId,
-    user?.id,
-  ]);
-
-  useEffect(() => {
-    if (!session || session.kind !== "CLASS" || !sessionId || !user?.id || isEnded) return;
-    if (!isLivekitConnected) return;
-    if (livekitCanPublishRef.current === null) return;
-    if (livekitCanPublishRef.current === canUseMedia) return;
-    let cancelled = false;
-    void (async () => {
-      await disconnectLivekitRoom({ forceStopTracks: !canUseMedia });
-      if (cancelled || !session || session.kind !== "CLASS" || !sessionId || !user?.id || isEnded) {
-        return;
-      }
-      await connectLivekitRoom();
-      if (!cancelled && canUseMedia && desiredMicEnabledRef.current) {
-        await syncLivekitMicState();
-      }
-    })().catch(() => {
-      // errors are already reflected by connect/disconnect handlers
-    });
-    return () => {
-      cancelled = true;
-    };
+    void connectLivekitRoom();
   }, [
     canUseMedia,
     connectLivekitRoom,
     disconnectLivekitRoom,
     isEnded,
-    isLivekitConnected,
     session,
+    session?.kind,
     sessionId,
-    syncLivekitMicState,
     user?.id,
   ]);
 
@@ -3553,7 +3357,7 @@ export default function WorkbookSessionPage() {
   );
 
   useEffect(() => {
-    if (!session || session.kind !== "CLASS" || isEnded) return;
+    if (!session || session.kind !== "CLASS" || !canUseMedia || isEnded) return;
     const resumeRemoteAudio = () => {
       Array.from(remoteAudioBindingsRef.current.values()).forEach((binding) => {
         void binding.element.play().catch(() => undefined);
@@ -3565,7 +3369,7 @@ export default function WorkbookSessionPage() {
       window.removeEventListener("pointerdown", resumeRemoteAudio);
       window.removeEventListener("keydown", resumeRemoteAudio);
     };
-  }, [isEnded, session]);
+  }, [canUseMedia, isEnded, session]);
 
   const persistSnapshots = useCallback(async (options?: { silent?: boolean; force?: boolean }) => {
     if (!sessionId) return false;
@@ -3862,16 +3666,6 @@ export default function WorkbookSessionPage() {
               incomingPreviewQueuedPatchRef.current.delete(objectId);
               return;
             }
-            if (
-              error instanceof ApiError &&
-              (error.code === "forbidden" ||
-                error.code === "unauthorized" ||
-                error.code === "not_found")
-            ) {
-              void loadSession();
-              setError("Обновление отклонено сервером. Состояние доски синхронизировано заново.");
-              return;
-            }
             const isTransientError =
               error instanceof ApiError &&
               (error.code === "server_unavailable" ||
@@ -3905,7 +3699,7 @@ export default function WorkbookSessionPage() {
       }, OBJECT_UPDATE_FLUSH_INTERVAL_MS);
       objectUpdateTimersRef.current.set(objectId, timerId);
     },
-    [appendEventsAndApply, loadSession]
+    [appendEventsAndApply]
   );
 
   const clearLayerNow = useCallback(
@@ -9329,11 +9123,7 @@ export default function WorkbookSessionPage() {
                                     micEnabled: !current.micEnabled,
                                   }))
                                 }
-                                disabled={
-                                  !canUseMedia ||
-                                  isEnded ||
-                                  isMicSyncing
-                                }
+                                disabled={!canUseMedia || isEnded}
                               >
                                 {mediaState.micEnabled ? (
                                   <MicRoundedIcon fontSize="small" />
