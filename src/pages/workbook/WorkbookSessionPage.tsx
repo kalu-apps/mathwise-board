@@ -181,14 +181,15 @@ import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
-const POLL_INTERVAL_MS = 1_200;
-const POLL_INTERVAL_STREAM_CONNECTED_MS = 4_000;
-const STREAM_POLL_GRACE_WINDOW_MS = 8_000;
+const POLL_INTERVAL_MS = 350;
+const POLL_INTERVAL_STREAM_CONNECTED_MS = 900;
+const STREAM_POLL_GRACE_WINDOW_MS = 1_200;
 const PRESENCE_INTERVAL_MS = 3_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
-const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 40;
+const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 55;
 const MICROPHONE_TOGGLE_TIMEOUT_MS = 9_000;
+const LIVEKIT_RECONNECT_INTERVAL_MS = 2_500;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
@@ -3246,11 +3247,25 @@ export default function WorkbookSessionPage() {
       });
       return;
     }
-    void connectLivekitRoom();
+    if (isLivekitConnected) return;
+    let disposed = false;
+    const tryConnect = async () => {
+      if (disposed || livekitConnectInFlightRef.current) return;
+      await connectLivekitRoom();
+    };
+    void tryConnect();
+    const timerId = window.setInterval(() => {
+      void tryConnect();
+    }, LIVEKIT_RECONNECT_INTERVAL_MS);
+    return () => {
+      disposed = true;
+      window.clearInterval(timerId);
+    };
   }, [
     connectLivekitRoom,
     disconnectLivekitRoom,
     isEnded,
+    isLivekitConnected,
     session,
     session?.kind,
     sessionId,
@@ -9239,8 +9254,7 @@ export default function WorkbookSessionPage() {
                                 disabled={
                                   !canUseMedia ||
                                   isEnded ||
-                                  isMicSyncing ||
-                                  (session?.kind === "CLASS" && !isLivekitConnected)
+                                  isMicSyncing
                                 }
                               >
                                 {mediaState.micEnabled ? (

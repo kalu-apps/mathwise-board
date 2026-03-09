@@ -5591,11 +5591,11 @@ export function WorkbookCanvas({
           ? performance.now()
           : Date.now();
       const previousTs = lastRealtimeUpdateAtRef.current.get(objectId) ?? 0;
-      if (now - previousTs < 55) return;
+      if (now - previousTs < 70) return;
       const signature = toStableSignature(patch);
       const previousSignature =
         lastRealtimePatchSignatureRef.current.get(objectId) ?? "";
-      if (signature === previousSignature && now - previousTs < 180) return;
+      if (signature === previousSignature && now - previousTs < 240) return;
       lastRealtimeUpdateAtRef.current.set(objectId, now);
       lastRealtimePatchSignatureRef.current.set(objectId, signature);
       onObjectUpdate(objectId, patch, {
