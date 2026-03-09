@@ -7,19 +7,24 @@ import { promises as fsPromises } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ViteDevServer } from "vite";
 import {
+  appendWorkbookSessionEvents,
+  copyWorkbookSessionSnapshots,
+  deleteWorkbookSessionArtifacts,
+  getWorkbookSessionLatestSeq,
   getDb,
+  readWorkbookSessionEvents,
+  readWorkbookSessionSnapshot,
   saveDb,
+  upsertWorkbookSessionSnapshot,
   type AuthSessionRecord,
   type MockDb,
   type UserRecord,
   type WorkbookDraftRecord,
-  type WorkbookEventRecord,
   type WorkbookInviteRecord,
   type WorkbookParticipantPermissions,
   type WorkbookSessionKind,
   type WorkbookSessionParticipantRecord,
   type WorkbookSessionRecord,
-  type WorkbookSnapshotRecord,
 } from "./db";
 
 const execFileAsync = promisify(execFileCallback);
@@ -864,8 +869,7 @@ const publishWorkbookStreamEvents = (
   }
 };
 
-const appendEvents = (
-  db: MockDb,
+const appendEvents = async (
   params: {
     sessionId: string;
     authorUserId: string;
@@ -873,52 +877,30 @@ const appendEvents = (
     persist?: boolean;
   }
 ) => {
-  const timestamp = nowIso();
-  const currentMaxSeq = db.workbookEvents
-    .filter((event) => event.sessionId === params.sessionId)
-    .reduce((max, event) => Math.max(max, event.seq), 0);
-
-  const appended = params.events.map((event, index) => {
-    const nextSeq = currentMaxSeq + index + 1;
-    const record: WorkbookEventRecord = {
-      id: ensureId(),
-      sessionId: params.sessionId,
-      seq: nextSeq,
-      authorUserId: params.authorUserId,
-      type: event.type,
-      payload: JSON.stringify(event.payload ?? null),
-      createdAt: timestamp,
-    };
-    if (params.persist !== false) {
-      db.workbookEvents.push(record);
-    }
+  if (params.persist === false) {
+    const latestSeq = await getWorkbookSessionLatestSeq(params.sessionId);
+    const timestamp = nowIso();
     return {
-      id: record.id,
-      sessionId: record.sessionId,
-      seq: record.seq,
-      authorUserId: record.authorUserId,
-      type: record.type,
-      payload: event.payload ?? null,
-      createdAt: record.createdAt,
+      events: params.events.map((event) => ({
+        id: ensureId(),
+        sessionId: params.sessionId,
+        seq: latestSeq,
+        authorUserId: params.authorUserId,
+        type: event.type,
+        payload: event.payload ?? null,
+        createdAt: timestamp,
+      })),
+      latestSeq,
+      timestamp,
     };
-  });
-
-  if (params.persist !== false) {
-    const sessionEvents = db.workbookEvents
-      .filter((event) => event.sessionId === params.sessionId)
-      .sort((a, b) => a.seq - b.seq);
-    if (sessionEvents.length > WORKBOOK_EVENT_LIMIT) {
-      const overflow = sessionEvents.length - WORKBOOK_EVENT_LIMIT;
-      const overflowIds = new Set(sessionEvents.slice(0, overflow).map((event) => event.id));
-      db.workbookEvents = db.workbookEvents.filter((event) => !overflowIds.has(event.id));
-    }
   }
 
-  return {
-    events: appended,
-    latestSeq: appended[appended.length - 1]?.seq ?? currentMaxSeq,
-    timestamp,
-  };
+  return appendWorkbookSessionEvents({
+    sessionId: params.sessionId,
+    authorUserId: params.authorUserId,
+    events: params.events,
+    limit: WORKBOOK_EVENT_LIMIT,
+  });
 };
 
 const decodePdfDataUrl = (value: unknown) => {
@@ -1072,8 +1054,9 @@ const ensureParticipant = (
 
 const parsePath = (req: IncomingMessage) => {
   const url = new URL(req.url ?? "/", "http://localhost");
+  const pathname = url.pathname.length > 1 ? url.pathname.replace(/\/+$/g, "") : url.pathname;
   return {
-    pathname: url.pathname,
+    pathname,
     searchParams: url.searchParams,
   };
 };
@@ -1348,8 +1331,7 @@ export function setupMockServer(host: MiddlewareHost) {
         );
         db.workbookDrafts = db.workbookDrafts.filter((item) => item.sessionId !== sessionId);
         db.workbookInvites = db.workbookInvites.filter((item) => item.sessionId !== sessionId);
-        db.workbookEvents = db.workbookEvents.filter((item) => item.sessionId !== sessionId);
-        db.workbookSnapshots = db.workbookSnapshots.filter((item) => item.sessionId !== sessionId);
+        await deleteWorkbookSessionArtifacts(sessionId);
         workbookStreamClientsBySession.delete(sessionId);
         saveDb();
         json(res, 200, {
@@ -1559,14 +1541,10 @@ export function setupMockServer(host: MiddlewareHost) {
           roleInSession: actor.role === "teacher" ? "teacher" : "student",
           permissions: defaultPermissions(actor.role),
         });
-        const sourceSnapshots = db.workbookSnapshots.filter((item) => item.sessionId === source.id);
-        sourceSnapshots.forEach((snapshot) => {
-          db.workbookSnapshots.push({
-            ...snapshot,
-            id: ensureId(),
-            sessionId: session.id,
-            createdAt: timestamp,
-          });
+        await copyWorkbookSessionSnapshots({
+          sourceSessionId: source.id,
+          targetSessionId: session.id,
+          createdAt: timestamp,
         });
 
         const draft = ensureDraftForOwner(db, session, actor.id);
@@ -1785,10 +1763,6 @@ export function setupMockServer(host: MiddlewareHost) {
           forbidden(res);
           return;
         }
-        if (!participant.permissions.canUseMedia) {
-          forbidden(res, "media_disabled");
-          return;
-        }
         if (!MEDIA_LIVEKIT_ENABLED) {
           serviceUnavailable(res, "livekit_unavailable");
           return;
@@ -1830,22 +1804,16 @@ export function setupMockServer(host: MiddlewareHost) {
         }
 
         const afterSeq = Number(searchParams.get("afterSeq") ?? "0");
-        const events = db.workbookEvents
-          .filter((event) => event.sessionId === sessionId && event.seq > (Number.isFinite(afterSeq) ? afterSeq : 0))
-          .sort((a, b) => a.seq - b.seq)
-          .slice(-WORKBOOK_EVENT_LIMIT)
-          .map((event) => ({
-            id: event.id,
-            sessionId: event.sessionId,
-            seq: event.seq,
-            authorUserId: event.authorUserId,
-            type: event.type,
-            payload: safeParseJson(event.payload, null),
-            createdAt: event.createdAt,
-          }));
-
-        const latestSeq = events[events.length - 1]?.seq ?? (Number.isFinite(afterSeq) ? afterSeq : 0);
-        json(res, 200, { sessionId, latestSeq, events });
+        const response = await readWorkbookSessionEvents({
+          sessionId,
+          afterSeq: Number.isFinite(afterSeq) ? afterSeq : 0,
+          limit: WORKBOOK_EVENT_LIMIT,
+        });
+        json(res, 200, {
+          sessionId,
+          latestSeq: response.latestSeq,
+          events: response.events,
+        });
         return;
       }
 
@@ -1904,11 +1872,10 @@ export function setupMockServer(host: MiddlewareHost) {
           };
         }
 
-        const appendResult = appendEvents(db, {
+        const appendResult = await appendEvents({
           sessionId,
           authorUserId: actor.id,
           events,
-          persist: true,
         });
 
         touchSessionActivity(session, appendResult.timestamp);
@@ -1958,7 +1925,7 @@ export function setupMockServer(host: MiddlewareHost) {
           return;
         }
 
-        const appendResult = appendEvents(db, {
+        const appendResult = await appendEvents({
           sessionId,
           authorUserId: actor.id,
           events: [
@@ -1972,10 +1939,6 @@ export function setupMockServer(host: MiddlewareHost) {
           ],
           persist: false,
         });
-
-        touchSessionActivity(session, appendResult.timestamp);
-        ensureDraftForOwner(db, session, actor.id).updatedAt = appendResult.timestamp;
-        saveDb();
 
         publishWorkbookStreamEvents(db, {
           sessionId,
@@ -2049,9 +2012,10 @@ export function setupMockServer(host: MiddlewareHost) {
           return;
         }
         const layer = searchParams.get("layer") === "annotations" ? "annotations" : "board";
-        const snapshot = db.workbookSnapshots
-          .filter((item) => item.sessionId === sessionId && item.layer === layer)
-          .sort((a, b) => b.version - a.version)[0];
+        const snapshot = await readWorkbookSessionSnapshot({
+          sessionId,
+          layer,
+        });
         if (!snapshot) {
           json(res, 200, null);
           return;
@@ -2061,7 +2025,7 @@ export function setupMockServer(host: MiddlewareHost) {
           sessionId: snapshot.sessionId,
           layer: snapshot.layer,
           version: snapshot.version,
-          payload: safeParseJson(snapshot.payload, null),
+          payload: snapshot.payload,
           createdAt: snapshot.createdAt,
         });
         return;
@@ -2084,29 +2048,12 @@ export function setupMockServer(host: MiddlewareHost) {
         const version = typeof body?.version === "number" && body.version > 0 ? body.version : 1;
         const payload = body?.payload ?? null;
 
-        const existing = db.workbookSnapshots.find(
-          (item) => item.sessionId === sessionId && item.layer === layer
-        );
-        const timestamp = nowIso();
-
-        let snapshot: WorkbookSnapshotRecord;
-        if (existing) {
-          existing.version = version;
-          existing.payload = JSON.stringify(payload);
-          existing.createdAt = timestamp;
-          snapshot = existing;
-        } else {
-          snapshot = {
-            id: ensureId(),
-            sessionId,
-            layer,
-            version,
-            payload: JSON.stringify(payload),
-            createdAt: timestamp,
-          };
-          db.workbookSnapshots.push(snapshot);
-        }
-        saveDb();
+        const snapshot = await upsertWorkbookSessionSnapshot({
+          sessionId,
+          layer,
+          version,
+          payload,
+        });
 
         json(res, 200, {
           id: snapshot.id,

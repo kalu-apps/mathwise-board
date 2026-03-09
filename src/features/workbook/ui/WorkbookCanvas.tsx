@@ -837,6 +837,7 @@ const clampGraphOffsetValue = (value: number) =>
   Math.max(-999, Math.min(999, Number.isFinite(value) ? value : 0));
 
 const COORD_DELTA_EPSILON = 0.01;
+const REALTIME_META_PATCH_MAX_SIGNATURE = 8_192;
 
 const hasCoordChanged = (left: number, right: number) =>
   Math.abs(left - right) > COORD_DELTA_EPSILON;
@@ -884,8 +885,34 @@ const buildRealtimeObjectPatch = (
   if (!arePointsEqual(basePoints, previewPoints)) {
     patch.points = previewPoints;
   }
-  if (toStableSignature(base.meta ?? null) !== toStableSignature(preview.meta ?? null)) {
-    patch.meta = preview.meta;
+  const baseMetaSignature = toStableSignature(base.meta ?? null);
+  const previewMetaSignature = toStableSignature(preview.meta ?? null);
+  if (baseMetaSignature !== previewMetaSignature) {
+    const previewMeta =
+      preview.meta && typeof preview.meta === "object" && !Array.isArray(preview.meta)
+        ? (preview.meta as Record<string, unknown>)
+        : null;
+    const baseMeta =
+      base.meta && typeof base.meta === "object" && !Array.isArray(base.meta)
+        ? (base.meta as Record<string, unknown>)
+        : null;
+
+    // For 3D objects stream only live camera/view deltas; full 3D state is committed on finalize.
+    if (preview.type === "solid3d" && previewMeta) {
+      const previewView =
+        previewMeta.view && typeof previewMeta.view === "object" && !Array.isArray(previewMeta.view)
+          ? (previewMeta.view as Record<string, unknown>)
+          : null;
+      const baseView =
+        baseMeta?.view && typeof baseMeta.view === "object" && !Array.isArray(baseMeta.view)
+          ? (baseMeta.view as Record<string, unknown>)
+          : null;
+      if (toStableSignature(baseView ?? null) !== toStableSignature(previewView ?? null)) {
+        patch.meta = { view: previewView ?? null };
+      }
+    } else if (previewMetaSignature.length <= REALTIME_META_PATCH_MAX_SIGNATURE) {
+      patch.meta = preview.meta;
+    }
   }
   return Object.keys(patch).length > 0 ? patch : null;
 };

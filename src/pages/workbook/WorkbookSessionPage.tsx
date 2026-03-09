@@ -182,7 +182,7 @@ import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
 const POLL_INTERVAL_MS = 220;
-const POLL_INTERVAL_STREAM_CONNECTED_MS = 2_500;
+const POLL_INTERVAL_STREAM_CONNECTED_MS = 450;
 const PRESENCE_INTERVAL_MS = 3_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
@@ -1599,6 +1599,7 @@ export default function WorkbookSessionPage() {
   const processedEventIdsRef = useRef<Set<string>>(new Set());
   const livekitRoomRef = useRef<Room | null>(null);
   const livekitRoomSessionIdRef = useRef<string | null>(null);
+  const livekitCanPublishRef = useRef<boolean | null>(null);
   const livekitConnectInFlightRef = useRef<Promise<void> | null>(null);
   const livekitMicSyncInFlightRef = useRef<Promise<void> | null>(null);
   const desiredMicEnabledRef = useRef(false);
@@ -2039,6 +2040,7 @@ export default function WorkbookSessionPage() {
       await room.disconnect(options?.forceStopTracks ?? true).catch(() => undefined);
       livekitRoomRef.current = null;
       livekitRoomSessionIdRef.current = null;
+      livekitCanPublishRef.current = null;
       setIsLivekitConnected(false);
       if (options?.forceStopTracks) {
         desiredMicEnabledRef.current = false;
@@ -2103,6 +2105,7 @@ export default function WorkbookSessionPage() {
       });
       livekitRoomRef.current = room;
       livekitRoomSessionIdRef.current = sessionId;
+      livekitCanPublishRef.current = Boolean(tokenConfig.participant?.canPublish);
       setIsLivekitConnected(true);
     })();
     livekitConnectInFlightRef.current = task;
@@ -2124,6 +2127,8 @@ export default function WorkbookSessionPage() {
         setError(
           "Микрофон доступен только в защищённом режиме: откройте сайт по HTTPS (или localhost)."
         );
+      } else if (reason instanceof ApiError && reason.status === 403) {
+        setError("Доступ к аудио ограничен настройками урока.");
       } else if (reason instanceof ApiError && reason.status === 503) {
         setError("LiveKit не настроен на сервере. Проверьте MEDIA_LIVEKIT_* переменные.");
       } else {
@@ -3199,24 +3204,55 @@ export default function WorkbookSessionPage() {
     if (
       !sessionId ||
       session?.kind !== "CLASS" ||
-      !canUseMedia ||
       isEnded ||
       !user?.id
     ) {
       void disconnectLivekitRoom({
-        forceStopTracks: isEnded || !session || session.kind !== "CLASS" || !canUseMedia,
+        forceStopTracks: isEnded || !session || session.kind !== "CLASS",
       });
       return;
     }
     void connectLivekitRoom();
   }, [
-    canUseMedia,
     connectLivekitRoom,
     disconnectLivekitRoom,
     isEnded,
     session,
     session?.kind,
     sessionId,
+    user?.id,
+  ]);
+
+  useEffect(() => {
+    if (!session || session.kind !== "CLASS" || !sessionId || !user?.id || isEnded) return;
+    if (!isLivekitConnected) return;
+    if (livekitCanPublishRef.current === null) return;
+    if (livekitCanPublishRef.current === canUseMedia) return;
+    let cancelled = false;
+    void (async () => {
+      await disconnectLivekitRoom({ forceStopTracks: !canUseMedia });
+      if (cancelled || !session || session.kind !== "CLASS" || !sessionId || !user?.id || isEnded) {
+        return;
+      }
+      await connectLivekitRoom();
+      if (!cancelled && canUseMedia && desiredMicEnabledRef.current) {
+        await syncLivekitMicState();
+      }
+    })().catch(() => {
+      // errors are already reflected by connect/disconnect handlers
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    canUseMedia,
+    connectLivekitRoom,
+    disconnectLivekitRoom,
+    isEnded,
+    isLivekitConnected,
+    session,
+    sessionId,
+    syncLivekitMicState,
     user?.id,
   ]);
 
