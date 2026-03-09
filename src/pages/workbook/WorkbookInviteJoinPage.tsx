@@ -29,13 +29,17 @@ export default function WorkbookInviteJoinPage() {
   const [guestName, setGuestName] = useState("");
   const [guestNameError, setGuestNameError] = useState<string | null>(null);
   const shouldCollectGuestName = !user || user.role !== "teacher";
-
-  useEffect(() => {
-    if (!user || user.role === "teacher") return;
-    const suggestedName = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim();
-    if (!suggestedName) return;
-    setGuestName((current) => (current.trim().length > 0 ? current : suggestedName));
-  }, [user]);
+  const suggestedGuestName = useMemo(
+    () =>
+      !user || user.role === "teacher"
+        ? ""
+        : `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(),
+    [user]
+  );
+  const effectiveGuestName = useMemo(
+    () => (guestName.trim().length > 0 ? guestName.trim() : suggestedGuestName.trim()),
+    [guestName, suggestedGuestName]
+  );
 
   const canJoin = useMemo(
     () =>
@@ -43,9 +47,9 @@ export default function WorkbookInviteJoinPage() {
         token &&
           !state.loading &&
           !state.error &&
-          (!shouldCollectGuestName || guestName.trim().length >= 2)
+          (!shouldCollectGuestName || effectiveGuestName.length >= 2)
       ),
-    [guestName, shouldCollectGuestName, state.error, state.loading, token]
+    [effectiveGuestName.length, shouldCollectGuestName, state.error, state.loading, token]
   );
 
   useEffect(() => {
@@ -110,7 +114,7 @@ export default function WorkbookInviteJoinPage() {
 
   const handleJoin = async () => {
     if (!token) return;
-    const guestDisplayName = guestName.trim();
+    const guestDisplayName = effectiveGuestName;
     if (shouldCollectGuestName && guestDisplayName.length < 2) {
       setGuestNameError(t("workbookInvite.guestNameRequired"));
       return;
@@ -185,7 +189,7 @@ export default function WorkbookInviteJoinPage() {
                 <TextField
                   size="small"
                   label={t("workbookInvite.guestNameLabel")}
-                  value={guestName}
+                  value={guestName.length > 0 ? guestName : suggestedGuestName}
                   onChange={(event) => {
                     setGuestName(event.target.value);
                     if (guestNameError) setGuestNameError(null);
