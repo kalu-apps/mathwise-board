@@ -168,7 +168,9 @@ const getSessionLatestSeq = (db: MockDb, sessionId: string) =>
     .filter((event) => event.sessionId === sessionId)
     .reduce((max, event) => Math.max(max, event.seq), 0);
 const isVolatileWorkbookEventType = (type: string) =>
-  type === "board.object.preview" || type === "presence.sync";
+  type === "board.object.preview" ||
+  type === "board.viewport.sync" ||
+  type === "presence.sync";
 
 const persistPresenceIfNeeded = (
   participant: WorkbookSessionParticipantRecord,

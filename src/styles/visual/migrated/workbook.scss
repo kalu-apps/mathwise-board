@@ -445,6 +445,33 @@
   width: 64px;
 }
 
+.workbook-session__menu-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 230px;
+  color: var(--text-primary);
+
+  span {
+    color: var(--text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  input[type="range"] {
+    flex: 1 1 auto;
+    min-width: 120px;
+  }
+
+  strong {
+    min-width: 28px;
+    text-align: right;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+}
+
 .workbook-session__board-shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

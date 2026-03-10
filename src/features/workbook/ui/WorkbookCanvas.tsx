@@ -82,10 +82,7 @@ type WorkbookCanvasProps = {
   forcePanMode?: boolean;
   autoDividerStep?: number;
   autoDividersEnabled?: boolean;
-  areaSelection?: {
-    objectIds: string[];
-    rect: { x: number; y: number; width: number; height: number };
-  } | null;
+  areaSelection?: WorkbookCanvasAreaSelection | null;
   solid3dPointPick?: {
     objectId: string;
     sectionId: string;
@@ -152,12 +149,10 @@ type WorkbookCanvasProps = {
     objectId: string;
     point: Solid3dSectionPoint;
   }) => void;
-  onAreaSelectionChange?: (selection: {
-    objectIds: string[];
-    rect: { x: number; y: number; width: number; height: number };
-  } | null) => void;
+  onAreaSelectionChange?: (selection: WorkbookCanvasAreaSelection | null) => void;
   onAreaSelectionContextMenu?: (payload: {
     objectIds: string[];
+    strokeIds: Array<{ id: string; layer: WorkbookLayer }>;
     rect: { x: number; y: number; width: number; height: number };
     anchor: { x: number; y: number };
   }) => void;
@@ -165,9 +160,16 @@ type WorkbookCanvasProps = {
   onRequestSelectTool?: () => void;
   onLaserPoint: (point: WorkbookPoint) => void;
   onLaserClear?: () => void;
+  onEraserRadiusChange?: (nextRadius: number) => void;
 };
 
 type Rect = { x: number; y: number; width: number; height: number };
+
+type WorkbookCanvasAreaSelection = {
+  objectIds: string[];
+  strokeIds: Array<{ id: string; layer: WorkbookLayer }>;
+  rect: { x: number; y: number; width: number; height: number };
+};
 
 type ShapeDraft = {
   tool:
@@ -351,6 +353,33 @@ const rectIntersects = (a: Rect, b: Rect) =>
   a.x + a.width >= b.x &&
   a.y <= b.y + b.height &&
   a.y + a.height >= b.y;
+
+const getStrokeRect = (stroke: WorkbookStroke): Rect | null => {
+  if (!Array.isArray(stroke.points) || stroke.points.length === 0) return null;
+  let minX = stroke.points[0].x;
+  let maxX = stroke.points[0].x;
+  let minY = stroke.points[0].y;
+  let maxY = stroke.points[0].y;
+  stroke.points.forEach((point) => {
+    minX = Math.min(minX, point.x);
+    maxX = Math.max(maxX, point.x);
+    minY = Math.min(minY, point.y);
+    maxY = Math.max(maxY, point.y);
+  });
+  const padding = Math.max(3, (stroke.width ?? 2) / 2 + 2);
+  return {
+    x: minX - padding,
+    y: minY - padding,
+    width: Math.max(1, maxX - minX) + padding * 2,
+    height: Math.max(1, maxY - minY) + padding * 2,
+  };
+};
+
+const circleIntersectsRect = (center: WorkbookPoint, radius: number, rect: Rect) => {
+  const nearestX = Math.max(rect.x, Math.min(center.x, rect.x + rect.width));
+  const nearestY = Math.max(rect.y, Math.min(center.y, rect.y + rect.height));
+  return Math.hypot(center.x - nearestX, center.y - nearestY) <= radius;
+};
 
 const ROUND_SOLID_PRESETS = new Set([
   "cylinder",
@@ -1011,6 +1040,7 @@ export function WorkbookCanvas({
   onRequestSelectTool,
   onLaserPoint,
   onLaserClear,
+  onEraserRadiusChange,
 }: WorkbookCanvasProps) {
   const [containerNode, setContainerNode] = useState<HTMLDivElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
@@ -1031,6 +1061,10 @@ export function WorkbookCanvas({
   const [areaSelectionDraft, setAreaSelectionDraft] = useState<AreaSelectionDraft | null>(null);
   const [areaSelectionResize, setAreaSelectionResize] =
     useState<AreaSelectionResizeState | null>(null);
+  const [erasing, setErasing] = useState(false);
+  const [eraserCursorPoint, setEraserCursorPoint] = useState<WorkbookPoint | null>(null);
+  const erasedStrokeIdsRef = useRef<Set<string>>(new Set());
+  const erasedObjectIdsRef = useRef<Set<string>>(new Set());
   const [inlineTextEdit, setInlineTextEdit] = useState<{
     objectId: string;
     value: string;
@@ -1512,6 +1546,77 @@ export function WorkbookCanvas({
       return null;
     },
     [allStrokes]
+  );
+
+  const isStrokeErasedByCircle = useCallback(
+    (stroke: WorkbookStroke, center: WorkbookPoint, radius: number) => {
+      if (!stroke.points.length) return false;
+      const strokeRect = getStrokeRect(stroke);
+      if (strokeRect && !circleIntersectsRect(center, radius, strokeRect)) {
+        return false;
+      }
+      const threshold = Math.max(2, radius + (stroke.width ?? 2) / 2);
+      if (stroke.points.length === 1) {
+        return Math.hypot(center.x - stroke.points[0].x, center.y - stroke.points[0].y) <= threshold;
+      }
+      for (let index = 0; index < stroke.points.length - 1; index += 1) {
+        if (distanceToSegment(center, stroke.points[index], stroke.points[index + 1]) <= threshold) {
+          return true;
+        }
+      }
+      return false;
+    },
+    []
+  );
+
+  const isObjectErasedByCircle = useCallback(
+    (object: WorkbookBoardObject, center: WorkbookPoint, radius: number) => {
+      if (object.pinned || object.locked) return false;
+      const objectRect = getObjectRect(object);
+      if (!circleIntersectsRect(center, radius, objectRect)) return false;
+      if (isObjectHit(object, center)) return true;
+      const sampleCount = 16;
+      for (let index = 0; index < sampleCount; index += 1) {
+        const angle = (Math.PI * 2 * index) / sampleCount;
+        const perimeterPoint = {
+          x: center.x + Math.cos(angle) * radius,
+          y: center.y + Math.sin(angle) * radius,
+        };
+        if (isObjectHit(object, perimeterPoint)) {
+          return true;
+        }
+      }
+      return false;
+    },
+    [isObjectHit]
+  );
+
+  const eraseAtPoint = useCallback(
+    (center: WorkbookPoint) => {
+      const radius = Math.max(4, width);
+      allStrokes.forEach((stroke) => {
+        const key = `${stroke.layer}:${stroke.id}`;
+        if (erasedStrokeIdsRef.current.has(key)) return;
+        if (!isStrokeErasedByCircle(stroke, center, radius)) return;
+        erasedStrokeIdsRef.current.add(key);
+        onStrokeDelete(stroke.id, stroke.layer);
+      });
+      boardObjects.forEach((object) => {
+        if (erasedObjectIdsRef.current.has(object.id)) return;
+        if (!isObjectErasedByCircle(object, center, radius)) return;
+        erasedObjectIdsRef.current.add(object.id);
+        onObjectDelete(object.id);
+      });
+    },
+    [
+      allStrokes,
+      boardObjects,
+      isObjectErasedByCircle,
+      isStrokeErasedByCircle,
+      onObjectDelete,
+      onStrokeDelete,
+      width,
+    ]
   );
 
   const resolveSolid3dPointAtPointer = useCallback(
@@ -2325,7 +2430,7 @@ export function WorkbookCanvas({
       }
       if (
         areaSelection &&
-        areaSelection.objectIds.length > 0 &&
+        (areaSelection.objectIds.length > 0 || areaSelection.strokeIds.length > 0) &&
         isInsideRect(point, areaSelection.rect)
       ) {
         const groupedTargets = boardObjects.filter((object) =>
@@ -2371,7 +2476,18 @@ export function WorkbookCanvas({
       return;
     }
 
-    if (tool === "pen" || tool === "highlighter" || tool === "eraser") {
+    if (tool === "eraser") {
+      pointerIdRef.current = event.pointerId;
+      erasedStrokeIdsRef.current.clear();
+      erasedObjectIdsRef.current.clear();
+      setErasing(true);
+      setEraserCursorPoint(point);
+      eraseAtPoint(point);
+      svg.setPointerCapture(event.pointerId);
+      return;
+    }
+
+    if (tool === "pen" || tool === "highlighter") {
       startStroke(event, svg);
       return;
     }
@@ -2411,15 +2527,19 @@ export function WorkbookCanvas({
   };
 
   const continueInteraction = (event: PointerEvent<SVGSVGElement>) => {
+    const svg = event.currentTarget ?? null;
+    if (!svg) return;
+
+    if (tool === "eraser") {
+      const hoverPoint = mapPointer(svg, event.clientX, event.clientY, false, false);
+      setEraserCursorPoint(hoverPoint);
+    }
+
     if (tool === "polygon" && polygonMode === "points" && !panning && !forcePanMode) {
-      const svg = event.currentTarget ?? null;
-      if (!svg) return;
       setPolygonHoverPoint(mapPointer(svg, event.clientX, event.clientY, true));
       return;
     }
     if (pointerIdRef.current !== event.pointerId) return;
-    const svg = event.currentTarget ?? null;
-    if (!svg) return;
     if (event.pointerType !== "mouse") {
       event.preventDefault();
     }
@@ -2485,6 +2605,11 @@ export function WorkbookCanvas({
 
     if (areaSelectionDraft) {
       setAreaSelectionDraft((prev) => (prev ? { ...prev, current: point } : prev));
+      return;
+    }
+
+    if (erasing && tool === "eraser") {
+      eraseAtPoint(point);
       return;
     }
 
@@ -2793,6 +2918,7 @@ export function WorkbookCanvas({
       if (moving.object.id === "__area-selection__" && areaSelection) {
         onAreaSelectionChange?.({
           objectIds: targets.map((target) => target.id),
+          strokeIds: areaSelection.strokeIds,
           rect: {
             x: areaSelection.rect.x + deltaX,
             y: areaSelection.rect.y + deltaY,
@@ -3091,7 +3217,13 @@ export function WorkbookCanvas({
     if (event.pointerType !== "mouse") {
       event.preventDefault();
     }
-    if (strokePointsRef.current.length > 0 || points.length > 0) {
+    if (erasing) {
+      const point = mapPointer(svg, event.clientX, event.clientY, false, false);
+      eraseAtPoint(point);
+      setErasing(false);
+      erasedStrokeIdsRef.current.clear();
+      erasedObjectIdsRef.current.clear();
+    } else if (strokePointsRef.current.length > 0 || points.length > 0) {
       finishStroke(event, svg);
     } else if (shapeDraft) {
       finishShape();
@@ -3108,10 +3240,17 @@ export function WorkbookCanvas({
         const objectIds = boardObjects
           .filter((object) => rectIntersects(getObjectRect(object), nextRect))
           .map((object) => object.id);
+        const strokeIds = allStrokes
+          .filter((stroke) => {
+            const strokeRect = getStrokeRect(stroke);
+            return strokeRect ? rectIntersects(strokeRect, nextRect) : false;
+          })
+          .map((stroke) => ({ id: stroke.id, layer: stroke.layer }));
         onAreaSelectionChange?.(
-          objectIds.length > 0
+          objectIds.length > 0 || strokeIds.length > 0
             ? {
                 objectIds,
+                strokeIds,
                 rect: nextRect,
               }
             : null
@@ -3127,10 +3266,17 @@ export function WorkbookCanvas({
         const objectIds = boardObjects
           .filter((object) => rectIntersects(getObjectRect(object), nextRect))
           .map((object) => object.id);
+        const strokeIds = allStrokes
+          .filter((stroke) => {
+            const strokeRect = getStrokeRect(stroke);
+            return strokeRect ? rectIntersects(strokeRect, nextRect) : false;
+          })
+          .map((stroke) => ({ id: stroke.id, layer: stroke.layer }));
         onAreaSelectionChange?.(
-          objectIds.length > 0
+          objectIds.length > 0 || strokeIds.length > 0
             ? {
                 objectIds,
+                strokeIds,
                 rect: nextRect,
               }
             : null
@@ -5718,6 +5864,13 @@ export function WorkbookCanvas({
 
   const handleWheel = (event: WheelEvent<SVGSVGElement>) => {
     if (disabled) return;
+    if (tool === "eraser" && onEraserRadiusChange) {
+      event.preventDefault();
+      const delta = event.deltaY < 0 ? 2 : -2;
+      const nextRadius = Math.max(4, Math.min(160, width + delta));
+      onEraserRadiusChange(nextRadius);
+      return;
+    }
     if (!event.ctrlKey && !event.metaKey) return;
     if (!selectedObjectId) return;
     const selectedObject = boardObjects.find((object) => object.id === selectedObjectId);
@@ -5763,12 +5916,13 @@ export function WorkbookCanvas({
 
   const panModeEnabled = tool === "pan" || forcePanMode;
   const graphModeEnabled = tool === "function_graph";
+  const eraserModeEnabled = tool === "eraser";
 
   return (
     <div
       className={`workbook-session__canvas ${panModeEnabled ? "is-pan-mode" : ""} ${
         graphModeEnabled ? "is-graph-mode" : ""
-      }`}
+      } ${eraserModeEnabled ? "is-eraser-mode" : ""}`}
       ref={setContainerNode}
       style={canvasStyle}
     >
@@ -5781,6 +5935,7 @@ export function WorkbookCanvas({
           touchAction: "none",
           userSelect: "none",
           WebkitUserSelect: "none",
+          cursor: eraserModeEnabled ? "none" : undefined,
         }}
         onPointerDown={startInteraction}
         onPointerMove={continueInteraction}
@@ -5800,12 +5955,13 @@ export function WorkbookCanvas({
           if (tool === "area_select") {
             if (
               areaSelection &&
-              areaSelection.objectIds.length > 0 &&
+              (areaSelection.objectIds.length > 0 || areaSelection.strokeIds.length > 0) &&
               isInsideRect(point, areaSelection.rect)
             ) {
               event.preventDefault();
               onAreaSelectionContextMenu?.({
                 objectIds: areaSelection.objectIds,
+                strokeIds: areaSelection.strokeIds,
                 rect: areaSelection.rect,
                 anchor: { x: event.clientX, y: event.clientY },
               });
@@ -5937,6 +6093,9 @@ export function WorkbookCanvas({
         onPointerLeave={() => {
           if (tool === "polygon" && polygonMode === "points") {
             setPolygonHoverPoint(null);
+          }
+          if (tool === "eraser") {
+            setEraserCursorPoint(null);
           }
         }}
       >
@@ -6211,6 +6370,26 @@ export function WorkbookCanvas({
             fill="none"
             opacity={tool === "highlighter" ? 0.5 : 1}
           />
+        ) : null}
+
+        {tool === "eraser" && eraserCursorPoint ? (
+          <g pointerEvents="none">
+            <circle
+              cx={eraserCursorPoint.x}
+              cy={eraserCursorPoint.y}
+              r={Math.max(4, width)}
+              fill="rgba(79, 99, 255, 0.08)"
+              stroke="#4f63ff"
+              strokeWidth={1.1}
+              strokeDasharray="5 4"
+            />
+            <circle
+              cx={eraserCursorPoint.x}
+              cy={eraserCursorPoint.y}
+              r={1.5}
+              fill="#4f63ff"
+            />
+          </g>
         ) : null}
 
         {areaSelection ? (

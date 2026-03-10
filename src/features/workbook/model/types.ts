@@ -54,6 +54,7 @@ export type WorkbookStroke = {
   width: number;
   tool: WorkbookTool;
   points: WorkbookPoint[];
+  page?: number;
   authorUserId: string;
   createdAt: string;
 };
@@ -402,6 +403,7 @@ export type WorkbookEventType =
   | "board.stroke.delete"
   | "board.object.create"
   | "board.object.preview"
+  | "board.viewport.sync"
   | "presence.sync"
   | "board.object.update"
   | "board.object.delete"

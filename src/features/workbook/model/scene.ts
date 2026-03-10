@@ -115,6 +115,7 @@ const normalizeStroke = (raw: unknown): WorkbookStroke | null => {
     width?: unknown;
     tool?: unknown;
     points?: unknown;
+    page?: unknown;
     authorUserId?: unknown;
     createdAt?: unknown;
   };
@@ -143,6 +144,7 @@ const normalizeStroke = (raw: unknown): WorkbookStroke | null => {
     width,
     tool,
     points,
+    page: Math.max(1, toSafeInt(source.page, 1)),
     authorUserId,
     createdAt,
   };

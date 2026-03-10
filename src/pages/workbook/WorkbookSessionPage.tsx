@@ -55,6 +55,7 @@ import FiberManualRecordRoundedIcon from "@mui/icons-material/FiberManualRecordR
 import PentagonRoundedIcon from "@mui/icons-material/PentagonRounded";
 import TextFieldsRoundedIcon from "@mui/icons-material/TextFieldsRounded";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
+import BackspaceRoundedIcon from "@mui/icons-material/BackspaceRounded";
 import MyLocationRoundedIcon from "@mui/icons-material/MyLocationRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import AutoFixHighRoundedIcon from "@mui/icons-material/AutoFixHighRounded";
@@ -68,7 +69,6 @@ import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
 import FilterCenterFocusRoundedIcon from "@mui/icons-material/FilterCenterFocusRounded";
 import SaveAltRoundedIcon from "@mui/icons-material/SaveAltRounded";
-import StickyNote2RoundedIcon from "@mui/icons-material/StickyNote2Rounded";
 import ViewInArRoundedIcon from "@mui/icons-material/ViewInArRounded";
 import ZoomInRoundedIcon from "@mui/icons-material/ZoomInRounded";
 import ZoomOutRoundedIcon from "@mui/icons-material/ZoomOutRounded";
@@ -188,6 +188,12 @@ const PRESENCE_INTERVAL_MS = 1_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
 const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 16;
+const VIEWPORT_SYNC_FLUSH_INTERVAL_MS = 28;
+const VIEWPORT_SYNC_EPSILON = 0.2;
+const ERASER_RADIUS_MIN = 4;
+const ERASER_RADIUS_MAX = 160;
+const EXPORT_BOUNDS_PADDING = 48;
+const MAX_EXPORT_CANVAS_SIDE = 8192;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
@@ -406,6 +412,7 @@ const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
 
 const VOLATILE_WORKBOOK_EVENT_TYPES = new Set<WorkbookEvent["type"]>([
   "board.object.preview",
+  "board.viewport.sync",
   "presence.sync",
 ]);
 
@@ -915,6 +922,103 @@ const getPointsBounds = (points: WorkbookPoint[]) => {
   };
 };
 
+type WorkbookExportBounds = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  width: number;
+  height: number;
+};
+
+const mergeExportBounds = (
+  left: WorkbookExportBounds | null,
+  right: WorkbookExportBounds | null
+) => {
+  if (!left) return right;
+  if (!right) return left;
+  const minX = Math.min(left.minX, right.minX);
+  const minY = Math.min(left.minY, right.minY);
+  const maxX = Math.max(left.maxX, right.maxX);
+  const maxY = Math.max(left.maxY, right.maxY);
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+};
+
+const padExportBounds = (bounds: WorkbookExportBounds, padding: number): WorkbookExportBounds => {
+  const safePadding = Math.max(0, padding);
+  const minX = bounds.minX - safePadding;
+  const minY = bounds.minY - safePadding;
+  const maxX = bounds.maxX + safePadding;
+  const maxY = bounds.maxY + safePadding;
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+};
+
+const getStrokeExportBounds = (stroke: WorkbookStroke): WorkbookExportBounds | null => {
+  if (!Array.isArray(stroke.points) || stroke.points.length === 0) return null;
+  const pointsBounds = getPointsBounds(stroke.points);
+  const width = Math.max(1, stroke.width ?? 1);
+  const halfWidth = width / 2;
+  const minX = pointsBounds.minX - halfWidth;
+  const minY = pointsBounds.minY - halfWidth;
+  const maxX = pointsBounds.maxX + halfWidth;
+  const maxY = pointsBounds.maxY + halfWidth;
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+};
+
+const getObjectExportBounds = (object: WorkbookBoardObject): WorkbookExportBounds => {
+  const left = Math.min(object.x, object.x + object.width);
+  const right = Math.max(object.x, object.x + object.width);
+  const top = Math.min(object.y, object.y + object.height);
+  const bottom = Math.max(object.y, object.y + object.height);
+  const pointsBounds =
+    Array.isArray(object.points) && object.points.length > 0
+      ? getPointsBounds(object.points)
+      : null;
+  const baseBounds = pointsBounds
+    ? mergeExportBounds(
+        {
+          minX: left,
+          minY: top,
+          maxX: right,
+          maxY: bottom,
+          width: Math.max(1, right - left),
+          height: Math.max(1, bottom - top),
+        },
+        pointsBounds
+      )
+    : {
+        minX: left,
+        minY: top,
+        maxX: right,
+        maxY: bottom,
+        width: Math.max(1, right - left),
+        height: Math.max(1, bottom - top),
+      };
+  const strokePadding = Math.max(1, (object.strokeWidth ?? 1) / 2);
+  return padExportBounds(baseBounds ?? { minX: left, minY: top, maxX: right, maxY: bottom, width: 1, height: 1 }, strokePadding);
+};
+
 type ConnectedFigureKind =
   | "segment"
   | "triangle"
@@ -1400,6 +1504,17 @@ type WorkbookSceneSnapshot = {
   documentState: WorkbookDocumentState;
 };
 
+type WorkbookAreaSelection = {
+  objectIds: string[];
+  strokeIds: Array<{ id: string; layer: WorkbookLayer }>;
+  rect: { x: number; y: number; width: number; height: number };
+};
+
+type WorkbookAreaSelectionClipboard = {
+  objects: WorkbookBoardObject[];
+  strokes: WorkbookStroke[];
+};
+
 export default function WorkbookSessionPage() {
   const { user, openAuthModal } = useAuth();
   const { sessionId = "" } = useParams();
@@ -1450,7 +1565,6 @@ export default function WorkbookSessionPage() {
     "catalog"
   );
   const [dividerWidthDraft, setDividerWidthDraft] = useState(2);
-  const [noteDraftText, setNoteDraftText] = useState("Заметка");
   const [solid3dInspectorTab, setSolid3dInspectorTab] = useState<"figure" | "section">(
     "section"
   );
@@ -1480,10 +1594,8 @@ export default function WorkbookSessionPage() {
     typeof window !== "undefined" ? window.innerWidth <= 760 : false
   );
   const [utilityTab, setUtilityTab] = useState<
-    "settings" | "notes" | "graph" | "transform" | "layers"
-  >(
-    "settings"
-  );
+    "settings" | "graph" | "transform" | "layers"
+  >("settings");
   const [isUtilityPanelOpen, setIsUtilityPanelOpen] = useState(false);
   const [isUtilityPanelCollapsed, setIsUtilityPanelCollapsed] = useState(false);
   const [utilityPanelPosition, setUtilityPanelPosition] = useState({ x: 0, y: 86 });
@@ -1601,15 +1713,13 @@ export default function WorkbookSessionPage() {
   const [sessionChatPosition, setSessionChatPosition] = useState({ x: 24, y: 96 });
   const [sessionChatReadAt, setSessionChatReadAt] = useState<string | null>(null);
   const [isClearSessionChatDialogOpen, setIsClearSessionChatDialogOpen] = useState(false);
-  const [areaSelection, setAreaSelection] = useState<{
-    objectIds: string[];
-    rect: { x: number; y: number; width: number; height: number };
-  } | null>(null);
+  const [areaSelection, setAreaSelection] = useState<WorkbookAreaSelection | null>(null);
   const [areaSelectionContextMenu, setAreaSelectionContextMenu] = useState<{
     x: number;
     y: number;
   } | null>(null);
-  const areaSelectionClipboardRef = useRef<WorkbookBoardObject[] | null>(null);
+  const areaSelectionClipboardRef = useRef<WorkbookAreaSelectionClipboard | null>(null);
+  const [eraserMenuAnchor, setEraserMenuAnchor] = useState<HTMLElement | null>(null);
   const [, setSaveState] = useState<"saved" | "unsaved" | "saving" | "error">(
     "saved"
   );
@@ -1679,6 +1789,9 @@ export default function WorkbookSessionPage() {
   const incomingPreviewVersionByAuthorObjectRef = useRef<Map<string, number>>(new Map());
   const objectLastCommittedEventAtRef = useRef<Map<string, number>>(new Map());
   const incomingPreviewFrameRef = useRef<number | null>(null);
+  const viewportSyncTimerRef = useRef<number | null>(null);
+  const viewportSyncQueuedOffsetRef = useRef<WorkbookPoint | null>(null);
+  const viewportLastReceivedAtRef = useRef(0);
   const fallbackBackPath = "/workbook";
   const fromPath = searchParams.get("from") || fallbackBackPath;
   const isEnded = session?.status === "ended";
@@ -1709,6 +1822,15 @@ export default function WorkbookSessionPage() {
   const pointerPoints = useMemo(
     () => Object.values(pointerPointsByUser),
     [pointerPointsByUser]
+  );
+  const areaSelectionHasContent = Boolean(
+    areaSelection &&
+      (areaSelection.objectIds.length > 0 || areaSelection.strokeIds.length > 0)
+  );
+  const clampEraserRadius = useCallback(
+    (value: number) =>
+      Math.max(ERASER_RADIUS_MIN, Math.min(ERASER_RADIUS_MAX, Math.round(value))),
+    []
   );
 
   useEffect(() => {
@@ -2434,6 +2556,35 @@ export default function WorkbookSessionPage() {
                   }
               : current
           );
+          return;
+        }
+        if (event.type === "board.viewport.sync") {
+          if (event.authorUserId === user?.id) return;
+          const payload = event.payload as { offset?: unknown };
+          const rawOffset =
+            payload.offset && typeof payload.offset === "object"
+              ? (payload.offset as Partial<WorkbookPoint>)
+              : null;
+          if (
+            !rawOffset ||
+            typeof rawOffset.x !== "number" ||
+            !Number.isFinite(rawOffset.x) ||
+            typeof rawOffset.y !== "number" ||
+            !Number.isFinite(rawOffset.y)
+          ) {
+            return;
+          }
+          const offset: WorkbookPoint = { x: rawOffset.x, y: rawOffset.y };
+          viewportLastReceivedAtRef.current = Date.now();
+          setCanvasViewport((current) => {
+            if (
+              Math.abs(current.x - offset.x) <= VIEWPORT_SYNC_EPSILON &&
+              Math.abs(current.y - offset.y) <= VIEWPORT_SYNC_EPSILON
+            ) {
+              return current;
+            }
+            return { x: offset.x, y: offset.y };
+          });
           return;
         }
         if (event.type === "board.undo" || event.type === "board.redo") {
@@ -3742,6 +3893,17 @@ export default function WorkbookSessionPage() {
 
   useEffect(
     () => () => {
+      if (viewportSyncTimerRef.current !== null) {
+        window.clearTimeout(viewportSyncTimerRef.current);
+        viewportSyncTimerRef.current = null;
+      }
+      viewportSyncQueuedOffsetRef.current = null;
+    },
+    []
+  );
+
+  useEffect(
+    () => () => {
       clearObjectSyncRuntime();
     },
     [clearObjectSyncRuntime]
@@ -3808,6 +3970,45 @@ export default function WorkbookSessionPage() {
       rollbackHistorySnapshot,
       sessionId,
     ]
+  );
+
+  const flushQueuedViewportSync = useCallback(() => {
+    viewportSyncTimerRef.current = null;
+    const queuedOffset = viewportSyncQueuedOffsetRef.current;
+    viewportSyncQueuedOffsetRef.current = null;
+    if (!queuedOffset) return;
+    if (!sessionId || !session || session.kind !== "CLASS" || isEnded) return;
+    void appendEventsAndApply(
+      [
+        {
+          type: "board.viewport.sync",
+          payload: { offset: queuedOffset },
+        },
+      ],
+      { trackHistory: false, markDirty: false }
+    ).catch(() => {
+      // ignore transient viewport sync errors, next interaction sends fresh offset
+    });
+  }, [appendEventsAndApply, isEnded, session, sessionId]);
+
+  const queueViewportSync = useCallback(
+    (offset: WorkbookPoint) => {
+      viewportSyncQueuedOffsetRef.current = offset;
+      if (viewportSyncTimerRef.current !== null) return;
+      viewportSyncTimerRef.current = window.setTimeout(
+        flushQueuedViewportSync,
+        VIEWPORT_SYNC_FLUSH_INTERVAL_MS
+      );
+    },
+    [flushQueuedViewportSync]
+  );
+
+  const handleCanvasViewportOffsetChange = useCallback(
+    (offset: WorkbookPoint) => {
+      setCanvasViewport(offset);
+      queueViewportSync(offset);
+    },
+    [queueViewportSync]
   );
 
   const flushPreviewObjectUpdate = useCallback(
@@ -4071,7 +4272,7 @@ export default function WorkbookSessionPage() {
 
   const openUtilityPanel = useCallback(
     (
-      tab: "settings" | "notes" | "graph" | "transform" | "layers",
+      tab: "settings" | "graph" | "transform" | "layers",
       options?: {
         toggle?: boolean;
       }
@@ -4225,42 +4426,10 @@ export default function WorkbookSessionPage() {
 
   const utilityPanelTitle = useMemo(() => {
     if (utilityTab === "settings") return "Настройки доски";
-    if (utilityTab === "notes") return "Заметки";
     if (utilityTab === "graph") return "Графики функции";
     if (utilityTab === "layers") return "Слои";
     return "Трансформации";
   }, [utilityTab]);
-
-  const handleCreateNoteSticker = async () => {
-    const text = noteDraftText.trim();
-    if (!text) return;
-    await commitObjectCreate({
-      id: generateId(),
-      type: "sticker",
-      layer: "board",
-      x: 140 + boardObjects.length * 4,
-      y: 120 + boardObjects.length * 4,
-      width: 200,
-      height: 120,
-      color: "#e6af2e",
-      fill: "rgba(255, 244, 163, 0.92)",
-      strokeWidth: 1.8,
-      opacity: 1,
-      text,
-      authorUserId: user?.id ?? "unknown",
-      createdAt: new Date().toISOString(),
-      page: boardSettings.currentPage,
-    });
-    setNoteDraftText("");
-  };
-
-  const handleDeleteNoteSticker = async (objectId: string) => {
-    if (!canDelete) {
-      setError("Удаление заметок ограничено текущими правами.");
-      return;
-    }
-    await commitObjectDelete(objectId);
-  };
 
   const constraintShapeTypes = useMemo(
     () =>
@@ -4499,10 +4668,14 @@ export default function WorkbookSessionPage() {
   const commitStroke = async (stroke: WorkbookStroke) => {
     if (!sessionId || !canDraw) return;
     const type = stroke.layer === "board" ? "board.stroke" : "annotations.stroke";
+    const strokeWithPage: WorkbookStroke = {
+      ...stroke,
+      page: Math.max(1, stroke.page ?? boardSettings.currentPage),
+    };
     try {
-      await appendEventsAndApply([{ type, payload: { stroke } }]);
+      await appendEventsAndApply([{ type, payload: { stroke: strokeWithPage } }]);
       if (stroke.layer === "board" && stroke.tool === "pen") {
-        queueSmartInkStroke(stroke);
+        queueSmartInkStroke(strokeWithPage);
       }
     } catch {
       setError("Не удалось синхронизировать штрих. Проверьте подключение.");
@@ -4893,11 +5066,17 @@ export default function WorkbookSessionPage() {
   );
 
   const deleteAreaSelectionObjects = useCallback(async () => {
-    if (!canDelete || !areaSelection || areaSelection.objectIds.length === 0) return;
+    if (!canDelete || !areaSelection || !areaSelectionHasContent) return;
     const objectIds = areaSelection.objectIds.filter((id) =>
       boardObjects.some((object) => object.id === id && !object.pinned)
     );
-    if (objectIds.length === 0) {
+    const strokeIds = areaSelection.strokeIds.filter((entry) => {
+      if (entry.layer === "annotations") {
+        return annotationStrokes.some((stroke) => stroke.id === entry.id);
+      }
+      return boardStrokes.some((stroke) => stroke.id === entry.id);
+    });
+    if (objectIds.length === 0 && strokeIds.length === 0) {
       setAreaSelectionContextMenu(null);
       return;
     }
@@ -4913,12 +5092,22 @@ export default function WorkbookSessionPage() {
           return layerObjects.every((object) => deletingSet.has(object.id));
         })
         .map((layerItem) => layerItem.id);
-      const events: Array<{ type: WorkbookEvent["type"]; payload: unknown }> = objectIds.map(
-        (objectId) => ({
+      const events: Array<{ type: WorkbookEvent["type"]; payload: unknown }> = [];
+      strokeIds.forEach((entry) => {
+        events.push({
+          type:
+            entry.layer === "annotations"
+              ? "annotations.stroke.delete"
+              : "board.stroke.delete",
+          payload: { strokeId: entry.id },
+        });
+      });
+      objectIds.forEach((objectId) => {
+        events.push({
           type: "board.object.delete" as const,
           payload: { objectId },
-        })
-      );
+        });
+      });
       if (layerIdsToRemove.length > 0) {
         const nextSettings: WorkbookBoardSettings = {
           ...boardSettings,
@@ -4943,11 +5132,14 @@ export default function WorkbookSessionPage() {
         setSelectedObjectId(null);
       }
     } catch {
-      setError("Не удалось удалить объекты из выделенной области.");
+      setError("Не удалось удалить элементы из выделенной области.");
     }
   }, [
+    annotationStrokes,
+    areaSelectionHasContent,
     appendEventsAndApply,
     areaSelection,
+    boardStrokes,
     boardObjects,
     boardSettings,
     canDelete,
@@ -4957,42 +5149,84 @@ export default function WorkbookSessionPage() {
   ]);
 
   const copyAreaSelectionObjects = useCallback(() => {
-    if (!canSelect || !areaSelection || areaSelection.objectIds.length === 0) return;
+    if (!canSelect || !areaSelection || !areaSelectionHasContent) return;
     const selectedObjects = areaSelection.objectIds
       .map((id) => boardObjects.find((object) => object.id === id))
       .filter(
         (object): object is WorkbookBoardObject =>
           object != null && !object.pinned
       );
-    if (selectedObjects.length === 0) {
+    const selectedStrokes = areaSelection.strokeIds
+      .map((entry) => {
+        if (entry.layer === "annotations") {
+          return annotationStrokes.find((stroke) => stroke.id === entry.id) ?? null;
+        }
+        return boardStrokes.find((stroke) => stroke.id === entry.id) ?? null;
+      })
+      .filter((stroke): stroke is WorkbookStroke => Boolean(stroke));
+    if (selectedObjects.length === 0 && selectedStrokes.length === 0) {
       areaSelectionClipboardRef.current = null;
       return;
     }
-    areaSelectionClipboardRef.current = selectedObjects.map((object) =>
-      structuredClone<WorkbookBoardObject>(object)
-    );
+    areaSelectionClipboardRef.current = {
+      objects: selectedObjects.map((object) => structuredClone<WorkbookBoardObject>(object)),
+      strokes: selectedStrokes.map((stroke) => structuredClone<WorkbookStroke>(stroke)),
+    };
     setAreaSelectionContextMenu(null);
-  }, [areaSelection, boardObjects, canSelect]);
+  }, [
+    annotationStrokes,
+    areaSelection,
+    areaSelectionHasContent,
+    boardObjects,
+    boardStrokes,
+    canSelect,
+  ]);
 
   const pasteAreaSelectionObjects = useCallback(async () => {
     if (!canSelect) return;
     const clipboard = areaSelectionClipboardRef.current;
-    if (!clipboard || clipboard.length === 0) return;
+    if (!clipboard || (clipboard.objects.length === 0 && clipboard.strokes.length === 0)) return;
     const now = new Date().toISOString();
     const offset = 24;
-    const createEvents = clipboard.map((object) => ({
-      type: "board.object.create" as const,
-      payload: {
-        object: {
-          ...object,
-          id: generateId(),
-          x: object.x + offset,
-          y: object.y + offset,
-          createdAt: now,
-          authorUserId: user?.id ?? object.authorUserId,
+    const createEvents: Array<{ type: WorkbookEvent["type"]; payload: unknown }> = [
+      ...clipboard.strokes.map((stroke) => ({
+        type:
+          (stroke.layer === "annotations"
+            ? "annotations.stroke"
+            : "board.stroke") as const,
+        payload: {
+          stroke: {
+            ...stroke,
+            id: generateId(),
+            points: stroke.points.map((point) => ({
+              x: point.x + offset,
+              y: point.y + offset,
+            })),
+            createdAt: now,
+            authorUserId: user?.id ?? stroke.authorUserId,
+          },
         },
-      },
-    }));
+      })),
+      ...clipboard.objects.map((object) => ({
+        type: "board.object.create" as const,
+        payload: {
+          object: {
+            ...object,
+            id: generateId(),
+            x: object.x + offset,
+            y: object.y + offset,
+            points: Array.isArray(object.points)
+              ? object.points.map((point) => ({
+                  x: point.x + offset,
+                  y: point.y + offset,
+                }))
+              : object.points,
+            createdAt: now,
+            authorUserId: user?.id ?? object.authorUserId,
+          },
+        },
+      })),
+    ];
     try {
       await appendEventsAndApply(createEvents);
       setAreaSelectionContextMenu(null);
@@ -5002,10 +5236,16 @@ export default function WorkbookSessionPage() {
   }, [appendEventsAndApply, canSelect, user?.id]);
 
   const cutAreaSelectionObjects = useCallback(async () => {
-    if (!canDelete || !areaSelection || areaSelection.objectIds.length === 0) return;
+    if (!canDelete || !areaSelection || !areaSelectionHasContent) return;
     copyAreaSelectionObjects();
     await deleteAreaSelectionObjects();
-  }, [areaSelection, canDelete, copyAreaSelectionObjects, deleteAreaSelectionObjects]);
+  }, [
+    areaSelection,
+    areaSelectionHasContent,
+    canDelete,
+    copyAreaSelectionObjects,
+    deleteAreaSelectionObjects,
+  ]);
 
   const createCompositionFromAreaSelection = useCallback(async () => {
     if (!canSelect || !areaSelection || areaSelection.objectIds.length === 0) return;
@@ -6669,8 +6909,7 @@ export default function WorkbookSessionPage() {
 
       if (
         tool === "area_select" &&
-        areaSelection &&
-        areaSelection.objectIds.length > 0 &&
+        areaSelectionHasContent &&
         (event.key === "Delete" || event.key === "Backspace")
       ) {
         event.preventDefault();
@@ -6715,6 +6954,7 @@ export default function WorkbookSessionPage() {
     return () => window.removeEventListener("keydown", onHotkey);
   }, [
     areaSelection,
+    areaSelectionHasContent,
     copyAreaSelectionObjects,
     cutAreaSelectionObjects,
     deleteAreaSelectionObjects,
@@ -7330,10 +7570,68 @@ export default function WorkbookSessionPage() {
     }
   };
 
-  const renderBoardToCanvas = async (scale = 2) => {
+  const waitForCanvasRender = useCallback(
+    () =>
+      new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => resolve());
+        });
+      }),
+    []
+  );
+
+  const resolvePageExportBounds = useCallback(
+    (page: number): WorkbookExportBounds | null => {
+      const safePage = Math.max(1, Math.floor(page));
+      const objectBounds = boardObjects
+        .filter((object) => (object.page ?? 1) === safePage)
+        .map((object) => getObjectExportBounds(object))
+        .reduce<WorkbookExportBounds | null>(
+          (accumulator, bounds) => mergeExportBounds(accumulator, bounds),
+          null
+        );
+      const strokeBounds = boardStrokes
+        .filter((stroke) => (stroke.page ?? 1) === safePage)
+        .map((stroke) => getStrokeExportBounds(stroke))
+        .reduce<WorkbookExportBounds | null>(
+          (accumulator, bounds) => mergeExportBounds(accumulator, bounds),
+          null
+        );
+      const merged = mergeExportBounds(objectBounds, strokeBounds);
+      if (!merged) return null;
+      return padExportBounds(merged, EXPORT_BOUNDS_PADDING);
+    },
+    [boardObjects, boardStrokes]
+  );
+
+  const renderBoardToCanvas = async (
+    scale = 2,
+    options?: { bounds?: WorkbookExportBounds | null }
+  ) => {
     const svg = document.querySelector<SVGSVGElement>(".workbook-session__canvas-svg");
     if (!svg) return null;
-    const serialized = new XMLSerializer().serializeToString(svg);
+    const bounds = options?.bounds ?? null;
+    const svgClone = svg.cloneNode(true) as SVGSVGElement;
+    if (bounds) {
+      svgClone.setAttribute(
+        "viewBox",
+        `${bounds.minX} ${bounds.minY} ${Math.max(1, bounds.width)} ${Math.max(
+          1,
+          bounds.height
+        )}`
+      );
+      svgClone.setAttribute("width", `${Math.max(1, bounds.width)}`);
+      svgClone.setAttribute("height", `${Math.max(1, bounds.height)}`);
+      const rootCanvasGroup = Array.from(svgClone.children).find((node) => {
+        if (node.tagName.toLowerCase() !== "g") return false;
+        const transform = node.getAttribute("transform");
+        return typeof transform === "string" && transform.startsWith("translate(");
+      });
+      if (rootCanvasGroup) {
+        rootCanvasGroup.setAttribute("transform", "translate(0 0)");
+      }
+    }
+    const serialized = new XMLSerializer().serializeToString(svgClone);
     const blob = new Blob([serialized], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     try {
@@ -7343,12 +7641,19 @@ export default function WorkbookSessionPage() {
         next.onerror = () => reject(new Error("image_load_failed"));
         next.src = url;
       });
-      const width = Math.max(1, svg.viewBox.baseVal.width || 1600);
-      const height = Math.max(1, svg.viewBox.baseVal.height || 900);
-      const safeScale = Math.max(1, Math.min(4, scale));
+      const widthSource = bounds?.width ?? svg.viewBox.baseVal.width ?? 1600;
+      const heightSource = bounds?.height ?? svg.viewBox.baseVal.height ?? 900;
+      const width = Math.max(1, Math.round(widthSource));
+      const height = Math.max(1, Math.round(heightSource));
+      const requestedScale = Math.max(1, Math.min(4, scale));
+      const safeScale = Math.min(
+        requestedScale,
+        MAX_EXPORT_CANVAS_SIDE / width,
+        MAX_EXPORT_CANVAS_SIDE / height
+      );
       const canvas = document.createElement("canvas");
-      canvas.width = Math.round(width * safeScale);
-      canvas.height = Math.round(height * safeScale);
+      canvas.width = Math.max(1, Math.round(width * safeScale));
+      canvas.height = Math.max(1, Math.round(height * safeScale));
       const ctx = canvas.getContext("2d");
       if (!ctx) return null;
       ctx.save();
@@ -7360,13 +7665,19 @@ export default function WorkbookSessionPage() {
         ctx.strokeStyle = boardSettings.gridColor || "rgba(92, 129, 192, 0.32)";
         ctx.lineWidth = 1;
         ctx.beginPath();
-        for (let x = 0; x <= width; x += gridStep) {
-          const crispX = Math.round(x) + 0.5;
+        const minGridX = bounds ? Math.floor(bounds.minX / gridStep) * gridStep : 0;
+        const maxGridX = bounds ? bounds.maxX : width;
+        for (let x = minGridX; x <= maxGridX; x += gridStep) {
+          const relativeX = bounds ? x - bounds.minX : x;
+          const crispX = Math.round(relativeX) + 0.5;
           ctx.moveTo(crispX, 0);
           ctx.lineTo(crispX, height);
         }
-        for (let y = 0; y <= height; y += gridStep) {
-          const crispY = Math.round(y) + 0.5;
+        const minGridY = bounds ? Math.floor(bounds.minY / gridStep) * gridStep : 0;
+        const maxGridY = bounds ? bounds.maxY : height;
+        for (let y = minGridY; y <= maxGridY; y += gridStep) {
+          const relativeY = bounds ? y - bounds.minY : y;
+          const crispY = Math.round(relativeY) + 0.5;
           ctx.moveTo(0, crispY);
           ctx.lineTo(width, crispY);
         }
@@ -7433,25 +7744,91 @@ export default function WorkbookSessionPage() {
   const exportBoardAsPdf = async () => {
     if (exportingSections) return;
     setExportingSections(true);
+    const currentPage = Math.max(1, boardSettings.currentPage || 1);
+    let activePage = currentPage;
     try {
       const fileName = requestExportFileName("pdf");
       if (!fileName) return;
-      const rendered = await renderBoardToCanvas(2);
-      if (!rendered) return;
-      const width = Math.max(1, Math.round(rendered.width));
-      const height = Math.max(1, Math.round(rendered.height));
+      const exportPages = Array.from(
+        new Set([
+          ...boardObjects.map((object) => Math.max(1, object.page ?? 1)),
+          ...boardStrokes.map((stroke) => Math.max(1, stroke.page ?? 1)),
+          currentPage,
+        ])
+      )
+        .sort((left, right) => left - right)
+        .map((page) => ({
+          page,
+          bounds: resolvePageExportBounds(page),
+        }))
+        .filter(
+          (entry): entry is { page: number; bounds: WorkbookExportBounds } =>
+            Boolean(entry.bounds)
+        );
+      if (exportPages.length === 0) {
+        setError("Для экспорта нет объектов на доске.");
+        return;
+      }
+      const previousPage = currentPage;
+      const renderedPages: Array<{ page: number; width: number; height: number; dataUrl: string }> =
+        [];
+      for (const entry of exportPages) {
+        if (entry.page !== activePage) {
+          setBoardSettings((state) => ({
+            ...state,
+            currentPage: entry.page,
+          }));
+          activePage = entry.page;
+          await waitForCanvasRender();
+        }
+        const rendered = await renderBoardToCanvas(2.2, { bounds: entry.bounds });
+        if (!rendered) continue;
+        renderedPages.push({
+          page: entry.page,
+          width: Math.max(1, Math.round(rendered.width)),
+          height: Math.max(1, Math.round(rendered.height)),
+          dataUrl: rendered.canvas.toDataURL("image/png"),
+        });
+      }
+      if (previousPage !== activePage) {
+        setBoardSettings((state) => ({
+          ...state,
+          currentPage: previousPage,
+        }));
+        activePage = previousPage;
+        await waitForCanvasRender();
+      }
+      if (renderedPages.length === 0) {
+        setError("Не удалось подготовить страницы для PDF.");
+        return;
+      }
+      const firstPage = renderedPages[0];
       const { jsPDF } = await import("jspdf");
       const pdf = new jsPDF({
-        orientation: width >= height ? "landscape" : "portrait",
+        orientation: firstPage.width >= firstPage.height ? "landscape" : "portrait",
         unit: "px",
-        format: [width, height],
+        format: [firstPage.width, firstPage.height],
       });
-      const dataUrl = rendered.canvas.toDataURL("image/png");
-      pdf.addImage(dataUrl, "PNG", 0, 0, width, height);
+      renderedPages.forEach((page, index) => {
+        if (index > 0) {
+          pdf.addPage(
+            [page.width, page.height],
+            page.width >= page.height ? "landscape" : "portrait"
+          );
+        }
+        pdf.addImage(page.dataUrl, "PNG", 0, 0, page.width, page.height);
+      });
       pdf.save(fileName);
     } catch {
       setError("Не удалось экспортировать PDF.");
     } finally {
+      if (activePage !== currentPage) {
+        setBoardSettings((state) => ({
+          ...state,
+          currentPage,
+        }));
+        activePage = currentPage;
+      }
       setExportingSections(false);
     }
   };
@@ -7503,8 +7880,8 @@ export default function WorkbookSessionPage() {
     { tool: "area_select", label: "Ножницы", icon: <ContentCutRoundedIcon /> },
     { tool: "text", label: "Текст", icon: <TextFieldsRoundedIcon /> },
     { tool: "divider", label: "Разделитель", icon: <DragHandleRoundedIcon /> },
+    { tool: "eraser", label: "Ластик", icon: <BackspaceRoundedIcon /> },
     { tool: "laser", label: "Указка (Esc/ПКМ убрать)", icon: <MyLocationRoundedIcon /> },
-    { tool: "sticker", label: "Стикер", icon: <StickyNote2RoundedIcon /> },
     { tool: "sweep", label: "Метёлка", icon: <DeleteSweepRoundedIcon /> },
   ];
   const pointToolIndex = toolButtons.findIndex((item) => item.tool === "point");
@@ -7521,12 +7898,14 @@ export default function WorkbookSessionPage() {
     const isDisabled =
       (item.tool === "select" && !canSelect) ||
       (item.tool === "area_select" && !canSelect) ||
+      (item.tool === "eraser" && !canDelete) ||
       (item.tool === "sweep" && !canDelete) ||
       (item.tool === "laser" && !canUseLaser) ||
       (!canDraw &&
         item.tool !== "select" &&
         item.tool !== "area_select" &&
         item.tool !== "pan" &&
+        item.tool !== "eraser" &&
         item.tool !== "laser" &&
         item.tool !== "sweep");
     return (
@@ -7543,7 +7922,8 @@ export default function WorkbookSessionPage() {
               }
               if (
                 (item.tool === "sweep" && tool === "sweep") ||
-                (item.tool === "area_select" && tool === "area_select")
+                (item.tool === "area_select" && tool === "area_select") ||
+                (item.tool === "eraser" && tool === "eraser")
               ) {
                 setTool("select");
                 setStrokeWidth(getDefaultToolWidth("select"));
@@ -7551,6 +7931,12 @@ export default function WorkbookSessionPage() {
               }
               setTool(item.tool);
               setStrokeWidth(getDefaultToolWidth(item.tool));
+            }}
+            onContextMenu={(event) => {
+              if (item.tool !== "eraser") return;
+              event.preventDefault();
+              if (isDisabled) return;
+              setEraserMenuAnchor(event.currentTarget);
             }}
             aria-label={item.label}
             title={item.label}
@@ -8491,24 +8877,24 @@ export default function WorkbookSessionPage() {
       ? Math.max(1, activeDocument.renderedPages?.length ?? 1)
       : 1;
 
-  const noteStickers = useMemo(
-    () =>
-      boardObjects
-        .filter(
-          (object) =>
-            object.type === "sticker" &&
-            (object.page ?? 1) === (boardSettings.currentPage || 1)
-        )
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    [boardObjects, boardSettings.currentPage]
-  );
-
   const activeFrameObject = useMemo(
     () =>
       boardObjects.find(
         (object) => object.id === boardSettings.activeFrameId && object.type === "frame"
       ) ?? null,
     [boardObjects, boardSettings.activeFrameId]
+  );
+  const visibleBoardStrokes = useMemo(
+    () =>
+      boardStrokes.filter((stroke) => (stroke.page ?? 1) === (boardSettings.currentPage || 1)),
+    [boardSettings.currentPage, boardStrokes]
+  );
+  const visibleAnnotationStrokes = useMemo(
+    () =>
+      annotationStrokes.filter(
+        (stroke) => (stroke.page ?? 1) === (boardSettings.currentPage || 1)
+      ),
+    [annotationStrokes, boardSettings.currentPage]
   );
 
   const visibleBoardObjects = useMemo(() => {
@@ -8728,6 +9114,42 @@ export default function WorkbookSessionPage() {
                 Очистить доску
               </MenuItem>
             </Menu>
+            <Menu
+              container={overlayContainer}
+              anchorEl={eraserMenuAnchor}
+              open={Boolean(eraserMenuAnchor)}
+              onClose={() => setEraserMenuAnchor(null)}
+            >
+              <MenuItem
+                onClick={() => {
+                  setStrokeWidth((current) => clampEraserRadius(current - 4));
+                }}
+              >
+                Меньше
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setStrokeWidth((current) => clampEraserRadius(current + 4));
+                }}
+              >
+                Больше
+              </MenuItem>
+              <MenuItem disableRipple>
+                <label className="workbook-session__menu-range">
+                  <span>Радиус</span>
+                  <input
+                    type="range"
+                    min={ERASER_RADIUS_MIN}
+                    max={ERASER_RADIUS_MAX}
+                    value={clampEraserRadius(strokeWidth)}
+                    onChange={(event) =>
+                      setStrokeWidth(clampEraserRadius(Number(event.target.value)))
+                    }
+                  />
+                  <strong>{clampEraserRadius(strokeWidth)}</strong>
+                </label>
+              </MenuItem>
+            </Menu>
 
             <Tooltip title="Меню доски" placement="bottom" arrow>
               <span>
@@ -8750,19 +9172,6 @@ export default function WorkbookSessionPage() {
                   onClick={() => openUtilityPanel("settings")}
                 >
                   <TuneRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title="Заметки" placement="bottom" arrow>
-              <span>
-                <IconButton
-                  size="small"
-                  className={`workbook-session__toolbar-icon ${
-                    isUtilityPanelOpen && utilityTab === "notes" ? "is-active" : ""
-                  }`}
-                  onClick={() => openUtilityPanel("notes")}
-                >
-                  <StickyNote2RoundedIcon />
                 </IconButton>
               </span>
             </Tooltip>
@@ -8874,22 +9283,6 @@ export default function WorkbookSessionPage() {
               </span>
             </Tooltip>
 
-            {tool === "polygon" &&
-            polygonMode === "regular" &&
-            polygonPreset === "regular" ? (
-              <div className="workbook-session__contextbar-inline">
-                <label htmlFor="workbook-polygon-sides">N</label>
-                <input
-                  id="workbook-polygon-sides"
-                  type="number"
-                  min={3}
-                  max={12}
-                  value={polygonSides}
-                  onChange={(event) => setPolygonSides(Number(event.target.value))}
-                />
-              </div>
-            ) : null}
-
             {tool === "function_graph" ? (
               <div className="workbook-session__contextbar-inline">
                 <span className="workbook-session__hint">
@@ -8905,15 +9298,6 @@ export default function WorkbookSessionPage() {
                   Открыть модуль
                 </Button>
               </div>
-            ) : null}
-
-            {tool === "sticker" ? (
-              <TextField
-                size="small"
-                value={noteDraftText}
-                onChange={(event) => setNoteDraftText(event.target.value)}
-                placeholder="Текст стикера"
-              />
             ) : null}
 
             <Tooltip title="Загрузить документ" placement="bottom" arrow>
@@ -8977,8 +9361,8 @@ export default function WorkbookSessionPage() {
 
           <div className="workbook-session__board-shell">
             <WorkbookCanvas
-              boardStrokes={boardStrokes}
-              annotationStrokes={annotationStrokes}
+              boardStrokes={visibleBoardStrokes}
+              annotationStrokes={visibleAnnotationStrokes}
               boardObjects={visibleBoardObjects}
               constraints={constraints}
               layer={layer}
@@ -8990,7 +9374,6 @@ export default function WorkbookSessionPage() {
               polygonMode={polygonMode}
               polygonPreset={polygonPreset}
               textPreset={textPreset}
-              stickerText={noteDraftText}
               graphFunctions={sanitizeFunctionGraphDrafts(graphDraftFunctions, {
                 ensureNonEmpty: false,
               })}
@@ -9011,7 +9394,10 @@ export default function WorkbookSessionPage() {
               focusPoints={focusPoints}
               pointerPoints={pointerPoints}
               viewportOffset={canvasViewport}
-              onViewportOffsetChange={setCanvasViewport}
+              onViewportOffsetChange={handleCanvasViewportOffsetChange}
+              onEraserRadiusChange={(nextRadius) =>
+                setStrokeWidth(clampEraserRadius(nextRadius))
+              }
               forcePanMode={spacePanActive}
               autoDividersEnabled={boardSettings.autoSectionDividers}
               autoDividerStep={boardSettings.dividerStep}
@@ -9070,13 +9456,17 @@ export default function WorkbookSessionPage() {
               onSolid3dDraftPointAdd={addDraftPointToSolid}
               onAreaSelectionChange={(selection) => {
                 setAreaSelection(selection);
-                if (!selection || selection.objectIds.length === 0) {
+                if (
+                  !selection ||
+                  (selection.objectIds.length === 0 && selection.strokeIds.length === 0)
+                ) {
                   setAreaSelectionContextMenu(null);
                 }
               }}
               onAreaSelectionContextMenu={(payload) => {
                 setAreaSelection({
                   objectIds: payload.objectIds,
+                  strokeIds: payload.strokeIds,
                   rect: payload.rect,
                 });
                 setAreaSelectionContextMenu({
@@ -9890,56 +10280,6 @@ export default function WorkbookSessionPage() {
               >
                 Сохранить настройки
               </Button>
-            </div>
-          </div>
-          ) : null}
-
-          {utilityTab === "notes" ? (
-          <div className="workbook-session__card">
-            <h3>Заметки</h3>
-            <div className="workbook-session__settings">
-              <div className="workbook-session__contextbar-inline workbook-session__contextbar-inline--column">
-                <TextField
-                  size="small"
-                  value={noteDraftText}
-                  onChange={(event) => setNoteDraftText(event.target.value)}
-                  placeholder="Текст заметки"
-                />
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => void handleCreateNoteSticker()}
-                  disabled={!noteDraftText.trim()}
-                >
-                  Добавить заметку
-                </Button>
-              </div>
-              <div className="workbook-session__geometry-constraints">
-                {noteStickers.slice(0, 8).map((note) => (
-                  <div key={note.id}>
-                    <span>{note.text || "Заметка"}</span>
-                    <div className="workbook-session__geometry-constraint-actions">
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={() => {
-                          setSelectedObjectId(note.id);
-                          setTool("select");
-                        }}
-                      >
-                        К заметке
-                      </Button>
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteNoteSticker(note.id)}
-                        aria-label="Удалить заметку"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
           </div>
           ) : null}
@@ -12269,7 +12609,7 @@ export default function WorkbookSessionPage() {
 
           <Menu
             container={overlayContainer}
-            open={Boolean(areaSelectionContextMenu && areaSelection?.objectIds.length)}
+            open={Boolean(areaSelectionContextMenu && areaSelectionHasContent)}
             onClose={() => setAreaSelectionContextMenu(null)}
             anchorReference="anchorPosition"
             anchorPosition={
@@ -12280,13 +12620,13 @@ export default function WorkbookSessionPage() {
           >
             <MenuItem
               onClick={() => void copyAreaSelectionObjects()}
-              disabled={!canSelect || !areaSelection || areaSelection.objectIds.length === 0}
+              disabled={!canSelect || !areaSelectionHasContent}
             >
               Скопировать область
             </MenuItem>
             <MenuItem
               onClick={() => void cutAreaSelectionObjects()}
-              disabled={!canDelete || !areaSelection || areaSelection.objectIds.length === 0}
+              disabled={!canDelete || !areaSelectionHasContent}
             >
               Вырезать область
             </MenuItem>
