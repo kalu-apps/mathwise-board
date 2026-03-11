@@ -58,6 +58,14 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
   return (
     <div className="workbook-session__card workbook-session__board-settings">
       <div className="workbook-session__board-settings-head">
+        <div className="workbook-session__board-settings-head-meta">
+          <span className="workbook-session__board-settings-head-pill is-accent">
+            Автосохранение
+          </span>
+          <span className="workbook-session__board-settings-head-pill">
+            {canManageSharedBoardSettings ? "Личное + общее" : "Личное"}
+          </span>
+        </div>
         <h3>Настройки доски</h3>
         <p>
           {canManageSharedBoardSettings
