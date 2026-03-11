@@ -2271,6 +2271,109 @@
   gap: 6px;
 }
 
+.workbook-session__shape-angle-list {
+  display: grid;
+  gap: 8px;
+}
+
+.workbook-session__shape-angle-card {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--brand-soft) 18%, var(--border-subtle));
+  border-radius: 14px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-elevated) 96%, transparent),
+      color-mix(in srgb, var(--brand-soft) 8%, var(--surface-soft))
+    );
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--brand-soft) 8%, transparent);
+}
+
+.workbook-session__shape-angle-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.workbook-session__shape-angle-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.workbook-session__shape-angle-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand-soft) 20%, var(--surface-elevated));
+  border: 1px solid color-mix(in srgb, var(--brand-solid) 16%, var(--border-subtle));
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.workbook-session__shape-angle-preview {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-soft) 76%, transparent);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+
+  small {
+    min-width: 0;
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+}
+
+.workbook-session__shape-angle-color {
+  flex: 0 0 auto;
+}
+
+.workbook-session__shape-angle-fields {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.workbook-session__shape-angle-field {
+  min-width: 0;
+}
+
+.workbook-session__shape-angle-field .MuiInputBase-root,
+.workbook-session__shape-angle-field .MuiFormControl-root {
+  width: 100%;
+  min-width: 0;
+}
+
+.workbook-session__shape-angle-field .MuiInputBase-root {
+  min-height: 34px;
+}
+
+.workbook-session__shape-angle-field .MuiInputBase-input,
+.workbook-session__shape-angle-field .MuiSelect-select {
+  font-size: 12px;
+}
+
 .workbook-session__solid-point-row {
   display: grid;
   gap: 6px;
@@ -2385,6 +2488,7 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .workbook-session__shape-angle-fields,
   .workbook-session__solid-angle-top,
   .workbook-session__solid-angle-bottom {
     grid-template-columns: minmax(0, 1fr);
@@ -2397,6 +2501,25 @@
   .workbook-session__line-rotate-controls {
     flex-wrap: wrap;
     justify-content: flex-end;
+  }
+}
+
+@media (max-width: 720px) {
+  .workbook-session__shape-angle-head {
+    align-items: stretch;
+  }
+
+  .workbook-session__shape-angle-meta {
+    width: 100%;
+  }
+
+  .workbook-session__shape-angle-preview {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .workbook-session__shape-angle-color {
+    align-self: flex-start;
   }
 }
 

@@ -92,6 +92,7 @@ import type {
   WorkbookChatMessage,
   WorkbookComment,
   WorkbookConstraint,
+  WorkbookDocumentAnnotation,
   WorkbookDocumentAsset,
   WorkbookDocumentState,
   WorkbookEvent,
@@ -147,6 +148,11 @@ import {
   toSvgPointString,
   type WorkbookPolygonPreset,
 } from "@/features/workbook/model/shapeGeometry";
+import {
+  normalizeShapeAngleMarks,
+  type WorkbookShapeAngleMark,
+  type WorkbookShapeAngleMarkStyle,
+} from "@/features/workbook/model/shapeAngleMarks";
 import {
   recognizeSmartInkBatch,
   recognizeSmartInkStroke,
@@ -652,6 +658,81 @@ const mergeBoardObjectWithPatch = (
     ...patch,
     meta: nextMeta,
   };
+};
+
+const cloneSerializable = <T,>(value: T): T => structuredClone(value);
+
+const areSerializableValuesEqual = (left: unknown, right: unknown) => {
+  if (Object.is(left, right)) return true;
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
+};
+
+const normalizeMetaRecord = (value: unknown) =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
+const buildBoardObjectDiffPatch = (
+  previous: WorkbookBoardObject,
+  next: WorkbookBoardObject
+): Partial<WorkbookBoardObject> | null => {
+  const patch: Partial<WorkbookBoardObject> = {};
+  const patchRecord = patch as Record<string, unknown>;
+  const mutableKeys: Array<keyof WorkbookBoardObject> = [
+    "x",
+    "y",
+    "width",
+    "height",
+    "rotation",
+    "color",
+    "fill",
+    "strokeWidth",
+    "opacity",
+    "points",
+    "text",
+    "fontSize",
+    "imageUrl",
+    "imageName",
+    "sides",
+    "page",
+    "pinned",
+    "locked",
+  ];
+  mutableKeys.forEach((key) => {
+    if (!areSerializableValuesEqual(previous[key], next[key])) {
+      patchRecord[key] = cloneSerializable(next[key]);
+    }
+  });
+  const previousMeta = normalizeMetaRecord(previous.meta);
+  const nextMeta = normalizeMetaRecord(next.meta);
+  const changedMetaKeys = Array.from(
+    new Set([...Object.keys(previousMeta), ...Object.keys(nextMeta)])
+  ).filter((key) => !areSerializableValuesEqual(previousMeta[key], nextMeta[key]));
+  if (changedMetaKeys.length > 0) {
+    patch.meta = changedMetaKeys.reduce<Record<string, unknown>>((acc, key) => {
+      acc[key] = cloneSerializable(nextMeta[key]);
+      return acc;
+    }, {});
+  }
+  return Object.keys(patch).length > 0 ? patch : null;
+};
+
+const buildBoardSettingsDiffPatch = (
+  previous: WorkbookBoardSettings,
+  next: WorkbookBoardSettings
+): Partial<WorkbookBoardSettings> | null => {
+  const patch: Partial<WorkbookBoardSettings> = {};
+  const patchRecord = patch as Record<string, unknown>;
+  (Object.keys(next) as Array<keyof WorkbookBoardSettings>).forEach((key) => {
+    if (!areSerializableValuesEqual(previous[key], next[key])) {
+      patchRecord[key] = cloneSerializable(next[key]);
+    }
+  });
+  return Object.keys(patch).length > 0 ? patch : null;
 };
 
 const resolveGraphFunctionsFromObject = (object: WorkbookBoardObject): GraphFunctionDraft[] => {
@@ -1501,6 +1582,26 @@ type WorkbookSceneSnapshot = {
   documentState: WorkbookDocumentState;
 };
 
+type WorkbookHistoryOperation =
+  | { kind: "upsert_stroke"; layer: WorkbookLayer; stroke: WorkbookStroke }
+  | { kind: "remove_stroke"; layer: WorkbookLayer; strokeId: string }
+  | { kind: "upsert_object"; object: WorkbookBoardObject }
+  | { kind: "patch_object"; objectId: string; patch: Partial<WorkbookBoardObject> }
+  | { kind: "remove_object"; objectId: string }
+  | { kind: "upsert_constraint"; constraint: WorkbookConstraint }
+  | { kind: "remove_constraint"; constraintId: string }
+  | { kind: "patch_board_settings"; patch: Partial<WorkbookBoardSettings> }
+  | { kind: "upsert_document_asset"; asset: WorkbookDocumentAsset }
+  | { kind: "remove_document_asset"; assetId: string }
+  | { kind: "upsert_document_annotation"; annotation: WorkbookDocumentAnnotation }
+  | { kind: "remove_document_annotation"; annotationId: string };
+
+type WorkbookHistoryEntry = {
+  forward: WorkbookHistoryOperation[];
+  inverse: WorkbookHistoryOperation[];
+  createdAt: string;
+};
+
 type WorkbookAreaSelection = {
   objectIds: string[];
   strokeIds: Array<{ id: string; layer: WorkbookLayer }>;
@@ -1742,6 +1843,9 @@ export default function WorkbookSessionPage() {
   const selectedTextDraftCommitTimerRef = useRef<number | null>(null);
   const [shapeVertexLabelDrafts, setShapeVertexLabelDrafts] = useState<string[]>([]);
   const [shapeAngleNoteDrafts, setShapeAngleNoteDrafts] = useState<string[]>([]);
+  const shapeAngleDraftValuesRef = useRef<Map<number, string>>(new Map());
+  const shapeAngleDraftCommitTimersRef = useRef<Map<number, number>>(new Map());
+  const shapeAngleDraftObjectIdRef = useRef<string | null>(null);
   const [shapeSegmentNoteDrafts, setShapeSegmentNoteDrafts] = useState<string[]>([]);
   const lineDraftObjectIdRef = useRef<string | null>(null);
   const shapeDraftObjectIdRef = useRef<string | null>(null);
@@ -1813,10 +1917,13 @@ export default function WorkbookSessionPage() {
   const persistSnapshotsRef = useRef<
     ((options?: { silent?: boolean; force?: boolean }) => Promise<boolean>) | null
   >(null);
-  const undoStackRef = useRef<WorkbookSceneSnapshot[]>([]);
-  const redoStackRef = useRef<WorkbookSceneSnapshot[]>([]);
+  const undoStackRef = useRef<WorkbookHistoryEntry[]>([]);
+  const redoStackRef = useRef<WorkbookHistoryEntry[]>([]);
   const latestSeqRef = useRef(0);
   const processedEventIdsRef = useRef<Set<string>>(new Set());
+  const applyHistoryOperationsRef = useRef<
+    (operations: WorkbookHistoryOperation[]) => void
+  >(() => {});
   const sessionChatListRef = useRef<HTMLDivElement | null>(null);
   const sessionChatRef = useRef<HTMLDivElement | null>(null);
   const sessionChatShouldScrollToUnreadRef = useRef(false);
@@ -1828,8 +1935,19 @@ export default function WorkbookSessionPage() {
   const presenceLeaveSentRef = useRef(false);
   const sessionResyncInFlightRef = useRef(false);
   const boardObjectsRef = useRef<WorkbookBoardObject[]>([]);
+  const boardStrokesRef = useRef<WorkbookStroke[]>([]);
+  const annotationStrokesRef = useRef<WorkbookStroke[]>([]);
+  const constraintsRef = useRef<WorkbookConstraint[]>([]);
   const boardSettingsRef = useRef<WorkbookBoardSettings>(DEFAULT_BOARD_SETTINGS);
+  const documentStateRef = useRef<WorkbookDocumentState>({
+    assets: [],
+    activeAssetId: null,
+    page: 1,
+    zoom: 1,
+    annotations: [],
+  });
   const queuedBoardSettingsCommitRef = useRef<WorkbookBoardSettings | null>(null);
+  const queuedBoardSettingsHistoryBeforeRef = useRef<WorkbookBoardSettings | null>(null);
   const boardSettingsCommitTimerRef = useRef<number | null>(null);
   const boardSettingsCommitInFlightRef = useRef(false);
   const personalBoardSettingsReadyRef = useRef(false);
@@ -1842,6 +1960,7 @@ export default function WorkbookSessionPage() {
   const objectUpdateDispatchOptionsRef = useRef<
     Map<string, { trackHistory: boolean; markDirty: boolean }>
   >(new Map());
+  const objectUpdateHistoryBeforeRef = useRef<Map<string, WorkbookBoardObject>>(new Map());
   const objectPreviewQueuedPatchRef = useRef<
     Map<string, Partial<WorkbookBoardObject>>
   >(new Map());
@@ -2051,12 +2170,28 @@ export default function WorkbookSessionPage() {
   );
 
   useEffect(() => {
+    boardStrokesRef.current = boardStrokes;
+  }, [boardStrokes]);
+
+  useEffect(() => {
     boardObjectsRef.current = boardObjects;
   }, [boardObjects]);
 
   useEffect(() => {
+    annotationStrokesRef.current = annotationStrokes;
+  }, [annotationStrokes]);
+
+  useEffect(() => {
+    constraintsRef.current = constraints;
+  }, [constraints]);
+
+  useEffect(() => {
     boardSettingsRef.current = boardSettings;
   }, [boardSettings]);
+
+  useEffect(() => {
+    documentStateRef.current = documentState;
+  }, [documentState]);
 
   useEffect(
     () => () => {
@@ -2081,6 +2216,7 @@ export default function WorkbookSessionPage() {
   useEffect(() => {
     if (canManageSharedBoardSettings) return;
     queuedBoardSettingsCommitRef.current = null;
+    queuedBoardSettingsHistoryBeforeRef.current = null;
     boardSettingsCommitInFlightRef.current = false;
     if (boardSettingsCommitTimerRef.current !== null && typeof window !== "undefined") {
       window.clearTimeout(boardSettingsCommitTimerRef.current);
@@ -2304,6 +2440,7 @@ export default function WorkbookSessionPage() {
 
   const clearObjectSyncRuntime = useCallback((options?: { cancelIncomingFrame?: boolean }) => {
     objectUpdateQueuedPatchRef.current.clear();
+    objectUpdateHistoryBeforeRef.current.clear();
     objectUpdateTimersRef.current.forEach((timerId) => {
       window.clearTimeout(timerId);
     });
@@ -2493,11 +2630,12 @@ export default function WorkbookSessionPage() {
   );
   const canUseUndo = Boolean(
     !isEnded &&
+      canEdit &&
       session &&
       (session.kind === "PERSONAL" ||
         session.settings.undoPolicy === "everyone" ||
         (session.settings.undoPolicy === "teacher_only" && isTeacherActor) ||
-        (session.settings.undoPolicy === "own_only" && isTeacherActor))
+        session.settings.undoPolicy === "own_only")
   );
   const normalizedSceneLayers = useMemo(
     () =>
@@ -2549,33 +2687,6 @@ export default function WorkbookSessionPage() {
     [compositionLayers, compositionObjectsByLayer]
   );
 
-  const captureSceneSnapshot = useCallback((): WorkbookSceneSnapshot => {
-    const clone = <T,>(value: T): T => structuredClone(value);
-    return {
-      boardStrokes: clone(boardStrokes),
-      boardObjects: clone(boardObjects),
-      constraints: clone(constraints),
-      annotationStrokes: clone(annotationStrokes),
-      chatMessages: clone(chatMessages),
-      comments: clone(comments),
-      timerState: timerState ? clone(timerState) : null,
-      boardSettings: clone(boardSettings),
-      libraryState: clone(libraryState),
-      documentState: clone(documentState),
-    };
-  }, [
-    annotationStrokes,
-    boardObjects,
-    boardSettings,
-    boardStrokes,
-    comments,
-    constraints,
-    chatMessages,
-    documentState,
-    libraryState,
-    timerState,
-  ]);
-
   const restoreSceneSnapshot = useCallback((snapshot: WorkbookSceneSnapshot) => {
     setBoardStrokes(snapshot.boardStrokes);
     setBoardObjects(snapshot.boardObjects);
@@ -2600,22 +2711,6 @@ export default function WorkbookSessionPage() {
     setDocumentState(snapshot.documentState);
   }, []);
 
-  const toScenePayload = useCallback(
-    (snapshot: WorkbookSceneSnapshot) =>
-      encodeScenePayload({
-        strokes: [...snapshot.boardStrokes, ...snapshot.annotationStrokes],
-        objects: snapshot.boardObjects,
-        constraints: snapshot.constraints,
-        chat: snapshot.chatMessages,
-        comments: snapshot.comments,
-        timer: snapshot.timerState,
-        boardSettings: snapshot.boardSettings,
-        library: snapshot.libraryState,
-        document: snapshot.documentState,
-      }),
-    []
-  );
-
   const scheduleAutosave = useCallback((delayMs = 1100) => {
     if (autosaveDebounceRef.current !== null) {
       window.clearTimeout(autosaveDebounceRef.current);
@@ -2635,20 +2730,241 @@ export default function WorkbookSessionPage() {
     scheduleAutosave();
   }, [scheduleAutosave]);
 
-  const pushHistorySnapshot = useCallback(() => {
-    const snapshot = captureSceneSnapshot();
-    const nextUndo = [...undoStackRef.current, snapshot];
+  const pushHistoryEntry = useCallback((entry: WorkbookHistoryEntry) => {
+    const nextUndo = [...undoStackRef.current, entry];
     undoStackRef.current = nextUndo.slice(-80);
     redoStackRef.current = [];
     setUndoDepth(undoStackRef.current.length);
     setRedoDepth(0);
-  }, [captureSceneSnapshot]);
+  }, []);
 
-  const rollbackHistorySnapshot = useCallback(() => {
+  const rollbackHistoryEntry = useCallback(() => {
     if (undoStackRef.current.length === 0) return;
     undoStackRef.current = undoStackRef.current.slice(0, -1);
     setUndoDepth(undoStackRef.current.length);
   }, []);
+
+  const buildHistoryEntryFromEvents = useCallback(
+    (events: Array<{ type: WorkbookEvent["type"]; payload: unknown }>) => {
+      const currentBoardStrokes = boardStrokesRef.current;
+      const currentAnnotationStrokes = annotationStrokesRef.current;
+      const currentObjects = boardObjectsRef.current;
+      const currentConstraints = constraintsRef.current;
+      const currentBoardSettings = boardSettingsRef.current;
+      const currentDocumentState = documentStateRef.current;
+      const forward: WorkbookHistoryOperation[] = [];
+      let inverse: WorkbookHistoryOperation[] = [];
+
+      events.forEach((event) => {
+        let eventForward: WorkbookHistoryOperation[] = [];
+        let eventInverse: WorkbookHistoryOperation[] = [];
+
+        if (event.type === "board.stroke" || event.type === "annotations.stroke") {
+          const stroke = normalizeStrokePayload((event.payload as { stroke?: unknown })?.stroke);
+          if (!stroke) return;
+          eventForward = [
+            { kind: "upsert_stroke", layer: stroke.layer, stroke: cloneSerializable(stroke) },
+          ];
+          eventInverse = [
+            { kind: "remove_stroke", layer: stroke.layer, strokeId: stroke.id },
+          ];
+        } else if (
+          event.type === "board.stroke.delete" ||
+          event.type === "annotations.stroke.delete"
+        ) {
+          const strokeId = (event.payload as { strokeId?: unknown })?.strokeId;
+          const layer = event.type === "annotations.stroke.delete" ? "annotations" : "board";
+          if (typeof strokeId !== "string" || !strokeId) return;
+          const source = (layer === "annotations"
+            ? currentAnnotationStrokes
+            : currentBoardStrokes
+          ).find((item) => item.id === strokeId);
+          if (!source) return;
+          eventForward = [{ kind: "remove_stroke", layer, strokeId }];
+          eventInverse = [
+            { kind: "upsert_stroke", layer, stroke: cloneSerializable(source) },
+          ];
+        } else if (event.type === "board.object.create") {
+          const object = normalizeObjectPayload((event.payload as { object?: unknown })?.object);
+          if (!object) return;
+          eventForward = [{ kind: "upsert_object", object: cloneSerializable(object) }];
+          eventInverse = [{ kind: "remove_object", objectId: object.id }];
+        } else if (event.type === "board.object.update") {
+          const payload = event.payload as { objectId?: unknown; patch?: unknown };
+          const objectId = typeof payload.objectId === "string" ? payload.objectId : "";
+          const patch =
+            payload.patch && typeof payload.patch === "object"
+              ? (payload.patch as Partial<WorkbookBoardObject>)
+              : null;
+          if (!objectId || !patch) return;
+          const currentObject = currentObjects.find((item) => item.id === objectId);
+          if (!currentObject) return;
+          const nextObject = mergeBoardObjectWithPatch(currentObject, patch);
+          const forwardPatch = buildBoardObjectDiffPatch(currentObject, nextObject);
+          const inversePatch = buildBoardObjectDiffPatch(nextObject, currentObject);
+          if (!forwardPatch || !inversePatch) return;
+          eventForward = [{ kind: "patch_object", objectId, patch: forwardPatch }];
+          eventInverse = [{ kind: "patch_object", objectId, patch: inversePatch }];
+        } else if (event.type === "board.object.delete") {
+          const objectId = (event.payload as { objectId?: unknown })?.objectId;
+          if (typeof objectId !== "string" || !objectId) return;
+          const currentObject = currentObjects.find((item) => item.id === objectId);
+          if (!currentObject) return;
+          const relatedConstraints = currentConstraints.filter(
+            (constraint) =>
+              constraint.sourceObjectId === objectId || constraint.targetObjectId === objectId
+          );
+          eventForward = [{ kind: "remove_object", objectId }];
+          eventInverse = [
+            { kind: "upsert_object", object: cloneSerializable(currentObject) },
+            ...relatedConstraints.map((constraint) => ({
+              kind: "upsert_constraint" as const,
+              constraint: cloneSerializable(constraint),
+            })),
+          ];
+        } else if (event.type === "board.object.pin") {
+          const payload = event.payload as { objectId?: unknown; pinned?: unknown };
+          const objectId = typeof payload.objectId === "string" ? payload.objectId : "";
+          if (!objectId) return;
+          const currentObject = currentObjects.find((item) => item.id === objectId);
+          if (!currentObject) return;
+          const nextObject = { ...currentObject, pinned: Boolean(payload.pinned) };
+          const forwardPatch = buildBoardObjectDiffPatch(currentObject, nextObject);
+          const inversePatch = buildBoardObjectDiffPatch(nextObject, currentObject);
+          if (!forwardPatch || !inversePatch) return;
+          eventForward = [{ kind: "patch_object", objectId, patch: forwardPatch }];
+          eventInverse = [{ kind: "patch_object", objectId, patch: inversePatch }];
+        } else if (event.type === "board.clear") {
+          eventForward = [
+            ...currentConstraints.map((constraint) => ({
+              kind: "remove_constraint" as const,
+              constraintId: constraint.id,
+            })),
+            ...currentObjects.map((object) => ({
+              kind: "remove_object" as const,
+              objectId: object.id,
+            })),
+            ...currentBoardStrokes.map((stroke) => ({
+              kind: "remove_stroke" as const,
+              layer: "board" as const,
+              strokeId: stroke.id,
+            })),
+          ];
+          eventInverse = [
+            ...currentBoardStrokes.map((stroke) => ({
+              kind: "upsert_stroke" as const,
+              layer: "board" as const,
+              stroke: cloneSerializable(stroke),
+            })),
+            ...currentObjects.map((object) => ({
+              kind: "upsert_object" as const,
+              object: cloneSerializable(object),
+            })),
+            ...currentConstraints.map((constraint) => ({
+              kind: "upsert_constraint" as const,
+              constraint: cloneSerializable(constraint),
+            })),
+          ];
+        } else if (event.type === "annotations.clear") {
+          eventForward = currentAnnotationStrokes.map((stroke) => ({
+            kind: "remove_stroke" as const,
+            layer: "annotations" as const,
+            strokeId: stroke.id,
+          }));
+          eventInverse = currentAnnotationStrokes.map((stroke) => ({
+            kind: "upsert_stroke" as const,
+            layer: "annotations" as const,
+            stroke: cloneSerializable(stroke),
+          }));
+        } else if (event.type === "geometry.constraint.add") {
+          const constraint = (event.payload as { constraint?: unknown })?.constraint;
+          if (!constraint || typeof constraint !== "object") return;
+          const typed = constraint as WorkbookConstraint;
+          if (!typed.id) return;
+          eventForward = [
+            { kind: "upsert_constraint", constraint: cloneSerializable(typed) },
+          ];
+          eventInverse = [{ kind: "remove_constraint", constraintId: typed.id }];
+        } else if (event.type === "geometry.constraint.remove") {
+          const constraintId = (event.payload as { constraintId?: unknown })?.constraintId;
+          if (typeof constraintId !== "string" || !constraintId) return;
+          const currentConstraint = currentConstraints.find((item) => item.id === constraintId);
+          if (!currentConstraint) return;
+          eventForward = [{ kind: "remove_constraint", constraintId }];
+          eventInverse = [
+            { kind: "upsert_constraint", constraint: cloneSerializable(currentConstraint) },
+          ];
+        } else if (event.type === "board.settings.update") {
+          const incomingSettings = (event.payload as { boardSettings?: unknown })?.boardSettings;
+          if (!incomingSettings || typeof incomingSettings !== "object") return;
+          const merged = {
+            ...currentBoardSettings,
+            ...(incomingSettings as Partial<WorkbookBoardSettings>),
+          };
+          const normalizedLayers = normalizeSceneLayersForBoard(
+            merged.sceneLayers,
+            merged.activeSceneLayerId
+          );
+          const nextSettings: WorkbookBoardSettings = {
+            ...merged,
+            sceneLayers: normalizedLayers.sceneLayers,
+            activeSceneLayerId: normalizedLayers.activeSceneLayerId,
+          };
+          const forwardPatch = buildBoardSettingsDiffPatch(currentBoardSettings, nextSettings);
+          const inversePatch = buildBoardSettingsDiffPatch(nextSettings, currentBoardSettings);
+          if (!forwardPatch || !inversePatch) return;
+          eventForward = [{ kind: "patch_board_settings", patch: forwardPatch }];
+          eventInverse = [{ kind: "patch_board_settings", patch: inversePatch }];
+        } else if (event.type === "document.asset.add") {
+          const asset = normalizeDocumentAssetPayload(
+            (event.payload as { asset?: unknown })?.asset
+          );
+          if (!asset) return;
+          eventForward = [
+            { kind: "upsert_document_asset", asset: cloneSerializable(asset) },
+          ];
+          eventInverse = [{ kind: "remove_document_asset", assetId: asset.id }];
+        } else if (event.type === "document.annotation.add") {
+          const annotation = normalizeDocumentAnnotationPayload(
+            (event.payload as { annotation?: unknown })?.annotation
+          );
+          if (!annotation) return;
+          eventForward = [
+            {
+              kind: "upsert_document_annotation",
+              annotation: cloneSerializable(annotation),
+            },
+          ];
+          eventInverse = [
+            { kind: "remove_document_annotation", annotationId: annotation.id },
+          ];
+        } else if (event.type === "document.annotation.clear") {
+          eventForward = currentDocumentState.annotations.map((annotation) => ({
+            kind: "remove_document_annotation" as const,
+            annotationId: annotation.id,
+          }));
+          eventInverse = currentDocumentState.annotations.map((annotation) => ({
+            kind: "upsert_document_annotation" as const,
+            annotation: cloneSerializable(annotation),
+          }));
+        }
+
+        if (eventForward.length === 0 || eventInverse.length === 0) return;
+        forward.push(...eventForward);
+        inverse = [...eventInverse, ...inverse];
+      });
+
+      if (forward.length === 0 || inverse.length === 0) {
+        return null;
+      }
+      return {
+        forward,
+        inverse,
+        createdAt: new Date().toISOString(),
+      } satisfies WorkbookHistoryEntry;
+    },
+    []
+  );
 
   const applyIncomingEvents = useCallback(
     (events: WorkbookEvent[]) => {
@@ -2706,10 +3022,14 @@ export default function WorkbookSessionPage() {
           return;
         }
         if (event.type === "board.undo" || event.type === "board.redo") {
-          const payload = event.payload as { scene?: unknown };
-          if (!payload.scene || typeof payload.scene !== "object") return;
+          const payload = event.payload as { scene?: unknown; operations?: unknown };
           clearObjectSyncRuntime();
           clearStrokePreviewRuntime();
+          if (Array.isArray(payload.operations)) {
+            applyHistoryOperationsRef.current(payload.operations as WorkbookHistoryOperation[]);
+            return;
+          }
+          if (!payload.scene || typeof payload.scene !== "object") return;
           const normalized = normalizeScenePayload(payload.scene);
           restoreSceneSnapshot({
             boardStrokes: normalized.strokes.filter((stroke) => stroke.layer === "board"),
@@ -2866,6 +3186,7 @@ export default function WorkbookSessionPage() {
           objectLastCommittedEventAtRef.current.set(objectId, eventTimestamp);
           objectUpdateQueuedPatchRef.current.delete(objectId);
           objectUpdateDispatchOptionsRef.current.delete(objectId);
+          objectUpdateHistoryBeforeRef.current.delete(objectId);
           objectPreviewQueuedPatchRef.current.delete(objectId);
           objectUpdateInFlightRef.current.delete(objectId);
           objectPreviewInFlightByObjectRef.current.delete(objectId);
@@ -3386,6 +3707,7 @@ export default function WorkbookSessionPage() {
             : null;
         setSession(sessionData);
         queuedBoardSettingsCommitRef.current = null;
+        queuedBoardSettingsHistoryBeforeRef.current = null;
         if (boardSettingsCommitTimerRef.current !== null && typeof window !== "undefined") {
           window.clearTimeout(boardSettingsCommitTimerRef.current);
           boardSettingsCommitTimerRef.current = null;
@@ -4090,6 +4412,7 @@ export default function WorkbookSessionPage() {
       options?: {
         trackHistory?: boolean;
         markDirty?: boolean;
+        historyEntry?: WorkbookHistoryEntry | null;
       }
     ) => {
       if (!sessionId) return;
@@ -4097,8 +4420,14 @@ export default function WorkbookSessionPage() {
         options?.trackHistory ?? events.some((event) => HISTORY_EVENT_TYPES.has(event.type));
       const shouldMarkDirty =
         options?.markDirty ?? events.some((event) => DIRTY_EVENT_TYPES.has(event.type));
-      if (trackHistory) {
-        pushHistorySnapshot();
+      const historyEntry =
+        options && Object.prototype.hasOwnProperty.call(options, "historyEntry")
+          ? options.historyEntry ?? null
+          : trackHistory
+            ? buildHistoryEntryFromEvents(events)
+            : null;
+      if (historyEntry) {
+        pushHistoryEntry(historyEntry);
       }
       try {
         const response = await appendWorkbookEvents({
@@ -4122,18 +4451,19 @@ export default function WorkbookSessionPage() {
           markDirty();
         }
       } catch (error) {
-        if (trackHistory) {
-          rollbackHistorySnapshot();
+        if (historyEntry) {
+          rollbackHistoryEntry();
         }
         throw error;
       }
     },
     [
       applyIncomingEvents,
+      buildHistoryEntryFromEvents,
       filterUnseenWorkbookEvents,
       markDirty,
-      pushHistorySnapshot,
-      rollbackHistorySnapshot,
+      pushHistoryEntry,
+      rollbackHistoryEntry,
       sessionId,
     ]
   );
@@ -4297,17 +4627,36 @@ export default function WorkbookSessionPage() {
           markDirty: true,
         };
         objectUpdateDispatchOptionsRef.current.delete(objectId);
+        const historyBefore = objectUpdateHistoryBeforeRef.current.get(objectId) ?? null;
+        const historyEntry =
+          dispatchOptions.trackHistory !== false && historyBefore
+            ? (() => {
+                const historyAfter = mergeBoardObjectWithPatch(historyBefore, queuedPatch);
+                const forwardPatch = buildBoardObjectDiffPatch(historyBefore, historyAfter);
+                const inversePatch = buildBoardObjectDiffPatch(historyAfter, historyBefore);
+                if (!forwardPatch || !inversePatch) return null;
+                return {
+                  forward: [{ kind: "patch_object" as const, objectId, patch: forwardPatch }],
+                  inverse: [{ kind: "patch_object" as const, objectId, patch: inversePatch }],
+                  createdAt: new Date().toISOString(),
+                } satisfies WorkbookHistoryEntry;
+              })()
+            : null;
         objectUpdateInFlightRef.current.add(objectId);
         void appendEventsAndApply([
           {
             type: "board.object.update",
             payload: { objectId, patch: queuedPatch },
           },
-        ], dispatchOptions)
+        ], {
+          ...dispatchOptions,
+          historyEntry,
+        })
           .catch((error) => {
             if (error instanceof ApiError && error.code === "not_found") {
               objectUpdateQueuedPatchRef.current.delete(objectId);
               objectUpdateDispatchOptionsRef.current.delete(objectId);
+              objectUpdateHistoryBeforeRef.current.delete(objectId);
               incomingPreviewQueuedPatchRef.current.delete(objectId);
               return;
             }
@@ -4320,6 +4669,7 @@ export default function WorkbookSessionPage() {
               // Drop stale patch to avoid infinite retry loops.
               objectUpdateQueuedPatchRef.current.delete(objectId);
               objectUpdateDispatchOptionsRef.current.delete(objectId);
+              objectUpdateHistoryBeforeRef.current.delete(objectId);
               objectPreviewQueuedPatchRef.current.delete(objectId);
               incomingPreviewQueuedPatchRef.current.delete(objectId);
               return;
@@ -4350,6 +4700,9 @@ export default function WorkbookSessionPage() {
           })
           .finally(() => {
             objectUpdateInFlightRef.current.delete(objectId);
+            if (!objectUpdateQueuedPatchRef.current.has(objectId)) {
+              objectUpdateHistoryBeforeRef.current.delete(objectId);
+            }
             if (objectUpdateQueuedPatchRef.current.has(objectId)) {
               flushQueuedObjectUpdate(objectId);
             }
@@ -4378,9 +4731,16 @@ export default function WorkbookSessionPage() {
     if (!canManageSharedBoardSettings || boardSettingsCommitInFlightRef.current) return;
     const nextSettings = queuedBoardSettingsCommitRef.current;
     if (!nextSettings) return;
+    const historyBefore = queuedBoardSettingsHistoryBeforeRef.current;
     queuedBoardSettingsCommitRef.current = null;
     boardSettingsCommitInFlightRef.current = true;
     try {
+      const forwardPatch = historyBefore
+        ? buildBoardSettingsDiffPatch(historyBefore, nextSettings)
+        : null;
+      const inversePatch = historyBefore
+        ? buildBoardSettingsDiffPatch(nextSettings, historyBefore)
+        : null;
       await appendEventsAndApply([
         {
           type: "board.settings.update",
@@ -4391,7 +4751,17 @@ export default function WorkbookSessionPage() {
             },
           },
         },
-      ]);
+      ], {
+        historyEntry:
+          forwardPatch && inversePatch
+            ? {
+                forward: [{ kind: "patch_board_settings", patch: forwardPatch }],
+                inverse: [{ kind: "patch_board_settings", patch: inversePatch }],
+                createdAt: new Date().toISOString(),
+              }
+            : null,
+      });
+      queuedBoardSettingsHistoryBeforeRef.current = null;
     } catch {
       setError("Не удалось сохранить настройки доски.");
     } finally {
@@ -4421,6 +4791,9 @@ export default function WorkbookSessionPage() {
     (patch: Partial<WorkbookBoardSettings>) => {
       if (!canManageSharedBoardSettings) return;
       setBoardSettings((current) => {
+        if (!queuedBoardSettingsHistoryBeforeRef.current) {
+          queuedBoardSettingsHistoryBeforeRef.current = cloneSerializable(current);
+        }
         const merged = { ...current, ...patch };
         const normalizedLayers = normalizeSceneLayersForBoard(
           merged.sceneLayers,
@@ -4958,6 +5331,175 @@ export default function WorkbookSessionPage() {
     []
   );
 
+  const applyHistoryOperations = useCallback(
+    (operations: WorkbookHistoryOperation[]) => {
+      operations.forEach((operation) => {
+        if (operation.kind === "upsert_stroke") {
+          finalizeStrokePreview(operation.stroke.id);
+          applyLocalStrokeCollection(operation.layer, (current) => {
+            const exists = current.some((item) => item.id === operation.stroke.id);
+            if (!exists) return [...current, cloneSerializable(operation.stroke)];
+            return current.map((item) =>
+              item.id === operation.stroke.id ? cloneSerializable(operation.stroke) : item
+            );
+          });
+          return;
+        }
+        if (operation.kind === "remove_stroke") {
+          finalizeStrokePreview(operation.strokeId);
+          applyLocalStrokeCollection(operation.layer, (current) =>
+            current.filter((item) => item.id !== operation.strokeId)
+          );
+          return;
+        }
+        if (operation.kind === "upsert_object") {
+          const nextObject = cloneSerializable(operation.object);
+          setBoardObjects((current) => {
+            const exists = current.some((item) => item.id === nextObject.id);
+            if (!exists) return [...current, nextObject];
+            return current.map((item) => (item.id === nextObject.id ? nextObject : item));
+          });
+          return;
+        }
+        if (operation.kind === "patch_object") {
+          setBoardObjects((current) =>
+            current.map((item) =>
+              item.id === operation.objectId
+                ? mergeBoardObjectWithPatch(item, cloneSerializable(operation.patch))
+                : item
+            )
+          );
+          return;
+        }
+        if (operation.kind === "remove_object") {
+          const objectId = operation.objectId;
+          objectUpdateQueuedPatchRef.current.delete(objectId);
+          objectUpdateDispatchOptionsRef.current.delete(objectId);
+          objectUpdateHistoryBeforeRef.current.delete(objectId);
+          objectPreviewQueuedPatchRef.current.delete(objectId);
+          objectPreviewInFlightByObjectRef.current.delete(objectId);
+          objectPreviewVersionRef.current.delete(objectId);
+          incomingPreviewQueuedPatchRef.current.delete(objectId);
+          objectUpdateInFlightRef.current.delete(objectId);
+          Array.from(incomingPreviewVersionByAuthorObjectRef.current.keys()).forEach((key) => {
+            if (key.endsWith(`:${objectId}`)) {
+              incomingPreviewVersionByAuthorObjectRef.current.delete(key);
+            }
+          });
+          const pendingUpdateTimer = objectUpdateTimersRef.current.get(objectId);
+          if (pendingUpdateTimer !== undefined) {
+            window.clearTimeout(pendingUpdateTimer);
+            objectUpdateTimersRef.current.delete(objectId);
+          }
+          const pendingPreviewTimer = objectPreviewTimersRef.current.get(objectId);
+          if (pendingPreviewTimer !== undefined) {
+            window.clearTimeout(pendingPreviewTimer);
+            objectPreviewTimersRef.current.delete(objectId);
+          }
+          setBoardObjects((current) => current.filter((item) => item.id !== objectId));
+          setConstraints((current) =>
+            current.filter(
+              (constraint) =>
+                constraint.sourceObjectId !== objectId &&
+                constraint.targetObjectId !== objectId
+            )
+          );
+          setSelectedObjectId((current) => (current === objectId ? null : current));
+          return;
+        }
+        if (operation.kind === "upsert_constraint") {
+          const nextConstraint = cloneSerializable(operation.constraint);
+          setConstraints((current) => {
+            const exists = current.some((item) => item.id === nextConstraint.id);
+            if (!exists) return [...current, nextConstraint];
+            return current.map((item) => (item.id === nextConstraint.id ? nextConstraint : item));
+          });
+          return;
+        }
+        if (operation.kind === "remove_constraint") {
+          setConstraints((current) =>
+            current.filter((item) => item.id !== operation.constraintId)
+          );
+          setSelectedConstraintId((current) =>
+            current === operation.constraintId ? null : current
+          );
+          return;
+        }
+        if (operation.kind === "patch_board_settings") {
+          setBoardSettings((current) => {
+            const merged = {
+              ...current,
+              ...cloneSerializable(operation.patch),
+            };
+            const normalizedLayers = normalizeSceneLayersForBoard(
+              merged.sceneLayers,
+              merged.activeSceneLayerId
+            );
+            return {
+              ...merged,
+              sceneLayers: normalizedLayers.sceneLayers,
+              activeSceneLayerId: normalizedLayers.activeSceneLayerId,
+            };
+          });
+          return;
+        }
+        if (operation.kind === "upsert_document_asset") {
+          const nextAsset = cloneSerializable(operation.asset);
+          setDocumentState((current) => {
+            const exists = current.assets.some((item) => item.id === nextAsset.id);
+            return {
+              ...current,
+              assets: exists
+                ? current.assets.map((item) => (item.id === nextAsset.id ? nextAsset : item))
+                : [...current.assets, nextAsset],
+              activeAssetId: current.activeAssetId ?? nextAsset.id,
+            };
+          });
+          return;
+        }
+        if (operation.kind === "remove_document_asset") {
+          setDocumentState((current) => {
+            const assets = current.assets.filter((item) => item.id !== operation.assetId);
+            return {
+              ...current,
+              assets,
+              activeAssetId:
+                current.activeAssetId === operation.assetId
+                  ? (assets[0]?.id ?? null)
+                  : current.activeAssetId,
+            };
+          });
+          return;
+        }
+        if (operation.kind === "upsert_document_annotation") {
+          const nextAnnotation = cloneSerializable(operation.annotation);
+          setDocumentState((current) => {
+            const exists = current.annotations.some((item) => item.id === nextAnnotation.id);
+            return {
+              ...current,
+              annotations: exists
+                ? current.annotations.map((item) =>
+                    item.id === nextAnnotation.id ? nextAnnotation : item
+                  )
+                : [...current.annotations, nextAnnotation],
+            };
+          });
+          return;
+        }
+        if (operation.kind === "remove_document_annotation") {
+          setDocumentState((current) => ({
+            ...current,
+            annotations: current.annotations.filter(
+              (item) => item.id !== operation.annotationId
+            ),
+          }));
+        }
+      });
+    },
+    [applyLocalStrokeCollection, finalizeStrokePreview]
+  );
+  applyHistoryOperationsRef.current = applyHistoryOperations;
+
   const commitStrokePreview = useCallback(
     (payload: { stroke: WorkbookStroke; previewVersion: number }) => {
       if (!sessionId || !canDraw) return;
@@ -5197,6 +5739,9 @@ export default function WorkbookSessionPage() {
         flushPreviewObjectUpdate(objectId);
         return;
       }
+      if (options?.trackHistory !== false && !objectUpdateHistoryBeforeRef.current.has(objectId)) {
+        objectUpdateHistoryBeforeRef.current.set(objectId, cloneSerializable(currentObject));
+      }
       setBoardObjects((current) =>
         current.map((item) =>
           item.id === objectId ? mergeBoardObjectWithPatch(item, normalizedPatch) : item
@@ -5233,6 +5778,7 @@ export default function WorkbookSessionPage() {
     if (!sessionId || !canDelete) return;
     objectUpdateQueuedPatchRef.current.delete(objectId);
     objectUpdateDispatchOptionsRef.current.delete(objectId);
+    objectUpdateHistoryBeforeRef.current.delete(objectId);
     objectPreviewQueuedPatchRef.current.delete(objectId);
     objectPreviewInFlightByObjectRef.current.delete(objectId);
     objectPreviewVersionRef.current.delete(objectId);
@@ -6371,6 +6917,11 @@ export default function WorkbookSessionPage() {
               vertexLabels: labels,
               showAngles: false,
               vertexColors: Array.from({ length: polylinePoints.length }, () => fallbackColor),
+              angleMarks: Array.from({ length: polylinePoints.length }, () => ({
+                valueText: "",
+                color: fallbackColor,
+                style: "auto" as const,
+              })),
               angleNotes: Array.from({ length: polylinePoints.length }, () => ""),
               angleColors: Array.from({ length: polylinePoints.length }, () => fallbackColor),
               segmentNotes: Array.from({ length: polylinePoints.length }, () => ""),
@@ -6412,6 +6963,51 @@ export default function WorkbookSessionPage() {
     [boardObjects, canSelect, commitObjectUpdate, selectedObjectId]
   );
 
+  const buildShapeAngleMetaPatch = useCallback(
+    (marks: WorkbookShapeAngleMark[]) => ({
+      angleMarks: marks.map((mark) => ({
+        valueText: mark.valueText.slice(0, 24),
+        color: mark.color,
+        style: mark.style,
+      })),
+      angleNotes: marks.map((mark) => mark.valueText.slice(0, 24)),
+      angleColors: marks.map((mark) => mark.color),
+    }),
+    []
+  );
+
+  const updateSelectedShape2dAngleMark = useCallback(
+    async (
+      index: number,
+      patch: Partial<Pick<WorkbookShapeAngleMark, "valueText" | "color" | "style">>
+    ) => {
+      if (!selectedObjectId) return;
+      const target = boardObjects.find((item) => item.id === selectedObjectId);
+      if (!target || !is2dFigureObject(target)) return;
+      const vertices = resolve2dFigureVertices(target);
+      if (!vertices.length) return;
+      const fallback = target.color || "#4f63ff";
+      const next = normalizeShapeAngleMarks(target, vertices.length, fallback);
+      const currentMark = next[index];
+      if (!currentMark) return;
+      next[index] = {
+        ...currentMark,
+        ...(patch.valueText !== undefined
+          ? { valueText: patch.valueText.slice(0, 24) }
+          : {}),
+        ...(patch.color !== undefined ? { color: patch.color || fallback } : {}),
+        ...(patch.style !== undefined ? { style: patch.style } : {}),
+      };
+      await updateSelectedShape2dMeta(buildShapeAngleMetaPatch(next));
+    },
+    [
+      boardObjects,
+      buildShapeAngleMetaPatch,
+      selectedObjectId,
+      updateSelectedShape2dMeta,
+    ]
+  );
+
   const renameSelectedShape2dVertex = useCallback(
     async (index: number, label: string) => {
       if (!selectedObjectId) return;
@@ -6432,19 +7028,11 @@ export default function WorkbookSessionPage() {
 
   const updateSelectedShape2dAngleNote = useCallback(
     async (index: number, value: string) => {
-      if (!selectedObjectId) return;
-      const target = boardObjects.find((item) => item.id === selectedObjectId);
-      if (!target || !is2dFigureObject(target)) return;
-      const vertices = resolve2dFigureVertices(target);
-      if (!vertices.length) return;
-      const raw = Array.isArray(target.meta?.angleNotes) ? target.meta.angleNotes : [];
-      const next = vertices.map((_, itemIndex) =>
-        typeof raw[itemIndex] === "string" ? raw[itemIndex] : ""
-      );
-      next[index] = value.slice(0, 24);
-      await updateSelectedShape2dMeta({ angleNotes: next });
+      await updateSelectedShape2dAngleMark(index, {
+        valueText: value.slice(0, 24),
+      });
     },
-    [boardObjects, selectedObjectId, updateSelectedShape2dMeta]
+    [updateSelectedShape2dAngleMark]
   );
 
   const updateSelectedShape2dSegmentNote = useCallback(
@@ -6486,20 +7074,63 @@ export default function WorkbookSessionPage() {
 
   const updateSelectedShape2dAngleColor = useCallback(
     async (index: number, color: string) => {
+      await updateSelectedShape2dAngleMark(index, {
+        color,
+      });
+    },
+    [updateSelectedShape2dAngleMark]
+  );
+
+  const updateSelectedShape2dAngleStyle = useCallback(
+    async (index: number, style: WorkbookShapeAngleMarkStyle) => {
+      await updateSelectedShape2dAngleMark(index, {
+        style,
+      });
+    },
+    [updateSelectedShape2dAngleMark]
+  );
+
+  const flushSelectedShape2dAngleDraftCommit = useCallback(
+    async (index: number, draftOverride?: string) => {
+      const timer = shapeAngleDraftCommitTimersRef.current.get(index);
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        shapeAngleDraftCommitTimersRef.current.delete(index);
+      }
       if (!selectedObjectId) return;
+      const draftObjectId = shapeAngleDraftObjectIdRef.current;
+      if (!draftObjectId || draftObjectId !== selectedObjectId) return;
+      const nextValue = (draftOverride ?? shapeAngleDraftValuesRef.current.get(index) ?? "")
+        .slice(0, 24);
       const target = boardObjects.find((item) => item.id === selectedObjectId);
       if (!target || !is2dFigureObject(target)) return;
       const vertices = resolve2dFigureVertices(target);
       if (!vertices.length) return;
-      const raw = Array.isArray(target.meta?.angleColors) ? target.meta.angleColors : [];
       const fallback = target.color || "#4f63ff";
-      const next = vertices.map((_, itemIndex) =>
-        typeof raw[itemIndex] === "string" && raw[itemIndex] ? raw[itemIndex] : fallback
-      );
-      next[index] = color || fallback;
-      await updateSelectedShape2dMeta({ angleColors: next });
+      const currentValue =
+        normalizeShapeAngleMarks(target, vertices.length, fallback)[index]?.valueText ?? "";
+      if (currentValue === nextValue) return;
+      await updateSelectedShape2dAngleNote(index, nextValue);
     },
-    [boardObjects, selectedObjectId, updateSelectedShape2dMeta]
+    [boardObjects, selectedObjectId, updateSelectedShape2dAngleNote]
+  );
+
+  const scheduleSelectedShape2dAngleDraftCommit = useCallback(
+    (index: number, value: string) => {
+      if (!selectedObjectId) return;
+      const nextValue = value.slice(0, 24);
+      shapeAngleDraftObjectIdRef.current = selectedObjectId;
+      shapeAngleDraftValuesRef.current.set(index, nextValue);
+      const existingTimer = shapeAngleDraftCommitTimersRef.current.get(index);
+      if (existingTimer !== undefined) {
+        window.clearTimeout(existingTimer);
+      }
+      const timer = window.setTimeout(() => {
+        void flushSelectedShape2dAngleDraftCommit(index, nextValue);
+      }, 260);
+      shapeAngleDraftCommitTimersRef.current.set(index, timer);
+    },
+    [flushSelectedShape2dAngleDraftCommit, selectedObjectId]
   );
 
   const updateSelectedShape2dSegmentColor = useCallback(
@@ -7179,23 +7810,22 @@ export default function WorkbookSessionPage() {
 
   const handleUndo = useCallback(async () => {
     if (!canUseUndo || undoStackRef.current.length === 0) return;
-    const previousSnapshot = undoStackRef.current[undoStackRef.current.length - 1];
-    if (!previousSnapshot) return;
-    const currentSnapshot = captureSceneSnapshot();
+    const entry = undoStackRef.current[undoStackRef.current.length - 1];
+    if (!entry) return;
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     undoStackRef.current = undoStackRef.current.slice(0, -1);
-    redoStackRef.current = [...redoStackRef.current, currentSnapshot].slice(-80);
+    redoStackRef.current = [...redoStackRef.current, entry].slice(-80);
     setUndoDepth(undoStackRef.current.length);
     setRedoDepth(redoStackRef.current.length);
-    restoreSceneSnapshot(previousSnapshot);
+    applyHistoryOperations(entry.inverse);
     markDirty();
     try {
       await appendEventsAndApply([
         {
           type: "board.undo",
           payload: {
-            scene: toScenePayload(previousSnapshot),
+            operations: entry.inverse,
           },
         },
       ], { trackHistory: false, markDirty: false });
@@ -7203,35 +7833,32 @@ export default function WorkbookSessionPage() {
       setError("Не удалось выполнить отмену действия.");
     }
   }, [
+    applyHistoryOperations,
     appendEventsAndApply,
     canUseUndo,
-    captureSceneSnapshot,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
     markDirty,
-    restoreSceneSnapshot,
-    toScenePayload,
   ]);
 
   const handleRedo = useCallback(async () => {
     if (!canUseUndo || redoStackRef.current.length === 0) return;
-    const nextSnapshot = redoStackRef.current[redoStackRef.current.length - 1];
-    if (!nextSnapshot) return;
-    const currentSnapshot = captureSceneSnapshot();
+    const entry = redoStackRef.current[redoStackRef.current.length - 1];
+    if (!entry) return;
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     redoStackRef.current = redoStackRef.current.slice(0, -1);
-    undoStackRef.current = [...undoStackRef.current, currentSnapshot].slice(-80);
+    undoStackRef.current = [...undoStackRef.current, entry].slice(-80);
     setUndoDepth(undoStackRef.current.length);
     setRedoDepth(redoStackRef.current.length);
-    restoreSceneSnapshot(nextSnapshot);
+    applyHistoryOperations(entry.forward);
     markDirty();
     try {
       await appendEventsAndApply([
         {
           type: "board.redo",
           payload: {
-            scene: toScenePayload(nextSnapshot),
+            operations: entry.forward,
           },
         },
       ], { trackHistory: false, markDirty: false });
@@ -7239,14 +7866,12 @@ export default function WorkbookSessionPage() {
       setError("Не удалось повторить действие.");
     }
   }, [
+    applyHistoryOperations,
     appendEventsAndApply,
     canUseUndo,
-    captureSceneSnapshot,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
     markDirty,
-    restoreSceneSnapshot,
-    toScenePayload,
   ]);
 
   useEffect(() => {
@@ -8857,15 +9482,19 @@ export default function WorkbookSessionPage() {
       return `${start}-${end}`;
     });
   }, [selectedShape2dLabels, selectedShape2dObject]);
-  const selectedShape2dAngleNotes = useMemo(() => {
-    if (!selectedShape2dObject) return [] as string[];
-    const raw = Array.isArray(selectedShape2dObject.meta?.angleNotes)
-      ? selectedShape2dObject.meta.angleNotes
-      : [];
-    return selectedShape2dLabels.map((_, index) =>
-      typeof raw[index] === "string" ? raw[index] : ""
-    );
-  }, [selectedShape2dLabels, selectedShape2dObject]);
+  const selectedShape2dAngleMarks = useMemo(
+    () =>
+      normalizeShapeAngleMarks(
+        selectedShape2dObject,
+        selectedShape2dLabels.length,
+        selectedShape2dObject?.color || "#4f63ff"
+      ),
+    [selectedShape2dLabels.length, selectedShape2dObject]
+  );
+  const selectedShape2dAngleNotes = useMemo(
+    () => selectedShape2dAngleMarks.map((mark) => mark.valueText),
+    [selectedShape2dAngleMarks]
+  );
   const selectedShape2dSegmentNotes = useMemo(() => {
     if (!selectedShape2dObject) return [] as string[];
     const raw = Array.isArray(selectedShape2dObject.meta?.segmentNotes)
@@ -8898,16 +9527,10 @@ export default function WorkbookSessionPage() {
       typeof raw[index] === "string" && raw[index] ? raw[index] : fallback
     );
   }, [selectedShape2dLabels, selectedShape2dObject]);
-  const selectedShape2dAngleColors = useMemo(() => {
-    if (!selectedShape2dObject) return [] as string[];
-    const raw = Array.isArray(selectedShape2dObject.meta?.angleColors)
-      ? selectedShape2dObject.meta.angleColors
-      : [];
-    const fallback = selectedShape2dObject.color || "#4f63ff";
-    return selectedShape2dLabels.map((_, index) =>
-      typeof raw[index] === "string" && raw[index] ? raw[index] : fallback
-    );
-  }, [selectedShape2dLabels, selectedShape2dObject]);
+  const selectedShape2dAngleColors = useMemo(
+    () => selectedShape2dAngleMarks.map((mark) => mark.color),
+    [selectedShape2dAngleMarks]
+  );
   const selectedShape2dSegmentColors = useMemo(() => {
     if (!selectedShape2dObject) return [] as string[];
     const raw = Array.isArray(selectedShape2dObject.meta?.segmentColors)
@@ -9191,10 +9814,22 @@ export default function WorkbookSessionPage() {
 
   useEffect(() => {
     if (!selectedShape2dObject) {
+      shapeAngleDraftCommitTimersRef.current.forEach((timer) => {
+        window.clearTimeout(timer);
+      });
+      shapeAngleDraftCommitTimersRef.current.clear();
+      shapeAngleDraftValuesRef.current.clear();
+      shapeAngleDraftObjectIdRef.current = null;
       shapeDraftObjectIdRef.current = null;
       return;
     }
     if (shapeDraftObjectIdRef.current === selectedShape2dObject.id) return;
+    shapeAngleDraftCommitTimersRef.current.forEach((timer) => {
+      window.clearTimeout(timer);
+    });
+    shapeAngleDraftCommitTimersRef.current.clear();
+    shapeAngleDraftValuesRef.current.clear();
+    shapeAngleDraftObjectIdRef.current = selectedShape2dObject.id;
     shapeDraftObjectIdRef.current = selectedShape2dObject.id;
     setShapeVertexLabelDrafts(selectedShape2dLabels);
     setShapeAngleNoteDrafts(selectedShape2dAngleNotes);
@@ -9206,6 +9841,16 @@ export default function WorkbookSessionPage() {
     selectedShape2dObject?.id,
     selectedShape2dSegmentNotes,
   ]);
+
+  useEffect(
+    () => () => {
+      shapeAngleDraftCommitTimersRef.current.forEach((timer) => {
+        window.clearTimeout(timer);
+      });
+      shapeAngleDraftCommitTimersRef.current.clear();
+    },
+    []
+  );
 
   useEffect(() => {
     if (!selectedDividerObject) {
@@ -10449,6 +11094,7 @@ export default function WorkbookSessionPage() {
                 selectedShape2dShowAngles={selectedShape2dShowAngles}
                 selectedShape2dLabels={selectedShape2dLabels}
                 selectedShape2dSegments={selectedShape2dSegments}
+                selectedShape2dAngleMarks={selectedShape2dAngleMarks}
                 shapeVertexLabelDrafts={shapeVertexLabelDrafts}
                 setShapeVertexLabelDrafts={setShapeVertexLabelDrafts}
                 shapeAngleNoteDrafts={shapeAngleNoteDrafts}
@@ -10460,7 +11106,9 @@ export default function WorkbookSessionPage() {
                 selectedShape2dSegmentColors={selectedShape2dSegmentColors}
                 onUpdateSelectedShape2dMeta={updateSelectedShape2dMeta}
                 onRenameSelectedShape2dVertex={renameSelectedShape2dVertex}
-                onUpdateSelectedShape2dAngleNote={updateSelectedShape2dAngleNote}
+                onScheduleSelectedShape2dAngleDraftCommit={scheduleSelectedShape2dAngleDraftCommit}
+                onFlushSelectedShape2dAngleDraftCommit={flushSelectedShape2dAngleDraftCommit}
+                onUpdateSelectedShape2dAngleStyle={updateSelectedShape2dAngleStyle}
                 onUpdateSelectedShape2dSegmentNote={updateSelectedShape2dSegmentNote}
                 onUpdateSelectedShape2dVertexColor={updateSelectedShape2dVertexColor}
                 onUpdateSelectedShape2dAngleColor={updateSelectedShape2dAngleColor}

@@ -46,6 +46,10 @@ import {
   getWorkbookPolygonPoints,
   type WorkbookPolygonPreset,
 } from "../model/shapeGeometry";
+import {
+  normalizeShapeAngleMarks,
+  resolveRenderedShapeAngleMarkStyle,
+} from "../model/shapeAngleMarks";
 
 type WorkbookCanvasProps = {
   boardStrokes: WorkbookStroke[];
@@ -1127,6 +1131,136 @@ const getPointsBoundsFromPoints = (points: WorkbookPoint[]) => {
     width: Math.max(1, maxX - minX),
     height: Math.max(1, maxY - minY),
   };
+};
+
+const getPointsCentroid = (points: WorkbookPoint[]) => {
+  if (points.length === 0) {
+    return { x: 0, y: 0 };
+  }
+  if (points.length < 3) {
+    return {
+      x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+      y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
+    };
+  }
+  let signedArea = 0;
+  let centroidX = 0;
+  let centroidY = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    const cross = current.x * next.y - next.x * current.y;
+    signedArea += cross;
+    centroidX += (current.x + next.x) * cross;
+    centroidY += (current.y + next.y) * cross;
+  }
+  if (Math.abs(signedArea) < 1e-6) {
+    return {
+      x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+      y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
+    };
+  }
+  return {
+    x: centroidX / (3 * signedArea),
+    y: centroidY / (3 * signedArea),
+  };
+};
+
+const resolveOutsideVertexLabelPlacement = (params: {
+  vertex: WorkbookPoint;
+  center?: WorkbookPoint | null;
+  polygon?: WorkbookPoint[];
+  baseOffset?: number;
+}) => {
+  const { vertex, center = null, polygon = [], baseOffset = 14 } = params;
+  const polygonCenter =
+    polygon.length >= 2 ? getPointsCentroid(polygon) : center ?? { x: vertex.x, y: vertex.y };
+  let dx = vertex.x - polygonCenter.x;
+  let dy = vertex.y - polygonCenter.y;
+  let length = Math.hypot(dx, dy);
+  if (length < 1e-6 && polygon.length >= 2) {
+    const bounds = getPointsBoundsFromPoints(polygon);
+    dx = vertex.x - (bounds.minX + bounds.width / 2);
+    dy = vertex.y - (bounds.minY + bounds.height / 2);
+    length = Math.hypot(dx, dy);
+  }
+  if (length < 1e-6 && center) {
+    dx = vertex.x - center.x;
+    dy = vertex.y - center.y;
+    length = Math.hypot(dx, dy);
+  }
+  if (length < 1e-6) {
+    dx = 0.82;
+    dy = -0.58;
+    length = 1;
+  }
+  const direction = {
+    x: dx / length,
+    y: dy / length,
+  };
+  const offsets = [baseOffset, baseOffset + 6, baseOffset + 12];
+  let target = {
+    x: vertex.x + direction.x * offsets[0],
+    y: vertex.y + direction.y * offsets[0],
+  };
+  for (const offset of offsets) {
+    const candidate = {
+      x: vertex.x + direction.x * offset,
+      y: vertex.y + direction.y * offset,
+    };
+    if (polygon.length < 3 || !pointInPolygon(candidate, polygon)) {
+      target = candidate;
+      break;
+    }
+    target = candidate;
+  }
+  return {
+    x: target.x,
+    y: target.y,
+    textAnchor:
+      direction.x > 0.35 ? "start" : direction.x < -0.35 ? "end" : "middle",
+  } as const;
+};
+
+const clampUnitDot = (value: number) => Math.max(-1, Math.min(1, value));
+
+const buildAngleArcPath = (
+  vertex: WorkbookPoint,
+  unitA: WorkbookPoint,
+  unitB: WorkbookPoint,
+  radius: number,
+  sweep: 0 | 1
+) => {
+  const start = {
+    x: vertex.x + unitA.x * radius,
+    y: vertex.y + unitA.y * radius,
+  };
+  const end = {
+    x: vertex.x + unitB.x * radius,
+    y: vertex.y + unitB.y * radius,
+  };
+  return `M ${start.x} ${start.y} A ${radius} ${radius} 0 0 ${sweep} ${end.x} ${end.y}`;
+};
+
+const buildRightAngleMarkerPath = (
+  vertex: WorkbookPoint,
+  unitA: WorkbookPoint,
+  unitB: WorkbookPoint,
+  size: number
+) => {
+  const first = {
+    x: vertex.x + unitA.x * size,
+    y: vertex.y + unitA.y * size,
+  };
+  const corner = {
+    x: first.x + unitB.x * size,
+    y: first.y + unitB.y * size,
+  };
+  const second = {
+    x: vertex.x + unitB.x * size,
+    y: vertex.y + unitB.y * size,
+  };
+  return `M ${first.x} ${first.y} L ${corner.x} ${corner.y} L ${second.x} ${second.y}`;
 };
 
 const mapConstraintLabel = (type: WorkbookConstraint["type"]) => {
@@ -2777,10 +2911,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         id: generateId(),
         type: "point",
         layer,
-        x: point.x - 6,
-        y: point.y - 6,
-        width: 12,
-        height: 12,
+        x: point.x - 4,
+        y: point.y - 4,
+        width: 8,
+        height: 8,
         color,
         fill: "#ffffff",
         strokeWidth: Math.max(1, width),
@@ -3277,6 +3411,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
               getFigureVertexLabel(index)
             ),
             showAngles: false,
+            angleMarks: Array.from({ length: figureVertices }, () => ({
+              valueText: "",
+              color,
+              style: "auto" as const,
+            })),
           }
         : undefined;
     const isLineTool = shapeDraft.tool === "line" || shapeDraft.tool === "arrow";
@@ -4025,10 +4164,20 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       const showAngles = Boolean(object.meta?.showAngles);
       const isClosed = is2dFigureClosed(object);
       const segments = get2dFigureSegments(vertices, isClosed);
-      const angleNotesRaw = Array.isArray(object.meta?.angleNotes) ? object.meta.angleNotes : [];
-      const angleColorsRaw = Array.isArray(object.meta?.angleColors)
-        ? object.meta.angleColors
-        : [];
+      const figureCenter = getPointsCentroid(vertices);
+      const labelPlacements = vertices.map((vertex) =>
+        resolveOutsideVertexLabelPlacement({
+          vertex,
+          center: figureCenter,
+          polygon: isClosed ? vertices : [],
+          baseOffset: 14,
+        })
+      );
+      const angleMarks = normalizeShapeAngleMarks(
+        object,
+        vertices.length,
+        object.color ?? "#4f63ff"
+      );
       const vertexColorsRaw = Array.isArray(object.meta?.vertexColors)
         ? object.meta.vertexColors
         : [];
@@ -4082,11 +4231,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
               />
               {showLabels ? (
                 <text
-                  x={vertex.x + 4}
-                  y={vertex.y - 4}
+                  x={labelPlacements[index]?.x ?? vertex.x + 4}
+                  y={labelPlacements[index]?.y ?? vertex.y - 4}
                   fill={vertexColor}
                   fontSize={12}
                   fontWeight={700}
+                  textAnchor={labelPlacements[index]?.textAnchor ?? "start"}
+                  dominantBaseline="central"
                   paintOrder="stroke"
                   stroke="rgba(245, 247, 255, 0.94)"
                   strokeWidth={2}
@@ -4143,41 +4294,75 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
                 const unitA = { x: vecA.x / lenA, y: vecA.y / lenA };
                 const unitB = { x: vecB.x / lenB, y: vecB.y / lenB };
                 const radius = Math.max(8, Math.min(22, Math.min(lenA, lenB) * 0.22));
-                const start = {
-                  x: vertex.x + unitA.x * radius,
-                  y: vertex.y + unitA.y * radius,
+                const sweep: 0 | 1 =
+                  unitA.x * unitB.y - unitA.y * unitB.x > 0 ? 1 : 0;
+                const dot = clampUnitDot(unitA.x * unitB.x + unitA.y * unitB.y);
+                const angleDeg = (Math.acos(dot) * 180) / Math.PI;
+                const angleMark = angleMarks[index] ?? {
+                  valueText: "",
+                  color: object.color ?? "#4f63ff",
+                  style: "auto" as const,
                 };
-                const end = {
-                  x: vertex.x + unitB.x * radius,
-                  y: vertex.y + unitB.y * radius,
-                };
-                const cross = unitA.x * unitB.y - unitA.y * unitB.x;
-                const sweep = cross > 0 ? 1 : 0;
-                const note =
-                  typeof angleNotesRaw[index] === "string" ? angleNotesRaw[index].trim() : "";
-                const angleColor =
-                  typeof angleColorsRaw[index] === "string" && angleColorsRaw[index]
-                    ? angleColorsRaw[index]
-                    : object.color ?? "#4f63ff";
+                const renderedStyle = resolveRenderedShapeAngleMarkStyle(
+                  angleMark.style,
+                  angleDeg
+                );
+                const note = angleMark.valueText.trim();
+                const angleColor = angleMark.color || object.color || "#4f63ff";
                 const bisector = { x: unitA.x + unitB.x, y: unitA.y + unitB.y };
                 const bisectorLength = Math.hypot(bisector.x, bisector.y);
                 const labelDirection =
                   bisectorLength > 1e-6
                     ? { x: bisector.x / bisectorLength, y: bisector.y / bisectorLength }
                     : { x: -(unitA.y + unitB.y) * 0.5, y: (unitA.x + unitB.x) * 0.5 };
+                const arcCount =
+                  renderedStyle === "arc_double"
+                    ? 2
+                    : renderedStyle === "arc_triple"
+                      ? 3
+                      : renderedStyle === "arc_single"
+                        ? 1
+                        : 0;
+                const rightSquareSize = Math.max(7, Math.min(15, radius * 0.72));
+                const markerDepth =
+                  renderedStyle === "right_square"
+                    ? rightSquareSize + 2
+                    : radius + Math.max(0, arcCount - 1) * 4;
                 const noteAnchor = {
-                  x: vertex.x + labelDirection.x * (radius + 11),
-                  y: vertex.y + labelDirection.y * (radius + 11),
+                  x: vertex.x + labelDirection.x * (markerDepth + 11),
+                  y: vertex.y + labelDirection.y * (markerDepth + 11),
                 };
                 return (
                   <g key={`${object.id}-angle-${index}`}>
-                    <path
-                      d={`M ${start.x} ${start.y} A ${radius} ${radius} 0 0 ${sweep} ${end.x} ${end.y}`}
-                      fill="none"
-                      stroke={angleColor}
-                      strokeWidth={1.2}
-                      opacity={0.88}
-                    />
+                    {renderedStyle === "right_square" ? (
+                      <path
+                        d={buildRightAngleMarkerPath(
+                          vertex,
+                          unitA,
+                          unitB,
+                          rightSquareSize
+                        )}
+                        fill="none"
+                        stroke={angleColor}
+                        strokeWidth={1.5}
+                        strokeLinejoin="round"
+                        opacity={0.9}
+                      />
+                    ) : (
+                      Array.from({ length: arcCount }, (_, arcIndex) => {
+                        const arcRadius = radius + arcIndex * 4;
+                        return (
+                          <path
+                            key={`${object.id}-angle-${index}-arc-${arcRadius}`}
+                            d={buildAngleArcPath(vertex, unitA, unitB, arcRadius, sweep)}
+                            fill="none"
+                            stroke={angleColor}
+                            strokeWidth={1.2}
+                            opacity={0.88}
+                          />
+                        );
+                      })
+                    )}
                     {note ? (
                       <text
                         x={noteAnchor.x}
@@ -5120,6 +5305,49 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         sectionPolygons.map((polygon) => [polygon.section.id, polygon])
       );
 
+      const hiddenSectionMarkerId =
+        solid3dSectionMarkers?.objectId === object.id
+          ? solid3dSectionMarkers.sectionId
+          : solid3dPointPick?.objectId === object.id
+            ? solid3dPointPick.sectionId
+            : null;
+
+      const visibleSectionMarkers = mesh
+        ? solidState.sections
+            .filter((section) => section.visible && section.id !== hiddenSectionMarkerId)
+            .flatMap((section) => {
+              if (!Array.isArray(section.points) || section.points.length === 0) return [];
+              const polygon = sectionPolygonsById.get(section.id);
+              const polygon2d = polygon
+                ? polygon.points.map((point) => ({ x: point.x, y: point.y }))
+                : [];
+              const sectionCenter =
+                polygon2d.length >= 2 ? getPointsCentroid(polygon2d) : solidLabelCenter;
+              return section.points.map((point3d, index) => {
+                const worldPoint = resolveSectionPointForMesh(point3d, mesh);
+                const projected = projectSolidPointForObject({
+                  point: worldPoint,
+                  view,
+                  objectRect: normalized,
+                });
+                return {
+                  sectionId: section.id,
+                  index,
+                  x: projected.x,
+                  y: projected.y,
+                  color: section.color,
+                  label: point3d.label?.trim() || `P${index + 1}`,
+                  placement: resolveOutsideVertexLabelPlacement({
+                    vertex: { x: projected.x, y: projected.y },
+                    center: sectionCenter,
+                    polygon: polygon2d,
+                    baseOffset: 13,
+                  }),
+                };
+              });
+            })
+        : [];
+
       const sectionLines = solidState.sections
         .filter((section) => section.visible)
         .map((section) => {
@@ -5227,6 +5455,15 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       const faceFill = object.fill ?? "rgba(95, 106, 160, 0.16)";
       const vertexLabels = solidState.vertexLabels ?? [];
       const showVertexLabels = object.meta?.showLabels !== false && !isRoundPreset;
+      const solidLabelCenter = projectedBounds
+        ? {
+            x: (projectedBounds.minX + projectedBounds.maxX) / 2,
+            y: (projectedBounds.minY + projectedBounds.maxY) / 2,
+          }
+        : {
+            x: contentX + contentWidth / 2,
+            y: contentY + contentHeight / 2,
+          };
       const vertexAdjacency = mesh
         ? mesh.edges.reduce<Map<number, number[]>>((acc, [a, b]) => {
             const neighboursA = acc.get(a) ?? [];
@@ -5272,6 +5509,30 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         );
         return unique.map((vertex) => vertex.index);
       })();
+
+      const vertexLabelPlacements = new Map(
+        visibleVertexIndices
+          .map((vertexIndex) => {
+            const vertex = projectedVertexByIndex.get(vertexIndex);
+            if (!vertex) return null;
+            return [
+              vertexIndex,
+              resolveOutsideVertexLabelPlacement({
+                vertex: { x: vertex.x, y: vertex.y },
+                center: solidLabelCenter,
+                baseOffset: isRoundPreset ? 12 : 14,
+              }),
+            ] as const;
+          })
+          .filter(
+            (
+              entry
+            ): entry is readonly [
+              number,
+              ReturnType<typeof resolveOutsideVertexLabelPlacement>,
+            ] => Boolean(entry)
+          )
+      );
 
       const angleMarkRenderData = angleMarks
         .map((mark) => {
@@ -5748,38 +6009,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
                   />
                 ))
               : null}
-            {visibleVertexIndices.map((vertexIndex) => {
-              const vertex = projectedVertexByIndex.get(vertexIndex);
-              if (!vertex) return null;
-              const label = vertexLabels[vertexIndex] || `V${vertexIndex + 1}`;
-              return (
-                <g key={`${object.id}-vertex-${vertex.index}`}>
-                  <circle
-                    cx={vertex.x}
-                    cy={vertex.y}
-                    r={isRoundPreset ? 2.2 : 2.8}
-                    fill="#ffffff"
-                    stroke={color}
-                    strokeWidth={1}
-                  />
-                  {showVertexLabels ? (
-                    <text
-                      x={vertex.x + 4}
-                      y={vertex.y - 4}
-                      fill={color}
-                      fontSize={isRoundPreset ? 8 : 8.5}
-                      fontWeight={700}
-                      paintOrder="stroke"
-                      stroke="rgba(245, 247, 255, 0.94)"
-                      strokeWidth={2}
-                      strokeLinejoin="round"
-                    >
-                      {label}
-                    </text>
-                  ) : null}
-                </g>
-              );
-            })}
             {angleMarkRenderData.map((mark) => {
               const normalized = mark.label.replace("°", "").replace(",", ".").trim();
               const isNumeric = /^-?\d+(\.\d+)?$/.test(normalized);
@@ -5912,6 +6141,70 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
               </text>
             ) : null}
           </g>
+          {visibleVertexIndices.map((vertexIndex) => {
+            const vertex = projectedVertexByIndex.get(vertexIndex);
+            if (!vertex) return null;
+            const label = vertexLabels[vertexIndex] || `V${vertexIndex + 1}`;
+            const placement = vertexLabelPlacements.get(vertexIndex);
+            return (
+              <g key={`${object.id}-vertex-${vertex.index}`}>
+                <circle
+                  cx={vertex.x}
+                  cy={vertex.y}
+                  r={isRoundPreset ? 2.2 : 2.8}
+                  fill="#ffffff"
+                  stroke={color}
+                  strokeWidth={1}
+                />
+                {showVertexLabels ? (
+                  <text
+                    x={placement?.x ?? vertex.x + 4}
+                    y={placement?.y ?? vertex.y - 4}
+                    fill={color}
+                    fontSize={isRoundPreset ? 8 : 8.5}
+                    fontWeight={700}
+                    textAnchor={placement?.textAnchor ?? "start"}
+                    dominantBaseline="central"
+                    paintOrder="stroke"
+                    stroke="rgba(245, 247, 255, 0.94)"
+                    strokeWidth={2}
+                    strokeLinejoin="round"
+                  >
+                    {label}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
+          {visibleSectionMarkers.map((marker) => (
+            <g key={`${object.id}-section-point-${marker.sectionId}-${marker.index}`}>
+              <circle
+                cx={marker.x}
+                cy={marker.y}
+                r={2.6}
+                fill="#ffffff"
+                stroke={marker.color}
+                strokeWidth={1}
+              />
+              {object.meta?.showLabels !== false ? (
+                <text
+                  x={marker.placement.x}
+                  y={marker.placement.y}
+                  fill={marker.color}
+                  fontSize={8.5}
+                  fontWeight={700}
+                  textAnchor={marker.placement.textAnchor}
+                  dominantBaseline="central"
+                  paintOrder="stroke"
+                  stroke="rgba(245, 247, 255, 0.94)"
+                  strokeWidth={2}
+                  strokeLinejoin="round"
+                >
+                  {marker.label}
+                </text>
+              ) : null}
+            </g>
+          ))}
         </g>
       );
     }
@@ -6776,6 +7069,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
               const isTarget =
                 solid3dPointPick?.objectId === markerObjectId &&
                 solid3dPointPick.replaceIndex === marker.index;
+              const markerCenter = markerObject ? getObjectCenter(markerObject) : marker;
+              const markerPlacement = resolveOutsideVertexLabelPlacement({
+                vertex: marker,
+                center: markerCenter,
+                baseOffset: 13,
+              });
               return (
                 <g key={`solid3d-pick-${markerObjectId}-${marker.index}`}>
                   <circle
@@ -6788,11 +7087,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
                   />
                   {showMarkerLabels ? (
                     <text
-                      x={marker.x + 4}
-                      y={marker.y - 4}
+                      x={markerPlacement.x}
+                      y={markerPlacement.y}
                       fill={isTarget ? "#4f63ff" : "#ff8e3c"}
                       fontSize={8.5}
                       fontWeight={700}
+                      textAnchor={markerPlacement.textAnchor}
+                      dominantBaseline="central"
                     >
                       {marker.label}
                     </text>
@@ -7394,7 +7695,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           <g
             key={`laser-pointer-${Math.round(pointer.x)}-${Math.round(pointer.y)}-${index}`}
             className="workbook-session__teacher-pointer"
-            transform={`translate(${pointer.x} ${pointer.y}) rotate(-22)`}
+            transform={`translate(${pointer.x} ${pointer.y}) rotate(-22) scale(0.5)`}
           >
             <path
               className="workbook-session__teacher-pointer-shaft"
