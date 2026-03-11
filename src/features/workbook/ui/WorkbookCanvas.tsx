@@ -511,11 +511,12 @@ const getSectionVertexLabel = (index: number) => {
   if (index < alphabet.length) return alphabet[index];
   return `${alphabet[index % alphabet.length]}${Math.floor(index / alphabet.length)}`;
 };
-const MAX_OBJECT_ERASER_CUTS = 220;
+const MAX_OBJECT_ERASER_CUTS = 1400;
 const ERASER_MASK_PADDING = 20;
 const ERASER_INTERSECTION_EPSILON = 1e-4;
 const OBJECT_ERASER_RATIO_MIN = 0.003;
 const OBJECT_ERASER_RATIO_MAX = 2.4;
+const OBJECT_ERASER_CUT_MERGE_RATIO = 0.38;
 
 const pointsAlmostEqual = (
   left: WorkbookPoint,
@@ -691,6 +692,45 @@ const normalizeObjectEraserCut = (
   });
 };
 
+const getObjectCutDistance = (
+  object: WorkbookBoardObject,
+  left: ObjectEraserCut,
+  right: ObjectEraserCut
+) => {
+  const rect = getObjectRect(object);
+  const safeWidth = Math.max(1, Math.abs(rect.width));
+  const safeHeight = Math.max(1, Math.abs(rect.height));
+  const safeScale = Math.max(1, Math.max(safeWidth, safeHeight));
+  const widthRatio = safeWidth / safeScale;
+  const heightRatio = safeHeight / safeScale;
+  return Math.hypot((left.u - right.u) * widthRatio, (left.v - right.v) * heightRatio);
+};
+
+const appendObjectEraserCut = (
+  object: WorkbookBoardObject,
+  cuts: ObjectEraserCut[],
+  nextCut: ObjectEraserCut
+) => {
+  if (cuts.length === 0) return [nextCut];
+  const next = [...cuts];
+  const lastIndex = next.length - 1;
+  const lastCut = next[lastIndex];
+  const mergeThreshold =
+    Math.max(lastCut.radiusRatio, nextCut.radiusRatio) * OBJECT_ERASER_CUT_MERGE_RATIO;
+  if (getObjectCutDistance(object, lastCut, nextCut) <= mergeThreshold) {
+    next[lastIndex] = clampObjectEraserCut({
+      u: nextCut.u,
+      v: nextCut.v,
+      radiusRatio: Math.max(lastCut.radiusRatio, nextCut.radiusRatio),
+    });
+    return next;
+  }
+  next.push(nextCut);
+  return next.length > MAX_OBJECT_ERASER_CUTS
+    ? next.slice(next.length - MAX_OBJECT_ERASER_CUTS)
+    : next;
+};
+
 const sanitizeObjectEraserCuts = (object: WorkbookBoardObject): ObjectEraserCut[] => {
   const raw = Array.isArray(object.meta?.eraserCuts) ? object.meta.eraserCuts : [];
   const rect = getObjectRect(object);
@@ -813,8 +853,10 @@ const applyEraserPointToCollections = (
   objects.forEach((object) => {
     if (!isObjectErasedByCircle(object, center, radius)) return;
     const cachedCuts = objectCutsMap.get(object.id) ?? sanitizeObjectEraserCuts(object);
-    const nextCuts = [...cachedCuts, normalizeObjectEraserCut(object, center, radius)].slice(
-      -MAX_OBJECT_ERASER_CUTS
+    const nextCuts = appendObjectEraserCut(
+      object,
+      cachedCuts,
+      normalizeObjectEraserCut(object, center, radius)
     );
     objectCutsMap.set(object.id, nextCuts);
     touchedObjectIds?.add(object.id);
