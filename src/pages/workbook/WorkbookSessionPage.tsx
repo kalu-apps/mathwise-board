@@ -1,4 +1,6 @@
 import {
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useMemo,
@@ -9,15 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import {
-  ConnectionState,
-  Room,
-  RoomEvent,
-  Track,
-  type Room as LivekitRoom,
-  type RemoteAudioTrack,
-  type RemoteParticipant,
-} from "livekit-client";
+import "./workbookRouteStyles";
 import {
   Alert,
   Avatar,
@@ -30,7 +24,6 @@ import {
   IconButton,
   Menu,
   MenuItem,
-  Select,
   Switch,
   Tooltip,
   TextField,
@@ -40,8 +33,6 @@ import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import ContentCutRoundedIcon from "@mui/icons-material/ContentCutRounded";
 import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
-import MicRoundedIcon from "@mui/icons-material/MicRounded";
-import MicOffRoundedIcon from "@mui/icons-material/MicOffRounded";
 import ForumRoundedIcon from "@mui/icons-material/ForumRounded";
 import SentimentSatisfiedRoundedIcon from "@mui/icons-material/SentimentSatisfiedRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
@@ -55,7 +46,7 @@ import FiberManualRecordRoundedIcon from "@mui/icons-material/FiberManualRecordR
 import PentagonRoundedIcon from "@mui/icons-material/PentagonRounded";
 import TextFieldsRoundedIcon from "@mui/icons-material/TextFieldsRounded";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
-import BackspaceRoundedIcon from "@mui/icons-material/BackspaceRounded";
+import CleaningServicesRoundedIcon from "@mui/icons-material/CleaningServicesRounded";
 import MyLocationRoundedIcon from "@mui/icons-material/MyLocationRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import AutoFixHighRoundedIcon from "@mui/icons-material/AutoFixHighRounded";
@@ -63,12 +54,7 @@ import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
-import PhotoCameraRoundedIcon from "@mui/icons-material/PhotoCameraRounded";
 import HelpOutlineRoundedIcon from "@mui/icons-material/HelpOutlineRounded";
-import LockRoundedIcon from "@mui/icons-material/LockRounded";
-import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
-import FilterCenterFocusRoundedIcon from "@mui/icons-material/FilterCenterFocusRounded";
-import SaveAltRoundedIcon from "@mui/icons-material/SaveAltRounded";
 import ViewInArRoundedIcon from "@mui/icons-material/ViewInArRounded";
 import ZoomInRoundedIcon from "@mui/icons-material/ZoomInRounded";
 import ZoomOutRoundedIcon from "@mui/icons-material/ZoomOutRounded";
@@ -81,29 +67,15 @@ import UnfoldLessRoundedIcon from "@mui/icons-material/UnfoldLessRounded";
 import UnfoldMoreRoundedIcon from "@mui/icons-material/UnfoldMoreRounded";
 import UndoRoundedIcon from "@mui/icons-material/UndoRounded";
 import RedoRoundedIcon from "@mui/icons-material/RedoRounded";
-import PolylineRoundedIcon from "@mui/icons-material/PolylineRounded";
-import CropFreeRoundedIcon from "@mui/icons-material/CropFreeRounded";
 import ShowChartRoundedIcon from "@mui/icons-material/ShowChartRounded";
-import SwapHorizRoundedIcon from "@mui/icons-material/SwapHorizRounded";
-import SwapVertRoundedIcon from "@mui/icons-material/SwapVertRounded";
-import FormatBoldRoundedIcon from "@mui/icons-material/FormatBoldRounded";
-import FormatItalicRoundedIcon from "@mui/icons-material/FormatItalicRounded";
-import FormatUnderlinedRoundedIcon from "@mui/icons-material/FormatUnderlinedRounded";
-import FormatAlignLeftRoundedIcon from "@mui/icons-material/FormatAlignLeftRounded";
-import FormatAlignCenterRoundedIcon from "@mui/icons-material/FormatAlignCenterRounded";
-import FormatAlignRightRoundedIcon from "@mui/icons-material/FormatAlignRightRounded";
-import FormatColorTextRoundedIcon from "@mui/icons-material/FormatColorTextRounded";
-import FormatColorFillRoundedIcon from "@mui/icons-material/FormatColorFillRounded";
 import KeyboardDoubleArrowDownRoundedIcon from "@mui/icons-material/KeyboardDoubleArrowDownRounded";
-import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
-import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
 import { useAuth } from "@/features/auth/model/AuthContext";
 import {
   appendWorkbookEvents,
   appendWorkbookPreview,
+  appendWorkbookStrokePreview,
   createWorkbookInvite,
   getWorkbookEvents,
-  getWorkbookLivekitToken,
   getWorkbookSession,
   getWorkbookSnapshot,
   heartbeatWorkbookPresence,
@@ -163,15 +135,18 @@ import {
   writeSolid3dState,
 } from "@/features/workbook/model/solid3dState";
 import {
-  FUNCTION_GRAPH_PRESETS,
   GRAPH_FUNCTION_COLORS,
-  isFunctionExpressionValid,
   normalizeGraphScale,
   normalizeFunctionExpression,
   sanitizeFunctionGraphDrafts,
   validateFunctionExpression,
   type GraphFunctionDraft,
 } from "@/features/workbook/model/functionGraph";
+import {
+  getWorkbookPolygonPoints,
+  toSvgPointString,
+  type WorkbookPolygonPreset,
+} from "@/features/workbook/model/shapeGeometry";
 import {
   recognizeSmartInkBatch,
   recognizeSmartInkStroke,
@@ -180,6 +155,36 @@ import {
 import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
+import { useWorkbookLivekit } from "./useWorkbookLivekit";
+import {
+  DEFAULT_SMART_INK_OPTIONS,
+  normalizeSmartInkOptions,
+  type SmartInkOptions,
+} from "./workbookBoardSettingsModel";
+
+const WorkbookSessionBoardSettingsPanel = lazy(async () => ({
+  default: (await import("./WorkbookSessionBoardSettingsPanel")).WorkbookSessionBoardSettingsPanel,
+}));
+
+const WorkbookSessionDocsWindow = lazy(async () => ({
+  default: (await import("./WorkbookSessionDocsWindow")).WorkbookSessionDocsWindow,
+}));
+
+const WorkbookSessionGraphPanel = lazy(async () => ({
+  default: (await import("./WorkbookSessionGraphPanel")).WorkbookSessionGraphPanel,
+}));
+
+const WorkbookSessionLayersPanel = lazy(async () => ({
+  default: (await import("./WorkbookSessionLayersPanel")).WorkbookSessionLayersPanel,
+}));
+
+const WorkbookSessionParticipantsPanel = lazy(async () => ({
+  default: (await import("./WorkbookSessionParticipantsPanel")).WorkbookSessionParticipantsPanel,
+}));
+
+const WorkbookSessionTransformPanel = lazy(async () => ({
+  default: (await import("./WorkbookSessionTransformPanel")).WorkbookSessionTransformPanel,
+}));
 
 const POLL_INTERVAL_MS = 220;
 const POLL_INTERVAL_STREAM_CONNECTED_MS = 180;
@@ -187,6 +192,8 @@ const PRESENCE_INTERVAL_MS = 1_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
 const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 16;
+const STROKE_PREVIEW_FLUSH_INTERVAL_MS = 24;
+const STROKE_PREVIEW_EXPIRY_MS = 3_000;
 const VIEWPORT_SYNC_MIN_INTERVAL_MS = 18;
 const VIEWPORT_SYNC_EPSILON = 0.2;
 const MAX_INCOMING_PREVIEW_PATCHES_PER_OBJECT = 20;
@@ -393,7 +400,11 @@ const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
       }
       return;
     }
-    if (event.type === "board.object.preview") {
+    if (
+      event.type === "board.object.preview" ||
+      event.type === "board.stroke.preview" ||
+      event.type === "annotations.stroke.preview"
+    ) {
       flushPending();
       compacted.push(event);
       return;
@@ -417,6 +428,8 @@ const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
 
 const VOLATILE_WORKBOOK_EVENT_TYPES = new Set<WorkbookEvent["type"]>([
   "board.object.preview",
+  "board.stroke.preview",
+  "annotations.stroke.preview",
   "board.viewport.sync",
   "presence.sync",
 ]);
@@ -456,13 +469,7 @@ const hasWorkbookEventGap = (currentLatestSeq: number, events: WorkbookEvent[]) 
 const DEFAULT_SETTINGS: WorkbookSessionSettings = {
   undoPolicy: "teacher_only",
   strictGeometry: false,
-  smartInk: {
-    mode: "basic",
-    confidenceThreshold: 0.72,
-    smartShapes: true,
-    smartTextOcr: false,
-    smartMathOcr: false,
-  },
+  smartInk: DEFAULT_SMART_INK_OPTIONS,
   studentControls: {
     canDraw: true,
     canSelect: true,
@@ -481,13 +488,7 @@ const DEFAULT_BOARD_SETTINGS: WorkbookBoardSettings = {
   gridColor: "rgba(92, 129, 192, 0.32)",
   backgroundColor: "#ffffff",
   snapToGrid: false,
-  smartInk: {
-    mode: "basic",
-    confidenceThreshold: 0.72,
-    smartShapes: true,
-    smartTextOcr: false,
-    smartMathOcr: false,
-  },
+  smartInk: DEFAULT_SMART_INK_OPTIONS,
   showPageNumbers: false,
   currentPage: 1,
   pagesCount: 1,
@@ -509,69 +510,6 @@ const DEFAULT_LIBRARY: WorkbookLibraryState = {
   items: [],
   formulas: [],
   templates: [],
-};
-
-type SmartInkMode = "off" | "basic" | "full";
-
-type SmartInkOptions = {
-  mode: SmartInkMode;
-  confidenceThreshold: number;
-  smartShapes: boolean;
-  smartTextOcr: boolean;
-  smartMathOcr: boolean;
-};
-
-const normalizeSmartInkOptions = (
-  source?: Partial<SmartInkOptions> | null
-): SmartInkOptions => {
-  const fallback = DEFAULT_SETTINGS.smartInk ?? {
-    mode: "basic" as SmartInkMode,
-    confidenceThreshold: 0.72,
-    smartShapes: true,
-    smartTextOcr: false,
-    smartMathOcr: false,
-  };
-  const mode: SmartInkMode =
-    source?.mode === "off" || source?.mode === "basic" || source?.mode === "full"
-      ? source.mode
-      : fallback.mode;
-  const confidenceThresholdRaw =
-    typeof source?.confidenceThreshold === "number" &&
-    Number.isFinite(source.confidenceThreshold)
-      ? source.confidenceThreshold
-      : fallback.confidenceThreshold;
-  const confidenceThreshold = Math.max(0.35, Math.min(0.98, confidenceThresholdRaw));
-  const smartShapes =
-    typeof source?.smartShapes === "boolean" ? source.smartShapes : fallback.smartShapes;
-  const smartTextOcr =
-    typeof source?.smartTextOcr === "boolean" ? source.smartTextOcr : fallback.smartTextOcr;
-  const smartMathOcr =
-    typeof source?.smartMathOcr === "boolean" ? source.smartMathOcr : fallback.smartMathOcr;
-  if (mode === "off") {
-    return {
-      mode,
-      confidenceThreshold,
-      smartShapes: false,
-      smartTextOcr: false,
-      smartMathOcr: false,
-    };
-  }
-  if (mode === "basic") {
-    return {
-      mode,
-      confidenceThreshold,
-      smartShapes,
-      smartTextOcr: false,
-      smartMathOcr: false,
-    };
-  }
-  return {
-    mode,
-    confidenceThreshold,
-    smartShapes,
-    smartTextOcr,
-    smartMathOcr,
-  };
 };
 
 const FALLBACK_PERMISSIONS: WorkbookSessionParticipant["permissions"] = {
@@ -991,37 +929,49 @@ const getStrokeExportBounds = (stroke: WorkbookStroke): WorkbookExportBounds | n
   };
 };
 
+const rotatePointAroundCenter = (
+  point: WorkbookPoint,
+  center: WorkbookPoint,
+  angleDeg: number
+): WorkbookPoint => {
+  const angle = (angleDeg * Math.PI) / 180;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+  return {
+    x: center.x + dx * cos - dy * sin,
+    y: center.y + dx * sin + dy * cos,
+  };
+};
+
 const getObjectExportBounds = (object: WorkbookBoardObject): WorkbookExportBounds => {
   const left = Math.min(object.x, object.x + object.width);
   const right = Math.max(object.x, object.x + object.width);
   const top = Math.min(object.y, object.y + object.height);
   const bottom = Math.max(object.y, object.y + object.height);
-  const pointsBounds =
-    Array.isArray(object.points) && object.points.length > 0
-      ? getPointsBounds(object.points)
-      : null;
-  const baseBounds = pointsBounds
-    ? mergeExportBounds(
-        {
-          minX: left,
-          minY: top,
-          maxX: right,
-          maxY: bottom,
-          width: Math.max(1, right - left),
-          height: Math.max(1, bottom - top),
-        },
-        pointsBounds
-      )
-    : {
-        minX: left,
-        minY: top,
-        maxX: right,
-        maxY: bottom,
-        width: Math.max(1, right - left),
-        height: Math.max(1, bottom - top),
-      };
+  const center = {
+    x: left + (right - left) / 2,
+    y: top + (bottom - top) / 2,
+  };
+  const basePoints: WorkbookPoint[] = [
+    { x: left, y: top },
+    { x: right, y: top },
+    { x: right, y: bottom },
+    { x: left, y: bottom },
+    ...(Array.isArray(object.points) ? object.points : []),
+  ];
+  const rotation =
+    typeof object.rotation === "number" && Number.isFinite(object.rotation)
+      ? object.rotation
+      : 0;
+  const boundsPoints =
+    Math.abs(rotation) > 1e-3
+      ? basePoints.map((point) => rotatePointAroundCenter(point, center, rotation))
+      : basePoints;
+  const baseBounds = getPointsBounds(boundsPoints);
   const strokePadding = Math.max(1, (object.strokeWidth ?? 1) / 2);
-  return padExportBounds(baseBounds ?? { minX: left, minY: top, maxX: right, maxY: bottom, width: 1, height: 1 }, strokePadding);
+  return padExportBounds(baseBounds, strokePadding);
 };
 
 type ConnectedFigureKind =
@@ -1340,22 +1290,6 @@ const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
   );
 };
 
-const makeRegularPolygonPoints = (sides: number) => {
-  const safeSides = Math.max(3, Math.min(12, Math.floor(sides)));
-  const centerX = 50;
-  const centerY = 50;
-  const radius = 34;
-  return Array.from({ length: safeSides }, (_, index) => {
-    const angle = -Math.PI / 2 + (Math.PI * 2 * index) / safeSides;
-    return {
-      x: centerX + radius * Math.cos(angle),
-      y: centerY + radius * Math.sin(angle),
-    };
-  })
-    .map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`)
-    .join(" ");
-};
-
 const ShapeCatalogPreview = ({
   variant,
   sides = 5,
@@ -1371,6 +1305,20 @@ const ShapeCatalogPreview = ({
     | "rhombus";
   sides?: number;
 }) => {
+  const previewPolygonPoints =
+    variant === "polygon" ||
+    variant === "trapezoid" ||
+    variant === "trapezoid_right" ||
+    variant === "trapezoid_scalene" ||
+    variant === "rhombus"
+      ? toSvgPointString(
+          getWorkbookPolygonPoints(
+            { x: 16, y: 22, width: 68, height: 56 },
+            sides,
+            (variant === "polygon" ? "regular" : variant) as WorkbookPolygonPreset
+          )
+        )
+      : null;
   if (variant === "rectangle") {
     return (
       <svg viewBox="0 0 100 100" role="img" aria-hidden="true">
@@ -1423,7 +1371,7 @@ const ShapeCatalogPreview = ({
     return (
       <svg viewBox="0 0 100 100" role="img" aria-hidden="true">
         <polygon
-          points="28,28 72,28 84,74 16,74"
+          points={previewPolygonPoints ?? ""}
           fill="rgba(79, 99, 255, 0.08)"
           stroke="#4f63ff"
           strokeWidth={5}
@@ -1436,7 +1384,7 @@ const ShapeCatalogPreview = ({
     return (
       <svg viewBox="0 0 100 100" role="img" aria-hidden="true">
         <polygon
-          points="24,24 66,24 84,74 24,74"
+          points={previewPolygonPoints ?? ""}
           fill="rgba(79, 99, 255, 0.08)"
           stroke="#4f63ff"
           strokeWidth={5}
@@ -1449,7 +1397,7 @@ const ShapeCatalogPreview = ({
     return (
       <svg viewBox="0 0 100 100" role="img" aria-hidden="true">
         <polygon
-          points="22,30 74,22 86,74 14,74"
+          points={previewPolygonPoints ?? ""}
           fill="rgba(79, 99, 255, 0.08)"
           stroke="#4f63ff"
           strokeWidth={5}
@@ -1462,7 +1410,7 @@ const ShapeCatalogPreview = ({
     return (
       <svg viewBox="0 0 100 100" role="img" aria-hidden="true">
         <polygon
-          points="50,18 82,50 50,82 18,50"
+          points={previewPolygonPoints ?? ""}
           fill="rgba(79, 99, 255, 0.08)"
           stroke="#4f63ff"
           strokeWidth={5}
@@ -1474,7 +1422,7 @@ const ShapeCatalogPreview = ({
   return (
     <svg viewBox="0 0 100 100" role="img" aria-hidden="true">
       <polygon
-        points={makeRegularPolygonPoints(sides)}
+        points={previewPolygonPoints ?? ""}
         fill="rgba(79, 99, 255, 0.08)"
         stroke="#4f63ff"
         strokeWidth={5}
@@ -1520,6 +1468,17 @@ type WorkbookAreaSelectionClipboard = {
   strokes: WorkbookStroke[];
 };
 
+type StrokePreviewEntry = {
+  stroke: WorkbookStroke;
+  previewVersion: number;
+  updatedAt: number;
+};
+
+type ToolPaintSettings = {
+  color: string;
+  width: number;
+};
+
 export default function WorkbookSessionPage() {
   const { user, openAuthModal } = useAuth();
   const { sessionId = "" } = useParams();
@@ -1547,7 +1506,16 @@ export default function WorkbookSessionPage() {
   });
   const [tool, setTool] = useState<WorkbookTool>("select");
   const [layer] = useState<WorkbookLayer>("board");
-  const [strokeColor] = useState(defaultColorByLayer.board);
+  const [penToolSettings, setPenToolSettings] = useState<ToolPaintSettings>({
+    color: defaultColorByLayer.board,
+    width: getDefaultToolWidth("pen"),
+  });
+  const [highlighterToolSettings, setHighlighterToolSettings] = useState<ToolPaintSettings>({
+    color: "#ffd54f",
+    width: getDefaultToolWidth("highlighter"),
+  });
+  const [eraserRadius, setEraserRadius] = useState(getDefaultToolWidth("eraser"));
+  const [strokeColor, setStrokeColor] = useState(defaultColorByLayer.board);
   const [strokeWidth, setStrokeWidth] = useState(getDefaultToolWidth("select"));
   const [polygonSides, setPolygonSides] = useState(5);
   const [polygonMode, setPolygonMode] = useState<"regular" | "points">("regular");
@@ -1707,10 +1675,9 @@ export default function WorkbookSessionPage() {
     useState<ClearRequest | null>(null);
   const [confirmedClearRequest, setConfirmedClearRequest] =
     useState<ClearRequest | null>(null);
-  const [mediaState, setMediaState] = useState({
-    micEnabled: false,
-  });
-  const [isLivekitConnected, setIsLivekitConnected] = useState(false);
+  const [incomingStrokePreviews, setIncomingStrokePreviews] = useState<
+    Record<string, StrokePreviewEntry>
+  >({});
   const [isSessionChatOpen, setIsSessionChatOpen] = useState(false);
   const [isSessionChatMinimized, setIsSessionChatMinimized] = useState(false);
   const [isSessionChatMaximized, setIsSessionChatMaximized] = useState(false);
@@ -1754,18 +1721,6 @@ export default function WorkbookSessionPage() {
   const redoStackRef = useRef<WorkbookSceneSnapshot[]>([]);
   const latestSeqRef = useRef(0);
   const processedEventIdsRef = useRef<Set<string>>(new Set());
-  const livekitRoomRef = useRef<LivekitRoom | null>(null);
-  const livekitRoomSessionIdRef = useRef<string | null>(null);
-  const livekitConnectInFlightRef = useRef<Promise<void> | null>(null);
-  const remoteAudioBindingsRef = useRef<
-    Map<
-      string,
-      {
-        track: RemoteAudioTrack;
-        element: HTMLAudioElement;
-      }
-    >
-  >(new Map());
   const sessionChatListRef = useRef<HTMLDivElement | null>(null);
   const sessionChatRef = useRef<HTMLDivElement | null>(null);
   const sessionChatShouldScrollToUnreadRef = useRef(false);
@@ -1796,6 +1751,17 @@ export default function WorkbookSessionPage() {
     Map<string, Partial<WorkbookBoardObject>[]>
   >(new Map());
   const incomingPreviewVersionByAuthorObjectRef = useRef<Map<string, number>>(new Map());
+  const strokePreviewQueuedByIdRef = useRef<
+    Map<string, { stroke: WorkbookStroke; previewVersion: number }>
+  >(new Map());
+  const strokePreviewTimersRef = useRef<Map<string, number>>(new Map());
+  const strokePreviewInFlightVersionByIdRef = useRef<Map<string, number>>(new Map());
+  const incomingStrokePreviewQueuedRef = useRef<Map<string, StrokePreviewEntry | null>>(
+    new Map()
+  );
+  const incomingStrokePreviewFrameRef = useRef<number | null>(null);
+  const incomingStrokePreviewVersionRef = useRef<Map<string, number>>(new Map());
+  const finalizedStrokePreviewIdsRef = useRef<Set<string>>(new Set());
   const objectLastCommittedEventAtRef = useRef<Map<string, number>>(new Map());
   const incomingPreviewFrameRef = useRef<number | null>(null);
   const viewportSyncFrameRef = useRef<number | null>(null);
@@ -1823,6 +1789,14 @@ export default function WorkbookSessionPage() {
   const canSendSessionChat = canUseSessionChat && !isEnded;
   const isClassSession = session?.kind === "CLASS";
   const showCollaborationPanels = Boolean(isClassSession);
+  const { micEnabled, setMicEnabled } = useWorkbookLivekit({
+    sessionId,
+    sessionKind: session?.kind,
+    canUseMedia,
+    isEnded,
+    userId: user?.id,
+    setError,
+  });
   const isCompactDialogViewport = useMediaQuery("(max-width: 640px)");
   const showSidebarParticipants = showCollaborationPanels && !isParticipantsCollapsed;
   const focusPoints = useMemo(
@@ -1833,6 +1807,10 @@ export default function WorkbookSessionPage() {
     () => Object.values(pointerPointsByUser),
     [pointerPointsByUser]
   );
+  const previewStrokes = useMemo(
+    () => Object.values(incomingStrokePreviews).map((entry) => entry.stroke),
+    [incomingStrokePreviews]
+  );
   const areaSelectionHasContent = Boolean(
     areaSelection &&
       (areaSelection.objectIds.length > 0 || areaSelection.strokeIds.length > 0)
@@ -1841,6 +1819,121 @@ export default function WorkbookSessionPage() {
     (value: number) =>
       Math.max(ERASER_RADIUS_MIN, Math.min(ERASER_RADIUS_MAX, Math.round(value))),
     []
+  );
+  const clampedEraserRadius = clampEraserRadius(eraserRadius);
+  const resetToolRuntimeToSelect = useCallback(() => {
+    setTool("select");
+    setStrokeColor(defaultColorByLayer.board);
+    setStrokeWidth(getDefaultToolWidth("select"));
+  }, []);
+  const activateTool = useCallback(
+    (nextTool: WorkbookTool) => {
+      setTool(nextTool);
+      if (nextTool === "pen") {
+        setStrokeColor(penToolSettings.color);
+        setStrokeWidth(penToolSettings.width);
+        return;
+      }
+      if (nextTool === "highlighter") {
+        setStrokeColor(highlighterToolSettings.color);
+        setStrokeWidth(highlighterToolSettings.width);
+        return;
+      }
+      if (nextTool === "eraser") {
+        setStrokeColor(defaultColorByLayer.board);
+        setStrokeWidth(clampedEraserRadius);
+        return;
+      }
+      setStrokeColor(defaultColorByLayer.board);
+      setStrokeWidth(getDefaultToolWidth(nextTool));
+    },
+    [clampedEraserRadius, highlighterToolSettings, penToolSettings]
+  );
+  const handlePenToolSettingsChange = useCallback(
+    (patch: Partial<ToolPaintSettings>) => {
+      setPenToolSettings((current) => {
+        const next = {
+          color: typeof patch.color === "string" && patch.color ? patch.color : current.color,
+          width:
+            typeof patch.width === "number" && Number.isFinite(patch.width)
+              ? Math.max(1, Math.round(patch.width))
+              : current.width,
+        };
+        if (tool === "pen") {
+          setStrokeColor(next.color);
+          setStrokeWidth(next.width);
+        }
+        return next;
+      });
+    },
+    [tool]
+  );
+  const handleHighlighterToolSettingsChange = useCallback(
+    (patch: Partial<ToolPaintSettings>) => {
+      setHighlighterToolSettings((current) => {
+        const next = {
+          color: typeof patch.color === "string" && patch.color ? patch.color : current.color,
+          width:
+            typeof patch.width === "number" && Number.isFinite(patch.width)
+              ? Math.max(2, Math.round(patch.width))
+              : current.width,
+        };
+        if (tool === "highlighter") {
+          setStrokeColor(next.color);
+          setStrokeWidth(next.width);
+        }
+        return next;
+      });
+    },
+    [tool]
+  );
+  const handleEraserRadiusChange = useCallback(
+    (value: number) => {
+      const nextRadius = clampEraserRadius(value);
+      setEraserRadius(nextRadius);
+      if (tool === "eraser") {
+        setStrokeWidth(nextRadius);
+      }
+    },
+    [clampEraserRadius, tool]
+  );
+  useEffect(() => {
+    if (tool === "pen") {
+      if (strokeColor !== penToolSettings.color) {
+        setStrokeColor(penToolSettings.color);
+      }
+      if (strokeWidth !== penToolSettings.width) {
+        setStrokeWidth(penToolSettings.width);
+      }
+      return;
+    }
+    if (tool === "highlighter") {
+      if (strokeColor !== highlighterToolSettings.color) {
+        setStrokeColor(highlighterToolSettings.color);
+      }
+      if (strokeWidth !== highlighterToolSettings.width) {
+        setStrokeWidth(highlighterToolSettings.width);
+      }
+      return;
+    }
+    if (tool === "eraser" && strokeWidth !== clampedEraserRadius) {
+      setStrokeWidth(clampedEraserRadius);
+    }
+  }, [
+    clampedEraserRadius,
+    highlighterToolSettings.color,
+    highlighterToolSettings.width,
+    penToolSettings.color,
+    penToolSettings.width,
+    strokeColor,
+    strokeWidth,
+    tool,
+  ]);
+  const handleTransformStrokeWidthChange = useCallback(
+    (value: number) => {
+      handleEraserRadiusChange(value);
+    },
+    [handleEraserRadiusChange]
   );
 
   useEffect(() => {
@@ -1936,9 +2029,8 @@ export default function WorkbookSessionPage() {
   const firstUnreadSessionChatMessageId = unreadSessionChatMessages[0]?.id ?? null;
 
   useEffect(() => {
-    setTool("select");
-    setStrokeWidth(getDefaultToolWidth("select"));
-  }, [sessionId]);
+    resetToolRuntimeToSelect();
+  }, [resetToolRuntimeToSelect, sessionId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2090,6 +2182,94 @@ export default function WorkbookSessionPage() {
     }
   }, []);
 
+  const flushIncomingStrokePreviewQueue = useCallback(() => {
+    incomingStrokePreviewFrameRef.current = null;
+    const queued = new Map(incomingStrokePreviewQueuedRef.current);
+    incomingStrokePreviewQueuedRef.current.clear();
+    if (queued.size === 0) return;
+    setIncomingStrokePreviews((current) => {
+      let changed = false;
+      const next: Record<string, StrokePreviewEntry> = { ...current };
+      queued.forEach((entry, strokeId) => {
+        if (entry === null) {
+          if (next[strokeId]) {
+            delete next[strokeId];
+            changed = true;
+          }
+          return;
+        }
+        const existing = next[strokeId];
+        if (existing && existing.previewVersion >= entry.previewVersion) {
+          return;
+        }
+        next[strokeId] = entry;
+        changed = true;
+      });
+      return changed ? next : current;
+    });
+  }, []);
+
+  const scheduleIncomingStrokePreviewFlush = useCallback(() => {
+    if (incomingStrokePreviewFrameRef.current !== null) return;
+    if (typeof window === "undefined") {
+      flushIncomingStrokePreviewQueue();
+      return;
+    }
+    incomingStrokePreviewFrameRef.current = window.requestAnimationFrame(() => {
+      flushIncomingStrokePreviewQueue();
+    });
+  }, [flushIncomingStrokePreviewQueue]);
+
+  const queueIncomingStrokePreview = useCallback(
+    (entry: StrokePreviewEntry | null, strokeId: string) => {
+      incomingStrokePreviewQueuedRef.current.set(strokeId, entry);
+      scheduleIncomingStrokePreviewFlush();
+    },
+    [scheduleIncomingStrokePreviewFlush]
+  );
+
+  const finalizeStrokePreview = useCallback(
+    (strokeId: string) => {
+      if (!strokeId) return;
+      finalizedStrokePreviewIdsRef.current.add(strokeId);
+      const previewTimer = strokePreviewTimersRef.current.get(strokeId);
+      if (previewTimer !== undefined) {
+        window.clearTimeout(previewTimer);
+        strokePreviewTimersRef.current.delete(strokeId);
+      }
+      strokePreviewQueuedByIdRef.current.delete(strokeId);
+      strokePreviewInFlightVersionByIdRef.current.delete(strokeId);
+      incomingStrokePreviewVersionRef.current.delete(strokeId);
+      queueIncomingStrokePreview(null, strokeId);
+    },
+    [queueIncomingStrokePreview]
+  );
+
+  const clearStrokePreviewRuntime = useCallback(
+    (options?: { clearFinalized?: boolean; cancelIncomingFrame?: boolean }) => {
+      strokePreviewQueuedByIdRef.current.clear();
+      strokePreviewTimersRef.current.forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      strokePreviewTimersRef.current.clear();
+      strokePreviewInFlightVersionByIdRef.current.clear();
+      incomingStrokePreviewQueuedRef.current.clear();
+      incomingStrokePreviewVersionRef.current.clear();
+      if (options?.clearFinalized !== false) {
+        finalizedStrokePreviewIdsRef.current.clear();
+      }
+      if (
+        options?.cancelIncomingFrame !== false &&
+        incomingStrokePreviewFrameRef.current !== null
+      ) {
+        window.cancelAnimationFrame(incomingStrokePreviewFrameRef.current);
+        incomingStrokePreviewFrameRef.current = null;
+      }
+      setIncomingStrokePreviews({});
+    },
+    []
+  );
+
   const flushIncomingPreviewQueue = useCallback(() => {
     incomingPreviewFrameRef.current = null;
     const queue = incomingPreviewQueuedPatchRef.current;
@@ -2162,254 +2342,6 @@ export default function WorkbookSessionPage() {
     []
   );
 
-  const detachRemoteAudio = useCallback((participantIdentity?: string) => {
-    Array.from(remoteAudioBindingsRef.current.entries()).forEach(([key, binding]) => {
-      if (participantIdentity && !key.startsWith(`${participantIdentity}:`)) return;
-      try {
-        binding.track.detach(binding.element);
-      } catch {
-        // ignore detach errors
-      }
-      try {
-        binding.element.pause();
-      } catch {
-        // ignore media pause errors
-      }
-      binding.element.srcObject = null;
-      binding.element.remove();
-      remoteAudioBindingsRef.current.delete(key);
-    });
-  }, []);
-
-  const detachAllRemoteAudio = useCallback(() => {
-    detachRemoteAudio();
-  }, [detachRemoteAudio]);
-
-  const handleLivekitTrackSubscribed = useCallback(
-    (
-      track: unknown,
-      _publication: unknown,
-      participant: RemoteParticipant
-    ) => {
-      if (!(track instanceof Track) || track.kind !== Track.Kind.Audio) return;
-      const audioTrack = track as RemoteAudioTrack;
-      const participantIdentity = participant.identity || participant.sid || "unknown";
-      const trackSid = audioTrack.sid || `${participantIdentity}-audio`;
-      const bindingKey = `${participantIdentity}:${trackSid}`;
-      if (remoteAudioBindingsRef.current.has(bindingKey)) return;
-      const element = audioTrack.attach() as HTMLAudioElement;
-      element.autoplay = true;
-      element.setAttribute("playsinline", "true");
-      element.muted = false;
-      element.volume = 1;
-      element.style.display = "none";
-      document.body.appendChild(element);
-      remoteAudioBindingsRef.current.set(bindingKey, {
-        track: audioTrack,
-        element,
-      });
-      void element.play().catch(() => undefined);
-    },
-    []
-  );
-
-  const handleLivekitTrackUnsubscribed = useCallback(
-    (
-      track: unknown,
-      _publication: unknown,
-      participant: RemoteParticipant
-    ) => {
-      if (!(track instanceof Track) || track.kind !== Track.Kind.Audio) return;
-      const participantIdentity = participant.identity || participant.sid || "unknown";
-      const trackSid = track.sid || "";
-      if (!trackSid) {
-        detachRemoteAudio(participantIdentity);
-        return;
-      }
-      const bindingKey = `${participantIdentity}:${trackSid}`;
-      const binding = remoteAudioBindingsRef.current.get(bindingKey);
-      if (!binding) return;
-      try {
-        binding.track.detach(binding.element);
-      } catch {
-        // ignore detach errors
-      }
-      try {
-        binding.element.pause();
-      } catch {
-        // ignore media pause errors
-      }
-      binding.element.srcObject = null;
-      binding.element.remove();
-      remoteAudioBindingsRef.current.delete(bindingKey);
-    },
-    [detachRemoteAudio]
-  );
-
-  const handleMicrophoneError = useCallback((reason: unknown) => {
-    if (reason instanceof DOMException) {
-      if (reason.name === "NotAllowedError") {
-        setError("Доступ к микрофону запрещён. Разрешите его в настройках браузера.");
-        return;
-      }
-      if (reason.name === "NotFoundError") {
-        setError("Не найдено доступное устройство микрофона.");
-        return;
-      }
-      if (reason.name === "NotReadableError") {
-        setError("Микрофон занят другим приложением. Освободите устройство и повторите.");
-        return;
-      }
-      if (reason.name === "SecurityError") {
-        setError("Браузер заблокировал микрофон: откройте страницу по HTTPS.");
-        return;
-      }
-    }
-    setError("Не удалось подключить микрофон.");
-  }, []);
-
-  const disconnectLivekitRoom = useCallback(
-    async (options?: { forceStopTracks?: boolean }) => {
-      livekitConnectInFlightRef.current = null;
-      const room = livekitRoomRef.current;
-      if (!room) {
-        setIsLivekitConnected(false);
-        if (options?.forceStopTracks) {
-          setMediaState((current) =>
-            current.micEnabled ? { ...current, micEnabled: false } : current
-          );
-        }
-        return;
-      }
-      room.removeAllListeners();
-      detachAllRemoteAudio();
-      await room.disconnect(options?.forceStopTracks ?? true).catch(() => undefined);
-      livekitRoomRef.current = null;
-      livekitRoomSessionIdRef.current = null;
-      setIsLivekitConnected(false);
-      if (options?.forceStopTracks) {
-        setMediaState((current) =>
-          current.micEnabled ? { ...current, micEnabled: false } : current
-        );
-      }
-    },
-    [detachAllRemoteAudio]
-  );
-
-  const connectLivekitRoom = useCallback(async () => {
-    if (!sessionId || !session || session.kind !== "CLASS" || !user?.id) return;
-    if (livekitConnectInFlightRef.current) {
-      await livekitConnectInFlightRef.current;
-      return;
-    }
-    const task = (async () => {
-      const tokenConfig = await getWorkbookLivekitToken(sessionId);
-      if (!tokenConfig.wsUrl || !tokenConfig.token) {
-        throw new Error("livekit_token_invalid");
-      }
-      const hasWindow = typeof window !== "undefined";
-      const isLocalhost =
-        hasWindow &&
-        (window.location.hostname === "localhost" ||
-          window.location.hostname === "127.0.0.1" ||
-          window.location.hostname === "::1");
-      if (hasWindow && !window.isSecureContext && !isLocalhost) {
-        throw new Error("media_secure_context_required");
-      }
-
-      const currentRoom = livekitRoomRef.current;
-      if (
-        currentRoom &&
-        livekitRoomSessionIdRef.current === sessionId &&
-        currentRoom.state === ConnectionState.Connected
-      ) {
-        return;
-      }
-      if (currentRoom) {
-        await disconnectLivekitRoom({ forceStopTracks: false });
-      }
-
-      const room = new Room({
-        adaptiveStream: true,
-        dynacast: true,
-      });
-      room.on(RoomEvent.TrackSubscribed, handleLivekitTrackSubscribed);
-      room.on(RoomEvent.TrackUnsubscribed, handleLivekitTrackUnsubscribed);
-      room.on(RoomEvent.ParticipantDisconnected, (participant) => {
-        detachRemoteAudio(participant.identity || participant.sid || "");
-      });
-      room.on(RoomEvent.Disconnected, () => {
-        detachAllRemoteAudio();
-      });
-      room.on(RoomEvent.ConnectionStateChanged, (state) => {
-        setIsLivekitConnected(state === ConnectionState.Connected);
-      });
-      await room.connect(tokenConfig.wsUrl, tokenConfig.token, {
-        autoSubscribe: true,
-      });
-      livekitRoomRef.current = room;
-      livekitRoomSessionIdRef.current = sessionId;
-      setIsLivekitConnected(true);
-    })();
-    livekitConnectInFlightRef.current = task;
-    try {
-      await task;
-      setError((current) => {
-        if (!current) return current;
-        if (
-          current.includes("микрофон") ||
-          current.includes("Микрофон") ||
-          current.includes("LiveKit")
-        ) {
-          return null;
-        }
-        return current;
-      });
-    } catch (reason) {
-      if (reason instanceof Error && reason.message === "media_secure_context_required") {
-        setError(
-          "Микрофон доступен только в защищённом режиме: откройте сайт по HTTPS (или localhost)."
-        );
-      } else if (reason instanceof ApiError && reason.status === 503) {
-        setError("LiveKit не настроен на сервере. Проверьте MEDIA_LIVEKIT_* переменные.");
-      } else {
-        setError("Не удалось подключить аудио-комнату LiveKit.");
-      }
-      await disconnectLivekitRoom({ forceStopTracks: false });
-    } finally {
-      livekitConnectInFlightRef.current = null;
-    }
-  }, [
-    detachAllRemoteAudio,
-    detachRemoteAudio,
-    disconnectLivekitRoom,
-    handleLivekitTrackSubscribed,
-    handleLivekitTrackUnsubscribed,
-    session,
-    sessionId,
-    user?.id,
-  ]);
-
-  const syncLivekitMicState = useCallback(async () => {
-    const room = livekitRoomRef.current;
-    if (!room || room.state !== ConnectionState.Connected) return;
-    try {
-      await room.localParticipant.setMicrophoneEnabled(mediaState.micEnabled);
-      if (mediaState.micEnabled) {
-        setError((current) => {
-          if (!current) return current;
-          return current.includes("микрофон") || current.includes("Микрофон")
-            ? null
-            : current;
-        });
-      }
-    } catch (reason) {
-      handleMicrophoneError(reason);
-      setMediaState((current) =>
-        current.micEnabled ? { ...current, micEnabled: false } : current
-      );
-    }
-  }, [handleMicrophoneError, mediaState.micEnabled]);
   const boardLocked = Boolean(awaitingClearRequest);
   const canEdit = !isEnded && (canDraw || canSelect);
   const isTeacherActor = Boolean(
@@ -2464,6 +2396,14 @@ export default function WorkbookSessionPage() {
     });
     return grouped;
   }, [boardObjects, getObjectSceneLayerId]);
+  const compositionLayerEntries = useMemo(
+    () =>
+      compositionLayers.map((layer) => ({
+        layer,
+        objects: compositionObjectsByLayer.get(layer.id) ?? [],
+      })),
+    [compositionLayers, compositionObjectsByLayer]
+  );
 
   const captureSceneSnapshot = useCallback((): WorkbookSceneSnapshot => {
     const clone = <T,>(value: T): T => structuredClone(value);
@@ -2625,6 +2565,7 @@ export default function WorkbookSessionPage() {
           const payload = event.payload as { scene?: unknown };
           if (!payload.scene || typeof payload.scene !== "object") return;
           clearObjectSyncRuntime();
+          clearStrokePreviewRuntime();
           const normalized = normalizeScenePayload(payload.scene);
           restoreSceneSnapshot({
             boardStrokes: normalized.strokes.filter((stroke) => stroke.layer === "board"),
@@ -2642,9 +2583,38 @@ export default function WorkbookSessionPage() {
           });
           return;
         }
+        if (event.type === "board.stroke.preview" || event.type === "annotations.stroke.preview") {
+          if (event.authorUserId === user?.id) return;
+          const payload = event.payload as {
+            stroke?: unknown;
+            previewVersion?: unknown;
+          };
+          const stroke = normalizeStrokePayload(payload.stroke);
+          if (!stroke) return;
+          if (finalizedStrokePreviewIdsRef.current.has(stroke.id)) return;
+          const previewVersion =
+            typeof payload.previewVersion === "number" && Number.isFinite(payload.previewVersion)
+              ? Math.max(1, Math.trunc(payload.previewVersion))
+              : 0;
+          const appliedVersion = incomingStrokePreviewVersionRef.current.get(stroke.id) ?? 0;
+          if (previewVersion > 0 && previewVersion <= appliedVersion) return;
+          if (previewVersion > 0) {
+            incomingStrokePreviewVersionRef.current.set(stroke.id, previewVersion);
+          }
+          queueIncomingStrokePreview(
+            {
+              stroke,
+              previewVersion,
+              updatedAt: Date.now(),
+            },
+            stroke.id
+          );
+          return;
+        }
         if (event.type === "board.stroke") {
           const stroke = normalizeStrokePayload((event.payload as { stroke?: unknown })?.stroke);
           if (!stroke || stroke.layer !== "board") return;
+          finalizeStrokePreview(stroke.id);
           setBoardStrokes((current) =>
             current.some((item) => item.id === stroke.id) ? current : [...current, stroke]
           );
@@ -2653,12 +2623,14 @@ export default function WorkbookSessionPage() {
         if (event.type === "board.stroke.delete") {
           const strokeId = (event.payload as { strokeId?: unknown })?.strokeId;
           if (typeof strokeId !== "string") return;
+          finalizeStrokePreview(strokeId);
           setBoardStrokes((current) => current.filter((item) => item.id !== strokeId));
           return;
         }
         if (event.type === "annotations.stroke") {
           const stroke = normalizeStrokePayload((event.payload as { stroke?: unknown })?.stroke);
           if (!stroke || stroke.layer !== "annotations") return;
+          finalizeStrokePreview(stroke.id);
           setAnnotationStrokes((current) =>
             current.some((item) => item.id === stroke.id) ? current : [...current, stroke]
           );
@@ -2667,6 +2639,7 @@ export default function WorkbookSessionPage() {
         if (event.type === "annotations.stroke.delete") {
           const strokeId = (event.payload as { strokeId?: unknown })?.strokeId;
           if (typeof strokeId !== "string") return;
+          finalizeStrokePreview(strokeId);
           setAnnotationStrokes((current) => current.filter((item) => item.id !== strokeId));
           return;
         }
@@ -2800,6 +2773,7 @@ export default function WorkbookSessionPage() {
           setBoardStrokes([]);
           setBoardObjects([]);
           clearObjectSyncRuntime();
+          clearStrokePreviewRuntime();
           setFocusPoint(null);
           setPointerPoint(null);
           setFocusPointsByUser({});
@@ -2816,6 +2790,7 @@ export default function WorkbookSessionPage() {
           return;
         }
         if (event.type === "annotations.clear") {
+          clearStrokePreviewRuntime({ clearFinalized: false });
           setAnnotationStrokes([]);
           return;
         }
@@ -3236,6 +3211,9 @@ export default function WorkbookSessionPage() {
       areParticipantsEqual,
       awaitingClearRequest,
       clearObjectSyncRuntime,
+      clearStrokePreviewRuntime,
+      finalizeStrokePreview,
+      queueIncomingStrokePreview,
       queueIncomingPreviewPatch,
       restoreSceneSnapshot,
       selectedObjectId,
@@ -3247,6 +3225,7 @@ export default function WorkbookSessionPage() {
     if (!sessionId) return;
     setLoading(true);
     setError(null);
+    clearStrokePreviewRuntime();
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
@@ -3314,6 +3293,7 @@ export default function WorkbookSessionPage() {
         smartInkStrokeBufferRef.current = [];
         smartInkProcessedStrokeIdsRef.current = new Set();
         clearObjectSyncRuntime();
+        clearStrokePreviewRuntime();
         dirtyRef.current = false;
         undoStackRef.current = [];
         redoStackRef.current = [];
@@ -3387,7 +3367,13 @@ export default function WorkbookSessionPage() {
       }
     }
     setLoading(false);
-  }, [clearObjectSyncRuntime, openAuthModal, recoverChatMessagesFromEvents, sessionId]);
+  }, [
+    clearObjectSyncRuntime,
+    clearStrokePreviewRuntime,
+    openAuthModal,
+    recoverChatMessagesFromEvents,
+    sessionId,
+  ]);
 
   const triggerSessionResync = useCallback(() => {
     if (sessionResyncInFlightRef.current) return;
@@ -3559,49 +3545,6 @@ export default function WorkbookSessionPage() {
   }, [sessionId, showCollaborationPanels, user?.id]);
 
   useEffect(() => {
-    if (
-      !sessionId ||
-      session?.kind !== "CLASS" ||
-      !canUseMedia ||
-      isEnded ||
-      !user?.id
-    ) {
-      void disconnectLivekitRoom({
-        forceStopTracks: isEnded || !session || session.kind !== "CLASS" || !canUseMedia,
-      });
-      return;
-    }
-    void connectLivekitRoom();
-  }, [
-    canUseMedia,
-    connectLivekitRoom,
-    disconnectLivekitRoom,
-    isEnded,
-    session,
-    session?.kind,
-    sessionId,
-    user?.id,
-  ]);
-
-  useEffect(() => {
-    if (
-      !session ||
-      session.kind !== "CLASS" ||
-      !canUseMedia ||
-      isEnded ||
-      !isLivekitConnected
-    ) {
-      return;
-    }
-    void syncLivekitMicState();
-  }, [canUseMedia, isEnded, isLivekitConnected, mediaState.micEnabled, session, syncLivekitMicState]);
-
-  useEffect(() => {
-    if (canUseMedia || !mediaState.micEnabled) return;
-    setMediaState((current) => ({ ...current, micEnabled: false }));
-  }, [canUseMedia, mediaState.micEnabled]);
-
-  useEffect(() => {
     if (!sessionChatReadStorageKey) {
       setSessionChatReadAt(null);
       return;
@@ -3744,28 +3687,6 @@ export default function WorkbookSessionPage() {
     sessionChatDragStateRef.current = null;
     setSessionChatPosition({ x: 8, y: 56 });
   }, [isCompactViewport]);
-
-  useEffect(
-    () => () => {
-      void disconnectLivekitRoom({ forceStopTracks: true });
-    },
-    [disconnectLivekitRoom]
-  );
-
-  useEffect(() => {
-    if (!session || session.kind !== "CLASS" || !canUseMedia || isEnded) return;
-    const resumeRemoteAudio = () => {
-      Array.from(remoteAudioBindingsRef.current.values()).forEach((binding) => {
-        void binding.element.play().catch(() => undefined);
-      });
-    };
-    window.addEventListener("pointerdown", resumeRemoteAudio, { passive: true });
-    window.addEventListener("keydown", resumeRemoteAudio);
-    return () => {
-      window.removeEventListener("pointerdown", resumeRemoteAudio);
-      window.removeEventListener("keydown", resumeRemoteAudio);
-    };
-  }, [canUseMedia, isEnded, session]);
 
   const persistSnapshots = useCallback(async (options?: { silent?: boolean; force?: boolean }) => {
     if (!sessionId) return false;
@@ -3943,6 +3864,34 @@ export default function WorkbookSessionPage() {
     [clearObjectSyncRuntime]
   );
 
+  useEffect(
+    () => () => {
+      clearStrokePreviewRuntime();
+    },
+    [clearStrokePreviewRuntime]
+  );
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      const cutoff = Date.now() - STROKE_PREVIEW_EXPIRY_MS;
+      setIncomingStrokePreviews((current) => {
+        let changed = false;
+        const next: Record<string, StrokePreviewEntry> = {};
+        Object.entries(current).forEach(([strokeId, entry]) => {
+          if (entry.updatedAt < cutoff) {
+            changed = true;
+            return;
+          }
+          next[strokeId] = entry;
+        });
+        return changed ? next : current;
+      });
+    }, 1_000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   useEffect(() => {
     if (smartInkOptions.mode !== "off") return;
     smartInkStrokeBufferRef.current = [];
@@ -4052,6 +4001,57 @@ export default function WorkbookSessionPage() {
       queueViewportSync(offset);
     },
     [queueViewportSync]
+  );
+
+  const flushQueuedStrokePreview = useCallback(
+    (strokeId: string) => {
+      if (strokePreviewTimersRef.current.has(strokeId)) return;
+      const timerId = window.setTimeout(() => {
+        strokePreviewTimersRef.current.delete(strokeId);
+        if (!sessionId || !canDraw || finalizedStrokePreviewIdsRef.current.has(strokeId)) {
+          strokePreviewQueuedByIdRef.current.delete(strokeId);
+          strokePreviewInFlightVersionByIdRef.current.delete(strokeId);
+          return;
+        }
+        if (strokePreviewInFlightVersionByIdRef.current.has(strokeId)) {
+          flushQueuedStrokePreview(strokeId);
+          return;
+        }
+        const queuedPreview = strokePreviewQueuedByIdRef.current.get(strokeId);
+        if (!queuedPreview) return;
+        strokePreviewQueuedByIdRef.current.delete(strokeId);
+        strokePreviewInFlightVersionByIdRef.current.set(strokeId, queuedPreview.previewVersion);
+        void appendWorkbookStrokePreview({
+          sessionId,
+          stroke: queuedPreview.stroke,
+          previewVersion: queuedPreview.previewVersion,
+        })
+          .catch(() => {
+            // ignore preview delivery errors: final board.stroke event will reconcile state
+          })
+          .finally(() => {
+            const inFlightVersion = strokePreviewInFlightVersionByIdRef.current.get(strokeId);
+            if (inFlightVersion === queuedPreview.previewVersion) {
+              strokePreviewInFlightVersionByIdRef.current.delete(strokeId);
+            }
+            if (strokePreviewQueuedByIdRef.current.has(strokeId)) {
+              flushQueuedStrokePreview(strokeId);
+            }
+          });
+      }, STROKE_PREVIEW_FLUSH_INTERVAL_MS);
+      strokePreviewTimersRef.current.set(strokeId, timerId);
+    },
+    [canDraw, sessionId]
+  );
+
+  const queueStrokePreview = useCallback(
+    (payload: { stroke: WorkbookStroke; previewVersion: number }) => {
+      const strokeId = payload.stroke.id;
+      if (!strokeId || finalizedStrokePreviewIdsRef.current.has(strokeId)) return;
+      strokePreviewQueuedByIdRef.current.set(strokeId, payload);
+      flushQueuedStrokePreview(strokeId);
+    },
+    [flushQueuedStrokePreview]
   );
 
   const flushPreviewObjectUpdate = useCallback(
@@ -4708,6 +4708,36 @@ export default function WorkbookSessionPage() {
     [processSmartInkBuffer, smartInkOptions.mode]
   );
 
+  const applyLocalStrokeCollection = useCallback(
+    (
+      targetLayer: WorkbookLayer,
+      updater: (current: WorkbookStroke[]) => WorkbookStroke[]
+    ) => {
+      if (targetLayer === "annotations") {
+        setAnnotationStrokes(updater);
+        return;
+      }
+      setBoardStrokes(updater);
+    },
+    []
+  );
+
+  const commitStrokePreview = useCallback(
+    (payload: { stroke: WorkbookStroke; previewVersion: number }) => {
+      if (!sessionId || !canDraw) return;
+      if (payload.stroke.tool !== "pen" && payload.stroke.tool !== "highlighter") return;
+      const strokeWithPage: WorkbookStroke = {
+        ...payload.stroke,
+        page: Math.max(1, payload.stroke.page ?? boardSettings.currentPage),
+      };
+      queueStrokePreview({
+        stroke: strokeWithPage,
+        previewVersion: payload.previewVersion,
+      });
+    },
+    [boardSettings.currentPage, canDraw, queueStrokePreview, sessionId]
+  );
+
   const commitStroke = async (stroke: WorkbookStroke) => {
     if (!sessionId || !canDraw) return;
     const type = stroke.layer === "board" ? "board.stroke" : "annotations.stroke";
@@ -4715,12 +4745,21 @@ export default function WorkbookSessionPage() {
       ...stroke,
       page: Math.max(1, stroke.page ?? boardSettings.currentPage),
     };
+    finalizeStrokePreview(strokeWithPage.id);
+    applyLocalStrokeCollection(strokeWithPage.layer, (current) =>
+      current.some((item) => item.id === strokeWithPage.id)
+        ? current
+        : [...current, strokeWithPage]
+    );
     try {
       await appendEventsAndApply([{ type, payload: { stroke: strokeWithPage } }]);
       if (stroke.layer === "board" && stroke.tool === "pen") {
         queueSmartInkStroke(strokeWithPage);
       }
     } catch {
+      applyLocalStrokeCollection(strokeWithPage.layer, (current) =>
+        current.filter((item) => item.id !== strokeWithPage.id)
+      );
       setError("Не удалось синхронизировать штрих. Проверьте подключение.");
     }
   };
@@ -4731,6 +4770,7 @@ export default function WorkbookSessionPage() {
       targetLayer === "annotations"
         ? ("annotations.stroke.delete" as const)
         : ("board.stroke.delete" as const);
+    finalizeStrokePreview(strokeId);
     try {
       await appendEventsAndApply([{ type, payload: { strokeId } }]);
     } catch {
@@ -4763,14 +4803,8 @@ export default function WorkbookSessionPage() {
       page: Math.max(1, sourceStroke.page ?? boardSettings.currentPage),
     }));
     const replacementIds = new Set(replacementStrokes.map((item) => item.id));
-    const applyLocal = (updater: (current: WorkbookStroke[]) => WorkbookStroke[]) => {
-      if (sourceStroke.layer === "annotations") {
-        setAnnotationStrokes(updater);
-        return;
-      }
-      setBoardStrokes(updater);
-    };
-    applyLocal((current) => {
+    finalizeStrokePreview(sourceStroke.id);
+    applyLocalStrokeCollection(sourceStroke.layer, (current) => {
       const withoutSource = current.filter((item) => item.id !== sourceStroke.id);
       if (replacementStrokes.length === 0) return withoutSource;
       return [...withoutSource, ...replacementStrokes];
@@ -4787,7 +4821,7 @@ export default function WorkbookSessionPage() {
         })),
       ]);
     } catch {
-      applyLocal((current) => {
+      applyLocalStrokeCollection(sourceStroke.layer, (current) => {
         const cleaned = current.filter((item) => !replacementIds.has(item.id));
         if (cleaned.some((item) => item.id === sourceStroke.id)) return cleaned;
         return [...cleaned, sourceStroke];
@@ -5528,9 +5562,9 @@ export default function WorkbookSessionPage() {
   const focusObjectInWorkspace = useCallback((objectId: string) => {
     setSelectedConstraintId(null);
     setSelectedObjectId(objectId);
-    setTool("select");
+    resetToolRuntimeToSelect();
     openUtilityPanel("transform", { toggle: false });
-  }, [openUtilityPanel]);
+  }, [openUtilityPanel, resetToolRuntimeToSelect]);
 
   const updateSelectedLineMeta = useCallback(
     async (
@@ -6584,7 +6618,7 @@ export default function WorkbookSessionPage() {
       return;
     }
     setSolid3dInspectorTab("section");
-    setTool("select");
+    resetToolRuntimeToSelect();
     setSolid3dSectionPointCollecting(selectedObject.id);
     setSolid3dSectionPointTarget(null);
     setSolid3dDraftPoints({
@@ -6721,7 +6755,7 @@ export default function WorkbookSessionPage() {
       });
       setSelectedObjectId(null);
       setSelectedConstraintId(null);
-      setTool("select");
+      resetToolRuntimeToSelect();
       return;
     }
     const defaultSolidWidth = 220;
@@ -6765,7 +6799,7 @@ export default function WorkbookSessionPage() {
     await commitObjectCreate(object);
     suppressAutoPanelSelectionRef.current = object.id;
     setSelectedObjectId(object.id);
-    setTool("select");
+    resetToolRuntimeToSelect();
   };
 
   const createFunctionGraphPlane = useCallback(() => {
@@ -6774,9 +6808,8 @@ export default function WorkbookSessionPage() {
     setSelectedObjectId(null);
     setGraphDraftError(null);
     setGraphWorkbenchTab("catalog");
-    setTool("function_graph");
-    setStrokeWidth(getDefaultToolWidth("function_graph"));
-  }, [canDraw]);
+    activateTool("function_graph");
+  }, [activateTool, canDraw]);
 
   useEffect(() => {
     if (!pendingSolid3dInsertPreset) return;
@@ -6786,8 +6819,8 @@ export default function WorkbookSessionPage() {
 
   const clearPendingSolid3dInsertPreset = useCallback(() => {
     setPendingSolid3dInsertPreset(null);
-    setTool("select");
-  }, []);
+    resetToolRuntimeToSelect();
+  }, [resetToolRuntimeToSelect]);
 
   const handleLaserPoint = useCallback(
     async (point: WorkbookPoint) => {
@@ -6871,14 +6904,14 @@ export default function WorkbookSessionPage() {
         },
       ]);
       if (!options?.keepTool) {
-        setTool("select");
+        resetToolRuntimeToSelect();
       }
     } catch {
       setError("Не удалось убрать указку.");
     } finally {
       laserClearInFlightRef.current = false;
     }
-  }, [appendEventsAndApply, canUseLaser, user?.id]);
+  }, [appendEventsAndApply, canUseLaser, resetToolRuntimeToSelect, user?.id]);
 
   useEffect(() => {
     if (tool === "laser" || !pointerPoint) return;
@@ -6902,6 +6935,7 @@ export default function WorkbookSessionPage() {
     if (!previousSnapshot) return;
     const currentSnapshot = captureSceneSnapshot();
     clearObjectSyncRuntime();
+    clearStrokePreviewRuntime();
     undoStackRef.current = undoStackRef.current.slice(0, -1);
     redoStackRef.current = [...redoStackRef.current, currentSnapshot].slice(-80);
     setUndoDepth(undoStackRef.current.length);
@@ -6925,6 +6959,7 @@ export default function WorkbookSessionPage() {
     canUseUndo,
     captureSceneSnapshot,
     clearObjectSyncRuntime,
+    clearStrokePreviewRuntime,
     markDirty,
     restoreSceneSnapshot,
     toScenePayload,
@@ -6936,6 +6971,7 @@ export default function WorkbookSessionPage() {
     if (!nextSnapshot) return;
     const currentSnapshot = captureSceneSnapshot();
     clearObjectSyncRuntime();
+    clearStrokePreviewRuntime();
     redoStackRef.current = redoStackRef.current.slice(0, -1);
     undoStackRef.current = [...undoStackRef.current, currentSnapshot].slice(-80);
     setUndoDepth(undoStackRef.current.length);
@@ -6959,6 +6995,7 @@ export default function WorkbookSessionPage() {
     canUseUndo,
     captureSceneSnapshot,
     clearObjectSyncRuntime,
+    clearStrokePreviewRuntime,
     markDirty,
     restoreSceneSnapshot,
     toScenePayload,
@@ -7640,6 +7677,166 @@ export default function WorkbookSessionPage() {
     }
   };
 
+  const updateDocumentStateRef = useRef(updateDocumentState);
+  updateDocumentStateRef.current = updateDocumentState;
+
+  const handleDocumentSnapshotToBoardRef = useRef(handleDocumentSnapshotToBoard);
+  handleDocumentSnapshotToBoardRef.current = handleDocumentSnapshotToBoard;
+
+  const handleAddDocumentAnnotationRef = useRef(handleAddDocumentAnnotation);
+  handleAddDocumentAnnotationRef.current = handleAddDocumentAnnotation;
+
+  const handleClearDocumentAnnotationsRef = useRef(handleClearDocumentAnnotations);
+  handleClearDocumentAnnotationsRef.current = handleClearDocumentAnnotations;
+
+  const handleDocsWindowTogglePinned = useCallback(() => {
+    setDocsWindow((current) => ({ ...current, pinned: !current.pinned }));
+  }, []);
+
+  const handleDocsWindowToggleMaximized = useCallback(() => {
+    setDocsWindow((current) => ({ ...current, maximized: !current.maximized }));
+  }, []);
+
+  const handleDocsWindowClose = useCallback(() => {
+    setDocsWindow((current) => ({ ...current, open: false }));
+  }, []);
+
+  const handleDocsWindowRequestUpload = useCallback(() => {
+    docsInputRef.current?.click();
+  }, []);
+
+  const handleDocsWindowSnapshotToBoard = useCallback(() => {
+    void handleDocumentSnapshotToBoardRef.current();
+  }, []);
+
+  const handleDocsWindowAddAnnotation = useCallback(() => {
+    void handleAddDocumentAnnotationRef.current();
+  }, []);
+
+  const handleDocsWindowClearAnnotations = useCallback(() => {
+    void handleClearDocumentAnnotationsRef.current();
+  }, []);
+
+  const handleDocsWindowSelectAsset = useCallback((assetId: string) => {
+    void updateDocumentStateRef.current({ activeAssetId: assetId });
+  }, []);
+
+  const handleDocsWindowPageChange = useCallback((page: number) => {
+    void updateDocumentStateRef.current({ page });
+  }, []);
+
+  const handleDocsWindowZoomChange = useCallback((zoom: number) => {
+    void updateDocumentStateRef.current({ zoom });
+  }, []);
+
+  const dissolveCompositionLayerRef = useRef(dissolveCompositionLayer);
+  dissolveCompositionLayerRef.current = dissolveCompositionLayer;
+
+  const removeObjectFromCompositionRef = useRef(removeObjectFromComposition);
+  removeObjectFromCompositionRef.current = removeObjectFromComposition;
+
+  const handleLayersPanelDissolveLayer = useCallback((layerId: string) => {
+    void dissolveCompositionLayerRef.current(layerId);
+  }, []);
+
+  const handleLayersPanelRemoveObject = useCallback((objectId: string, layerId: string) => {
+    void removeObjectFromCompositionRef.current(objectId, layerId);
+  }, []);
+
+  const handleGraphPanelCreatePlane = useCallback(() => {
+    void createFunctionGraphPlane();
+  }, [createFunctionGraphPlane]);
+
+  const handleGraphPanelSelectPlane = useCallback((planeId: string) => {
+    setSelectedObjectId(planeId);
+    resetToolRuntimeToSelect();
+  }, [resetToolRuntimeToSelect]);
+
+  const handleGraphPanelAxisColorChange = useCallback(
+    (color: string) => {
+      updateSelectedFunctionGraphAppearance({ axisColor: color });
+    },
+    [updateSelectedFunctionGraphAppearance]
+  );
+
+  const handleGraphPanelPlaneColorChange = useCallback(
+    (color: string) => {
+      updateSelectedFunctionGraphAppearance({ planeColor: color });
+    },
+    [updateSelectedFunctionGraphAppearance]
+  );
+
+  const handleGraphPanelClearPlaneBackground = useCallback(() => {
+    updateSelectedFunctionGraphAppearance({ planeColor: "transparent" });
+  }, [updateSelectedFunctionGraphAppearance]);
+
+  const handleGraphPanelSelectCatalogTab = useCallback(() => {
+    setGraphWorkbenchTab("catalog");
+  }, []);
+
+  const handleGraphPanelSelectWorkTab = useCallback(() => {
+    setGraphWorkbenchTab("work");
+  }, []);
+
+  const handleGraphPanelExpressionDraftChange = useCallback((value: string) => {
+    setGraphExpressionDraft(value);
+    setSelectedGraphPresetId(null);
+    setGraphDraftError((current) => (current ? null : current));
+  }, []);
+
+  const handleGraphPanelAddFunction = useCallback(() => {
+    setSelectedGraphPresetId(null);
+    appendSelectedGraphFunction();
+  }, [appendSelectedGraphFunction]);
+
+  const handleGraphPanelSelectPreset = useCallback(
+    (presetId: string, expression: string) => {
+      setSelectedGraphPresetId(presetId);
+      activateGraphCatalogCursor();
+      appendSelectedGraphFunction(expression);
+    },
+    [activateGraphCatalogCursor, appendSelectedGraphFunction]
+  );
+
+  const handleGraphPanelFunctionColorChange = useCallback(
+    (id: string, color: string) => {
+      updateSelectedGraphFunction(id, { color });
+    },
+    [updateSelectedGraphFunction]
+  );
+
+  const handleGraphPanelFunctionExpressionChange = useCallback(
+    (id: string, value: string) => {
+      normalizeGraphExpressionDraft(id, value, true);
+    },
+    [normalizeGraphExpressionDraft]
+  );
+
+  const handleGraphPanelCommitExpressions = useCallback(() => {
+    commitSelectedGraphExpressions();
+  }, [commitSelectedGraphExpressions]);
+
+  const handleGraphPanelRemoveFunction = useCallback(
+    (id: string) => {
+      removeSelectedGraphFunction(id);
+    },
+    [removeSelectedGraphFunction]
+  );
+
+  const handleGraphPanelToggleVisibility = useCallback(
+    (id: string, visible: boolean) => {
+      updateSelectedGraphFunction(id, { visible });
+    },
+    [updateSelectedGraphFunction]
+  );
+
+  const handleGraphPanelReflectFunction = useCallback(
+    (id: string, axis: "x" | "y") => {
+      reflectGraphFunctionByAxis(id, axis);
+    },
+    [reflectGraphFunctionByAxis]
+  );
+
   const waitForCanvasRender = useCallback(
     () =>
       new Promise<void>((resolve) => {
@@ -7850,6 +8047,10 @@ export default function WorkbookSessionPage() {
       if (!fileName) return;
       const exportPages = Array.from(
         new Set([
+          ...Array.from(
+            { length: Math.max(1, boardSettings.pagesCount || 1) },
+            (_, index) => index + 1
+          ),
           ...boardObjects.map((object) => Math.max(1, object.page ?? 1)),
           ...boardStrokes.map((stroke) => Math.max(1, stroke.page ?? 1)),
           currentPage,
@@ -7962,6 +8163,136 @@ export default function WorkbookSessionPage() {
     }
   };
 
+  const commitStrokeRef = useRef(commitStroke);
+  commitStrokeRef.current = commitStroke;
+
+  const commitStrokeDeleteRef = useRef(commitStrokeDelete);
+  commitStrokeDeleteRef.current = commitStrokeDelete;
+
+  const commitStrokeReplaceRef = useRef(commitStrokeReplace);
+  commitStrokeReplaceRef.current = commitStrokeReplace;
+
+  const handleCanvasObjectUpdate = useCallback(
+    (
+      objectId: string,
+      patch: Partial<WorkbookBoardObject>,
+      options?: { trackHistory?: boolean; markDirty?: boolean }
+    ) => {
+      void commitObjectUpdate(objectId, patch, options);
+    },
+    [commitObjectUpdate]
+  );
+
+  const commitObjectDeleteRef = useRef(commitObjectDelete);
+  commitObjectDeleteRef.current = commitObjectDelete;
+
+  const handleSolid3dSectionPointPickRef = useRef(handleSolid3dSectionPointPick);
+  handleSolid3dSectionPointPickRef.current = handleSolid3dSectionPointPick;
+
+  const handleCanvasStrokeCommit = useCallback((stroke: WorkbookStroke) => {
+    void commitStrokeRef.current(stroke);
+  }, []);
+
+  const handleCanvasStrokeDelete = useCallback((strokeId: string, targetLayer: WorkbookLayer) => {
+    void commitStrokeDeleteRef.current(strokeId, targetLayer);
+  }, []);
+
+  const handleCanvasStrokeReplace = useCallback(
+    (payload: Parameters<typeof commitStrokeReplace>[0]) => {
+      void commitStrokeReplaceRef.current(payload);
+    },
+    []
+  );
+
+  const handleCanvasObjectDelete = useCallback((objectId: string) => {
+    void commitObjectDeleteRef.current(objectId);
+  }, []);
+
+  const handleCanvasSolid3dPointPick = useCallback(
+    (payload: {
+      objectId: string;
+      point: Solid3dSectionPoint;
+      faceIndex?: number;
+      replaceIndex?: number;
+      selectOnly?: boolean;
+    }) => {
+      void handleSolid3dSectionPointPickRef.current(payload);
+    },
+    []
+  );
+
+  const handleCanvasAreaSelectionChange = useCallback(
+    (selection: WorkbookAreaSelection | null) => {
+      setAreaSelection(selection);
+      if (!selection || (selection.objectIds.length === 0 && selection.strokeIds.length === 0)) {
+        setAreaSelectionContextMenu(null);
+      }
+    },
+    []
+  );
+
+  const handleCanvasAreaSelectionContextMenu = useCallback(
+    (payload: {
+      objectIds: string[];
+      strokeIds: Array<{ id: string; layer: WorkbookLayer }>;
+      rect: { x: number; y: number; width: number; height: number };
+      anchor: { x: number; y: number };
+    }) => {
+      setAreaSelection({
+        objectIds: payload.objectIds,
+        strokeIds: payload.strokeIds,
+        rect: payload.rect,
+      });
+      setAreaSelectionContextMenu({
+        x: payload.anchor.x,
+        y: payload.anchor.y,
+      });
+    },
+    []
+  );
+
+  const handleCanvasInlineTextDraftChange = useCallback(
+    (objectId: string, value: string) => {
+      const selectedTextTarget = boardObjects.find((item) => item.id === objectId) ?? null;
+      if (!selectedTextTarget || selectedTextTarget.type !== "text") return;
+      setSelectedTextDraft((current) => (current === value ? current : value));
+      scheduleSelectedTextDraftCommit(value);
+    },
+    [boardObjects, scheduleSelectedTextDraftCommit]
+  );
+
+  const handleCanvasRequestSelectTool = useCallback(() => {
+    resetToolRuntimeToSelect();
+  }, [resetToolRuntimeToSelect]);
+
+  const handleCanvasLaserPoint = useCallback((point: WorkbookPoint) => {
+    void handleLaserPoint(point);
+  }, [handleLaserPoint]);
+
+  const handleCanvasLaserClear = useCallback(() => {
+    void clearLaserPointer();
+  }, [clearLaserPointer]);
+
+  const handleToggleSessionChat = useCallback(() => {
+    if (isSessionChatOpen) {
+      setIsSessionChatOpen(false);
+      setIsSessionChatEmojiOpen(false);
+      return;
+    }
+    sessionChatShouldScrollToUnreadRef.current = true;
+    setIsSessionChatAtBottom(false);
+    setIsSessionChatOpen(true);
+    setIsSessionChatMinimized(false);
+  }, [isSessionChatOpen]);
+
+  const handleCollapseParticipants = useCallback(() => {
+    setIsParticipantsCollapsed(true);
+  }, []);
+
+  const handleToggleOwnMic = useCallback(() => {
+    setMicEnabled((current) => !current);
+  }, [setMicEnabled]);
+
   const toolButtons: Array<{ tool: WorkbookTool; label: string; icon: ReactNode }> = [
     { tool: "select", label: "Выбор", icon: <AdsClickRoundedIcon /> },
     { tool: "pan", label: "Рука", icon: <PanToolRoundedIcon /> },
@@ -7973,7 +8304,7 @@ export default function WorkbookSessionPage() {
     { tool: "area_select", label: "Ножницы", icon: <ContentCutRoundedIcon /> },
     { tool: "text", label: "Текст", icon: <TextFieldsRoundedIcon /> },
     { tool: "divider", label: "Разделитель", icon: <DragHandleRoundedIcon /> },
-    { tool: "eraser", label: "Ластик", icon: <BackspaceRoundedIcon /> },
+    { tool: "eraser", label: "Ластик", icon: <CleaningServicesRoundedIcon /> },
     { tool: "laser", label: "Указка (Esc/ПКМ убрать)", icon: <MyLocationRoundedIcon /> },
     { tool: "sweep", label: "Метёлка", icon: <DeleteSweepRoundedIcon /> },
   ];
@@ -8011,8 +8342,7 @@ export default function WorkbookSessionPage() {
             onClick={() => {
               if (item.tool === "function_graph") {
                 if (tool === "function_graph") {
-                  setTool("select");
-                  setStrokeWidth(getDefaultToolWidth("select"));
+                  resetToolRuntimeToSelect();
                   return;
                 }
                 void createFunctionGraphPlane();
@@ -8023,12 +8353,10 @@ export default function WorkbookSessionPage() {
                 (item.tool === "area_select" && tool === "area_select") ||
                 (item.tool === "eraser" && tool === "eraser")
               ) {
-                setTool("select");
-                setStrokeWidth(getDefaultToolWidth("select"));
+                resetToolRuntimeToSelect();
                 return;
               }
-              setTool(item.tool);
-              setStrokeWidth(getDefaultToolWidth(item.tool));
+              activateTool(item.tool);
             }}
             aria-label={item.label}
             title={item.label}
@@ -8391,6 +8719,10 @@ export default function WorkbookSessionPage() {
     () => (selectedObject?.type === "point" ? selectedObject : null),
     [selectedObject]
   );
+  const pointObjectCount = useMemo(
+    () => boardObjects.reduce((count, item) => count + (item.type === "point" ? 1 : 0), 0),
+    [boardObjects]
+  );
   const selectedTextObject = useMemo(
     () => (selectedObject?.type === "text" ? selectedObject : null),
     [selectedObject]
@@ -8501,6 +8833,15 @@ export default function WorkbookSessionPage() {
         .filter((item): item is WorkbookBoardObject => item.type === "function_graph")
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [boardObjects]
+  );
+  const graphPlaneEntries = useMemo(
+    () =>
+      functionGraphPlanes.map((plane, index) => ({
+        id: plane.id,
+        title: `Плоскость ${index + 1}`,
+        functionCount: resolveGraphFunctionsFromObject(plane).length,
+      })),
+    [functionGraphPlanes]
   );
   const graphTabFunctions = graphTabUsesSelectedObject
     ? graphFunctionsDraft
@@ -8712,6 +9053,13 @@ export default function WorkbookSessionPage() {
     () => selectedSolid3dState?.angleMarks ?? [],
     [selectedSolid3dState?.angleMarks]
   );
+  const handleTransformOpenGraphPanel = useCallback(() => {
+    openUtilityPanel("graph", { toggle: false });
+  }, [openUtilityPanel]);
+  const handleTransformDissolveCompositionLayer = useCallback(() => {
+    if (selectedObjectSceneLayerId === MAIN_SCENE_LAYER_ID) return;
+    void dissolveCompositionLayer(selectedObjectSceneLayerId);
+  }, [dissolveCompositionLayer, selectedObjectSceneLayerId]);
   const selectedActiveSection = useMemo(() => {
     if (!selectedSolid3dState?.sections.length) return null;
     if (activeSolidSectionId) {
@@ -9449,6 +9797,7 @@ export default function WorkbookSessionPage() {
             <WorkbookCanvas
               boardStrokes={visibleBoardStrokes}
               annotationStrokes={visibleAnnotationStrokes}
+              previewStrokes={previewStrokes}
               boardObjects={visibleBoardObjects}
               constraints={constraints}
               layer={layer}
@@ -9481,9 +9830,7 @@ export default function WorkbookSessionPage() {
               pointerPoints={pointerPoints}
               viewportOffset={canvasViewport}
               onViewportOffsetChange={handleCanvasViewportOffsetChange}
-              onEraserRadiusChange={(nextRadius) =>
-                setStrokeWidth(clampEraserRadius(nextRadius))
-              }
+              onEraserRadiusChange={handleEraserRadiusChange}
               forcePanMode={spacePanActive}
               autoDividersEnabled={boardSettings.autoSectionDividers}
               autoDividerStep={boardSettings.dividerStep}
@@ -9523,54 +9870,27 @@ export default function WorkbookSessionPage() {
               }
               onSelectedObjectChange={handleCanvasSelectedObjectChange}
               onSelectedConstraintChange={setSelectedConstraintId}
-              onStrokeCommit={(stroke) => void commitStroke(stroke)}
-              onStrokeDelete={(strokeId, targetLayer) =>
-                void commitStrokeDelete(strokeId, targetLayer)
-              }
-              onStrokeReplace={(payload) => void commitStrokeReplace(payload)}
+              onStrokeCommit={handleCanvasStrokeCommit}
+              onStrokePreview={commitStrokePreview}
+              onStrokeDelete={handleCanvasStrokeDelete}
+              onStrokeReplace={handleCanvasStrokeReplace}
               onObjectCreate={handleCanvasObjectCreate}
-              onObjectUpdate={(objectId, patch, options) =>
-                void commitObjectUpdate(objectId, patch, options)
-              }
-              onObjectDelete={(objectId) => void commitObjectDelete(objectId)}
+              onObjectUpdate={handleCanvasObjectUpdate}
+              onObjectDelete={handleCanvasObjectDelete}
               onObjectContextMenu={handleObjectContextMenu}
               onShapeVertexContextMenu={handleShapeVertexContextMenu}
               onLineEndpointContextMenu={handleLineEndpointContextMenu}
               onSolid3dVertexContextMenu={handleSolid3dVertexContextMenu}
               onSolid3dPointContextMenu={handleSolid3dPointContextMenu}
               onSolid3dSectionContextMenu={handleSolid3dSectionContextMenu}
-              onSolid3dPointPick={(payload) => void handleSolid3dSectionPointPick(payload)}
+              onSolid3dPointPick={handleCanvasSolid3dPointPick}
               onSolid3dDraftPointAdd={addDraftPointToSolid}
-              onAreaSelectionChange={(selection) => {
-                setAreaSelection(selection);
-                if (
-                  !selection ||
-                  (selection.objectIds.length === 0 && selection.strokeIds.length === 0)
-                ) {
-                  setAreaSelectionContextMenu(null);
-                }
-              }}
-              onAreaSelectionContextMenu={(payload) => {
-                setAreaSelection({
-                  objectIds: payload.objectIds,
-                  strokeIds: payload.strokeIds,
-                  rect: payload.rect,
-                });
-                setAreaSelectionContextMenu({
-                  x: payload.anchor.x,
-                  y: payload.anchor.y,
-                });
-              }}
-              onInlineTextDraftChange={(objectId, value) => {
-                const selectedTextTarget =
-                  boardObjects.find((item) => item.id === objectId) ?? null;
-                if (!selectedTextTarget || selectedTextTarget.type !== "text") return;
-                setSelectedTextDraft((current) => (current === value ? current : value));
-                scheduleSelectedTextDraftCommit(value);
-              }}
-              onRequestSelectTool={() => setTool("select")}
-              onLaserPoint={(point) => void handleLaserPoint(point)}
-              onLaserClear={() => void clearLaserPointer()}
+              onAreaSelectionChange={handleCanvasAreaSelectionChange}
+              onAreaSelectionContextMenu={handleCanvasAreaSelectionContextMenu}
+              onInlineTextDraftChange={handleCanvasInlineTextDraftChange}
+              onRequestSelectTool={handleCanvasRequestSelectTool}
+              onLaserPoint={handleCanvasLaserPoint}
+              onLaserClear={handleCanvasLaserClear}
               solid3dInsertPreset={pendingSolid3dInsertPreset}
               onSolid3dInsertConsumed={clearPendingSolid3dInsertPreset}
             />
@@ -9607,393 +9927,65 @@ export default function WorkbookSessionPage() {
           </div>
 
           {docsWindow.open ? (
-            <div
-              className={`workbook-session__docs-window ${
-                docsWindow.maximized ? "is-maximized" : ""
-              } ${docsWindow.pinned ? "is-pinned" : ""}`}
-            >
-              <header>
-                <strong>Окно документов</strong>
-                <div>
-                  <IconButton
-                    size="small"
-                    onClick={() =>
-                      setDocsWindow((current) => ({ ...current, pinned: !current.pinned }))
-                    }
-                    aria-label="Закрепить окно"
-                  >
-                    {docsWindow.pinned ? <LockRoundedIcon /> : <LockOpenRoundedIcon />}
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    onClick={() =>
-                      setDocsWindow((current) => ({
-                        ...current,
-                        maximized: !current.maximized,
-                      }))
-                    }
-                    aria-label="Изменить размер"
-                  >
-                    <FilterCenterFocusRoundedIcon />
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    onClick={() => setDocsWindow((current) => ({ ...current, open: false }))}
-                    aria-label="Закрыть"
-                  >
-                    <CloseRoundedIcon />
-                  </IconButton>
-                </div>
-              </header>
-
-              <div className="workbook-session__docs-actions">
-                <Button
-                  size="small"
-                  startIcon={<UploadFileRoundedIcon />}
-                  onClick={() => docsInputRef.current?.click()}
-                  disabled={!canInsertImage}
-                >
-                  Загрузить
-                </Button>
-                <Button
-                  size="small"
-                  startIcon={<PhotoCameraRoundedIcon />}
-                  onClick={() => void handleDocumentSnapshotToBoard()}
-                  disabled={!activeDocument}
-                >
-                  Снимок на доску
-                </Button>
-                <Button
-                  size="small"
-                  startIcon={<AutoFixHighRoundedIcon />}
-                  onClick={() => void handleAddDocumentAnnotation()}
-                  disabled={!activeDocument}
-                >
-                  Пометка
-                </Button>
-                <Button
-                  size="small"
-                  startIcon={<DeleteSweepRoundedIcon />}
-                  onClick={() => void handleClearDocumentAnnotations()}
-                  disabled={documentState.annotations.length === 0}
-                >
-                  Стереть
-                </Button>
-              </div>
-
-              {uploadingDoc ? (
-                <p className="workbook-session__docs-progress">
-                  Передача файла: {uploadProgress}%
-                </p>
-              ) : null}
-
-              <div className="workbook-session__docs-files">
-                {documentState.assets.map((asset) => (
-                  <button
-                    key={asset.id}
-                    type="button"
-                    className={asset.id === documentState.activeAssetId ? "is-active" : ""}
-                    onClick={() => void updateDocumentState({ activeAssetId: asset.id })}
-                  >
-                    {asset.name}
-                  </button>
-                ))}
-              </div>
-
-              <div className="workbook-session__docs-view">
-                {activeDocument ? (
-                  activeDocument.type === "pdf" ? (
-                    activeDocument.renderedPages && activeDocument.renderedPages.length > 0 ? (
-                      <img
-                        src={
-                          activeDocument.renderedPages.find(
-                            (page) => page.page === documentState.page
-                          )?.imageUrl ?? activeDocument.renderedPages[0].imageUrl
-                        }
-                        alt={`${activeDocument.name} • стр ${documentState.page}`}
-                      />
-                    ) : (
-                      <div className="workbook-session__docs-pdf-fallback">
-                        <p>Серверный рендер PDF недоступен. Откройте файл в отдельной вкладке.</p>
-                        <a
-                          href={activeDocument.url}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Открыть PDF
-                        </a>
-                      </div>
-                    )
-                  ) : activeDocument.type === "file" ? (
-                    <div className="workbook-session__docs-pdf-fallback">
-                      <p>Предпросмотр этого формата недоступен в доске.</p>
-                      <a href={activeDocument.url} target="_blank" rel="noreferrer">
-                        Открыть файл
-                      </a>
-                    </div>
-                  ) : (
-                    <img src={activeDocument.url} alt={activeDocument.name} />
-                  )
-                ) : (
-                  <p>Откройте документ или изображение для аннотаций.</p>
-                )}
-              </div>
-
-              <footer className="workbook-session__docs-footer">
-                <div className="workbook-session__contextbar-inline">
-                  <label htmlFor="workbook-doc-page">Страница</label>
-                  <input
-                    id="workbook-doc-page"
-                    type="number"
-                    min={1}
-                    max={activeDocumentPageCount}
-                    value={documentState.page}
-                    onChange={(event) =>
-                      void updateDocumentState({
-                        page: Math.min(
-                          activeDocumentPageCount,
-                          Math.max(1, Number(event.target.value) || 1)
-                        ),
-                      })
-                    }
-                  />
-                </div>
-                <div className="workbook-session__contextbar-inline">
-                  <label htmlFor="workbook-doc-zoom">Масштаб</label>
-                  <input
-                    id="workbook-doc-zoom"
-                    type="range"
-                    min={0.2}
-                    max={4}
-                    step={0.1}
-                    value={documentState.zoom}
-                    onChange={(event) =>
-                      void updateDocumentState({
-                        zoom: Number(event.target.value),
-                      })
-                    }
-                  />
-                </div>
-              </footer>
-            </div>
+            <Suspense fallback={null}>
+              <WorkbookSessionDocsWindow
+                pinned={docsWindow.pinned}
+                maximized={docsWindow.maximized}
+                canInsertImage={canInsertImage}
+                uploadingDoc={uploadingDoc}
+                uploadProgress={uploadProgress}
+                assets={documentState.assets}
+                activeAssetId={documentState.activeAssetId}
+                activeDocument={activeDocument}
+                page={documentState.page}
+                zoom={documentState.zoom}
+                activeDocumentPageCount={activeDocumentPageCount}
+                annotationsCount={documentState.annotations.length}
+                onTogglePinned={handleDocsWindowTogglePinned}
+                onToggleMaximized={handleDocsWindowToggleMaximized}
+                onClose={handleDocsWindowClose}
+                onRequestUpload={handleDocsWindowRequestUpload}
+                onSnapshotToBoard={handleDocsWindowSnapshotToBoard}
+                onAddAnnotation={handleDocsWindowAddAnnotation}
+                onClearAnnotations={handleDocsWindowClearAnnotations}
+                onSelectAsset={handleDocsWindowSelectAsset}
+                onChangePage={handleDocsWindowPageChange}
+                onChangeZoom={handleDocsWindowZoomChange}
+              />
+            </Suspense>
           ) : null}
 
         </div>
 
         <aside className="workbook-session__sidebar">
           {showSidebarParticipants ? (
-            <div className="workbook-session__card">
-              <div className="workbook-session__participants-head">
-                <h3>
-                  <GroupRoundedIcon fontSize="small" />
-                  Участники
-                </h3>
-                <div className="workbook-session__participants-head-actions">
-                  <Tooltip title="Открыть чат сессии" placement="left" arrow>
-                    <span className="workbook-session__participants-chat-button">
-                      <IconButton
-                        size="small"
-                        className={isSessionChatOpen ? "is-active" : ""}
-                        disabled={!canUseSessionChat && !canManageSession}
-                        onClick={() => {
-                          if (isSessionChatOpen) {
-                            setIsSessionChatOpen(false);
-                            setIsSessionChatEmojiOpen(false);
-                            return;
-                          }
-                          sessionChatShouldScrollToUnreadRef.current = true;
-                          setIsSessionChatAtBottom(false);
-                          setIsSessionChatOpen(true);
-                          setIsSessionChatMinimized(false);
-                        }}
-                      >
-                        <ForumRoundedIcon fontSize="small" />
-                      </IconButton>
-                      {sessionChatUnreadCount > 0 ? (
-                        <span
-                          className="workbook-session__participants-chat-unread"
-                          aria-label={`Непрочитанных сообщений: ${sessionChatUnreadCount}`}
-                        >
-                          {sessionChatUnreadCount > 9 ? "9+" : sessionChatUnreadCount}
-                        </span>
-                      ) : null}
-                    </span>
-                  </Tooltip>
-                  <Tooltip title="Свернуть блок участников" placement="left" arrow>
-                    <span>
-                      <IconButton
-                        size="small"
-                        onClick={() => setIsParticipantsCollapsed(true)}
-                      >
-                        <UnfoldLessRoundedIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
+            <Suspense
+              fallback={
+                <div className="workbook-session__card">
+                  <p className="workbook-session__hint">Загрузка участников...</p>
                 </div>
-              </div>
-              <div className="workbook-session__participants-scroll">
-                {participantCards.map((participant) => {
-                  const isSelfParticipant = participant.userId === user?.id;
-                  const boardToolsEnabled = isParticipantBoardToolsEnabled(participant);
-                  return (
-                    <article key={participant.userId} className="workbook-session__participant-card">
-                      <div className="workbook-session__participant-card-top">
-                        <div className="workbook-session__participant-main">
-                          <Avatar src={participant.photo} alt={participant.displayName}>
-                            {participant.displayName.slice(0, 1)}
-                          </Avatar>
-                          <div className="workbook-session__participant-main-meta">
-                            <strong>{participant.displayName}</strong>
-                            <span>
-                              {participant.roleInSession === "teacher" ? "Преподаватель" : "Студент"}
-                              {isSelfParticipant && user?.role !== "teacher" ? " • Вы" : ""}
-                            </span>
-                          </div>
-                        </div>
-                        <Tooltip
-                          title={participant.isOnline ? "Онлайн" : "Офлайн"}
-                          placement="top"
-                          arrow
-                        >
-                          <span
-                            className={`workbook-session__presence-dot ${
-                              participant.isOnline ? "is-online" : "is-offline"
-                            }`}
-                            aria-label={participant.isOnline ? "Онлайн" : "Офлайн"}
-                          >
-                            <FiberManualRecordRoundedIcon fontSize="inherit" />
-                          </span>
-                        </Tooltip>
-                      </div>
-
-                      <div className="workbook-session__participant-controls">
-                        {isSelfParticipant ? (
-                          <Tooltip
-                            title={mediaState.micEnabled ? "Выключить микрофон" : "Включить микрофон"}
-                            arrow
-                          >
-                            <span>
-                              <IconButton
-                                size="small"
-                                className={`workbook-session__participant-control ${
-                                  mediaState.micEnabled ? "is-enabled" : "is-disabled"
-                                }`}
-                                onClick={() =>
-                                  setMediaState((current) => ({
-                                    ...current,
-                                    micEnabled: !current.micEnabled,
-                                  }))
-                                }
-                                disabled={!canUseMedia || isEnded}
-                              >
-                                {mediaState.micEnabled ? (
-                                  <MicRoundedIcon fontSize="small" />
-                                ) : (
-                                  <MicOffRoundedIcon fontSize="small" />
-                                )}
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                        ) : null}
-
-                        {canManageSession && participant.roleInSession === "student" ? (
-                          <>
-                            <Tooltip
-                              title={
-                                boardToolsEnabled
-                                  ? "Отключить инструменты доски"
-                                  : "Включить инструменты доски"
-                              }
-                              arrow
-                            >
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  className={`workbook-session__participant-control ${
-                                    boardToolsEnabled ? "is-enabled" : "is-disabled"
-                                  }`}
-                                  onClick={() =>
-                                    void handleToggleParticipantBoardTools(
-                                      participant,
-                                      !boardToolsEnabled
-                                    )
-                                  }
-                                  disabled={session.status === "ended"}
-                                >
-                                  {boardToolsEnabled ? (
-                                    <LockOpenRoundedIcon fontSize="small" />
-                                  ) : (
-                                    <LockRoundedIcon fontSize="small" />
-                                  )}
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                            <Tooltip
-                              title={
-                                participant.permissions.canUseChat
-                                  ? "Отключить чат"
-                                  : "Включить чат"
-                              }
-                              arrow
-                            >
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  className={`workbook-session__participant-control ${
-                                    participant.permissions.canUseChat ? "is-enabled" : "is-disabled"
-                                  }`}
-                                  onClick={() =>
-                                    void handleToggleParticipantChat(
-                                      participant,
-                                      !participant.permissions.canUseChat
-                                    )
-                                  }
-                                  disabled={session.status === "ended"}
-                                >
-                                  <ForumRoundedIcon fontSize="small" />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                            <Tooltip
-                              title={
-                                participant.permissions.canUseMedia
-                                  ? "Отключить микрофон"
-                                  : "Включить микрофон"
-                              }
-                              arrow
-                            >
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  className={`workbook-session__participant-control ${
-                                    participant.permissions.canUseMedia
-                                      ? "is-enabled"
-                                      : "is-disabled"
-                                  }`}
-                                  onClick={() =>
-                                    void handleToggleParticipantMic(
-                                      participant,
-                                      !participant.permissions.canUseMedia
-                                    )
-                                  }
-                                  disabled={session.status === "ended"}
-                                >
-                                  {participant.permissions.canUseMedia ? (
-                                    <MicRoundedIcon fontSize="small" />
-                                  ) : (
-                                    <MicOffRoundedIcon fontSize="small" />
-                                  )}
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                          </>
-                        ) : null}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </div>
+              }
+            >
+              <WorkbookSessionParticipantsPanel
+                participantCards={participantCards}
+                currentUserId={user?.id}
+                currentUserRole={user?.role}
+                canUseSessionChat={canUseSessionChat}
+                canManageSession={canManageSession}
+                isSessionChatOpen={isSessionChatOpen}
+                sessionChatUnreadCount={sessionChatUnreadCount}
+                onToggleSessionChat={handleToggleSessionChat}
+                onCollapseParticipants={handleCollapseParticipants}
+                micEnabled={micEnabled}
+                onToggleMic={handleToggleOwnMic}
+                canUseMedia={canUseMedia}
+                isEnded={isEnded}
+                isParticipantBoardToolsEnabled={isParticipantBoardToolsEnabled}
+                onToggleParticipantBoardTools={handleToggleParticipantBoardTools}
+                onToggleParticipantChat={handleToggleParticipantChat}
+                onToggleParticipantMic={handleToggleParticipantMic}
+              />
+            </Suspense>
           ) : null}
 
           {isUtilityPanelOpen ? (
@@ -10047,2004 +10039,222 @@ export default function WorkbookSessionPage() {
             {!isUtilityPanelCollapsed ? (
               <div className="workbook-session__utility-float-body">
           {utilityTab === "settings" ? (
-          <div className="workbook-session__card workbook-session__board-settings">
-            <div className="workbook-session__board-settings-head">
-              <h3>Системные настройки доски</h3>
-              <p>Настройте распознавание, разметку поля и структуру страниц.</p>
-            </div>
-            <div className="workbook-session__board-settings-grid">
-              <section className="workbook-session__board-settings-card">
-                <div className="workbook-session__board-settings-card-head">
-                  <h4>
-                    <AutoFixHighRoundedIcon fontSize="small" />
-                    Smart Ink
-                  </h4>
-                  <p>Автообработка рукописи, фигур и формул в реальном времени.</p>
+            <Suspense
+              fallback={
+                <div className="workbook-session__card">
+                  <p className="workbook-session__hint">Загрузка панели настроек...</p>
                 </div>
-                <div className="workbook-session__board-settings-field">
-                  <div className="workbook-session__board-settings-field-main">
-                    <strong>Режим распознавания</strong>
-                    <small>Off / Basic / Full</small>
-                  </div>
-                  <Select
-                    native
-                    size="small"
-                    className="workbook-session__board-settings-select"
-                    value={smartInkOptions.mode}
-                    onChange={(event) =>
-                      setSmartInkOptions((current) =>
-                        normalizeSmartInkOptions({
-                          ...current,
-                          mode:
-                            event.target.value === "off" ||
-                            event.target.value === "basic" ||
-                            event.target.value === "full"
-                              ? event.target.value
-                              : current.mode,
-                        })
-                      )
-                    }
-                  >
-                    <option value="off">Выкл.</option>
-                    <option value="basic">Basic</option>
-                    <option value="full">Full</option>
-                  </Select>
-                </div>
-                <div className="workbook-session__board-settings-field">
-                  <div className="workbook-session__board-settings-field-main">
-                    <strong>Порог уверенности</strong>
-                    <small>Чем выше, тем меньше ложных замен.</small>
-                  </div>
-                  <div className="workbook-session__board-settings-range">
-                    <input
-                      type="range"
-                      min={0.35}
-                      max={0.98}
-                      step={0.01}
-                      value={smartInkOptions.confidenceThreshold}
-                      onChange={(event) =>
-                        setSmartInkOptions((current) =>
-                          normalizeSmartInkOptions({
-                            ...current,
-                            confidenceThreshold: Number(event.target.value),
-                          })
-                        )
-                      }
-                    />
-                    <span className="workbook-session__board-settings-range-value">
-                      {Math.round(smartInkOptions.confidenceThreshold * 100)}%
-                    </span>
-                  </div>
-                </div>
-                <div className="workbook-session__board-settings-field">
-                  <div className="workbook-session__board-settings-field-main">
-                    <strong>SmartShapes</strong>
-                    <small>Выравнивание рукописных фигур.</small>
-                  </div>
-                  <Switch
-                    size="small"
-                    className="workbook-session__board-settings-switch"
-                    checked={smartInkOptions.smartShapes}
-                    disabled={smartInkOptions.mode === "off"}
-                    onChange={(event) =>
-                      setSmartInkOptions((current) =>
-                        normalizeSmartInkOptions({
-                          ...current,
-                          smartShapes: event.target.checked,
-                        })
-                      )
-                    }
-                  />
-                </div>
-                <div className="workbook-session__board-settings-field">
-                  <div className="workbook-session__board-settings-field-main">
-                    <strong>OCR + LaTeX</strong>
-                    <small>Распознавание текста и математических формул.</small>
-                  </div>
-                  <Switch
-                    size="small"
-                    className="workbook-session__board-settings-switch"
-                    checked={smartInkOptions.smartTextOcr || smartInkOptions.smartMathOcr}
-                    disabled={smartInkOptions.mode !== "full"}
-                    onChange={(event) =>
-                      setSmartInkOptions((current) =>
-                        normalizeSmartInkOptions({
-                          ...current,
-                          smartTextOcr: event.target.checked,
-                          smartMathOcr: event.target.checked,
-                        })
-                      )
-                    }
-                  />
-                </div>
-              </section>
-
-              <section className="workbook-session__board-settings-card">
-                <div className="workbook-session__board-settings-card-head">
-                  <h4>
-                    <CropFreeRoundedIcon fontSize="small" />
-                    Поле и сетка
-                  </h4>
-                  <p>Визуальные параметры доски и точность позиционирования объектов.</p>
-                </div>
-                <TextField
-                  size="small"
-                  label="Название доски"
-                  className="workbook-session__board-settings-text"
-                  value={boardSettings.title}
-                  onChange={(event) =>
-                    setBoardSettings((current) => ({
-                      ...current,
-                      title: event.target.value,
-                    }))
-                  }
-                />
-                <div className="workbook-session__board-settings-field">
-                  <div className="workbook-session__board-settings-field-main">
-                    <strong>Показывать сетку</strong>
-                    <small>Фоновая разметка для построений.</small>
-                  </div>
-                  <Switch
-                    checked={boardSettings.showGrid}
-                    className="workbook-session__board-settings-switch"
-                    onChange={(event) =>
-                      setBoardSettings((current) => ({
-                        ...current,
-                        showGrid: event.target.checked,
-                      }))
-                    }
-                  />
-                </div>
-                <div className="workbook-session__board-settings-field">
-                  <div className="workbook-session__board-settings-field-main">
-                    <strong>Привязка к сетке</strong>
-                    <small>Снап для фигур и точек.</small>
-                  </div>
-                  <Switch
-                    checked={boardSettings.snapToGrid}
-                    className="workbook-session__board-settings-switch"
-                    onChange={(event) =>
-                      setBoardSettings((current) => ({
-                        ...current,
-                        snapToGrid: event.target.checked,
-                      }))
-                    }
-                  />
-                </div>
-                <div className="workbook-session__board-settings-field">
-                  <div className="workbook-session__board-settings-field-main">
-                    <strong>Размер сетки</strong>
-                    <small>Плотность рабочей разметки.</small>
-                  </div>
-                  <div className="workbook-session__board-settings-range">
-                    <input
-                      type="range"
-                      min={8}
-                      max={96}
-                      value={boardSettings.gridSize}
-                      onChange={(event) =>
-                        setBoardSettings((current) => ({
-                          ...current,
-                          gridSize: Number(event.target.value),
-                        }))
-                      }
-                    />
-                    <span className="workbook-session__board-settings-range-value">
-                      {Math.round(boardSettings.gridSize)}
-                    </span>
-                  </div>
-                </div>
-                <div className="workbook-session__board-settings-color-grid">
-                  <div className="workbook-session__board-settings-color-field">
-                    <span>Фон доски</span>
-                    <label>
-                      <input
-                        type="color"
-                        value={boardSettings.backgroundColor}
-                        onChange={(event) =>
-                          setBoardSettings((current) => ({
-                            ...current,
-                            backgroundColor: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                  </div>
-                  <div className="workbook-session__board-settings-color-field">
-                    <span>Цвет сетки</span>
-                    <label>
-                      <input
-                        type="color"
-                        value={
-                          boardSettings.gridColor.startsWith("#")
-                            ? boardSettings.gridColor
-                            : "#8893be"
-                        }
-                        onChange={(event) =>
-                          setBoardSettings((current) => ({
-                            ...current,
-                            gridColor: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                  </div>
-                </div>
-              </section>
-
-              <section className="workbook-session__board-settings-card">
-                <div className="workbook-session__board-settings-card-head">
-                  <h4>
-                    <MenuRoundedIcon fontSize="small" />
-                    Страницы и секции
-                  </h4>
-                  <p>Управление страницами и автоматическими разделителями тетради.</p>
-                </div>
-                <div className="workbook-session__board-settings-field">
-                  <div className="workbook-session__board-settings-field-main">
-                    <strong>Нумерация страниц</strong>
-                    <small>Показывать текущий номер страницы на полотне.</small>
-                  </div>
-                  <Switch
-                    checked={boardSettings.showPageNumbers}
-                    className="workbook-session__board-settings-switch"
-                    onChange={(event) =>
-                      setBoardSettings((current) => ({
-                        ...current,
-                        showPageNumbers: event.target.checked,
-                      }))
-                    }
-                  />
-                </div>
-                <div className="workbook-session__board-settings-two-cols">
-                  <label className="workbook-session__board-settings-number-field">
-                    <span>Страница</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={Math.max(1, boardSettings.pagesCount)}
-                      value={boardSettings.currentPage}
-                      onChange={(event) =>
-                        setBoardSettings((current) => ({
-                          ...current,
-                          currentPage: Math.max(1, Number(event.target.value) || 1),
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="workbook-session__board-settings-number-field">
-                    <span>Всего страниц</span>
-                    <input
-                      type="number"
-                      min={1}
-                      value={boardSettings.pagesCount}
-                      onChange={(event) =>
-                        setBoardSettings((current) => ({
-                          ...current,
-                          pagesCount: Math.max(1, Number(event.target.value) || 1),
-                        }))
-                      }
-                    />
-                  </label>
-                </div>
-                <div className="workbook-session__board-settings-field">
-                  <div className="workbook-session__board-settings-field-main">
-                    <strong>Авторазделители</strong>
-                    <small>Автоматическое деление длинного полотна на секции.</small>
-                  </div>
-                  <Switch
-                    checked={boardSettings.autoSectionDividers}
-                    className="workbook-session__board-settings-switch"
-                    onChange={(event) =>
-                      setBoardSettings((current) => ({
-                        ...current,
-                        autoSectionDividers: event.target.checked,
-                      }))
-                    }
-                  />
-                </div>
-                <label className="workbook-session__board-settings-number-field">
-                  <span>Шаг разделителей</span>
-                  <input
-                    type="number"
-                    min={320}
-                    max={2400}
-                    value={boardSettings.dividerStep}
-                    onChange={(event) =>
-                      setBoardSettings((current) => ({
-                        ...current,
-                        dividerStep: Math.max(320, Number(event.target.value) || 320),
-                      }))
-                    }
-                  />
-                </label>
-              </section>
-            </div>
-            <div className="workbook-session__board-settings-footer">
-              <Button
-                variant="contained"
-                onClick={() => void commitBoardSettings(boardSettings)}
-                startIcon={<SaveAltRoundedIcon />}
-                disabled={session.kind === "CLASS" && !canManageSession}
-              >
-                Сохранить настройки
-              </Button>
-            </div>
-          </div>
+              }
+            >
+              <WorkbookSessionBoardSettingsPanel
+                boardSettings={boardSettings}
+                setBoardSettings={setBoardSettings}
+                smartInkOptions={smartInkOptions}
+                setSmartInkOptions={setSmartInkOptions}
+                penToolSettings={penToolSettings}
+                highlighterToolSettings={highlighterToolSettings}
+                eraserRadius={clampedEraserRadius}
+                onPenToolSettingsChange={handlePenToolSettingsChange}
+                onHighlighterToolSettingsChange={handleHighlighterToolSettingsChange}
+                onEraserRadiusChange={handleEraserRadiusChange}
+                eraserRadiusMin={ERASER_RADIUS_MIN}
+                eraserRadiusMax={ERASER_RADIUS_MAX}
+                canSave={session.kind !== "CLASS" || canManageSession}
+                onSave={commitBoardSettings}
+              />
+            </Suspense>
           ) : null}
 
           {utilityTab === "graph" && selectedObjectSupportsGraphPanel ? (
-          <div className="workbook-session__card">
-            <h3>График функции</h3>
-            <div className="workbook-session__settings workbook-session__graph-tab">
-              {!graphTabUsesSelectedObject ? (
-                <div className="workbook-session__graph-plane-select">
-                  <Alert severity="info">
-                    Для работы с графиками выберите существующую плоскость или создайте новую на доске.
-                  </Alert>
-                  <div className="workbook-session__graph-plane-select-actions">
-                    <Button
-                      size="small"
-                      variant="contained"
-                      onClick={() => void createFunctionGraphPlane()}
-                      disabled={!canDraw}
-                    >
-                      Разместить плоскость
-                    </Button>
-                  </div>
-                  {functionGraphPlanes.length > 0 ? (
-                    <div className="workbook-session__graph-plane-list">
-                      {functionGraphPlanes.map((plane, index) => {
-                        const planeFunctions = resolveGraphFunctionsFromObject(plane);
-                        return (
-                          <button
-                            key={plane.id}
-                            type="button"
-                            className="workbook-session__graph-plane-item"
-                            onClick={() => {
-                              setSelectedObjectId(plane.id);
-                              setTool("select");
-                            }}
-                          >
-                            <strong>{`Плоскость ${index + 1}`}</strong>
-                            <span>{`Графиков: ${planeFunctions.length}`}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="workbook-session__hint">Координатные плоскости пока не созданы.</p>
-                  )}
+            <Suspense
+              fallback={
+                <div className="workbook-session__card">
+                  <p className="workbook-session__hint">Загрузка панели графиков...</p>
                 </div>
-              ) : (
-                <>
-                  <p className="workbook-session__hint">
-                    Редактируется выбранная координатная плоскость.
-                  </p>
-
-                  <div className="workbook-session__graph-appearance">
-                    <label>
-                      <span>Цвет осей</span>
-                      <input
-                        type="color"
-                        value={selectedFunctionGraphAxisColor}
-                        onChange={(event) =>
-                          updateSelectedFunctionGraphAppearance({
-                            axisColor: event.target.value || "#ff8e3c",
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      <span>Цвет плоскости</span>
-                      <span className="workbook-session__graph-appearance-tools">
-                        <input
-                          type="color"
-                          value={selectedFunctionGraphPlaneColor}
-                          onChange={(event) =>
-                            updateSelectedFunctionGraphAppearance({
-                              planeColor: event.target.value || "#8ea7ff",
-                            })
-                          }
-                        />
-                        <Tooltip title="Убрать фон" arrow>
-                          <IconButton
-                            size="small"
-                            onClick={() =>
-                              updateSelectedFunctionGraphAppearance({
-                                planeColor: "transparent",
-                              })
-                            }
-                            aria-label="Убрать фон плоскости"
-                          >
-                            <CloseRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </span>
-                    </label>
-                  </div>
-
-                  <div className="workbook-session__graph-mode-tabs">
-                    <button
-                      type="button"
-                      className={graphWorkbenchTab === "catalog" ? "is-active" : ""}
-                      onClick={() => setGraphWorkbenchTab("catalog")}
-                    >
-                      Каталог
-                    </button>
-                    <button
-                      type="button"
-                      className={graphWorkbenchTab === "work" ? "is-active" : ""}
-                      onClick={() => setGraphWorkbenchTab("work")}
-                    >
-                      Работа с чертежом
-                    </button>
-                  </div>
-
-                  {graphWorkbenchTab === "catalog" ? (
-                    <>
-                      <div className="workbook-session__graph-builder-row">
-                        <TextField
-                          size="small"
-                          value={graphExpressionDraft}
-                          error={Boolean(graphDraftError)}
-                          helperText={
-                            graphDraftError ??
-                            "Примеры: y = x^2 - 3*x + 2, sin(x), 1/x, abs(x)"
-                          }
-                          onChange={(event) => {
-                            setGraphExpressionDraft(event.target.value);
-                            setSelectedGraphPresetId(null);
-                            if (graphDraftError) setGraphDraftError(null);
-                          }}
-                          placeholder="Формула y = ..."
-                        />
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => {
-                            setSelectedGraphPresetId(null);
-                            appendSelectedGraphFunction();
-                          }}
-                        >
-                          Добавить
-                        </Button>
-                      </div>
-                      <div className="workbook-session__graph-presets">
-                        {FUNCTION_GRAPH_PRESETS.map((preset) => (
-                          <button
-                            type="button"
-                            key={preset.id}
-                            className={`workbook-session__graph-preset ${
-                              selectedGraphPresetId === preset.id ? "is-selected" : ""
-                            }`}
-                            onClick={() => {
-                              setSelectedGraphPresetId(preset.id);
-                              activateGraphCatalogCursor();
-                              appendSelectedGraphFunction(preset.expression);
-                            }}
-                            aria-pressed={selectedGraphPresetId === preset.id}
-                          >
-                            <strong>{preset.title}</strong>
-                            <span>{preset.expression}</span>
-                            <small>{preset.description}</small>
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      {graphTabFunctions.length === 0 ? (
-                        <Alert
-                          severity="info"
-                          action={
-                            <Button size="small" onClick={() => setGraphWorkbenchTab("catalog")}>
-                              Каталог
-                            </Button>
-                          }
-                        >
-                          На плоскости пока нет функций. Добавьте формулу или выберите шаблон.
-                        </Alert>
-                      ) : (
-                        <div className="workbook-session__graph-builder-list">
-                          {graphTabFunctions.map((item) => (
-                            <div
-                              key={`graph-builder-${item.id}`}
-                              className="workbook-session__graph-builder-item workbook-session__graph-builder-item--work"
-                            >
-                              <div className="workbook-session__graph-builder-item-main workbook-session__graph-builder-item-main--inline">
-                                <label className="workbook-session__graph-swatch" title="Цвет графика">
-                                  <input
-                                    type="color"
-                                    value={item.color}
-                                    onChange={(event) => {
-                                      const nextColor = event.target.value || item.color;
-                                      updateSelectedGraphFunction(item.id, { color: nextColor });
-                                    }}
-                                  />
-                                </label>
-                                <TextField
-                                  size="small"
-                                  value={item.expression}
-                                  error={!isFunctionExpressionValid(item.expression)}
-                                  placeholder="f(x)"
-                                  inputProps={{ title: item.expression }}
-                                  onChange={(event) =>
-                                    normalizeGraphExpressionDraft(item.id, event.target.value, true)
-                                  }
-                                  onBlur={() => {
-                                    commitSelectedGraphExpressions();
-                                  }}
-                                />
-                                <IconButton
-                                  size="small"
-                                  className="workbook-session__graph-delete-btn"
-                                  onClick={() => {
-                                    removeSelectedGraphFunction(item.id);
-                                  }}
-                                  disabled={graphTabFunctions.length <= 1}
-                                >
-                                  <CloseRoundedIcon fontSize="small" />
-                                </IconButton>
-                              </div>
-                              <div className="workbook-session__graph-card-actions">
-                                <button
-                                  type="button"
-                                  className="workbook-session__graph-inline-action"
-                                  onClick={() => {
-                                    updateSelectedGraphFunction(item.id, {
-                                      visible: item.visible === false,
-                                    });
-                                  }}
-                                >
-                                  {item.visible !== false ? (
-                                    <VisibilityRoundedIcon fontSize="small" />
-                                  ) : (
-                                    <VisibilityOffRoundedIcon fontSize="small" />
-                                  )}
-                                  <span>{item.visible !== false ? "Скрыть" : "Показать"}</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  className="workbook-session__graph-inline-action"
-                                  onClick={() => reflectGraphFunctionByAxis(item.id, "x")}
-                                  aria-label="Зеркало относительно OX"
-                                >
-                                  <SwapVertRoundedIcon fontSize="small" />
-                                  <span>OX</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  className="workbook-session__graph-inline-action"
-                                  onClick={() => reflectGraphFunctionByAxis(item.id, "y")}
-                                  aria-label="Зеркало относительно OY"
-                                >
-                                  <SwapHorizRoundedIcon fontSize="small" />
-                                  <span>OY</span>
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <p className="workbook-session__hint">
-                        Координатная сетка и оси отображаются прямо на доске в границах плоскости.
-                      </p>
-                    </>
-                  )}
-                </>
-              )}
-
-              {graphDraftError ? <Alert severity="error">{graphDraftError}</Alert> : null}
-            </div>
-          </div>
+              }
+            >
+              <WorkbookSessionGraphPanel
+                graphTabUsesSelectedObject={graphTabUsesSelectedObject}
+                canDraw={canDraw}
+                planeEntries={graphPlaneEntries}
+                onCreatePlane={handleGraphPanelCreatePlane}
+                onSelectPlane={handleGraphPanelSelectPlane}
+                selectedFunctionGraphAxisColor={selectedFunctionGraphAxisColor}
+                selectedFunctionGraphPlaneColor={selectedFunctionGraphPlaneColor}
+                onAxisColorChange={handleGraphPanelAxisColorChange}
+                onPlaneColorChange={handleGraphPanelPlaneColorChange}
+                onClearPlaneBackground={handleGraphPanelClearPlaneBackground}
+                graphWorkbenchTab={graphWorkbenchTab}
+                onSelectCatalogTab={handleGraphPanelSelectCatalogTab}
+                onSelectWorkTab={handleGraphPanelSelectWorkTab}
+                graphExpressionDraft={graphExpressionDraft}
+                graphDraftError={graphDraftError}
+                onGraphExpressionDraftChange={handleGraphPanelExpressionDraftChange}
+                onAddGraphFunction={handleGraphPanelAddFunction}
+                selectedGraphPresetId={selectedGraphPresetId}
+                onSelectGraphPreset={handleGraphPanelSelectPreset}
+                graphTabFunctions={graphTabFunctions}
+                onGraphFunctionColorChange={handleGraphPanelFunctionColorChange}
+                onGraphFunctionExpressionChange={handleGraphPanelFunctionExpressionChange}
+                onCommitGraphExpressions={handleGraphPanelCommitExpressions}
+                onRemoveGraphFunction={handleGraphPanelRemoveFunction}
+                onToggleGraphFunctionVisibility={handleGraphPanelToggleVisibility}
+                onReflectGraphFunctionByAxis={handleGraphPanelReflectFunction}
+              />
+            </Suspense>
           ) : null}
 
           {utilityTab === "layers" ? (
-          <div className="workbook-session__card">
-            <h3>Слои</h3>
-            <div className="workbook-session__settings">
-              <div className="workbook-session__solid-card-list workbook-session__solid-card-list--figure">
-                {compositionLayers.length ? (
-                  compositionLayers.map((layerItem) => {
-                    const layerObjects = compositionObjectsByLayer.get(layerItem.id) ?? [];
-                    return (
-                      <article key={layerItem.id} className="workbook-session__solid-card">
-                        <div className="workbook-session__solid-card-head">
-                          <span className="workbook-session__solid-card-title">
-                            {layerItem.name}
-                          </span>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => void dissolveCompositionLayer(layerItem.id)}
-                          >
-                            Расформировать
-                          </Button>
-                        </div>
-                        <div className="workbook-session__layer-subcards">
-                          {layerObjects.map((object) => (
-                            <div
-                              key={`${layerItem.id}-${object.id}`}
-                              className="workbook-session__layer-subcard"
-                            >
-                              <div className="workbook-session__layer-subcard-main">
-                                <strong>{getWorkbookObjectTypeLabel(object)}</strong>
-                                <span>
-                                  {`#${object.id.slice(0, 6)} · ${Math.max(
-                                    1,
-                                    Math.round(Math.abs(object.width))
-                                  )}×${Math.max(1, Math.round(Math.abs(object.height)))}`}
-                                </span>
-                              </div>
-                              <div className="workbook-session__solid-card-controls">
-                                <Tooltip title="Подсветить на доске" arrow>
-                                  <span>
-                                    <IconButton
-                                      size="small"
-                                      onClick={() => focusObjectInWorkspace(object.id)}
-                                    >
-                                      <FilterCenterFocusRoundedIcon fontSize="small" />
-                                    </IconButton>
-                                  </span>
-                                </Tooltip>
-                                <Tooltip title="Убрать из композиции" arrow>
-                                  <span>
-                                    <IconButton
-                                      size="small"
-                                      onClick={() =>
-                                        void removeObjectFromComposition(object.id, layerItem.id)
-                                      }
-                                    >
-                                      <CloseRoundedIcon fontSize="small" />
-                                    </IconButton>
-                                  </span>
-                                </Tooltip>
-                                <Tooltip title="Удалить с доски" arrow>
-                                  <span>
-                                    <IconButton
-                                      size="small"
-                                      color="error"
-                                      onClick={() => void commitObjectDelete(object.id)}
-                                    >
-                                      <DeleteOutlineRoundedIcon fontSize="small" />
-                                    </IconButton>
-                                  </span>
-                                </Tooltip>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </article>
-                    );
-                  })
-                ) : (
-                  <p className="workbook-session__hint">
-                    Композиций пока нет. Выделите область и выберите «Объединить в композицию».
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
+            <Suspense
+              fallback={
+                <div className="workbook-session__card">
+                  <p className="workbook-session__hint">Загрузка панели слоёв...</p>
+                </div>
+              }
+            >
+              <WorkbookSessionLayersPanel
+                layers={compositionLayerEntries}
+                getObjectTypeLabel={getWorkbookObjectTypeLabel}
+                onDissolveLayer={handleLayersPanelDissolveLayer}
+                onFocusObject={focusObjectInWorkspace}
+                onRemoveObject={handleLayersPanelRemoveObject}
+                onDeleteObject={handleCanvasObjectDelete}
+              />
+            </Suspense>
           ) : null}
 
           {utilityTab === "transform" && selectedObjectSupportsTransformPanel ? (
-          <div className="workbook-session__card">
-            <h3>Трансформации</h3>
-            <div className="workbook-session__geometry">
-              {!selectedObject ? (
-                <p className="workbook-session__hint">Выберите объект для настройки.</p>
-              ) : null}
-              {selectedObject &&
-              selectedObject.type !== "function_graph" &&
-              selectedObject.type !== "text" ? (
-                <div className="workbook-session__geometry-actions">
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => void mirrorSelectedObject("horizontal")}
-                  >
-                    Отразить по X
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => void mirrorSelectedObject("vertical")}
-                  >
-                    Отразить по Y
-                  </Button>
+            <Suspense
+              fallback={
+                <div className="workbook-session__card">
+                  <p className="workbook-session__hint">Загрузка панели трансформаций...</p>
                 </div>
-              ) : null}
-              {selectedObject && canToggleSelectedObjectLabels ? (
-                <div className="workbook-session__settings-row">
-                  <span>Показывать названия вершин/точек</span>
-                  <Switch
-                    size="small"
-                    checked={selectedObjectShowLabels}
-                    onChange={(event) =>
-                      void updateSelectedObjectMeta({
-                        showLabels: event.target.checked,
-                      })
-                    }
-                  />
-                </div>
-              ) : null}
-              {selectedObject &&
-              selectedObjectSceneLayerId !== MAIN_SCENE_LAYER_ID ? (
-                <div className="workbook-session__settings-row">
-                  <span>Композиция</span>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => void dissolveCompositionLayer(selectedObjectSceneLayerId)}
-                  >
-                    Расформировать
-                  </Button>
-                </div>
-              ) : null}
-
-              {selectedObject?.type === "solid3d" ? (
-                <div className="workbook-session__solid-inspector">
-                  <div className="workbook-session__solid-tabs">
-                    <Button
-                      size="small"
-                      className="workbook-session__solid-tab-btn"
-                      startIcon={<ViewInArRoundedIcon />}
-                      variant={solid3dInspectorTab === "figure" ? "contained" : "outlined"}
-                      onClick={() => setSolid3dInspectorTab("figure")}
-                    >
-                      Фигура
-                    </Button>
-                    <Button
-                      size="small"
-                      className="workbook-session__solid-tab-btn"
-                      startIcon={<PolylineRoundedIcon />}
-                      variant={solid3dInspectorTab === "section" ? "contained" : "outlined"}
-                      onClick={() => setSolid3dInspectorTab("section")}
-                    >
-                      Сечения
-                    </Button>
-                  </div>
-
-                  {solid3dInspectorTab === "figure" ? (
-                    selectedSolidMesh ? (
-                      <div className="workbook-session__solid-card-list workbook-session__solid-card-list--figure">
-                        <div className="workbook-session__solid-subtabs">
-                          <button
-                            type="button"
-                            className={solid3dFigureTab === "display" ? "is-active" : ""}
-                            onClick={() => setSolid3dFigureTab("display")}
-                          >
-                            Вид
-                          </button>
-                          {selectedSolidIsCurved ? (
-                            <button
-                              type="button"
-                              className={solid3dFigureTab === "surface" ? "is-active" : ""}
-                              onClick={() => setSolid3dFigureTab("surface")}
-                            >
-                              Поверхность
-                            </button>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                className={solid3dFigureTab === "faces" ? "is-active" : ""}
-                                onClick={() => setSolid3dFigureTab("faces")}
-                              >
-                                Грани
-                              </button>
-                              <button
-                                type="button"
-                                className={solid3dFigureTab === "edges" ? "is-active" : ""}
-                                onClick={() => setSolid3dFigureTab("edges")}
-                              >
-                                Ребра
-                              </button>
-                              <button
-                                type="button"
-                                className={solid3dFigureTab === "angles" ? "is-active" : ""}
-                                onClick={() => setSolid3dFigureTab("angles")}
-                              >
-                                Углы
-                              </button>
-                            </>
-                          )}
-                        </div>
-
-                        {solid3dFigureTab === "display" ? (
-                          <article className="workbook-session__solid-card">
-                            <div className="workbook-session__solid-card-row">
-                              <span>
-                                {selectedSolidIsCurved
-                                  ? "Скрыть вспомогательные контуры"
-                                  : "Пунктир скрыт"}
-                              </span>
-                              <Switch
-                                size="small"
-                                checked={selectedSolidHiddenEdges}
-                                onChange={(event) =>
-                                  void setSolid3dHiddenEdges(event.target.checked)
-                                }
-                              />
-                            </div>
-                          </article>
-                        ) : null}
-
-                        {solid3dFigureTab === "surface" && selectedSolidIsCurved ? (
-                          <article className="workbook-session__solid-card">
-                            <div className="workbook-session__solid-card-head">
-                              <span className="workbook-session__solid-card-title">
-                                Поверхность тела
-                              </span>
-                            </div>
-                            <div className="workbook-session__solid-face-grid">
-                              <div className="workbook-session__solid-face-row">
-                                <span>Заливка</span>
-                                <input
-                                  type="color"
-                                  className="workbook-session__solid-color"
-                                  value={selectedSolidSurfaceColor}
-                                  onChange={(event) =>
-                                    void updateSelectedSolid3dSurfaceColor(
-                                      event.target.value || "#5f6aa0"
-                                    )
-                                  }
-                                />
-                              </div>
-                            </div>
-                            <p className="workbook-session__hint">
-                              Для тел с круговым основанием доступны управление поверхностью и
-                              служебными контурами.
-                            </p>
-                          </article>
-                        ) : null}
-
-                        {solid3dFigureTab === "faces" && !selectedSolidIsCurved ? (
-                          <article className="workbook-session__solid-card">
-                            <div className="workbook-session__solid-card-head">
-                              <span className="workbook-session__solid-card-title">
-                                Окрашивание граней
-                              </span>
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                onClick={() => void resetSolid3dFaceColors()}
-                              >
-                                Сбросить
-                              </Button>
-                            </div>
-                            <div className="workbook-session__solid-face-grid">
-                              {selectedSolidMesh.faces.slice(0, 24).map((_, faceIndex) => (
-                                <div
-                                  key={`solid-face-color-${faceIndex}`}
-                                  className="workbook-session__solid-face-row"
-                                >
-                                  <span>
-                                    {`Грань ${
-                                      selectedSolidMesh.faces[faceIndex]
-                                        .map(
-                                          (vertexIndex) =>
-                                            selectedSolidVertexLabels[vertexIndex] ||
-                                            getSolidVertexLabel(vertexIndex)
-                                        )
-                                        .join("-") || faceIndex + 1
-                                    }`}
-                                  </span>
-                                  <input
-                                    type="color"
-                                    className="workbook-session__solid-color"
-                                    value={selectedSolidFaceColors[String(faceIndex)] || "#5f6aa0"}
-                                    onChange={(event) =>
-                                      void setSolid3dFaceColor(
-                                        faceIndex,
-                                        event.target.value || "#5f6aa0"
-                                      )
-                                    }
-                                  />
-                                </div>
-                              ))}
-                            </div>
-                            {selectedSolidMesh.faces.length > 24 ? (
-                              <p className="workbook-session__hint">
-                                Для этой фигуры доступно много граней. Показаны первые 24.
-                              </p>
-                            ) : null}
-                          </article>
-                        ) : null}
-
-                        {solid3dFigureTab === "edges" && !selectedSolidIsCurved ? (
-                          <article className="workbook-session__solid-card">
-                            <div className="workbook-session__solid-card-head">
-                              <span className="workbook-session__solid-card-title">
-                                Окрашивание ребер
-                              </span>
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                onClick={() => void resetSolid3dEdgeColors()}
-                              >
-                                Сбросить
-                              </Button>
-                            </div>
-                            <div className="workbook-session__solid-face-grid">
-                              {selectedSolidEdges.slice(0, 24).map((edge) => (
-                                <div
-                                  key={`solid-edge-color-${edge.key}`}
-                                  className="workbook-session__solid-face-row"
-                                >
-                                  <span>{`Ребро ${edge.label}`}</span>
-                                  <input
-                                    type="color"
-                                    className="workbook-session__solid-color"
-                                    value={selectedSolidEdgeColors[edge.key] || "#4f63ff"}
-                                    onChange={(event) =>
-                                      void setSolid3dEdgeColor(
-                                        edge.key,
-                                        event.target.value || "#4f63ff"
-                                      )
-                                    }
-                                  />
-                                </div>
-                              ))}
-                            </div>
-                            {selectedSolidEdges.length > 24 ? (
-                              <p className="workbook-session__hint">
-                                Для этой фигуры доступно много ребер. Показаны первые 24.
-                              </p>
-                            ) : null}
-                          </article>
-                        ) : null}
-
-                        {solid3dFigureTab === "angles" && !selectedSolidIsCurved ? (
-                          <article className="workbook-session__solid-card">
-                            <div className="workbook-session__solid-card-head">
-                              <span className="workbook-session__solid-card-title">
-                                Пометки углов
-                              </span>
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                onClick={() => void addSolid3dAngleMark()}
-                              >
-                                Добавить
-                              </Button>
-                            </div>
-                            {selectedSolidAngleMarks.length ? (
-                              <div className="workbook-session__solid-angle-list">
-                                {selectedSolidAngleMarks.map((mark) => (
-                                  <div key={mark.id} className="workbook-session__solid-angle-card">
-                                    {(() => {
-                                      const fallbackFaceIndex = selectedSolidMesh.faces.findIndex((face) =>
-                                        face.includes(mark.vertexIndex)
-                                      );
-                                      const storedFaceIndex =
-                                        typeof mark.faceIndex === "number" &&
-                                        Number.isInteger(mark.faceIndex) &&
-                                        mark.faceIndex >= 0
-                                          ? mark.faceIndex
-                                          : null;
-                                      const activeFaceIndex =
-                                        storedFaceIndex !== null &&
-                                        selectedSolidMesh.faces[storedFaceIndex]
-                                          ? storedFaceIndex
-                                          : Math.max(0, fallbackFaceIndex);
-                                      const activeFace =
-                                        selectedSolidMesh.faces[activeFaceIndex] ?? [];
-                                      const activeVertexValue = activeFace.includes(mark.vertexIndex)
-                                        ? mark.vertexIndex
-                                        : (activeFace[0] ?? mark.vertexIndex);
-                                      return (
-                                        <>
-                                          <div className="workbook-session__solid-angle-top">
-                                            <input
-                                              type="color"
-                                              className="workbook-session__solid-color"
-                                              value={mark.color || "#ff8e3c"}
-                                              onChange={(event) =>
-                                                void updateSolid3dAngleMark(mark.id, {
-                                                  color: event.target.value || "#ff8e3c",
-                                                })
-                                              }
-                                            />
-                                            <Select
-                                              native
-                                              size="small"
-                                              value={String(activeFaceIndex)}
-                                              onChange={(event) => {
-                                                const nextFaceIndex = Number(event.target.value);
-                                                const nextFace =
-                                                  selectedSolidMesh.faces[nextFaceIndex] ?? [];
-                                                void updateSolid3dAngleMark(mark.id, {
-                                                  faceIndex: nextFaceIndex,
-                                                  vertexIndex:
-                                                    nextFace.includes(mark.vertexIndex)
-                                                      ? mark.vertexIndex
-                                                      : (nextFace[0] ?? mark.vertexIndex),
-                                                });
-                                              }}
-                                            >
-                                              {selectedSolidMesh.faces.map((face, faceIndex) => (
-                                                <option
-                                                  key={`face-opt-${mark.id}-${faceIndex}`}
-                                                  value={faceIndex}
-                                                >
-                                                  {face
-                                                    .map(
-                                                      (vertexIndex) =>
-                                                        selectedSolidVertexLabels[vertexIndex] ||
-                                                        getSolidVertexLabel(vertexIndex)
-                                                    )
-                                                    .join("-")}
-                                                </option>
-                                              ))}
-                                            </Select>
-                                            <Select
-                                              native
-                                              size="small"
-                                              value={String(activeVertexValue)}
-                                              onChange={(event) =>
-                                                void updateSolid3dAngleMark(mark.id, {
-                                                  vertexIndex: Number(event.target.value),
-                                                })
-                                              }
-                                            >
-                                              {activeFace.map((vertexIndex: number) => (
-                                                <option
-                                                  key={`vertex-opt-${mark.id}-${vertexIndex}`}
-                                                  value={vertexIndex}
-                                                >
-                                                  {selectedSolidVertexLabels[vertexIndex] ||
-                                                    getSolidVertexLabel(vertexIndex)}
-                                                </option>
-                                              ))}
-                                            </Select>
-                                            <IconButton
-                                              size="small"
-                                              className="workbook-session__solid-angle-delete"
-                                              onClick={() => void deleteSolid3dAngleMark(mark.id)}
-                                            >
-                                              <CloseRoundedIcon />
-                                            </IconButton>
-                                          </div>
-                                          <div className="workbook-session__solid-angle-bottom">
-                                            <TextField
-                                              size="small"
-                                              className="workbook-session__solid-input"
-                                              placeholder="Значение угла"
-                                              value={mark.label}
-                                              onChange={(event) =>
-                                                void updateSolid3dAngleMark(mark.id, {
-                                                  label: event.target.value,
-                                                })
-                                              }
-                                            />
-                                            <div className="workbook-session__solid-angle-visibility">
-                                              <span>Скрыть</span>
-                                              <Switch
-                                                size="small"
-                                                checked={mark.visible === false}
-                                                onChange={(event) =>
-                                                  void updateSolid3dAngleMark(mark.id, {
-                                                    visible: !event.target.checked,
-                                                  })
-                                                }
-                                              />
-                                            </div>
-                                          </div>
-                                        </>
-                                      );
-                                    })()}
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="workbook-session__hint">
-                                Добавьте пометку угла и задайте комментарий вручную.
-                              </p>
-                            )}
-                          </article>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <p className="workbook-session__hint">
-                        Выберите 3D-фигуру для настройки отображения.
-                      </p>
-                    )
-                  ) : (
-                    <>
-                      <div className="workbook-session__solid-section-actions">
-                        <Button
-                          size="small"
-                          variant={isSolid3dPointCollectionActive ? "contained" : "outlined"}
-                          onClick={startSolid3dSectionPointCollection}
-                          disabled={!canSelect}
-                        >
-                          Добавить точки сечения
-                        </Button>
-                        {isSolid3dPointCollectionActive ? (
-                          <>
-                            <Button
-                              size="small"
-                              variant="contained"
-                              onClick={() => void buildSectionFromDraftPoints()}
-                              disabled={
-                                !solid3dDraftPoints || solid3dDraftPoints.points.length < 3
-                              }
-                            >
-                              Построить сечение
-                            </Button>
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              onClick={clearSolid3dDraftPoints}
-                              disabled={
-                                !solid3dDraftPoints || solid3dDraftPoints.points.length === 0
-                              }
-                            >
-                              Очистить точки
-                            </Button>
-                          </>
-                        ) : null}
-                      </div>
-
-                      {isSolid3dPointCollectionActive ? (
-                        <Alert severity="info">
-                          Кликните по ребру или вершине 3D-фигуры, чтобы добавить точку сечения.
-                          {solid3dDraftPoints
-                            ? ` Точки: ${solid3dDraftPoints.points.length}/${solid3dDraftPointLimit}.`
-                            : null}
-                        </Alert>
-                      ) : solid3dSectionPointTarget ? (
-                        <Alert severity="info">
-                          Выбрана вершина{" "}
-                          {selectedActiveSection?.points[solid3dSectionPointTarget.pointIndex]?.label ??
-                            getSectionPointLabel(solid3dSectionPointTarget.pointIndex)}
-                          . Кликните по ребру или вершине фигуры, чтобы перенести её.
-                        </Alert>
-                      ) : null}
-
-                      {selectedSolid3dState?.sections.length ? (
-                        <div className="workbook-session__solid-card-list">
-                          {selectedSolid3dState.sections.map((section) => (
-                            <article
-                              key={section.id}
-                              className={`workbook-session__solid-card ${
-                                activeSolidSectionId === section.id ? "is-selected" : ""
-                              }`}
-                              onClick={() => setActiveSolidSectionId(section.id)}
-                            >
-                              <div className="workbook-session__solid-card-head">
-                                <span className="workbook-session__solid-card-title">{section.name}</span>
-                                <div className="workbook-session__solid-card-controls">
-                                  <input
-                                    type="color"
-                                    className="workbook-session__solid-color"
-                                    value={section.color}
-                                    onClick={(event) => event.stopPropagation()}
-                                    onChange={(event) =>
-                                      void updateSolid3dSection(section.id, {
-                                        color: event.target.value || "#ff8e3c",
-                                      })
-                                    }
-                                  />
-                                  <Switch
-                                    size="small"
-                                    checked={section.visible}
-                                    onClick={(event) => event.stopPropagation()}
-                                    onChange={(event) => {
-                                      const nextVisible = event.target.checked;
-                                      if (!nextVisible) {
-                                        setSolid3dSectionPointTarget((current) =>
-                                          current?.sectionId === section.id ? null : current
-                                        );
-                                      }
-                                      void updateSolid3dSection(section.id, {
-                                        visible: nextVisible,
-                                      });
-                                    }}
-                                  />
-                                  <IconButton
-                                    size="small"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      void deleteSolid3dSection(section.id);
-                                    }}
-                                  >
-                                    <CloseRoundedIcon />
-                                  </IconButton>
-                                </div>
-                              </div>
-
-                              {section.points.length ? (
-                                <div className="workbook-session__solid-points">
-                                  {section.points.map((point, index) => (
-                                    <div
-                                      key={`${section.id}-point-${index}`}
-                                      className="workbook-session__solid-point-row"
-                                    >
-                                      <Chip
-                                        size="small"
-                                        clickable
-                                        label={point.label || getSectionPointLabel(index)}
-                                        color={
-                                          solid3dSectionPointTarget?.sectionId === section.id &&
-                                          solid3dSectionPointTarget.pointIndex === index
-                                            ? "primary"
-                                            : "default"
-                                        }
-                                        variant={
-                                          solid3dSectionPointTarget?.sectionId === section.id &&
-                                          solid3dSectionPointTarget.pointIndex === index
-                                            ? "filled"
-                                            : "outlined"
-                                        }
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          setActiveSolidSectionId(section.id);
-                                          setSolid3dSectionPointTarget({
-                                            sectionId: section.id,
-                                            pointIndex: index,
-                                          });
-                                        }}
-                                      />
-                                      <TextField
-                                        size="small"
-                                        className="workbook-session__solid-input"
-                                        value={point.label || getSectionPointLabel(index)}
-                                        InputProps={{
-                                          readOnly: true,
-                                        }}
-                                        onClick={(event) => event.stopPropagation()}
-                                      />
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="workbook-session__hint">
-                                  Точки не заданы для этого сечения.
-                                </p>
-                              )}
-                            </article>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="workbook-session__hint">
-                          Добавьте сечение, затем укажите точки на ребрах или вершинах фигуры.
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-              ) : tool === "eraser" ? (
-                <div className="workbook-session__settings">
-                  <p className="workbook-session__hint">
-                    Ластик стирает части штрихов и объектов без полного удаления.
-                  </p>
-                  <div className="workbook-session__settings-row">
-                    <span>Радиус ластика</span>
-                    <div className="workbook-session__line-range">
-                      <input
-                        type="range"
-                        min={ERASER_RADIUS_MIN}
-                        max={ERASER_RADIUS_MAX}
-                        value={clampEraserRadius(strokeWidth)}
-                        onChange={(event) =>
-                          setStrokeWidth(clampEraserRadius(Number(event.target.value)))
-                        }
-                      />
-                    </div>
-                    <strong>{clampEraserRadius(strokeWidth)} px</strong>
-                  </div>
-                </div>
-              ) : selectedFunctionGraphObject || tool === "function_graph" ? (
-                <div className="workbook-session__settings">
-                  <p className="workbook-session__hint">
-                    Настройки графиков перенесены во вкладку «График функции».
-                  </p>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    startIcon={<ShowChartRoundedIcon />}
-                    onClick={() => openUtilityPanel("graph", { toggle: false })}
-                  >
-                    Открыть вкладку
-                  </Button>
-                </div>
-              ) : selectedTextObject || tool === "text" ? (
-                <div className="workbook-session__settings">
-                  <p className="workbook-session__hint">
-                    {selectedTextObject
-                      ? "Редактируйте текст прямо на доске или через параметры ниже."
-                      : "Выберите текстовый блок на доске, чтобы включить параметры форматирования."}
-                  </p>
-                  <TextField
-                    className="workbook-session__text-transform-field"
-                    size="small"
-                    multiline
-                    minRows={2}
-                    maxRows={5}
-                    label="Текст"
-                    value={selectedTextObject ? selectedTextDraft : ""}
-                    disabled={!selectedTextObject}
-                    onChange={(event) => {
-                      if (!selectedTextObject) return;
-                      const nextValue = event.target.value;
-                      setSelectedTextDraft(nextValue);
-                      scheduleSelectedTextDraftCommit(nextValue);
-                    }}
-                    onBlur={() => {
-                      void flushSelectedTextDraftCommit();
-                    }}
-                  />
-                  <div className="workbook-session__settings-row">
-                    <span>Шрифт</span>
-                    <Select
-                      native
-                      size="small"
-                      value={selectedTextFontFamily}
-                      disabled={!selectedTextObject}
-                      onChange={(event) =>
-                        void updateSelectedTextFormatting(
-                          {},
-                          { textFontFamily: String(event.target.value) }
-                        )
-                      }
-                    >
-                      {TEXT_FONT_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="workbook-session__settings-row">
-                    <span>Размер</span>
-                    <div className="workbook-session__line-range">
-                      <input
-                        type="range"
-                        min={12}
-                        max={72}
-                        step={1}
-                        value={selectedTextFontSizeDraft}
-                        disabled={!selectedTextObject}
-                        onChange={(event) => {
-                          if (!selectedTextObject) return;
-                          const nextSize = Math.max(
-                            12,
-                            Math.min(72, Number(event.target.value) || 18)
-                          );
-                          setSelectedTextFontSizeDraft(nextSize);
-                          void updateSelectedTextFormatting({ fontSize: nextSize });
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div className="workbook-session__text-controls-grid">
-                    <div className="workbook-session__text-icon-row">
-                      <Tooltip title="Жирный" arrow>
-                        <span>
-                          <IconButton
-                            size="small"
-                            className={selectedTextBold ? "is-active" : ""}
-                            disabled={!selectedTextObject}
-                            onClick={() =>
-                              void updateSelectedTextFormatting(
-                                {},
-                                { textBold: !selectedTextBold }
-                              )
-                            }
-                          >
-                            <FormatBoldRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                      <Tooltip title="Курсив" arrow>
-                        <span>
-                          <IconButton
-                            size="small"
-                            className={selectedTextItalic ? "is-active" : ""}
-                            disabled={!selectedTextObject}
-                            onClick={() =>
-                              void updateSelectedTextFormatting(
-                                {},
-                                { textItalic: !selectedTextItalic }
-                              )
-                            }
-                          >
-                            <FormatItalicRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                      <Tooltip title="Подчеркнуть" arrow>
-                        <span>
-                          <IconButton
-                            size="small"
-                            className={selectedTextUnderline ? "is-active" : ""}
-                            disabled={!selectedTextObject}
-                            onClick={() =>
-                              void updateSelectedTextFormatting(
-                                {},
-                                { textUnderline: !selectedTextUnderline }
-                              )
-                            }
-                          >
-                            <FormatUnderlinedRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    </div>
-                    <div className="workbook-session__text-icon-row">
-                      <Tooltip title="Слева" arrow>
-                        <span>
-                          <IconButton
-                            size="small"
-                            className={selectedTextAlign === "left" ? "is-active" : ""}
-                            disabled={!selectedTextObject}
-                            onClick={() =>
-                              void updateSelectedTextFormatting({}, { textAlign: "left" })
-                            }
-                          >
-                            <FormatAlignLeftRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                      <Tooltip title="По центру" arrow>
-                        <span>
-                          <IconButton
-                            size="small"
-                            className={selectedTextAlign === "center" ? "is-active" : ""}
-                            disabled={!selectedTextObject}
-                            onClick={() =>
-                              void updateSelectedTextFormatting({}, { textAlign: "center" })
-                            }
-                          >
-                            <FormatAlignCenterRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                      <Tooltip title="Справа" arrow>
-                        <span>
-                          <IconButton
-                            size="small"
-                            className={selectedTextAlign === "right" ? "is-active" : ""}
-                            disabled={!selectedTextObject}
-                            onClick={() =>
-                              void updateSelectedTextFormatting({}, { textAlign: "right" })
-                            }
-                          >
-                            <FormatAlignRightRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    </div>
-                    <div className="workbook-session__text-color-row">
-                      <Tooltip title="Цвет текста" arrow>
-                        <span className="workbook-session__text-color-control">
-                          <FormatColorTextRoundedIcon fontSize="small" />
-                          <input
-                            type="color"
-                            value={selectedTextColor}
-                            disabled={!selectedTextObject}
-                            onChange={(event) =>
-                              void updateSelectedTextFormatting(
-                                { color: event.target.value || "#172039" },
-                                { textColor: event.target.value || "#172039" }
-                              )
-                            }
-                          />
-                        </span>
-                      </Tooltip>
-                      <Tooltip title="Фон текста" arrow>
-                        <span className="workbook-session__text-color-control">
-                          <FormatColorFillRoundedIcon fontSize="small" />
-                          <input
-                            type="color"
-                            value={
-                              selectedTextBackground === "transparent"
-                                ? "#ffffff"
-                                : selectedTextBackground
-                            }
-                            disabled={!selectedTextObject}
-                            onChange={(event) =>
-                              void updateSelectedTextFormatting(
-                                {},
-                                { textBackground: event.target.value || "transparent" }
-                              )
-                            }
-                          />
-                        </span>
-                      </Tooltip>
-                      <Tooltip title="Убрать фон текста" arrow>
-                        <span>
-                          <IconButton
-                            size="small"
-                            disabled={!selectedTextObject}
-                            onClick={() =>
-                              void updateSelectedTextFormatting(
-                                {},
-                                { textBackground: "transparent" }
-                              )
-                            }
-                          >
-                            <CloseRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    </div>
-                  </div>
-                </div>
-              ) : selectedDividerObject || tool === "divider" ? (
-                <div className="workbook-session__settings">
-                  <p className="workbook-session__hint">
-                    Объект: {selectedDividerObject ? "Разделитель" : "Новый разделитель"}
-                  </p>
-                  <div className="workbook-session__settings-row">
-                    <span>Стиль разделителя</span>
-                    <div className="workbook-session__toggle-group">
-                      <button
-                        type="button"
-                        className={
-                          (selectedDividerObject ? selectedDividerStyle : "dashed") === "solid"
-                            ? "is-active"
-                            : ""
-                        }
-                        onClick={() => {
-                          if (selectedDividerObject) {
-                            void updateSelectedDividerMeta({ lineStyle: "solid" });
-                          }
-                        }}
-                        disabled={!selectedDividerObject}
-                      >
-                        Сплошной
-                      </button>
-                      <button
-                        type="button"
-                        className={
-                          (selectedDividerObject ? selectedDividerStyle : "dashed") === "dashed"
-                            ? "is-active"
-                            : ""
-                        }
-                        onClick={() => {
-                          if (selectedDividerObject) {
-                            void updateSelectedDividerMeta({ lineStyle: "dashed" });
-                          }
-                        }}
-                        disabled={!selectedDividerObject}
-                      >
-                        Пунктирный
-                      </button>
-                    </div>
-                  </div>
-                  <div className="workbook-session__settings-row">
-                    <span>Цвет</span>
-                    <input
-                      type="color"
-                      value={selectedDividerColor}
-                      disabled={!selectedDividerObject}
-                      onChange={(event) =>
-                        void updateSelectedDividerObject({
-                          color: event.target.value || "#4f63ff",
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="workbook-session__settings-row">
-                    <span>Толщина</span>
-                    <div className="workbook-session__line-range">
-                      <input
-                        type="range"
-                        min={1}
-                        max={18}
-                        step={1}
-                        value={dividerWidthDraft}
-                        disabled={!selectedDividerObject}
-                        onChange={(event) => {
-                          const nextWidth = Math.max(1, Math.min(18, Number(event.target.value) || 1));
-                          setDividerWidthDraft(nextWidth);
-                          if (selectedDividerObject) {
-                            void updateSelectedDividerObject({ strokeWidth: nextWidth });
-                          }
-                        }}
-                        onMouseUp={() => void commitSelectedDividerWidth()}
-                        onTouchEnd={() => void commitSelectedDividerWidth()}
-                        onBlur={() => void commitSelectedDividerWidth()}
-                      />
-                    </div>
-                  </div>
-                </div>
-              ) : selectedLineObject || tool === "line" ? (
-                <div className="workbook-session__settings">
-                  <p className="workbook-session__hint">
-                    Объект: {selectedLineObject ? selectedObjectLabel : "Новая линия"}
-                  </p>
-                  <div className="workbook-session__settings-row">
-                    <span>Тип линии</span>
-                    <div className="workbook-session__toggle-group">
-                      <button
-                        type="button"
-                        className={
-                          (!selectedLineObject || selectedLineKind === "line")
-                            ? "is-active"
-                            : ""
-                        }
-                        onClick={() => {
-                          if (selectedLineObject) {
-                            void updateSelectedLineMeta({ lineKind: "line" });
-                          }
-                        }}
-                      >
-                        Линия
-                      </button>
-                      <button
-                        type="button"
-                        className={
-                          selectedLineObject && selectedLineKind === "segment"
-                            ? "is-active"
-                            : ""
-                        }
-                        onClick={() => {
-                          if (selectedLineObject) {
-                            void updateSelectedLineMeta({ lineKind: "segment" });
-                          }
-                        }}
-                        disabled={!selectedLineObject}
-                      >
-                        Отрезок
-                      </button>
-                    </div>
-                  </div>
-                  <div className="workbook-session__settings-row">
-                    <span>Стиль линии</span>
-                    <div className="workbook-session__toggle-group">
-                      <button
-                        type="button"
-                        className={
-                          (selectedLineObject ? selectedLineStyle : lineStyle) === "solid"
-                            ? "is-active"
-                            : ""
-                        }
-                        onClick={() => {
-                          setLineStyle("solid");
-                          if (selectedLineObject) {
-                            void updateSelectedLineMeta({ lineStyle: "solid" });
-                          }
-                        }}
-                      >
-                        Сплошная
-                      </button>
-                      <button
-                        type="button"
-                        className={
-                          (selectedLineObject ? selectedLineStyle : lineStyle) === "dashed"
-                            ? "is-active"
-                            : ""
-                        }
-                        onClick={() => {
-                          setLineStyle("dashed");
-                          if (selectedLineObject) {
-                            void updateSelectedLineMeta({ lineStyle: "dashed" });
-                          }
-                        }}
-                      >
-                        Пунктирная
-                      </button>
-                    </div>
-                  </div>
-                  <div className="workbook-session__settings-row">
-                    <span>Цвет линии</span>
-                    <input
-                      type="color"
-                      value={selectedLineColor}
-                      disabled={!selectedLineObject}
-                      onChange={(event) =>
-                        void updateSelectedLineObject({
-                          color: event.target.value || "#4f63ff",
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="workbook-session__settings-row">
-                    <span>Толщина линии</span>
-                    <div className="workbook-session__line-range">
-                      <input
-                        type="range"
-                        min={1}
-                        max={18}
-                        step={1}
-                        value={lineWidthDraft}
-                        disabled={!selectedLineObject}
-                        onChange={(event) => {
-                          const nextWidth = Math.max(1, Math.min(18, Number(event.target.value) || 1));
-                          setLineWidthDraft(nextWidth);
-                          if (selectedLineObject) {
-                            void updateSelectedLineObject({ strokeWidth: nextWidth });
-                          }
-                        }}
-                        onMouseUp={() => void commitSelectedLineWidth()}
-                        onTouchEnd={() => void commitSelectedLineWidth()}
-                        onBlur={() => void commitSelectedLineWidth()}
-                      />
-                    </div>
-                  </div>
-                  {selectedLineObject && selectedLineKind === "segment" ? (
-                    <div className="workbook-session__line-endpoints-row">
-                      <TextField
-                        size="small"
-                        label="A"
-                        value={selectedLineStartLabelDraft}
-                        onChange={(event) => {
-                          const nextValue = event.target.value.slice(0, 12);
-                          setSelectedLineStartLabelDraft(nextValue);
-                          void commitSelectedLineEndpointLabel("start", nextValue);
-                        }}
-                        onBlur={() => void commitSelectedLineEndpointLabel("start")}
-                        onKeyDown={(event) => {
-                          if (event.key !== "Enter") return;
-                          event.currentTarget.blur();
-                        }}
-                      />
-                      <TextField
-                        size="small"
-                        label="B"
-                        value={selectedLineEndLabelDraft}
-                        onChange={(event) => {
-                          const nextValue = event.target.value.slice(0, 12);
-                          setSelectedLineEndLabelDraft(nextValue);
-                          void commitSelectedLineEndpointLabel("end", nextValue);
-                        }}
-                        onBlur={() => void commitSelectedLineEndpointLabel("end")}
-                        onKeyDown={(event) => {
-                          if (event.key !== "Enter") return;
-                          event.currentTarget.blur();
-                        }}
-                      />
-                    </div>
-                  ) : selectedLineObject ? (
-                    <p className="workbook-session__hint">
-                      Чтобы подписывать концы, переключите объект в режим «Отрезок».
-                    </p>
-                  ) : null}
-                </div>
-              ) : selectedPointObject || tool === "point" ? (
-                <div className="workbook-session__settings">
-                  <p className="workbook-session__hint">
-                    {selectedPointObject
-                      ? "Точка выбрана. Переименование доступно по правому клику."
-                      : "Инструмент «Точка»: ставьте точки кликом по доске."}
-                  </p>
-                  <div className="workbook-session__geometry-actions">
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      disabled={
-                        !canDelete ||
-                        boardObjects.filter((item) => item.type === "point").length < 2
-                      }
-                      onClick={() => void connectPointObjectsChronologically()}
-                    >
-                      Объединить точки
-                    </Button>
-                  </div>
-                </div>
-              ) : selectedShape2dObject ? (
-                <div className="workbook-session__solid-inspector">
-                  <div className="workbook-session__solid-subtabs">
-                    <button
-                      type="button"
-                      className={shape2dInspectorTab === "display" ? "is-active" : ""}
-                      onClick={() => setShape2dInspectorTab("display")}
-                    >
-                      Вид
-                    </button>
-                    <button
-                      type="button"
-                      className={shape2dInspectorTab === "vertices" ? "is-active" : ""}
-                      onClick={() => setShape2dInspectorTab("vertices")}
-                    >
-                      Вершины
-                    </button>
-                    {selectedShape2dHasAngles ? (
-                      <button
-                        type="button"
-                        className={shape2dInspectorTab === "angles" ? "is-active" : ""}
-                        onClick={() => setShape2dInspectorTab("angles")}
-                      >
-                        Углы
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className={shape2dInspectorTab === "segments" ? "is-active" : ""}
-                      onClick={() => setShape2dInspectorTab("segments")}
-                    >
-                      Отрезки
-                    </button>
-                  </div>
-                  <div className="workbook-session__solid-card-list workbook-session__solid-card-list--figure">
-                    {shape2dInspectorTab === "display" ? (
-                      <article className="workbook-session__solid-card">
-                        <div className="workbook-session__solid-card-head">
-                          <span className="workbook-session__solid-card-title">Фигура</span>
-                          <Chip size="small" label={selectedObjectLabel} />
-                        </div>
-                        {selectedShape2dHasAngles ? (
-                          <div className="workbook-session__solid-card-row">
-                            <span>Показывать углы</span>
-                            <Switch
-                              size="small"
-                              checked={selectedShape2dShowAngles}
-                              onChange={(event) =>
-                                void updateSelectedShape2dMeta({
-                                  showAngles: event.target.checked,
-                                })
-                              }
-                            />
-                          </div>
-                        ) : (
-                          <p className="workbook-session__hint">У выбранного объекта нет углов.</p>
-                        )}
-                      </article>
-                    ) : null}
-                    {shape2dInspectorTab === "vertices" ? (
-                    <article className="workbook-session__solid-card">
-                      <div className="workbook-session__solid-card-head">
-                        <span className="workbook-session__solid-card-title">Вершины</span>
-                      </div>
-                      <div className="workbook-session__solid-points">
-                        {selectedShape2dLabels.map((label, index) => (
-                          <div
-                            key={`shape-vertex-${selectedShape2dObject.id}-${index}`}
-                            className="workbook-session__solid-point-row"
-                          >
-                            <Chip size="small" label={label} />
-                            <TextField
-                              size="small"
-                              className="workbook-session__solid-input workbook-session__solid-input--compact"
-                              label={`Вершина ${index + 1}`}
-                              value={shapeVertexLabelDrafts[index] ?? ""}
-                              onChange={(event) => {
-                                const nextValue = event.target.value.slice(0, 12);
-                                setShapeVertexLabelDrafts((current) => {
-                                  const next = [...current];
-                                  next[index] = nextValue;
-                                  return next;
-                                });
-                                void renameSelectedShape2dVertex(index, nextValue);
-                              }}
-                              onBlur={() =>
-                                void renameSelectedShape2dVertex(
-                                  index,
-                                  shapeVertexLabelDrafts[index] ?? ""
-                                )
-                              }
-                              onKeyDown={(event) => {
-                                if (event.key !== "Enter") return;
-                                event.currentTarget.blur();
-                              }}
-                            />
-                            <input
-                              type="color"
-                              className="workbook-session__solid-color"
-                              value={selectedShape2dVertexColors[index] ?? "#4f63ff"}
-                              onChange={(event) =>
-                                void updateSelectedShape2dVertexColor(index, event.target.value)
-                              }
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </article>
-                    ) : null}
-                    {shape2dInspectorTab === "angles" && selectedShape2dHasAngles ? (
-                      <article className="workbook-session__solid-card">
-                        <div className="workbook-session__solid-card-head">
-                          <span className="workbook-session__solid-card-title">Углы</span>
-                        </div>
-                        <div className="workbook-session__solid-points">
-                          {selectedShape2dLabels.map((label, index) => (
-                            <div
-                              key={`shape-angle-note-${selectedShape2dObject.id}-${index}`}
-                              className="workbook-session__solid-point-row"
-                            >
-                              <Chip size="small" label={`∠${label}`} />
-                              <TextField
-                                size="small"
-                                className="workbook-session__solid-input workbook-session__solid-input--compact"
-                                label="Значение"
-                                placeholder="Например: 45"
-                                value={shapeAngleNoteDrafts[index] ?? ""}
-                                onChange={(event) => {
-                                  const nextValue = event.target.value.slice(0, 24);
-                                  setShapeAngleNoteDrafts((current) => {
-                                    const next = [...current];
-                                    next[index] = nextValue;
-                                    return next;
-                                  });
-                                  void updateSelectedShape2dAngleNote(index, nextValue);
-                                }}
-                                onBlur={() =>
-                                  void updateSelectedShape2dAngleNote(
-                                    index,
-                                    shapeAngleNoteDrafts[index] ?? ""
-                                  )
-                                }
-                                onKeyDown={(event) => {
-                                  if (event.key !== "Enter") return;
-                                  event.currentTarget.blur();
-                                }}
-                              />
-                              <input
-                                type="color"
-                                className="workbook-session__solid-color"
-                                value={selectedShape2dAngleColors[index] ?? "#4f63ff"}
-                                onChange={(event) =>
-                                  void updateSelectedShape2dAngleColor(index, event.target.value)
-                                }
-                              />
-                            </div>
-                        ))}
-                      </div>
-                    </article>
-                    ) : null}
-                    {shape2dInspectorTab === "segments" ? (
-                    <article className="workbook-session__solid-card">
-                      <div className="workbook-session__solid-card-head">
-                        <span className="workbook-session__solid-card-title">Отрезки</span>
-                      </div>
-                      <div className="workbook-session__solid-points">
-                        {selectedShape2dSegments.map((segment, index) => (
-                          <div
-                            key={`shape-segment-note-${selectedShape2dObject.id}-${index}`}
-                            className="workbook-session__solid-point-row"
-                          >
-                            <Chip size="small" label={segment} />
-                            <TextField
-                              size="small"
-                              className="workbook-session__solid-input workbook-session__solid-input--compact"
-                              label="Пометка"
-                              placeholder="Например: 5"
-                              value={shapeSegmentNoteDrafts[index] ?? ""}
-                              onChange={(event) => {
-                                const nextValue = event.target.value.slice(0, 24);
-                                setShapeSegmentNoteDrafts((current) => {
-                                  const next = [...current];
-                                  next[index] = nextValue;
-                                  return next;
-                                });
-                                void updateSelectedShape2dSegmentNote(index, nextValue);
-                              }}
-                              onBlur={() =>
-                                void updateSelectedShape2dSegmentNote(
-                                  index,
-                                  shapeSegmentNoteDrafts[index] ?? ""
-                                )
-                              }
-                              onKeyDown={(event) => {
-                                if (event.key !== "Enter") return;
-                                event.currentTarget.blur();
-                              }}
-                            />
-                            <input
-                              type="color"
-                              className="workbook-session__solid-color"
-                              value={selectedShape2dSegmentColors[index] ?? "#4f63ff"}
-                              onChange={(event) =>
-                                void updateSelectedShape2dSegmentColor(index, event.target.value)
-                              }
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </article>
-                    ) : null}
-                  </div>
-                </div>
-              ) : (
-                <p className="workbook-session__hint">Объект: {selectedObjectLabel}.</p>
-              )}
-            </div>
-          </div>
+              }
+            >
+              <WorkbookSessionTransformPanel
+                tool={tool}
+                canSelect={canSelect}
+                canDelete={canDelete}
+                pointObjectCount={pointObjectCount}
+                eraserRadiusMin={ERASER_RADIUS_MIN}
+                eraserRadiusMax={ERASER_RADIUS_MAX}
+                strokeWidth={clampedEraserRadius}
+                onStrokeWidthChange={handleTransformStrokeWidthChange}
+                selectedObject={selectedObject}
+                selectedObjectLabel={selectedObjectLabel}
+                canToggleSelectedObjectLabels={canToggleSelectedObjectLabels}
+                selectedObjectShowLabels={selectedObjectShowLabels}
+                isSelectedObjectInComposition={selectedObjectSceneLayerId !== MAIN_SCENE_LAYER_ID}
+                onMirrorSelectedObject={mirrorSelectedObject}
+                onUpdateSelectedObjectMeta={updateSelectedObjectMeta}
+                onDissolveCompositionLayer={handleTransformDissolveCompositionLayer}
+                onOpenGraphPanel={handleTransformOpenGraphPanel}
+                selectedLineObject={selectedLineObject}
+                selectedFunctionGraphObject={selectedFunctionGraphObject}
+                selectedDividerObject={selectedDividerObject}
+                selectedPointObject={selectedPointObject}
+                selectedTextObject={selectedTextObject}
+                selectedShape2dObject={selectedShape2dObject}
+                textFontOptions={TEXT_FONT_OPTIONS}
+                selectedTextDraft={selectedTextDraft}
+                setSelectedTextDraft={setSelectedTextDraft}
+                onScheduleSelectedTextDraftCommit={scheduleSelectedTextDraftCommit}
+                onFlushSelectedTextDraftCommit={flushSelectedTextDraftCommit}
+                selectedTextFontFamily={selectedTextFontFamily}
+                selectedTextFontSizeDraft={selectedTextFontSizeDraft}
+                setSelectedTextFontSizeDraft={setSelectedTextFontSizeDraft}
+                selectedTextBold={selectedTextBold}
+                selectedTextItalic={selectedTextItalic}
+                selectedTextUnderline={selectedTextUnderline}
+                selectedTextAlign={selectedTextAlign}
+                selectedTextColor={selectedTextColor}
+                selectedTextBackground={selectedTextBackground}
+                onUpdateSelectedTextFormatting={updateSelectedTextFormatting}
+                selectedDividerStyle={selectedDividerStyle}
+                selectedDividerColor={selectedDividerColor}
+                dividerWidthDraft={dividerWidthDraft}
+                setDividerWidthDraft={setDividerWidthDraft}
+                onUpdateSelectedDividerMeta={updateSelectedDividerMeta}
+                onUpdateSelectedDividerObject={updateSelectedDividerObject}
+                onCommitSelectedDividerWidth={commitSelectedDividerWidth}
+                lineStyle={lineStyle}
+                setLineStyle={setLineStyle}
+                selectedLineStyle={selectedLineStyle}
+                selectedLineKind={selectedLineKind}
+                selectedLineColor={selectedLineColor}
+                lineWidthDraft={lineWidthDraft}
+                setLineWidthDraft={setLineWidthDraft}
+                selectedLineStartLabelDraft={selectedLineStartLabelDraft}
+                setSelectedLineStartLabelDraft={setSelectedLineStartLabelDraft}
+                selectedLineEndLabelDraft={selectedLineEndLabelDraft}
+                setSelectedLineEndLabelDraft={setSelectedLineEndLabelDraft}
+                onUpdateSelectedLineMeta={updateSelectedLineMeta}
+                onUpdateSelectedLineObject={updateSelectedLineObject}
+                onCommitSelectedLineWidth={commitSelectedLineWidth}
+                onCommitSelectedLineEndpointLabel={commitSelectedLineEndpointLabel}
+                onConnectPointObjectsChronologically={connectPointObjectsChronologically}
+                shape2dInspectorTab={shape2dInspectorTab}
+                setShape2dInspectorTab={setShape2dInspectorTab}
+                selectedShape2dHasAngles={selectedShape2dHasAngles}
+                selectedShape2dShowAngles={selectedShape2dShowAngles}
+                selectedShape2dLabels={selectedShape2dLabels}
+                selectedShape2dSegments={selectedShape2dSegments}
+                shapeVertexLabelDrafts={shapeVertexLabelDrafts}
+                setShapeVertexLabelDrafts={setShapeVertexLabelDrafts}
+                shapeAngleNoteDrafts={shapeAngleNoteDrafts}
+                setShapeAngleNoteDrafts={setShapeAngleNoteDrafts}
+                shapeSegmentNoteDrafts={shapeSegmentNoteDrafts}
+                setShapeSegmentNoteDrafts={setShapeSegmentNoteDrafts}
+                selectedShape2dVertexColors={selectedShape2dVertexColors}
+                selectedShape2dAngleColors={selectedShape2dAngleColors}
+                selectedShape2dSegmentColors={selectedShape2dSegmentColors}
+                onUpdateSelectedShape2dMeta={updateSelectedShape2dMeta}
+                onRenameSelectedShape2dVertex={renameSelectedShape2dVertex}
+                onUpdateSelectedShape2dAngleNote={updateSelectedShape2dAngleNote}
+                onUpdateSelectedShape2dSegmentNote={updateSelectedShape2dSegmentNote}
+                onUpdateSelectedShape2dVertexColor={updateSelectedShape2dVertexColor}
+                onUpdateSelectedShape2dAngleColor={updateSelectedShape2dAngleColor}
+                onUpdateSelectedShape2dSegmentColor={updateSelectedShape2dSegmentColor}
+                solid3dInspectorTab={solid3dInspectorTab}
+                setSolid3dInspectorTab={setSolid3dInspectorTab}
+                solid3dFigureTab={solid3dFigureTab}
+                setSolid3dFigureTab={setSolid3dFigureTab}
+                selectedSolid3dState={selectedSolid3dState}
+                selectedSolidMesh={selectedSolidMesh}
+                selectedSolidIsCurved={selectedSolidIsCurved}
+                selectedSolidHiddenEdges={selectedSolidHiddenEdges}
+                selectedSolidSurfaceColor={selectedSolidSurfaceColor}
+                selectedSolidFaceColors={selectedSolidFaceColors}
+                selectedSolidEdgeColors={selectedSolidEdgeColors}
+                selectedSolidEdges={selectedSolidEdges}
+                selectedSolidAngleMarks={selectedSolidAngleMarks}
+                selectedSolidVertexLabels={selectedSolidVertexLabels}
+                selectedActiveSection={selectedActiveSection}
+                activeSolidSectionId={activeSolidSectionId}
+                setActiveSolidSectionId={setActiveSolidSectionId}
+                solid3dSectionPointTarget={solid3dSectionPointTarget}
+                setSolid3dSectionPointTarget={setSolid3dSectionPointTarget}
+                solid3dDraftPoints={solid3dDraftPoints}
+                solid3dDraftPointLimit={solid3dDraftPointLimit}
+                isSolid3dPointCollectionActive={isSolid3dPointCollectionActive}
+                onSetSolid3dHiddenEdges={setSolid3dHiddenEdges}
+                onUpdateSelectedSolid3dSurfaceColor={updateSelectedSolid3dSurfaceColor}
+                onResetSolid3dFaceColors={resetSolid3dFaceColors}
+                onSetSolid3dFaceColor={setSolid3dFaceColor}
+                onResetSolid3dEdgeColors={resetSolid3dEdgeColors}
+                onSetSolid3dEdgeColor={setSolid3dEdgeColor}
+                onAddSolid3dAngleMark={addSolid3dAngleMark}
+                onUpdateSolid3dAngleMark={updateSolid3dAngleMark}
+                onDeleteSolid3dAngleMark={deleteSolid3dAngleMark}
+                onStartSolid3dSectionPointCollection={startSolid3dSectionPointCollection}
+                onBuildSectionFromDraftPoints={buildSectionFromDraftPoints}
+                onClearSolid3dDraftPoints={clearSolid3dDraftPoints}
+                onUpdateSolid3dSection={updateSolid3dSection}
+                onDeleteSolid3dSection={deleteSolid3dSection}
+                getSolidVertexLabel={getSolidVertexLabel}
+                getSectionPointLabel={getSectionPointLabel}
+              />
+            </Suspense>
           ) : null}
 
               </div>
@@ -12807,7 +11017,7 @@ export default function WorkbookSessionPage() {
                     className="workbook-session__stereo-card"
                     onClick={() => {
                       shape.apply();
-                      setStrokeWidth(getDefaultToolWidth(shape.tool));
+                      activateTool(shape.tool);
                       setIsShapesDialogOpen(false);
                     }}
                   >

@@ -1,0 +1,1572 @@
+import { memo, type Dispatch, type SetStateAction } from "react";
+import { Alert, Button, Chip, IconButton, Select, Switch, TextField, Tooltip } from "@mui/material";
+import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
+import FormatAlignCenterRoundedIcon from "@mui/icons-material/FormatAlignCenterRounded";
+import FormatAlignLeftRoundedIcon from "@mui/icons-material/FormatAlignLeftRounded";
+import FormatAlignRightRoundedIcon from "@mui/icons-material/FormatAlignRightRounded";
+import FormatBoldRoundedIcon from "@mui/icons-material/FormatBoldRounded";
+import FormatColorFillRoundedIcon from "@mui/icons-material/FormatColorFillRounded";
+import FormatColorTextRoundedIcon from "@mui/icons-material/FormatColorTextRounded";
+import FormatItalicRoundedIcon from "@mui/icons-material/FormatItalicRounded";
+import FormatUnderlinedRoundedIcon from "@mui/icons-material/FormatUnderlinedRounded";
+import PolylineRoundedIcon from "@mui/icons-material/PolylineRounded";
+import ShowChartRoundedIcon from "@mui/icons-material/ShowChartRounded";
+import ViewInArRoundedIcon from "@mui/icons-material/ViewInArRounded";
+import type { WorkbookBoardObject, WorkbookTool } from "@/features/workbook/model/types";
+import type { Solid3dMesh } from "@/features/workbook/model/solid3dGeometry";
+import type {
+  Solid3dAngleMark,
+  Solid3dSectionPoint,
+  Solid3dSectionState,
+  Solid3dState,
+} from "@/features/workbook/model/solid3dState";
+
+type TextFontOption = {
+  value: string;
+  label: string;
+};
+
+type LineStyle = "solid" | "dashed";
+type LineKind = "line" | "segment";
+type TextAlign = "left" | "center" | "right";
+type Solid3dInspectorTab = "figure" | "section";
+type Solid3dFigureTab = "display" | "surface" | "faces" | "edges" | "angles";
+type Shape2dInspectorTab = "display" | "vertices" | "angles" | "segments";
+type Solid3dSectionPointTarget = {
+  sectionId: string;
+  pointIndex: number;
+};
+type Solid3dDraftPoints = {
+  objectId: string;
+  points: Solid3dSectionPoint[];
+};
+
+type WorkbookSessionTransformPanelProps = {
+  tool: WorkbookTool;
+  canSelect: boolean;
+  canDelete: boolean;
+  pointObjectCount: number;
+  eraserRadiusMin: number;
+  eraserRadiusMax: number;
+  strokeWidth: number;
+  onStrokeWidthChange: (value: number) => void;
+  selectedObject: WorkbookBoardObject | null;
+  selectedObjectLabel: string;
+  canToggleSelectedObjectLabels: boolean;
+  selectedObjectShowLabels: boolean;
+  isSelectedObjectInComposition: boolean;
+  onMirrorSelectedObject: (axis: "horizontal" | "vertical") => void | Promise<void>;
+  onUpdateSelectedObjectMeta: (patch: Record<string, unknown>) => void | Promise<void>;
+  onDissolveCompositionLayer: () => void | Promise<void>;
+  onOpenGraphPanel: () => void;
+  selectedLineObject: WorkbookBoardObject | null;
+  selectedFunctionGraphObject: WorkbookBoardObject | null;
+  selectedDividerObject: WorkbookBoardObject | null;
+  selectedPointObject: WorkbookBoardObject | null;
+  selectedTextObject: WorkbookBoardObject | null;
+  selectedShape2dObject: WorkbookBoardObject | null;
+  textFontOptions: TextFontOption[];
+  selectedTextDraft: string;
+  setSelectedTextDraft: Dispatch<SetStateAction<string>>;
+  onScheduleSelectedTextDraftCommit: (value: string) => void;
+  onFlushSelectedTextDraftCommit: () => void | Promise<void>;
+  selectedTextFontFamily: string;
+  selectedTextFontSizeDraft: number;
+  setSelectedTextFontSizeDraft: Dispatch<SetStateAction<number>>;
+  selectedTextBold: boolean;
+  selectedTextItalic: boolean;
+  selectedTextUnderline: boolean;
+  selectedTextAlign: TextAlign;
+  selectedTextColor: string;
+  selectedTextBackground: string;
+  onUpdateSelectedTextFormatting: (
+    objectPatch: Partial<WorkbookBoardObject>,
+    metaPatch?: Record<string, unknown>
+  ) => void | Promise<void>;
+  selectedDividerStyle: LineStyle;
+  selectedDividerColor: string;
+  dividerWidthDraft: number;
+  setDividerWidthDraft: Dispatch<SetStateAction<number>>;
+  onUpdateSelectedDividerMeta: (patch: Record<string, unknown>) => void | Promise<void>;
+  onUpdateSelectedDividerObject: (patch: Partial<WorkbookBoardObject>) => void | Promise<void>;
+  onCommitSelectedDividerWidth: () => void | Promise<void>;
+  lineStyle: LineStyle;
+  setLineStyle: Dispatch<SetStateAction<LineStyle>>;
+  selectedLineStyle: LineStyle;
+  selectedLineKind: LineKind;
+  selectedLineColor: string;
+  lineWidthDraft: number;
+  setLineWidthDraft: Dispatch<SetStateAction<number>>;
+  selectedLineStartLabelDraft: string;
+  setSelectedLineStartLabelDraft: Dispatch<SetStateAction<string>>;
+  selectedLineEndLabelDraft: string;
+  setSelectedLineEndLabelDraft: Dispatch<SetStateAction<string>>;
+  onUpdateSelectedLineMeta: (patch: Record<string, unknown>) => void | Promise<void>;
+  onUpdateSelectedLineObject: (patch: Partial<WorkbookBoardObject>) => void | Promise<void>;
+  onCommitSelectedLineWidth: () => void | Promise<void>;
+  onCommitSelectedLineEndpointLabel: (
+    endpoint: "start" | "end",
+    value?: string
+  ) => void | Promise<void>;
+  onConnectPointObjectsChronologically: () => void | Promise<void>;
+  shape2dInspectorTab: Shape2dInspectorTab;
+  setShape2dInspectorTab: Dispatch<SetStateAction<Shape2dInspectorTab>>;
+  selectedShape2dHasAngles: boolean;
+  selectedShape2dShowAngles: boolean;
+  selectedShape2dLabels: string[];
+  selectedShape2dSegments: string[];
+  shapeVertexLabelDrafts: string[];
+  setShapeVertexLabelDrafts: Dispatch<SetStateAction<string[]>>;
+  shapeAngleNoteDrafts: string[];
+  setShapeAngleNoteDrafts: Dispatch<SetStateAction<string[]>>;
+  shapeSegmentNoteDrafts: string[];
+  setShapeSegmentNoteDrafts: Dispatch<SetStateAction<string[]>>;
+  selectedShape2dVertexColors: string[];
+  selectedShape2dAngleColors: string[];
+  selectedShape2dSegmentColors: string[];
+  onUpdateSelectedShape2dMeta: (patch: Record<string, unknown>) => void | Promise<void>;
+  onRenameSelectedShape2dVertex: (index: number, value: string) => void | Promise<void>;
+  onUpdateSelectedShape2dAngleNote: (index: number, value: string) => void | Promise<void>;
+  onUpdateSelectedShape2dSegmentNote: (index: number, value: string) => void | Promise<void>;
+  onUpdateSelectedShape2dVertexColor: (index: number, color: string) => void | Promise<void>;
+  onUpdateSelectedShape2dAngleColor: (index: number, color: string) => void | Promise<void>;
+  onUpdateSelectedShape2dSegmentColor: (index: number, color: string) => void | Promise<void>;
+  solid3dInspectorTab: Solid3dInspectorTab;
+  setSolid3dInspectorTab: Dispatch<SetStateAction<Solid3dInspectorTab>>;
+  solid3dFigureTab: Solid3dFigureTab;
+  setSolid3dFigureTab: Dispatch<SetStateAction<Solid3dFigureTab>>;
+  selectedSolid3dState: Solid3dState | null;
+  selectedSolidMesh: Solid3dMesh | null;
+  selectedSolidIsCurved: boolean;
+  selectedSolidHiddenEdges: boolean;
+  selectedSolidSurfaceColor: string;
+  selectedSolidFaceColors: Record<string, string>;
+  selectedSolidEdgeColors: Record<string, string>;
+  selectedSolidEdges: Array<{
+    key: string;
+    label: string;
+  }>;
+  selectedSolidAngleMarks: Solid3dAngleMark[];
+  selectedSolidVertexLabels: string[];
+  selectedActiveSection: Solid3dSectionState | null;
+  activeSolidSectionId: string | null;
+  setActiveSolidSectionId: Dispatch<SetStateAction<string | null>>;
+  solid3dSectionPointTarget: Solid3dSectionPointTarget | null;
+  setSolid3dSectionPointTarget: Dispatch<SetStateAction<Solid3dSectionPointTarget | null>>;
+  solid3dDraftPoints: Solid3dDraftPoints | null;
+  solid3dDraftPointLimit: number;
+  isSolid3dPointCollectionActive: boolean;
+  onSetSolid3dHiddenEdges: (hidden: boolean) => void | Promise<void>;
+  onUpdateSelectedSolid3dSurfaceColor: (color: string) => void | Promise<void>;
+  onResetSolid3dFaceColors: () => void | Promise<void>;
+  onSetSolid3dFaceColor: (faceIndex: number, color: string) => void | Promise<void>;
+  onResetSolid3dEdgeColors: () => void | Promise<void>;
+  onSetSolid3dEdgeColor: (edgeKey: string, color: string) => void | Promise<void>;
+  onAddSolid3dAngleMark: () => void | Promise<void>;
+  onUpdateSolid3dAngleMark: (
+    markId: string,
+    patch: Partial<Solid3dAngleMark>
+  ) => void | Promise<void>;
+  onDeleteSolid3dAngleMark: (markId: string) => void | Promise<void>;
+  onStartSolid3dSectionPointCollection: () => void;
+  onBuildSectionFromDraftPoints: () => void | Promise<void>;
+  onClearSolid3dDraftPoints: () => void;
+  onUpdateSolid3dSection: (
+    sectionId: string,
+    patch: Partial<Solid3dSectionState>
+  ) => void | Promise<void>;
+  onDeleteSolid3dSection: (sectionId: string) => void | Promise<void>;
+  getSolidVertexLabel: (index: number) => string;
+  getSectionPointLabel: (index: number) => string;
+};
+
+export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransformPanel({
+  tool,
+  canSelect,
+  canDelete,
+  pointObjectCount,
+  eraserRadiusMin,
+  eraserRadiusMax,
+  strokeWidth,
+  onStrokeWidthChange,
+  selectedObject,
+  selectedObjectLabel,
+  canToggleSelectedObjectLabels,
+  selectedObjectShowLabels,
+  isSelectedObjectInComposition,
+  onMirrorSelectedObject,
+  onUpdateSelectedObjectMeta,
+  onDissolveCompositionLayer,
+  onOpenGraphPanel,
+  selectedLineObject,
+  selectedFunctionGraphObject,
+  selectedDividerObject,
+  selectedPointObject,
+  selectedTextObject,
+  selectedShape2dObject,
+  textFontOptions,
+  selectedTextDraft,
+  setSelectedTextDraft,
+  onScheduleSelectedTextDraftCommit,
+  onFlushSelectedTextDraftCommit,
+  selectedTextFontFamily,
+  selectedTextFontSizeDraft,
+  setSelectedTextFontSizeDraft,
+  selectedTextBold,
+  selectedTextItalic,
+  selectedTextUnderline,
+  selectedTextAlign,
+  selectedTextColor,
+  selectedTextBackground,
+  onUpdateSelectedTextFormatting,
+  selectedDividerStyle,
+  selectedDividerColor,
+  dividerWidthDraft,
+  setDividerWidthDraft,
+  onUpdateSelectedDividerMeta,
+  onUpdateSelectedDividerObject,
+  onCommitSelectedDividerWidth,
+  lineStyle,
+  setLineStyle,
+  selectedLineStyle,
+  selectedLineKind,
+  selectedLineColor,
+  lineWidthDraft,
+  setLineWidthDraft,
+  selectedLineStartLabelDraft,
+  setSelectedLineStartLabelDraft,
+  selectedLineEndLabelDraft,
+  setSelectedLineEndLabelDraft,
+  onUpdateSelectedLineMeta,
+  onUpdateSelectedLineObject,
+  onCommitSelectedLineWidth,
+  onCommitSelectedLineEndpointLabel,
+  onConnectPointObjectsChronologically,
+  shape2dInspectorTab,
+  setShape2dInspectorTab,
+  selectedShape2dHasAngles,
+  selectedShape2dShowAngles,
+  selectedShape2dLabels,
+  selectedShape2dSegments,
+  shapeVertexLabelDrafts,
+  setShapeVertexLabelDrafts,
+  shapeAngleNoteDrafts,
+  setShapeAngleNoteDrafts,
+  shapeSegmentNoteDrafts,
+  setShapeSegmentNoteDrafts,
+  selectedShape2dVertexColors,
+  selectedShape2dAngleColors,
+  selectedShape2dSegmentColors,
+  onUpdateSelectedShape2dMeta,
+  onRenameSelectedShape2dVertex,
+  onUpdateSelectedShape2dAngleNote,
+  onUpdateSelectedShape2dSegmentNote,
+  onUpdateSelectedShape2dVertexColor,
+  onUpdateSelectedShape2dAngleColor,
+  onUpdateSelectedShape2dSegmentColor,
+  solid3dInspectorTab,
+  setSolid3dInspectorTab,
+  solid3dFigureTab,
+  setSolid3dFigureTab,
+  selectedSolid3dState,
+  selectedSolidMesh,
+  selectedSolidIsCurved,
+  selectedSolidHiddenEdges,
+  selectedSolidSurfaceColor,
+  selectedSolidFaceColors,
+  selectedSolidEdgeColors,
+  selectedSolidEdges,
+  selectedSolidAngleMarks,
+  selectedSolidVertexLabels,
+  selectedActiveSection,
+  activeSolidSectionId,
+  setActiveSolidSectionId,
+  solid3dSectionPointTarget,
+  setSolid3dSectionPointTarget,
+  solid3dDraftPoints,
+  solid3dDraftPointLimit,
+  isSolid3dPointCollectionActive,
+  onSetSolid3dHiddenEdges,
+  onUpdateSelectedSolid3dSurfaceColor,
+  onResetSolid3dFaceColors,
+  onSetSolid3dFaceColor,
+  onResetSolid3dEdgeColors,
+  onSetSolid3dEdgeColor,
+  onAddSolid3dAngleMark,
+  onUpdateSolid3dAngleMark,
+  onDeleteSolid3dAngleMark,
+  onStartSolid3dSectionPointCollection,
+  onBuildSectionFromDraftPoints,
+  onClearSolid3dDraftPoints,
+  onUpdateSolid3dSection,
+  onDeleteSolid3dSection,
+  getSolidVertexLabel,
+  getSectionPointLabel,
+}: WorkbookSessionTransformPanelProps) {
+  return (
+    <div className="workbook-session__card">
+      <h3>Трансформации</h3>
+      <div className="workbook-session__geometry">
+        {!selectedObject ? (
+          <p className="workbook-session__hint">Выберите объект для настройки.</p>
+        ) : null}
+        {selectedObject &&
+        selectedObject.type !== "function_graph" &&
+        selectedObject.type !== "text" ? (
+          <div className="workbook-session__geometry-actions">
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => void onMirrorSelectedObject("horizontal")}
+            >
+              Отразить по X
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => void onMirrorSelectedObject("vertical")}
+            >
+              Отразить по Y
+            </Button>
+          </div>
+        ) : null}
+        {selectedObject && canToggleSelectedObjectLabels && !selectedShape2dObject ? (
+          <div className="workbook-session__settings-row">
+            <span>Показывать названия вершин/точек</span>
+            <Switch
+              size="small"
+              checked={selectedObjectShowLabels}
+              onChange={(event) =>
+                void onUpdateSelectedObjectMeta({
+                  showLabels: event.target.checked,
+                })
+              }
+            />
+          </div>
+        ) : null}
+        {selectedObject && isSelectedObjectInComposition ? (
+          <div className="workbook-session__settings-row">
+            <span>Композиция</span>
+            <Button size="small" variant="outlined" onClick={() => void onDissolveCompositionLayer()}>
+              Расформировать
+            </Button>
+          </div>
+        ) : null}
+
+        {selectedObject?.type === "solid3d" ? (
+          <div className="workbook-session__solid-inspector">
+            <div className="workbook-session__solid-tabs">
+              <Button
+                size="small"
+                className="workbook-session__solid-tab-btn"
+                startIcon={<ViewInArRoundedIcon />}
+                variant={solid3dInspectorTab === "figure" ? "contained" : "outlined"}
+                onClick={() => setSolid3dInspectorTab("figure")}
+              >
+                Фигура
+              </Button>
+              <Button
+                size="small"
+                className="workbook-session__solid-tab-btn"
+                startIcon={<PolylineRoundedIcon />}
+                variant={solid3dInspectorTab === "section" ? "contained" : "outlined"}
+                onClick={() => setSolid3dInspectorTab("section")}
+              >
+                Сечения
+              </Button>
+            </div>
+
+            {solid3dInspectorTab === "figure" ? (
+              selectedSolidMesh ? (
+                <div className="workbook-session__solid-card-list workbook-session__solid-card-list--figure">
+                  <div className="workbook-session__solid-subtabs">
+                    <button
+                      type="button"
+                      className={solid3dFigureTab === "display" ? "is-active" : ""}
+                      onClick={() => setSolid3dFigureTab("display")}
+                    >
+                      Вид
+                    </button>
+                    {selectedSolidIsCurved ? (
+                      <button
+                        type="button"
+                        className={solid3dFigureTab === "surface" ? "is-active" : ""}
+                        onClick={() => setSolid3dFigureTab("surface")}
+                      >
+                        Поверхность
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className={solid3dFigureTab === "faces" ? "is-active" : ""}
+                          onClick={() => setSolid3dFigureTab("faces")}
+                        >
+                          Грани
+                        </button>
+                        <button
+                          type="button"
+                          className={solid3dFigureTab === "edges" ? "is-active" : ""}
+                          onClick={() => setSolid3dFigureTab("edges")}
+                        >
+                          Ребра
+                        </button>
+                        <button
+                          type="button"
+                          className={solid3dFigureTab === "angles" ? "is-active" : ""}
+                          onClick={() => setSolid3dFigureTab("angles")}
+                        >
+                          Углы
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {solid3dFigureTab === "display" ? (
+                    <article className="workbook-session__solid-card">
+                      <div className="workbook-session__solid-card-row">
+                        <span>
+                          {selectedSolidIsCurved
+                            ? "Скрыть вспомогательные контуры"
+                            : "Пунктир скрыт"}
+                        </span>
+                        <Switch
+                          size="small"
+                          checked={selectedSolidHiddenEdges}
+                          onChange={(event) =>
+                            void onSetSolid3dHiddenEdges(event.target.checked)
+                          }
+                        />
+                      </div>
+                    </article>
+                  ) : null}
+
+                  {solid3dFigureTab === "surface" && selectedSolidIsCurved ? (
+                    <article className="workbook-session__solid-card">
+                      <div className="workbook-session__solid-card-head">
+                        <span className="workbook-session__solid-card-title">Поверхность тела</span>
+                      </div>
+                      <div className="workbook-session__solid-face-grid">
+                        <div className="workbook-session__solid-face-row">
+                          <span>Заливка</span>
+                          <input
+                            type="color"
+                            className="workbook-session__solid-color"
+                            value={selectedSolidSurfaceColor}
+                            onChange={(event) =>
+                              void onUpdateSelectedSolid3dSurfaceColor(
+                                event.target.value || "#5f6aa0"
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+                      <p className="workbook-session__hint">
+                        Для тел с круговым основанием доступны управление поверхностью и служебными
+                        контурами.
+                      </p>
+                    </article>
+                  ) : null}
+
+                  {solid3dFigureTab === "faces" && !selectedSolidIsCurved ? (
+                    <article className="workbook-session__solid-card">
+                      <div className="workbook-session__solid-card-head">
+                        <span className="workbook-session__solid-card-title">Окрашивание граней</span>
+                        <Button size="small" variant="outlined" onClick={() => void onResetSolid3dFaceColors()}>
+                          Сбросить
+                        </Button>
+                      </div>
+                      <div className="workbook-session__solid-face-grid">
+                        {selectedSolidMesh.faces.slice(0, 24).map((_, faceIndex) => (
+                          <div
+                            key={`solid-face-color-${faceIndex}`}
+                            className="workbook-session__solid-face-row"
+                          >
+                            <span>
+                              {`Грань ${
+                                selectedSolidMesh.faces[faceIndex]
+                                  .map(
+                                    (vertexIndex) =>
+                                      selectedSolidVertexLabels[vertexIndex] ||
+                                      getSolidVertexLabel(vertexIndex)
+                                  )
+                                  .join("-") || faceIndex + 1
+                              }`}
+                            </span>
+                            <input
+                              type="color"
+                              className="workbook-session__solid-color"
+                              value={selectedSolidFaceColors[String(faceIndex)] || "#5f6aa0"}
+                              onChange={(event) =>
+                                void onSetSolid3dFaceColor(
+                                  faceIndex,
+                                  event.target.value || "#5f6aa0"
+                                )
+                              }
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      {selectedSolidMesh.faces.length > 24 ? (
+                        <p className="workbook-session__hint">
+                          Для этой фигуры доступно много граней. Показаны первые 24.
+                        </p>
+                      ) : null}
+                    </article>
+                  ) : null}
+
+                  {solid3dFigureTab === "edges" && !selectedSolidIsCurved ? (
+                    <article className="workbook-session__solid-card">
+                      <div className="workbook-session__solid-card-head">
+                        <span className="workbook-session__solid-card-title">Окрашивание ребер</span>
+                        <Button size="small" variant="outlined" onClick={() => void onResetSolid3dEdgeColors()}>
+                          Сбросить
+                        </Button>
+                      </div>
+                      <div className="workbook-session__solid-face-grid">
+                        {selectedSolidEdges.slice(0, 24).map((edge) => (
+                          <div
+                            key={`solid-edge-color-${edge.key}`}
+                            className="workbook-session__solid-face-row"
+                          >
+                            <span>{`Ребро ${edge.label}`}</span>
+                            <input
+                              type="color"
+                              className="workbook-session__solid-color"
+                              value={selectedSolidEdgeColors[edge.key] || "#4f63ff"}
+                              onChange={(event) =>
+                                void onSetSolid3dEdgeColor(
+                                  edge.key,
+                                  event.target.value || "#4f63ff"
+                                )
+                              }
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      {selectedSolidEdges.length > 24 ? (
+                        <p className="workbook-session__hint">
+                          Для этой фигуры доступно много ребер. Показаны первые 24.
+                        </p>
+                      ) : null}
+                    </article>
+                  ) : null}
+
+                  {solid3dFigureTab === "angles" && !selectedSolidIsCurved ? (
+                    <article className="workbook-session__solid-card">
+                      <div className="workbook-session__solid-card-head">
+                        <span className="workbook-session__solid-card-title">Пометки углов</span>
+                        <Button size="small" variant="outlined" onClick={() => void onAddSolid3dAngleMark()}>
+                          Добавить
+                        </Button>
+                      </div>
+                      {selectedSolidAngleMarks.length ? (
+                        <div className="workbook-session__solid-angle-list">
+                          {selectedSolidAngleMarks.map((mark) => (
+                            <div key={mark.id} className="workbook-session__solid-angle-card">
+                              {(() => {
+                                const fallbackFaceIndex = selectedSolidMesh.faces.findIndex((face) =>
+                                  face.includes(mark.vertexIndex)
+                                );
+                                const storedFaceIndex =
+                                  typeof mark.faceIndex === "number" &&
+                                  Number.isInteger(mark.faceIndex) &&
+                                  mark.faceIndex >= 0
+                                    ? mark.faceIndex
+                                    : null;
+                                const activeFaceIndex =
+                                  storedFaceIndex !== null && selectedSolidMesh.faces[storedFaceIndex]
+                                    ? storedFaceIndex
+                                    : Math.max(0, fallbackFaceIndex);
+                                const activeFace = selectedSolidMesh.faces[activeFaceIndex] ?? [];
+                                const activeVertexValue = activeFace.includes(mark.vertexIndex)
+                                  ? mark.vertexIndex
+                                  : (activeFace[0] ?? mark.vertexIndex);
+                                return (
+                                  <>
+                                    <div className="workbook-session__solid-angle-top">
+                                      <input
+                                        type="color"
+                                        className="workbook-session__solid-color"
+                                        value={mark.color || "#ff8e3c"}
+                                        onChange={(event) =>
+                                          void onUpdateSolid3dAngleMark(mark.id, {
+                                            color: event.target.value || "#ff8e3c",
+                                          })
+                                        }
+                                      />
+                                      <Select
+                                        native
+                                        size="small"
+                                        value={String(activeFaceIndex)}
+                                        onChange={(event) => {
+                                          const nextFaceIndex = Number(event.target.value);
+                                          const nextFace = selectedSolidMesh.faces[nextFaceIndex] ?? [];
+                                          void onUpdateSolid3dAngleMark(mark.id, {
+                                            faceIndex: nextFaceIndex,
+                                            vertexIndex: nextFace.includes(mark.vertexIndex)
+                                              ? mark.vertexIndex
+                                              : (nextFace[0] ?? mark.vertexIndex),
+                                          });
+                                        }}
+                                      >
+                                        {selectedSolidMesh.faces.map((face, faceIndex) => (
+                                          <option
+                                            key={`face-opt-${mark.id}-${faceIndex}`}
+                                            value={faceIndex}
+                                          >
+                                            {face
+                                              .map(
+                                                (vertexIndex) =>
+                                                  selectedSolidVertexLabels[vertexIndex] ||
+                                                  getSolidVertexLabel(vertexIndex)
+                                              )
+                                              .join("-")}
+                                          </option>
+                                        ))}
+                                      </Select>
+                                      <Select
+                                        native
+                                        size="small"
+                                        value={String(activeVertexValue)}
+                                        onChange={(event) =>
+                                          void onUpdateSolid3dAngleMark(mark.id, {
+                                            vertexIndex: Number(event.target.value),
+                                          })
+                                        }
+                                      >
+                                        {activeFace.map((vertexIndex) => (
+                                          <option
+                                            key={`vertex-opt-${mark.id}-${vertexIndex}`}
+                                            value={vertexIndex}
+                                          >
+                                            {selectedSolidVertexLabels[vertexIndex] ||
+                                              getSolidVertexLabel(vertexIndex)}
+                                          </option>
+                                        ))}
+                                      </Select>
+                                      <IconButton
+                                        size="small"
+                                        className="workbook-session__solid-angle-delete"
+                                        onClick={() => void onDeleteSolid3dAngleMark(mark.id)}
+                                      >
+                                        <CloseRoundedIcon />
+                                      </IconButton>
+                                    </div>
+                                    <div className="workbook-session__solid-angle-bottom">
+                                      <TextField
+                                        size="small"
+                                        className="workbook-session__solid-input"
+                                        placeholder="Значение угла"
+                                        value={mark.label}
+                                        onChange={(event) =>
+                                          void onUpdateSolid3dAngleMark(mark.id, {
+                                            label: event.target.value,
+                                          })
+                                        }
+                                      />
+                                      <div className="workbook-session__solid-angle-visibility">
+                                        <span>Скрыть</span>
+                                        <Switch
+                                          size="small"
+                                          checked={mark.visible === false}
+                                          onChange={(event) =>
+                                            void onUpdateSolid3dAngleMark(mark.id, {
+                                              visible: !event.target.checked,
+                                            })
+                                          }
+                                        />
+                                      </div>
+                                    </div>
+                                  </>
+                                );
+                              })()}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="workbook-session__hint">
+                          Добавьте пометку угла и задайте комментарий вручную.
+                        </p>
+                      )}
+                    </article>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="workbook-session__hint">
+                  Выберите 3D-фигуру для настройки отображения.
+                </p>
+              )
+            ) : (
+              <>
+                <div className="workbook-session__solid-section-actions">
+                  <Button
+                    size="small"
+                    variant={isSolid3dPointCollectionActive ? "contained" : "outlined"}
+                    onClick={onStartSolid3dSectionPointCollection}
+                    disabled={!canSelect}
+                  >
+                    Добавить точки сечения
+                  </Button>
+                  {isSolid3dPointCollectionActive ? (
+                    <>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        onClick={() => void onBuildSectionFromDraftPoints()}
+                        disabled={!solid3dDraftPoints || solid3dDraftPoints.points.length < 3}
+                      >
+                        Построить сечение
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={onClearSolid3dDraftPoints}
+                        disabled={!solid3dDraftPoints || solid3dDraftPoints.points.length === 0}
+                      >
+                        Очистить точки
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+
+                {isSolid3dPointCollectionActive ? (
+                  <Alert severity="info">
+                    Кликните по ребру или вершине 3D-фигуры, чтобы добавить точку сечения.
+                    {solid3dDraftPoints
+                      ? ` Точки: ${solid3dDraftPoints.points.length}/${solid3dDraftPointLimit}.`
+                      : null}
+                  </Alert>
+                ) : solid3dSectionPointTarget ? (
+                  <Alert severity="info">
+                    Выбрана вершина{" "}
+                    {selectedActiveSection?.points[solid3dSectionPointTarget.pointIndex]?.label ??
+                      getSectionPointLabel(solid3dSectionPointTarget.pointIndex)}
+                    . Кликните по ребру или вершине фигуры, чтобы перенести её.
+                  </Alert>
+                ) : null}
+
+                {selectedSolid3dState?.sections.length ? (
+                  <div className="workbook-session__solid-card-list">
+                    {selectedSolid3dState.sections.map((section) => (
+                      <article
+                        key={section.id}
+                        className={`workbook-session__solid-card ${
+                          activeSolidSectionId === section.id ? "is-selected" : ""
+                        }`}
+                        onClick={() => setActiveSolidSectionId(section.id)}
+                      >
+                        <div className="workbook-session__solid-card-head">
+                          <span className="workbook-session__solid-card-title">{section.name}</span>
+                          <div className="workbook-session__solid-card-controls">
+                            <input
+                              type="color"
+                              className="workbook-session__solid-color"
+                              value={section.color}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) =>
+                                void onUpdateSolid3dSection(section.id, {
+                                  color: event.target.value || "#ff8e3c",
+                                })
+                              }
+                            />
+                            <Switch
+                              size="small"
+                              checked={section.visible}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => {
+                                const nextVisible = event.target.checked;
+                                if (!nextVisible) {
+                                  setSolid3dSectionPointTarget((current) =>
+                                    current?.sectionId === section.id ? null : current
+                                  );
+                                }
+                                void onUpdateSolid3dSection(section.id, {
+                                  visible: nextVisible,
+                                });
+                              }}
+                            />
+                            <IconButton
+                              size="small"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void onDeleteSolid3dSection(section.id);
+                              }}
+                            >
+                              <CloseRoundedIcon />
+                            </IconButton>
+                          </div>
+                        </div>
+
+                        {section.points.length ? (
+                          <div className="workbook-session__solid-points">
+                            {section.points.map((point, index) => (
+                              <div
+                                key={`${section.id}-point-${index}`}
+                                className="workbook-session__solid-point-row"
+                              >
+                                <Chip
+                                  size="small"
+                                  clickable
+                                  label={point.label || getSectionPointLabel(index)}
+                                  color={
+                                    solid3dSectionPointTarget?.sectionId === section.id &&
+                                    solid3dSectionPointTarget.pointIndex === index
+                                      ? "primary"
+                                      : "default"
+                                  }
+                                  variant={
+                                    solid3dSectionPointTarget?.sectionId === section.id &&
+                                    solid3dSectionPointTarget.pointIndex === index
+                                      ? "filled"
+                                      : "outlined"
+                                  }
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setActiveSolidSectionId(section.id);
+                                    setSolid3dSectionPointTarget({
+                                      sectionId: section.id,
+                                      pointIndex: index,
+                                    });
+                                  }}
+                                />
+                                <TextField
+                                  size="small"
+                                  className="workbook-session__solid-input"
+                                  value={point.label || getSectionPointLabel(index)}
+                                  InputProps={{
+                                    readOnly: true,
+                                  }}
+                                  onClick={(event) => event.stopPropagation()}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="workbook-session__hint">
+                            Точки не заданы для этого сечения.
+                          </p>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="workbook-session__hint">
+                    Добавьте сечение, затем укажите точки на ребрах или вершинах фигуры.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        ) : tool === "eraser" ? (
+          <div className="workbook-session__settings">
+            <p className="workbook-session__hint">
+              Ластик стирает части штрихов и объектов без полного удаления.
+            </p>
+            <div className="workbook-session__settings-row">
+              <span>Радиус ластика</span>
+              <div className="workbook-session__line-range">
+                <input
+                  type="range"
+                  min={eraserRadiusMin}
+                  max={eraserRadiusMax}
+                  value={strokeWidth}
+                  onChange={(event) => onStrokeWidthChange(Number(event.target.value))}
+                />
+              </div>
+              <strong>{strokeWidth} px</strong>
+            </div>
+          </div>
+        ) : selectedFunctionGraphObject || tool === "function_graph" ? (
+          <div className="workbook-session__settings">
+            <p className="workbook-session__hint">
+              Настройки графиков перенесены во вкладку «График функции».
+            </p>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<ShowChartRoundedIcon />}
+              onClick={onOpenGraphPanel}
+            >
+              Открыть вкладку
+            </Button>
+          </div>
+        ) : selectedTextObject || tool === "text" ? (
+          <div className="workbook-session__settings">
+            <p className="workbook-session__hint">
+              {selectedTextObject
+                ? "Редактируйте текст прямо на доске или через параметры ниже."
+                : "Выберите текстовый блок на доске, чтобы включить параметры форматирования."}
+            </p>
+            <TextField
+              className="workbook-session__text-transform-field"
+              size="small"
+              multiline
+              minRows={2}
+              maxRows={5}
+              label="Текст"
+              value={selectedTextObject ? selectedTextDraft : ""}
+              disabled={!selectedTextObject}
+              onChange={(event) => {
+                if (!selectedTextObject) return;
+                const nextValue = event.target.value;
+                setSelectedTextDraft(nextValue);
+                onScheduleSelectedTextDraftCommit(nextValue);
+              }}
+              onBlur={() => {
+                void onFlushSelectedTextDraftCommit();
+              }}
+            />
+            <div className="workbook-session__settings-row">
+              <span>Шрифт</span>
+              <Select
+                native
+                size="small"
+                value={selectedTextFontFamily}
+                disabled={!selectedTextObject}
+                onChange={(event) =>
+                  void onUpdateSelectedTextFormatting(
+                    {},
+                    { textFontFamily: String(event.target.value) }
+                  )
+                }
+              >
+                {textFontOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="workbook-session__settings-row">
+              <span>Размер</span>
+              <div className="workbook-session__line-range">
+                <input
+                  type="range"
+                  min={12}
+                  max={72}
+                  step={1}
+                  value={selectedTextFontSizeDraft}
+                  disabled={!selectedTextObject}
+                  onChange={(event) => {
+                    if (!selectedTextObject) return;
+                    const nextSize = Math.max(12, Math.min(72, Number(event.target.value) || 18));
+                    setSelectedTextFontSizeDraft(nextSize);
+                    void onUpdateSelectedTextFormatting({ fontSize: nextSize });
+                  }}
+                />
+              </div>
+            </div>
+            <div className="workbook-session__text-controls-grid">
+              <div className="workbook-session__text-icon-row">
+                <Tooltip title="Жирный" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      className={selectedTextBold ? "is-active" : ""}
+                      disabled={!selectedTextObject}
+                      onClick={() =>
+                        void onUpdateSelectedTextFormatting({}, { textBold: !selectedTextBold })
+                      }
+                    >
+                      <FormatBoldRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Курсив" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      className={selectedTextItalic ? "is-active" : ""}
+                      disabled={!selectedTextObject}
+                      onClick={() =>
+                        void onUpdateSelectedTextFormatting({}, { textItalic: !selectedTextItalic })
+                      }
+                    >
+                      <FormatItalicRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Подчеркнуть" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      className={selectedTextUnderline ? "is-active" : ""}
+                      disabled={!selectedTextObject}
+                      onClick={() =>
+                        void onUpdateSelectedTextFormatting(
+                          {},
+                          { textUnderline: !selectedTextUnderline }
+                        )
+                      }
+                    >
+                      <FormatUnderlinedRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </div>
+              <div className="workbook-session__text-icon-row">
+                <Tooltip title="Слева" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      className={selectedTextAlign === "left" ? "is-active" : ""}
+                      disabled={!selectedTextObject}
+                      onClick={() => void onUpdateSelectedTextFormatting({}, { textAlign: "left" })}
+                    >
+                      <FormatAlignLeftRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="По центру" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      className={selectedTextAlign === "center" ? "is-active" : ""}
+                      disabled={!selectedTextObject}
+                      onClick={() =>
+                        void onUpdateSelectedTextFormatting({}, { textAlign: "center" })
+                      }
+                    >
+                      <FormatAlignCenterRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Справа" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      className={selectedTextAlign === "right" ? "is-active" : ""}
+                      disabled={!selectedTextObject}
+                      onClick={() =>
+                        void onUpdateSelectedTextFormatting({}, { textAlign: "right" })
+                      }
+                    >
+                      <FormatAlignRightRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </div>
+              <div className="workbook-session__text-color-row">
+                <Tooltip title="Цвет текста" arrow>
+                  <span className="workbook-session__text-color-control">
+                    <FormatColorTextRoundedIcon fontSize="small" />
+                    <input
+                      type="color"
+                      value={selectedTextColor}
+                      disabled={!selectedTextObject}
+                      onChange={(event) =>
+                        void onUpdateSelectedTextFormatting(
+                          { color: event.target.value || "#172039" },
+                          { textColor: event.target.value || "#172039" }
+                        )
+                      }
+                    />
+                  </span>
+                </Tooltip>
+                <Tooltip title="Фон текста" arrow>
+                  <span className="workbook-session__text-color-control">
+                    <FormatColorFillRoundedIcon fontSize="small" />
+                    <input
+                      type="color"
+                      value={
+                        selectedTextBackground === "transparent"
+                          ? "#ffffff"
+                          : selectedTextBackground
+                      }
+                      disabled={!selectedTextObject}
+                      onChange={(event) =>
+                        void onUpdateSelectedTextFormatting(
+                          {},
+                          { textBackground: event.target.value || "transparent" }
+                        )
+                      }
+                    />
+                  </span>
+                </Tooltip>
+                <Tooltip title="Убрать фон текста" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      disabled={!selectedTextObject}
+                      onClick={() =>
+                        void onUpdateSelectedTextFormatting({}, { textBackground: "transparent" })
+                      }
+                    >
+                      <CloseRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </div>
+            </div>
+          </div>
+        ) : selectedDividerObject || tool === "divider" ? (
+          <div className="workbook-session__settings">
+            <p className="workbook-session__hint">
+              Объект: {selectedDividerObject ? "Разделитель" : "Новый разделитель"}
+            </p>
+            <div className="workbook-session__settings-row">
+              <span>Стиль разделителя</span>
+              <div className="workbook-session__toggle-group">
+                <button
+                  type="button"
+                  className={
+                    (selectedDividerObject ? selectedDividerStyle : "dashed") === "solid"
+                      ? "is-active"
+                      : ""
+                  }
+                  onClick={() => {
+                    if (selectedDividerObject) {
+                      void onUpdateSelectedDividerMeta({ lineStyle: "solid" });
+                    }
+                  }}
+                  disabled={!selectedDividerObject}
+                >
+                  Сплошной
+                </button>
+                <button
+                  type="button"
+                  className={
+                    (selectedDividerObject ? selectedDividerStyle : "dashed") === "dashed"
+                      ? "is-active"
+                      : ""
+                  }
+                  onClick={() => {
+                    if (selectedDividerObject) {
+                      void onUpdateSelectedDividerMeta({ lineStyle: "dashed" });
+                    }
+                  }}
+                  disabled={!selectedDividerObject}
+                >
+                  Пунктирный
+                </button>
+              </div>
+            </div>
+            <div className="workbook-session__settings-row">
+              <span>Цвет</span>
+              <input
+                type="color"
+                value={selectedDividerColor}
+                disabled={!selectedDividerObject}
+                onChange={(event) =>
+                  void onUpdateSelectedDividerObject({
+                    color: event.target.value || "#4f63ff",
+                  })
+                }
+              />
+            </div>
+            <div className="workbook-session__settings-row">
+              <span>Толщина</span>
+              <div className="workbook-session__line-range">
+                <input
+                  type="range"
+                  min={1}
+                  max={18}
+                  step={1}
+                  value={dividerWidthDraft}
+                  disabled={!selectedDividerObject}
+                  onChange={(event) => {
+                    const nextWidth = Math.max(1, Math.min(18, Number(event.target.value) || 1));
+                    setDividerWidthDraft(nextWidth);
+                    if (selectedDividerObject) {
+                      void onUpdateSelectedDividerObject({ strokeWidth: nextWidth });
+                    }
+                  }}
+                  onMouseUp={() => void onCommitSelectedDividerWidth()}
+                  onTouchEnd={() => void onCommitSelectedDividerWidth()}
+                  onBlur={() => void onCommitSelectedDividerWidth()}
+                />
+              </div>
+            </div>
+          </div>
+        ) : selectedLineObject || tool === "line" ? (
+          <div className="workbook-session__settings">
+            <p className="workbook-session__hint">
+              Объект: {selectedLineObject ? selectedObjectLabel : "Новая линия"}
+            </p>
+            <div className="workbook-session__settings-row">
+              <span>Тип линии</span>
+              <div className="workbook-session__toggle-group">
+                <button
+                  type="button"
+                  className={!selectedLineObject || selectedLineKind === "line" ? "is-active" : ""}
+                  onClick={() => {
+                    if (selectedLineObject) {
+                      void onUpdateSelectedLineMeta({ lineKind: "line" });
+                    }
+                  }}
+                >
+                  Линия
+                </button>
+                <button
+                  type="button"
+                  className={
+                    selectedLineObject && selectedLineKind === "segment" ? "is-active" : ""
+                  }
+                  onClick={() => {
+                    if (selectedLineObject) {
+                      void onUpdateSelectedLineMeta({ lineKind: "segment" });
+                    }
+                  }}
+                  disabled={!selectedLineObject}
+                >
+                  Отрезок
+                </button>
+              </div>
+            </div>
+            <div className="workbook-session__settings-row">
+              <span>Стиль линии</span>
+              <div className="workbook-session__toggle-group">
+                <button
+                  type="button"
+                  className={(selectedLineObject ? selectedLineStyle : lineStyle) === "solid" ? "is-active" : ""}
+                  onClick={() => {
+                    setLineStyle("solid");
+                    if (selectedLineObject) {
+                      void onUpdateSelectedLineMeta({ lineStyle: "solid" });
+                    }
+                  }}
+                >
+                  Сплошная
+                </button>
+                <button
+                  type="button"
+                  className={(selectedLineObject ? selectedLineStyle : lineStyle) === "dashed" ? "is-active" : ""}
+                  onClick={() => {
+                    setLineStyle("dashed");
+                    if (selectedLineObject) {
+                      void onUpdateSelectedLineMeta({ lineStyle: "dashed" });
+                    }
+                  }}
+                >
+                  Пунктирная
+                </button>
+              </div>
+            </div>
+            <div className="workbook-session__settings-row">
+              <span>Цвет линии</span>
+              <input
+                type="color"
+                value={selectedLineColor}
+                disabled={!selectedLineObject}
+                onChange={(event) =>
+                  void onUpdateSelectedLineObject({
+                    color: event.target.value || "#4f63ff",
+                  })
+                }
+              />
+            </div>
+            <div className="workbook-session__settings-row">
+              <span>Толщина линии</span>
+              <div className="workbook-session__line-range">
+                <input
+                  type="range"
+                  min={1}
+                  max={18}
+                  step={1}
+                  value={lineWidthDraft}
+                  disabled={!selectedLineObject}
+                  onChange={(event) => {
+                    const nextWidth = Math.max(1, Math.min(18, Number(event.target.value) || 1));
+                    setLineWidthDraft(nextWidth);
+                    if (selectedLineObject) {
+                      void onUpdateSelectedLineObject({ strokeWidth: nextWidth });
+                    }
+                  }}
+                  onMouseUp={() => void onCommitSelectedLineWidth()}
+                  onTouchEnd={() => void onCommitSelectedLineWidth()}
+                  onBlur={() => void onCommitSelectedLineWidth()}
+                />
+              </div>
+            </div>
+            {selectedLineObject && selectedLineKind === "segment" ? (
+              <div className="workbook-session__line-endpoints-row">
+                <TextField
+                  size="small"
+                  label="A"
+                  value={selectedLineStartLabelDraft}
+                  onChange={(event) => {
+                    const nextValue = event.target.value.slice(0, 12);
+                    setSelectedLineStartLabelDraft(nextValue);
+                    void onCommitSelectedLineEndpointLabel("start", nextValue);
+                  }}
+                  onBlur={() => void onCommitSelectedLineEndpointLabel("start")}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    event.currentTarget.blur();
+                  }}
+                />
+                <TextField
+                  size="small"
+                  label="B"
+                  value={selectedLineEndLabelDraft}
+                  onChange={(event) => {
+                    const nextValue = event.target.value.slice(0, 12);
+                    setSelectedLineEndLabelDraft(nextValue);
+                    void onCommitSelectedLineEndpointLabel("end", nextValue);
+                  }}
+                  onBlur={() => void onCommitSelectedLineEndpointLabel("end")}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    event.currentTarget.blur();
+                  }}
+                />
+              </div>
+            ) : selectedLineObject ? (
+              <p className="workbook-session__hint">
+                Чтобы подписывать концы, переключите объект в режим «Отрезок».
+              </p>
+            ) : null}
+          </div>
+        ) : selectedPointObject || tool === "point" ? (
+          <div className="workbook-session__settings">
+            <p className="workbook-session__hint">
+              {selectedPointObject
+                ? "Точка выбрана. Переименование доступно по правому клику."
+                : "Инструмент «Точка»: ставьте точки кликом по доске."}
+            </p>
+            <div className="workbook-session__geometry-actions">
+              <Button
+                size="small"
+                variant="outlined"
+                disabled={!canDelete || pointObjectCount < 2}
+                onClick={() => void onConnectPointObjectsChronologically()}
+              >
+                Объединить точки
+              </Button>
+            </div>
+          </div>
+        ) : selectedShape2dObject ? (
+          <div className="workbook-session__solid-inspector">
+            <div className="workbook-session__solid-subtabs">
+              <button
+                type="button"
+                className={shape2dInspectorTab === "display" ? "is-active" : ""}
+                onClick={() => setShape2dInspectorTab("display")}
+              >
+                Вид
+              </button>
+              <button
+                type="button"
+                className={shape2dInspectorTab === "vertices" ? "is-active" : ""}
+                onClick={() => setShape2dInspectorTab("vertices")}
+              >
+                Вершины
+              </button>
+              {selectedShape2dHasAngles ? (
+                <button
+                  type="button"
+                  className={shape2dInspectorTab === "angles" ? "is-active" : ""}
+                  onClick={() => setShape2dInspectorTab("angles")}
+                >
+                  Углы
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={shape2dInspectorTab === "segments" ? "is-active" : ""}
+                onClick={() => setShape2dInspectorTab("segments")}
+              >
+                Отрезки
+              </button>
+            </div>
+            <div className="workbook-session__solid-card-list workbook-session__solid-card-list--figure">
+              {shape2dInspectorTab === "display" ? (
+                <article className="workbook-session__solid-card">
+                  <div className="workbook-session__solid-card-head">
+                    <span className="workbook-session__solid-card-title">Фигура</span>
+                  </div>
+                  <p className="workbook-session__hint">{selectedObjectLabel}</p>
+                  <p className="workbook-session__hint">
+                    Геометрические подписи и пометки вынесены в профильные вкладки.
+                  </p>
+                </article>
+              ) : null}
+              {shape2dInspectorTab === "vertices" ? (
+                <article className="workbook-session__solid-card">
+                  <div className="workbook-session__solid-card-head">
+                    <span className="workbook-session__solid-card-title">Вершины</span>
+                  </div>
+                  {canToggleSelectedObjectLabels ? (
+                    <div className="workbook-session__solid-card-row">
+                      <span>Показывать названия вершин</span>
+                      <Switch
+                        size="small"
+                        checked={selectedObjectShowLabels}
+                        onChange={(event) =>
+                          void onUpdateSelectedObjectMeta({
+                            showLabels: event.target.checked,
+                          })
+                        }
+                      />
+                    </div>
+                  ) : null}
+                  <div className="workbook-session__solid-points">
+                    {selectedShape2dLabels.map((label, index) => (
+                      <div
+                        key={`shape-vertex-${selectedShape2dObject.id}-${index}`}
+                        className="workbook-session__solid-point-row"
+                      >
+                        <TextField
+                          size="small"
+                          className="workbook-session__solid-input workbook-session__solid-input--compact"
+                          label={`Вершина ${label}`}
+                          value={shapeVertexLabelDrafts[index] ?? ""}
+                          onChange={(event) => {
+                            const nextValue = event.target.value.slice(0, 12);
+                            setShapeVertexLabelDrafts((current) => {
+                              const next = [...current];
+                              next[index] = nextValue;
+                              return next;
+                            });
+                            void onRenameSelectedShape2dVertex(index, nextValue);
+                          }}
+                          onBlur={() =>
+                            void onRenameSelectedShape2dVertex(
+                              index,
+                              shapeVertexLabelDrafts[index] ?? ""
+                            )
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter") return;
+                            event.currentTarget.blur();
+                          }}
+                        />
+                        <input
+                          type="color"
+                          className="workbook-session__solid-color"
+                          value={selectedShape2dVertexColors[index] ?? "#4f63ff"}
+                          onChange={(event) =>
+                            void onUpdateSelectedShape2dVertexColor(index, event.target.value)
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              ) : null}
+              {shape2dInspectorTab === "angles" && selectedShape2dHasAngles ? (
+                <article className="workbook-session__solid-card">
+                  <div className="workbook-session__solid-card-head">
+                    <span className="workbook-session__solid-card-title">Углы</span>
+                  </div>
+                  <div className="workbook-session__solid-card-row">
+                    <span>Показывать углы</span>
+                    <Switch
+                      size="small"
+                      checked={selectedShape2dShowAngles}
+                      onChange={(event) =>
+                        void onUpdateSelectedShape2dMeta({
+                          showAngles: event.target.checked,
+                        })
+                      }
+                    />
+                  </div>
+                  {selectedShape2dHasAngles ? (
+                    <div className="workbook-session__solid-points">
+                      {selectedShape2dLabels.map((label, index) => (
+                        <div
+                          key={`shape-angle-note-${selectedShape2dObject.id}-${index}`}
+                          className="workbook-session__solid-point-row"
+                        >
+                          <TextField
+                            size="small"
+                            className="workbook-session__solid-input workbook-session__solid-input--compact"
+                            label={`Угол ∠${label}`}
+                            placeholder="Например: 45"
+                            value={shapeAngleNoteDrafts[index] ?? ""}
+                            onChange={(event) => {
+                              const nextValue = event.target.value.slice(0, 24);
+                              setShapeAngleNoteDrafts((current) => {
+                                const next = [...current];
+                                next[index] = nextValue;
+                                return next;
+                              });
+                              void onUpdateSelectedShape2dAngleNote(index, nextValue);
+                            }}
+                            onBlur={() =>
+                              void onUpdateSelectedShape2dAngleNote(
+                                index,
+                                shapeAngleNoteDrafts[index] ?? ""
+                              )
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key !== "Enter") return;
+                              event.currentTarget.blur();
+                            }}
+                          />
+                          <input
+                            type="color"
+                            className="workbook-session__solid-color"
+                            value={selectedShape2dAngleColors[index] ?? "#4f63ff"}
+                            onChange={(event) =>
+                              void onUpdateSelectedShape2dAngleColor(index, event.target.value)
+                            }
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="workbook-session__hint">У выбранного объекта нет углов.</p>
+                  )}
+                </article>
+              ) : null}
+              {shape2dInspectorTab === "segments" ? (
+                <article className="workbook-session__solid-card">
+                  <div className="workbook-session__solid-card-head">
+                    <span className="workbook-session__solid-card-title">Отрезки</span>
+                  </div>
+                  <div className="workbook-session__solid-points">
+                    {selectedShape2dSegments.map((segment, index) => (
+                      <div
+                        key={`shape-segment-note-${selectedShape2dObject.id}-${index}`}
+                        className="workbook-session__solid-point-row"
+                      >
+                        <TextField
+                          size="small"
+                          className="workbook-session__solid-input workbook-session__solid-input--compact"
+                          label={`Отрезок ${segment}`}
+                          placeholder="Например: 5"
+                          value={shapeSegmentNoteDrafts[index] ?? ""}
+                          onChange={(event) => {
+                            const nextValue = event.target.value.slice(0, 24);
+                            setShapeSegmentNoteDrafts((current) => {
+                              const next = [...current];
+                              next[index] = nextValue;
+                              return next;
+                            });
+                            void onUpdateSelectedShape2dSegmentNote(index, nextValue);
+                          }}
+                          onBlur={() =>
+                            void onUpdateSelectedShape2dSegmentNote(
+                              index,
+                              shapeSegmentNoteDrafts[index] ?? ""
+                            )
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter") return;
+                            event.currentTarget.blur();
+                          }}
+                        />
+                        <input
+                          type="color"
+                          className="workbook-session__solid-color"
+                          value={selectedShape2dSegmentColors[index] ?? "#4f63ff"}
+                          onChange={(event) =>
+                            void onUpdateSelectedShape2dSegmentColor(index, event.target.value)
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <p className="workbook-session__hint">Объект: {selectedObjectLabel}.</p>
+        )}
+      </div>
+    </div>
+  );
+});

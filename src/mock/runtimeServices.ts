@@ -1,4 +1,4 @@
-type RedisClient = import("redis").RedisClientType;
+type RedisClient = ReturnType<typeof import("redis").createClient>;
 
 const REDIS_URL = String(process.env.REDIS_URL ?? "").trim();
 const WORKBOOK_EVENT_CHANNEL_PREFIX = "mw:workbook:events:";

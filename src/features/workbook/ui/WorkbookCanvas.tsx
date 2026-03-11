@@ -1,6 +1,8 @@
 import {
+  memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -40,10 +42,15 @@ import {
   sanitizeFunctionGraphDrafts,
   type GraphFunctionDraft,
 } from "../model/functionGraph";
+import {
+  getWorkbookPolygonPoints,
+  type WorkbookPolygonPreset,
+} from "../model/shapeGeometry";
 
 type WorkbookCanvasProps = {
   boardStrokes: WorkbookStroke[];
   annotationStrokes: WorkbookStroke[];
+  previewStrokes?: WorkbookStroke[];
   boardObjects: WorkbookBoardObject[];
   constraints: WorkbookConstraint[];
   layer: WorkbookLayer;
@@ -53,12 +60,7 @@ type WorkbookCanvasProps = {
   authorUserId: string;
   polygonSides: number;
   polygonMode: "regular" | "points";
-  polygonPreset?:
-    | "regular"
-    | "trapezoid"
-    | "trapezoid_right"
-    | "trapezoid_scalene"
-    | "rhombus";
+  polygonPreset?: WorkbookPolygonPreset;
   textPreset: string;
   formulaLatex?: string;
   formulaMathMl?: string;
@@ -102,6 +104,7 @@ type WorkbookCanvasProps = {
   onSelectedObjectChange: (objectId: string | null) => void;
   onSelectedConstraintChange: (constraintId: string | null) => void;
   onStrokeCommit: (stroke: WorkbookStroke) => void;
+  onStrokePreview?: (payload: { stroke: WorkbookStroke; previewVersion: number }) => void;
   onStrokeDelete: (strokeId: string, layer: WorkbookLayer) => void;
   onStrokeReplace: (payload: {
     stroke: WorkbookStroke;
@@ -203,6 +206,20 @@ type ShapeDraft = {
     | "solid3d";
   start: WorkbookPoint;
   current: WorkbookPoint;
+};
+
+type ActiveStrokeDraft = Omit<WorkbookStroke, "points"> & {
+  previewVersion: number;
+};
+
+type PendingCommittedStrokeBridge = {
+  id: string;
+  layer: WorkbookLayer;
+  page: number;
+  color: string;
+  width: number;
+  tool: WorkbookTool;
+  path: string;
 };
 
 type ObjectEraserCut = {
@@ -307,6 +324,31 @@ const toPath = (points: WorkbookPoint[]) => {
   return points
     .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
     .join(" ");
+};
+
+const STROKE_PREVIEW_MAX_POINTS = 96;
+const STROKE_PREVIEW_SEND_INTERVAL_MS = 32;
+
+const buildStrokePreviewPoints = (points: WorkbookPoint[]) => {
+  if (points.length <= STROKE_PREVIEW_MAX_POINTS) {
+    return [...points];
+  }
+  const output: WorkbookPoint[] = [points[0]];
+  const interiorBudget = Math.max(1, STROKE_PREVIEW_MAX_POINTS - 2);
+  const stride = Math.max(1, Math.ceil((points.length - 2) / interiorBudget));
+  for (let index = stride; index < points.length - 1; index += stride) {
+    const point = points[index];
+    const previous = output[output.length - 1];
+    if (!previous || Math.hypot(point.x - previous.x, point.y - previous.y) >= 0.18) {
+      output.push(point);
+    }
+  }
+  const lastPoint = points[points.length - 1];
+  const tail = output[output.length - 1];
+  if (!tail || Math.hypot(lastPoint.x - tail.x, lastPoint.y - tail.y) >= 0.01) {
+    output.push(lastPoint);
+  }
+  return output;
 };
 
 const normalizeRect = (a: WorkbookPoint, b: WorkbookPoint): Rect => ({
@@ -862,74 +904,27 @@ const isInsideRect = (point: WorkbookPoint, rect: Rect) =>
   point.y >= rect.y &&
   point.y <= rect.y + rect.height;
 
-const createPolygonPoints = (
-  rect: Rect,
-  sides: number,
-  preset:
-    | "regular"
-    | "trapezoid"
-    | "trapezoid_right"
-    | "trapezoid_scalene"
-    | "rhombus" = "regular"
-) => {
-  if (preset === "trapezoid") {
-    return [
-      { x: rect.x + rect.width * 0.22, y: rect.y },
-      { x: rect.x + rect.width * 0.78, y: rect.y },
-      { x: rect.x + rect.width, y: rect.y + rect.height },
-      { x: rect.x, y: rect.y + rect.height },
-    ];
-  }
-  if (preset === "rhombus") {
-    return [
-      { x: rect.x + rect.width * 0.5, y: rect.y },
-      { x: rect.x + rect.width, y: rect.y + rect.height * 0.5 },
-      { x: rect.x + rect.width * 0.5, y: rect.y + rect.height },
-      { x: rect.x, y: rect.y + rect.height * 0.5 },
-    ];
-  }
-  if (preset === "trapezoid_right") {
-    return [
-      { x: rect.x + rect.width * 0.24, y: rect.y },
-      { x: rect.x + rect.width * 0.72, y: rect.y },
-      { x: rect.x + rect.width, y: rect.y + rect.height },
-      { x: rect.x + rect.width * 0.24, y: rect.y + rect.height },
-    ];
-  }
-  if (preset === "trapezoid_scalene") {
-    return [
-      { x: rect.x + rect.width * 0.18, y: rect.y + rect.height * 0.12 },
-      { x: rect.x + rect.width * 0.76, y: rect.y },
-      { x: rect.x + rect.width, y: rect.y + rect.height },
-      { x: rect.x, y: rect.y + rect.height * 0.94 },
-    ];
-  }
-  const cx = rect.x + rect.width / 2;
-  const cy = rect.y + rect.height / 2;
-  const radiusX = rect.width / 2;
-  const radiusY = rect.height / 2;
-  const safeSides = Math.max(3, Math.min(12, Math.floor(sides)));
-  return Array.from({ length: safeSides }, (_, index) => {
-    const angle = (-Math.PI / 2) + (Math.PI * 2 * index) / safeSides;
-    return {
-      x: cx + radiusX * Math.cos(angle),
-      y: cy + radiusY * Math.sin(angle),
-    };
-  });
-};
-
 const createPolygonPath = (
   rect: Rect,
   sides: number,
-  preset:
-    | "regular"
-    | "trapezoid"
-    | "trapezoid_right"
-    | "trapezoid_scalene"
-    | "rhombus" = "regular"
+  preset: WorkbookPolygonPreset = "regular"
 ) => {
-  const points = createPolygonPoints(rect, sides, preset);
+  const points = getWorkbookPolygonPoints(rect, sides, preset);
   return `${toPath(points)} Z`;
+};
+
+const resolvePolygonFigureKind = (
+  sides: number,
+  preset: WorkbookPolygonPreset
+): string | undefined => {
+  if (preset === "rhombus") return "rhombus";
+  if (preset === "trapezoid") return "trapezoid_isosceles";
+  if (preset === "trapezoid_right") return "trapezoid_right";
+  if (preset === "trapezoid_scalene") return "trapezoid_scalene";
+  if (sides === 3) return "triangle";
+  if (sides === 5) return "pentagon";
+  if (sides === 6) return "hexagon";
+  return undefined;
 };
 
 const getFigureVertexLabel = (index: number) => {
@@ -965,7 +960,7 @@ const resolve2dFigureVertices = (object: WorkbookBoardObject, normalized: Rect) 
       object.meta?.polygonPreset === "rhombus"
         ? object.meta.polygonPreset
         : "regular";
-    return createPolygonPoints(normalized, object.sides ?? 5, objectPreset);
+    return getWorkbookPolygonPoints(normalized, object.sides ?? 5, objectPreset);
   }
   return [] as WorkbookPoint[];
 };
@@ -1245,9 +1240,10 @@ const useElementSize = (element: HTMLDivElement | null) => {
   return size;
 };
 
-export function WorkbookCanvas({
+export const WorkbookCanvas = memo(function WorkbookCanvas({
   boardStrokes,
   annotationStrokes,
+  previewStrokes = [],
   boardObjects,
   constraints,
   layer,
@@ -1292,6 +1288,7 @@ export function WorkbookCanvas({
   onSelectedObjectChange,
   onSelectedConstraintChange,
   onStrokeCommit,
+  onStrokePreview,
   onStrokeDelete,
   onStrokeReplace,
   onObjectCreate,
@@ -1311,7 +1308,6 @@ export function WorkbookCanvas({
   onRequestSelectTool,
   onLaserPoint,
   onLaserClear,
-  onEraserRadiusChange,
   solid3dInsertPreset = null,
   onSolid3dInsertConsumed,
 }: WorkbookCanvasProps) {
@@ -1319,9 +1315,13 @@ export function WorkbookCanvas({
   const pointerIdRef = useRef<number | null>(null);
   const lastRealtimeUpdateAtRef = useRef<Map<string, number>>(new Map());
   const lastRealtimePatchSignatureRef = useRef<Map<string, string>>(new Map());
-  const [points, setPoints] = useState<WorkbookPoint[]>([]);
   const strokePointsRef = useRef<WorkbookPoint[]>([]);
+  const activeStrokeRef = useRef<ActiveStrokeDraft | null>(null);
+  const draftStrokePathRef = useRef<SVGPathElement | null>(null);
+  const committedStrokeBridgePathRef = useRef<SVGPathElement | null>(null);
+  const pendingCommittedStrokeBridgeRef = useRef<PendingCommittedStrokeBridge | null>(null);
   const strokeFlushFrameRef = useRef<number | null>(null);
+  const strokePreviewTimerRef = useRef<number | null>(null);
   const [shapeDraft, setShapeDraft] = useState<ShapeDraft | null>(null);
   const [polygonPointDraft, setPolygonPointDraft] = useState<WorkbookPoint[]>([]);
   const [polygonHoverPoint, setPolygonHoverPoint] = useState<WorkbookPoint | null>(null);
@@ -1376,19 +1376,96 @@ export function WorkbookCanvas({
     });
   }, [pointerPoint, pointerPoints]);
 
-  const flushStrokePointsToState = useCallback(() => {
+  const flushStrokeDraftPath = useCallback(() => {
     strokeFlushFrameRef.current = null;
-    setPoints([...strokePointsRef.current]);
+    draftStrokePathRef.current?.setAttribute("d", toPath(strokePointsRef.current));
   }, []);
+
+  const clearCommittedStrokeBridge = useCallback(() => {
+    pendingCommittedStrokeBridgeRef.current = null;
+    const bridgeNode = committedStrokeBridgePathRef.current;
+    if (!bridgeNode) return;
+    bridgeNode.setAttribute("d", "");
+  }, []);
+
+  const showCommittedStrokeBridge = useCallback(
+    (stroke: WorkbookStroke, path: string) => {
+      pendingCommittedStrokeBridgeRef.current = {
+        id: stroke.id,
+        layer: stroke.layer,
+        page: Math.max(1, stroke.page ?? currentPage),
+        color: stroke.color,
+        width: Math.max(1, stroke.width),
+        tool: stroke.tool,
+        path,
+      };
+      const bridgeNode = committedStrokeBridgePathRef.current;
+      if (!bridgeNode) return;
+      bridgeNode.setAttribute("d", path);
+      bridgeNode.setAttribute("stroke", stroke.color);
+      bridgeNode.setAttribute("stroke-width", String(Math.max(1, stroke.width)));
+      bridgeNode.setAttribute("opacity", stroke.tool === "highlighter" ? "0.5" : "1");
+    },
+    [currentPage]
+  );
+
+  useLayoutEffect(() => {
+    const pendingStroke = pendingCommittedStrokeBridgeRef.current;
+    if (!pendingStroke) return;
+    if (pendingStroke.page !== currentPage) {
+      clearCommittedStrokeBridge();
+      return;
+    }
+    const currentLayerStrokes =
+      pendingStroke.layer === "annotations" ? annotationStrokes : boardStrokes;
+    if (currentLayerStrokes.some((stroke) => stroke.id === pendingStroke.id)) {
+      clearCommittedStrokeBridge();
+    }
+  }, [annotationStrokes, boardStrokes, clearCommittedStrokeBridge, currentPage]);
+
+  const emitStrokePreview = useCallback(() => {
+    if (!onStrokePreview) return;
+    const activeStroke = activeStrokeRef.current;
+    if (!activeStroke || strokePointsRef.current.length === 0) return;
+    activeStroke.previewVersion += 1;
+    onStrokePreview({
+      stroke: {
+        ...activeStroke,
+        points: buildStrokePreviewPoints(strokePointsRef.current),
+      },
+      previewVersion: activeStroke.previewVersion,
+    });
+  }, [onStrokePreview]);
+
+  const scheduleStrokePreview = useCallback(
+    (force = false) => {
+      if (!onStrokePreview) return;
+      if (force) {
+        if (strokePreviewTimerRef.current !== null) {
+          window.clearTimeout(strokePreviewTimerRef.current);
+          strokePreviewTimerRef.current = null;
+        }
+        emitStrokePreview();
+        return;
+      }
+      if (strokePreviewTimerRef.current !== null) return;
+      strokePreviewTimerRef.current = window.setTimeout(() => {
+        strokePreviewTimerRef.current = null;
+        emitStrokePreview();
+      }, STROKE_PREVIEW_SEND_INTERVAL_MS);
+    },
+    [emitStrokePreview, onStrokePreview]
+  );
 
   const enqueueStrokePoints = useCallback(
     (nextPoints: WorkbookPoint[]) => {
       if (nextPoints.length === 0) return;
       strokePointsRef.current.push(...nextPoints);
+      scheduleStrokePreview();
       if (strokeFlushFrameRef.current !== null) return;
-      strokeFlushFrameRef.current = window.requestAnimationFrame(flushStrokePointsToState);
+      strokeFlushFrameRef.current = window.requestAnimationFrame(flushStrokeDraftPath);
     },
-    [flushStrokePointsToState]
+    [flushStrokeDraftPath, scheduleStrokePreview]
   );
 
   useEffect(
@@ -1396,6 +1473,10 @@ export function WorkbookCanvas({
       if (strokeFlushFrameRef.current !== null) {
         window.cancelAnimationFrame(strokeFlushFrameRef.current);
         strokeFlushFrameRef.current = null;
+      }
+      if (strokePreviewTimerRef.current !== null) {
+        window.clearTimeout(strokePreviewTimerRef.current);
+        strokePreviewTimerRef.current = null;
       }
     },
     []
@@ -1913,7 +1994,6 @@ export function WorkbookCanvas({
       onStrokeReplace,
       isObjectErasedByCircle,
       isStrokeErasedByCircle,
-      normalizeObjectEraserCut,
       onObjectUpdate,
       onStrokeDelete,
       width,
@@ -2219,12 +2299,30 @@ export function WorkbookCanvas({
   const startStroke = (event: PointerEvent<SVGSVGElement>, svg: SVGSVGElement) => {
     pointerIdRef.current = event.pointerId;
     const start = mapPointer(svg, event.clientX, event.clientY);
+    const createdAt = new Date().toISOString();
+    const strokeTool = tool === "eraser" ? "pen" : tool;
     if (strokeFlushFrameRef.current !== null) {
       window.cancelAnimationFrame(strokeFlushFrameRef.current);
       strokeFlushFrameRef.current = null;
     }
+    if (strokePreviewTimerRef.current !== null) {
+      window.clearTimeout(strokePreviewTimerRef.current);
+      strokePreviewTimerRef.current = null;
+    }
+    activeStrokeRef.current = {
+      id: generateId(),
+      layer,
+      color: tool === "eraser" ? "var(--surface-soft)" : color,
+      width: tool === "eraser" ? Math.max(8, width * 1.6) : width,
+      tool: strokeTool,
+      page: currentPage,
+      authorUserId,
+      createdAt,
+      previewVersion: 0,
+    };
     strokePointsRef.current = [start];
-    setPoints([start]);
+    draftStrokePathRef.current?.setAttribute("d", toPath(strokePointsRef.current));
+    scheduleStrokePreview(true);
     svg.setPointerCapture(event.pointerId);
   };
 
@@ -3012,32 +3110,45 @@ export function WorkbookCanvas({
       window.cancelAnimationFrame(strokeFlushFrameRef.current);
       strokeFlushFrameRef.current = null;
     }
+    if (strokePreviewTimerRef.current !== null) {
+      window.clearTimeout(strokePreviewTimerRef.current);
+      strokePreviewTimerRef.current = null;
+    }
     const fallbackPoint = mapPointer(svg, event.clientX, event.clientY);
-    const bufferedPoints =
-      strokePointsRef.current.length > 0
-        ? strokePointsRef.current
-        : points.length > 0
-          ? points
-          : [fallbackPoint];
+    const bufferedPoints = strokePointsRef.current.length > 0 ? strokePointsRef.current : [fallbackPoint];
     const lastPoint = bufferedPoints[bufferedPoints.length - 1];
     const finalPoints =
       !lastPoint || Math.hypot(fallbackPoint.x - lastPoint.x, fallbackPoint.y - lastPoint.y) > 0.12
         ? [...bufferedPoints, fallbackPoint]
         : [...bufferedPoints];
     if (finalPoints.length === 0) return;
-    const strokeTool = tool === "eraser" ? "pen" : tool;
-    onStrokeCommit({
-      id: generateId(),
-      layer,
-      color: tool === "eraser" ? "var(--surface-soft)" : color,
-      width: tool === "eraser" ? Math.max(8, width * 1.6) : width,
-      tool: strokeTool,
+    const activeStroke = activeStrokeRef.current;
+    if (activeStroke && onStrokePreview) {
+      activeStroke.previewVersion += 1;
+      onStrokePreview({
+        stroke: {
+          ...activeStroke,
+          points: buildStrokePreviewPoints(finalPoints),
+        },
+        previewVersion: activeStroke.previewVersion,
+      });
+    }
+    const committedStroke: WorkbookStroke = {
+      id: activeStroke?.id ?? generateId(),
+      layer: activeStroke?.layer ?? layer,
+      color: activeStroke?.color ?? (tool === "eraser" ? "var(--surface-soft)" : color),
+      width: activeStroke?.width ?? (tool === "eraser" ? Math.max(8, width * 1.6) : width),
+      tool: activeStroke?.tool ?? (tool === "eraser" ? "pen" : tool),
       points: finalPoints,
-      authorUserId,
-      createdAt: new Date().toISOString(),
-    });
+      page: activeStroke?.page ?? currentPage,
+      authorUserId: activeStroke?.authorUserId ?? authorUserId,
+      createdAt: activeStroke?.createdAt ?? new Date().toISOString(),
+    };
+    showCommittedStrokeBridge(committedStroke, toPath(finalPoints));
+    onStrokeCommit(committedStroke);
+    activeStrokeRef.current = null;
     strokePointsRef.current = [];
-    setPoints([]);
+    draftStrokePathRef.current?.setAttribute("d", "");
   };
 
   const finishShape = () => {
@@ -3078,7 +3189,7 @@ export function WorkbookCanvas({
                     : shapeDraft.tool;
     const polygonPoints =
       shapeDraft.tool === "polygon" && polygonMode === "regular"
-        ? createPolygonPoints(compassRect, polygonSides, polygonPreset)
+        ? getWorkbookPolygonPoints(compassRect, polygonSides, polygonPreset)
         : undefined;
     const figureVertices =
       shapeDraft.tool === "rectangle"
@@ -3233,6 +3344,14 @@ export function WorkbookCanvas({
                   ? {
                       polygonMode,
                       polygonPreset,
+                      ...(resolvePolygonFigureKind(polygonSides, polygonPreset)
+                        ? {
+                            figureKind: resolvePolygonFigureKind(
+                              polygonSides,
+                              polygonPreset
+                            ),
+                          }
+                        : {}),
                       ...(defaultFigureMeta ?? {}),
                     }
                 : shapeDraft.tool === "rectangle" || shapeDraft.tool === "triangle"
@@ -3598,7 +3717,7 @@ export function WorkbookCanvas({
       erasedStrokeIdsRef.current.clear();
       eraserObjectCutsRef.current.clear();
       eraserTouchedObjectIdsRef.current.clear();
-    } else if (strokePointsRef.current.length > 0 || points.length > 0) {
+    } else if (strokePointsRef.current.length > 0) {
       finishStroke(event, svg);
     } else if (shapeDraft) {
       finishShape();
@@ -6239,13 +6358,6 @@ export function WorkbookCanvas({
 
   const handleWheel = (event: WheelEvent<SVGSVGElement>) => {
     if (disabled) return;
-    if (tool === "eraser" && onEraserRadiusChange) {
-      event.preventDefault();
-      const delta = event.deltaY < 0 ? 2 : -2;
-      const nextRadius = Math.max(4, Math.min(160, width + delta));
-      onEraserRadiusChange(nextRadius);
-      return;
-    }
     if (!event.ctrlKey && !event.metaKey) return;
     if (!selectedObjectId) return;
     const selectedObject = boardObjects.find((object) => object.id === selectedObjectId);
@@ -6659,6 +6771,20 @@ export function WorkbookCanvas({
           />
         ))}
 
+        {previewStrokes.map((stroke) => (
+          <path
+            key={`preview-${stroke.id}`}
+            d={toPath(stroke.points)}
+            stroke={stroke.color}
+            strokeWidth={stroke.width}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+            opacity={stroke.tool === "highlighter" ? 0.5 : 0.94}
+            pointerEvents="none"
+          />
+        ))}
+
         {shapeDraft ? (
           <g className="workbook-session__draft-shape">
             {shapeDraft.tool === "line" || shapeDraft.tool === "arrow" ? (
@@ -6789,17 +6915,27 @@ export function WorkbookCanvas({
           </g>
         ) : null}
 
-        {points.length > 0 ? (
-          <path
-            d={toPath(points)}
-            stroke={tool === "eraser" ? "var(--surface-soft)" : color}
-            strokeWidth={tool === "eraser" ? Math.max(8, width * 1.6) : width}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            fill="none"
-            opacity={tool === "highlighter" ? 0.5 : 1}
-          />
-        ) : null}
+        <path
+          ref={committedStrokeBridgePathRef}
+          stroke={color}
+          strokeWidth={Math.max(1, width)}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+          opacity={1}
+          pointerEvents="none"
+        />
+
+        <path
+          ref={draftStrokePathRef}
+          stroke={tool === "eraser" ? "var(--surface-soft)" : color}
+          strokeWidth={tool === "eraser" ? Math.max(8, width * 1.6) : width}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+          opacity={tool === "highlighter" ? 0.5 : 1}
+          pointerEvents="none"
+        />
 
         {tool === "eraser" && eraserCursorPoint ? (
           <g pointerEvents="none">
@@ -7211,4 +7347,4 @@ export function WorkbookCanvas({
       ) : null}
     </div>
   );
-}
+});

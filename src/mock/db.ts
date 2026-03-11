@@ -161,7 +161,23 @@ let dbInitialized = false;
 let dbInitPromise: Promise<void> | null = null;
 let storageDriver: "file" | "postgres" = "file";
 let storageError: string | null = null;
-let pgPool: import("pg").Pool | null = null;
+type PgQueryResult<T> = {
+  rows: T[];
+  rowCount: number | null;
+};
+
+type PgClient = {
+  query<T>(text: string, params?: readonly unknown[]): Promise<PgQueryResult<T>>;
+  release(): void;
+};
+
+type PgPool = {
+  query<T>(text: string, params?: readonly unknown[]): Promise<PgQueryResult<T>>;
+  connect(): Promise<PgClient>;
+  end(): Promise<void>;
+};
+
+let pgPool: PgPool | null = null;
 
 const defaultTeacherUser = (): UserRecord => ({
   id: "teacher-axiom",
@@ -237,7 +253,7 @@ const shouldUsePgSsl = (connectionString: string) => {
   }
 };
 
-const ensurePgSchema = async (pool: import("pg").Pool) => {
+const ensurePgSchema = async (pool: PgPool) => {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ${STATE_TABLE} (
       key TEXT PRIMARY KEY,
@@ -288,7 +304,9 @@ const ensurePgPool = async () => {
   if (!DATABASE_URL) {
     throw new Error("DATABASE_URL is not configured");
   }
-  const { Pool } = await import("pg");
+  const { Pool } = await import("pg") as {
+    Pool: new (config?: Record<string, unknown>) => PgPool;
+  };
   const useSsl = shouldUsePgSsl(DATABASE_URL);
   pgPool = new Pool({
     connectionString: DATABASE_URL,
@@ -654,7 +672,15 @@ export const readWorkbookSessionEvents = async (params: {
       ),
     ]);
 
-    const events = eventsResult.rows.map((row) => ({
+    const events = eventsResult.rows.map((row: {
+      id: string;
+      session_id: string;
+      seq: string | number;
+      author_user_id: string;
+      type: string;
+      payload: unknown;
+      created_at: Date | string;
+    }) => ({
       id: row.id,
       sessionId: row.session_id,
       seq: Number(row.seq),

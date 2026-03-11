@@ -13,6 +13,7 @@ import type {
   WorkbookSession,
   WorkbookSessionKind,
   WorkbookSnapshot,
+  WorkbookStroke,
 } from "./types";
 
 export async function getWorkbookDrafts(scope: "all" | "personal" | "class" = "all") {
@@ -233,6 +234,28 @@ export async function appendWorkbookPreview(params: {
     {
       objectId: params.objectId,
       patch: params.patch,
+      previewVersion:
+        typeof params.previewVersion === "number" && Number.isFinite(params.previewVersion)
+          ? Math.max(1, Math.trunc(params.previewVersion))
+          : undefined,
+    },
+    { notifyDataUpdate: false }
+  );
+}
+
+export async function appendWorkbookStrokePreview(params: {
+  sessionId: string;
+  stroke: WorkbookStroke;
+  previewVersion?: number;
+}) {
+  return api.post<{ ok: true }>(
+    `/workbook/sessions/${encodeURIComponent(params.sessionId)}/events/preview`,
+    {
+      type:
+        params.stroke.layer === "annotations"
+          ? ("annotations.stroke.preview" as const)
+          : ("board.stroke.preview" as const),
+      stroke: params.stroke,
       previewVersion:
         typeof params.previewVersion === "number" && Number.isFinite(params.previewVersion)
           ? Math.max(1, Math.trunc(params.previewVersion))

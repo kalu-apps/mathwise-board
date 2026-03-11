@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Alert, Button, CircularProgress, TextField } from "@mui/material";
+import "./workbookRouteStyles";
 import { joinWorkbookInvite, resolveWorkbookInvite } from "@/features/workbook/model/api";
 import { getAuthSession } from "@/features/auth/model/api";
 import { useAuth } from "@/features/auth/model/AuthContext";

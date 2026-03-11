@@ -400,6 +400,7 @@ export type WorkbookInviteInfo = {
 
 export type WorkbookEventType =
   | "board.stroke"
+  | "board.stroke.preview"
   | "board.stroke.delete"
   | "board.object.create"
   | "board.object.preview"
@@ -414,6 +415,7 @@ export type WorkbookEventType =
   | "board.undo"
   | "board.redo"
   | "annotations.stroke"
+  | "annotations.stroke.preview"
   | "annotations.stroke.delete"
   | "annotations.clear"
   | "document.asset.add"

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Alert, Button, CircularProgress, Stack, Typography } from "@mui/material";
 import { useNavigate } from "react-router-dom";
+import "./workbookRouteStyles";
 import { useAuth } from "@/features/auth/model/AuthContext";
 import {
   createWorkbookSession,

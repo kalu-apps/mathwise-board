@@ -169,6 +169,8 @@ const getSessionLatestSeq = (db: MockDb, sessionId: string) =>
     .reduce((max, event) => Math.max(max, event.seq), 0);
 const isVolatileWorkbookEventType = (type: string) =>
   type === "board.object.preview" ||
+  type === "board.stroke.preview" ||
+  type === "annotations.stroke.preview" ||
   type === "board.viewport.sync" ||
   type === "presence.sync";
 
@@ -2068,35 +2070,65 @@ export function setupMockServer(host: MiddlewareHost) {
         }
 
         const body = (await readBody(req)) as {
+          type?: string;
           objectId?: string;
           patch?: Record<string, unknown>;
+          stroke?: Record<string, unknown>;
           previewVersion?: unknown;
         } | null;
 
-        const objectId = typeof body?.objectId === "string" ? body.objectId : "";
-        const patch = body?.patch && typeof body.patch === "object" ? body.patch : null;
         const previewVersion =
           typeof body?.previewVersion === "number" && Number.isFinite(body.previewVersion)
             ? Math.max(1, Math.trunc(body.previewVersion))
             : null;
-        if (!objectId || !patch) {
-          badRequest(res, "Некорректные данные preview.");
-          return;
+        const previewType =
+          body?.type === "board.stroke.preview" || body?.type === "annotations.stroke.preview"
+            ? body.type
+            : "board.object.preview";
+        let previewEvent: WorkbookEventPayload | null = null;
+
+        if (previewType === "board.stroke.preview" || previewType === "annotations.stroke.preview") {
+          if (!participant.permissions.canDraw) {
+            forbidden(res);
+            return;
+          }
+          const stroke = body?.stroke && typeof body.stroke === "object" ? body.stroke : null;
+          if (!stroke) {
+            badRequest(res, "Некорректные данные preview.");
+            return;
+          }
+          previewEvent = {
+            type: previewType,
+            payload: {
+              stroke,
+              ...(previewVersion ? { previewVersion } : {}),
+            },
+          };
+        } else {
+          if (!participant.permissions.canSelect) {
+            forbidden(res);
+            return;
+          }
+          const objectId = typeof body?.objectId === "string" ? body.objectId : "";
+          const patch = body?.patch && typeof body.patch === "object" ? body.patch : null;
+          if (!objectId || !patch) {
+            badRequest(res, "Некорректные данные preview.");
+            return;
+          }
+          previewEvent = {
+            type: "board.object.preview",
+            payload: {
+              objectId,
+              patch,
+              ...(previewVersion ? { previewVersion } : {}),
+            },
+          };
         }
 
         const appendResult = await appendEvents(db, {
           sessionId,
           authorUserId: actor.id,
-          events: [
-            {
-              type: "board.object.preview",
-              payload: {
-                objectId,
-                patch,
-                ...(previewVersion ? { previewVersion } : {}),
-              },
-            },
-          ],
+          events: previewEvent ? [previewEvent] : [],
           persist: false,
         });
 
