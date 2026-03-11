@@ -140,6 +140,7 @@ type WorkbookSettings = {
 };
 
 type WorkbookEventPayload = {
+  clientEventId?: string;
   type: string;
   payload: unknown;
 };
@@ -183,6 +184,13 @@ const runtimeUnsubscribeBySession = new Map<string, () => Promise<void> | void>(
 const runtimeSubscribeInFlightBySession = new Map<string, Promise<void>>();
 const RUNTIME_NODE_ID = `${os.hostname()}-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
 const workbookLiveSocketServerByHost = new WeakMap<HttpUpgradeServer, WebSocketServer>();
+const WORKBOOK_URGENT_LIVE_EVENT_TYPES = new Set<string>([
+  "board.object.create",
+  "board.undo",
+  "board.redo",
+  "chat.message",
+  "chat.clear",
+]);
 
 const nowIso = () => new Date().toISOString();
 const nowTs = () => Date.now();
@@ -1051,8 +1059,12 @@ const appendEvents = async (
         ? sequenceRange.from + index
         : fallbackSeqStart + index
       : currentMaxSeq;
+    const clientEventId =
+      typeof event.clientEventId === "string" && event.clientEventId.trim()
+        ? event.clientEventId.trim()
+        : null;
     const record: WorkbookEventRecord = {
-      id: ensureId(),
+      id: clientEventId ?? ensureId(),
       sessionId: params.sessionId,
       seq: nextSeq,
       authorUserId: params.authorUserId,
@@ -1298,10 +1310,14 @@ const sanitizeWorkbookLiveEvents = (
   for (const candidate of events.slice(0, 96)) {
     const raw =
       candidate && typeof candidate === "object"
-        ? (candidate as { type?: unknown; payload?: unknown })
+        ? (candidate as { type?: unknown; payload?: unknown; clientEventId?: unknown })
         : null;
     const type = typeof raw?.type === "string" ? raw.type : "";
     const payload = raw?.payload;
+    const clientEventId =
+      typeof raw?.clientEventId === "string" && raw.clientEventId.trim()
+        ? raw.clientEventId.trim()
+        : undefined;
     if (type === "board.stroke.preview" || type === "annotations.stroke.preview") {
       if (!participant.permissions.canDraw) continue;
       const stroke =
@@ -1315,6 +1331,7 @@ const sanitizeWorkbookLiveEvents = (
           : undefined
       );
       sanitized.push({
+        ...(clientEventId ? { clientEventId } : {}),
         type,
         payload: {
           stroke,
@@ -1340,6 +1357,7 @@ const sanitizeWorkbookLiveEvents = (
           : undefined
       );
       sanitized.push({
+        ...(clientEventId ? { clientEventId } : {}),
         type,
         payload: {
           objectId,
@@ -1365,6 +1383,7 @@ const sanitizeWorkbookLiveEvents = (
         continue;
       }
       sanitized.push({
+        ...(clientEventId ? { clientEventId } : {}),
         type,
         payload: {
           offset: {
@@ -1372,6 +1391,56 @@ const sanitizeWorkbookLiveEvents = (
             y: (offset as { y: number }).y,
           },
         },
+      });
+      continue;
+    }
+    if (type === "chat.message") {
+      if (!participant.permissions.canUseChat) continue;
+      const message =
+        payload && typeof payload === "object"
+          ? (payload as { message?: unknown }).message
+          : null;
+      if (!message || typeof message !== "object") continue;
+      sanitized.push({
+        ...(clientEventId ? { clientEventId } : {}),
+        type,
+        payload: { message },
+      });
+      continue;
+    }
+    if (type === "chat.clear") {
+      if (!participant.permissions.canManageSession) continue;
+      sanitized.push({
+        ...(clientEventId ? { clientEventId } : {}),
+        type,
+        payload: {},
+      });
+      continue;
+    }
+    if (type === "board.undo" || type === "board.redo") {
+      const operations =
+        payload && typeof payload === "object"
+          ? (payload as { operations?: unknown }).operations
+          : null;
+      if (!Array.isArray(operations)) continue;
+      sanitized.push({
+        ...(clientEventId ? { clientEventId } : {}),
+        type,
+        payload: { operations },
+      });
+      continue;
+    }
+    if (type === "board.object.create") {
+      if (!participant.permissions.canDraw) continue;
+      const object =
+        payload && typeof payload === "object"
+          ? (payload as { object?: unknown }).object
+          : null;
+      if (!object || typeof object !== "object") continue;
+      sanitized.push({
+        ...(clientEventId ? { clientEventId } : {}),
+        type,
+        payload: { object },
       });
     }
   }
@@ -2323,13 +2392,24 @@ export function setupMockServer(host: MiddlewareHost) {
 
         touchSessionActivity(session, appendResult.timestamp);
         ensureDraftForOwner(db, session, actor.id).updatedAt = appendResult.timestamp;
-        saveDb();
+        const urgentLiveEvents = appendResult.events.filter((event) =>
+          WORKBOOK_URGENT_LIVE_EVENT_TYPES.has(event.type)
+        );
+        if (urgentLiveEvents.length > 0) {
+          publishWorkbookLiveEvents(db, {
+            sessionId,
+            latestSeq: appendResult.latestSeq,
+            events: urgentLiveEvents,
+            channel: "live",
+          });
+        }
 
         publishWorkbookStreamEvents(db, {
           sessionId,
           latestSeq: appendResult.latestSeq,
           events: appendResult.events,
         });
+        saveDb();
 
         json(res, 200, {
           events: appendResult.events,

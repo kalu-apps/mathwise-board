@@ -72,6 +72,7 @@ import { useAuth } from "@/features/auth/model/AuthContext";
 import {
   appendWorkbookEvents,
   appendWorkbookLiveEvents,
+  type WorkbookClientEventInput,
   createWorkbookInvite,
   getWorkbookEvents,
   getWorkbookSession,
@@ -437,6 +438,26 @@ const VOLATILE_WORKBOOK_EVENT_TYPES = new Set<WorkbookEvent["type"]>([
   "board.viewport.sync",
   "presence.sync",
 ]);
+
+const OPTIMISTIC_WORKBOOK_EVENT_TYPES = new Set<WorkbookEvent["type"]>([
+  "board.object.create",
+  "board.undo",
+  "board.redo",
+  "chat.message",
+  "chat.clear",
+]);
+
+const withWorkbookClientEventIds = (
+  events: WorkbookClientEventInput[]
+): WorkbookClientEventInput[] =>
+  events.map((event) =>
+    typeof event.clientEventId === "string" && event.clientEventId
+      ? event
+      : {
+          ...event,
+          clientEventId: generateId(),
+        }
+  );
 
 const resolveNextLatestSeq = (
   currentLatestSeq: number,
@@ -955,6 +976,10 @@ type WorkbookExportBounds = {
   height: number;
 };
 
+const EXPORT_PAGE_PORTRAIT_RATIO = 210 / 297;
+const EXPORT_PAGE_MIN_WIDTH = 960;
+const EXPORT_PAGE_MIN_HEIGHT = Math.round(EXPORT_PAGE_MIN_WIDTH / EXPORT_PAGE_PORTRAIT_RATIO);
+
 const padExportBounds = (bounds: WorkbookExportBounds, padding: number): WorkbookExportBounds => {
   const safePadding = Math.max(0, padding);
   const minX = bounds.minX - safePadding;
@@ -1033,6 +1058,67 @@ const getObjectExportBounds = (object: WorkbookBoardObject): WorkbookExportBound
   const baseBounds = getPointsBounds(boundsPoints);
   const strokePadding = Math.max(1, (object.strokeWidth ?? 1) / 2);
   return padExportBounds(baseBounds, strokePadding);
+};
+
+const mergeExportBounds = (
+  boundsList: Array<WorkbookExportBounds | null | undefined>
+): WorkbookExportBounds | null => {
+  const visibleBounds = boundsList.filter(
+    (bounds): bounds is WorkbookExportBounds => Boolean(bounds)
+  );
+  if (visibleBounds.length === 0) return null;
+  const minX = Math.min(...visibleBounds.map((bounds) => bounds.minX));
+  const minY = Math.min(...visibleBounds.map((bounds) => bounds.minY));
+  const maxX = Math.max(...visibleBounds.map((bounds) => bounds.maxX));
+  const maxY = Math.max(...visibleBounds.map((bounds) => bounds.maxY));
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+};
+
+const resolvePortraitExportSize = (width: number, height: number) => {
+  let nextWidth = Math.max(EXPORT_PAGE_MIN_WIDTH, Math.ceil(width));
+  let nextHeight = Math.max(EXPORT_PAGE_MIN_HEIGHT, Math.ceil(height));
+  const currentRatio = nextWidth / nextHeight;
+  if (currentRatio > EXPORT_PAGE_PORTRAIT_RATIO) {
+    nextHeight = Math.max(nextHeight, Math.ceil(nextWidth / EXPORT_PAGE_PORTRAIT_RATIO));
+  } else {
+    nextWidth = Math.max(nextWidth, Math.ceil(nextHeight * EXPORT_PAGE_PORTRAIT_RATIO));
+  }
+  return { width: nextWidth, height: nextHeight };
+};
+
+const fitExportBoundsToPageSize = (
+  bounds: WorkbookExportBounds | null,
+  size: { width: number; height: number }
+): WorkbookExportBounds => {
+  if (!bounds) {
+    return {
+      minX: 0,
+      minY: 0,
+      maxX: size.width,
+      maxY: size.height,
+      width: size.width,
+      height: size.height,
+    };
+  }
+  const centerX = bounds.minX + bounds.width / 2;
+  const centerY = bounds.minY + bounds.height / 2;
+  const halfWidth = size.width / 2;
+  const halfHeight = size.height / 2;
+  return {
+    minX: centerX - halfWidth,
+    minY: centerY - halfHeight,
+    maxX: centerX + halfWidth,
+    maxY: centerY + halfHeight,
+    width: size.width,
+    height: size.height,
+  };
 };
 
 type ConnectedFigureKind =
@@ -1819,12 +1905,14 @@ export default function WorkbookSessionPage() {
   const [isSessionChatMinimized, setIsSessionChatMinimized] = useState(false);
   const [isSessionChatMaximized, setIsSessionChatMaximized] = useState(false);
   const [isParticipantsCollapsed, setIsParticipantsCollapsed] = useState(false);
+  const [isContextbarCollapsed, setIsContextbarCollapsed] = useState(false);
   const [isSessionChatAtBottom, setIsSessionChatAtBottom] = useState(true);
   const [isWorkbookStreamConnected, setIsWorkbookStreamConnected] = useState(false);
   const [isWorkbookLiveConnected, setIsWorkbookLiveConnected] = useState(false);
   const [sessionChatDraft, setSessionChatDraft] = useState("");
   const [isSessionChatEmojiOpen, setIsSessionChatEmojiOpen] = useState(false);
   const [sessionChatPosition, setSessionChatPosition] = useState({ x: 24, y: 96 });
+  const [contextbarPosition, setContextbarPosition] = useState({ x: 24, y: 18 });
   const [sessionChatReadAt, setSessionChatReadAt] = useState<string | null>(null);
   const [isClearSessionChatDialogOpen, setIsClearSessionChatDialogOpen] = useState(false);
   const [areaSelection, setAreaSelection] = useState<WorkbookAreaSelection | null>(null);
@@ -1865,8 +1953,14 @@ export default function WorkbookSessionPage() {
   >(() => {});
   const sessionChatListRef = useRef<HTMLDivElement | null>(null);
   const sessionChatRef = useRef<HTMLDivElement | null>(null);
+  const contextbarRef = useRef<HTMLDivElement | null>(null);
   const sessionChatShouldScrollToUnreadRef = useRef(false);
   const sessionChatDragStateRef = useRef<{
+    pointerId: number;
+    offsetX: number;
+    offsetY: number;
+  } | null>(null);
+  const contextbarDragStateRef = useRef<{
     pointerId: number;
     offsetX: number;
     offsetY: number;
@@ -2218,6 +2312,10 @@ export default function WorkbookSessionPage() {
     () => (sessionId && user?.id ? `workbook:chat-read:${sessionId}:${user.id}` : ""),
     [sessionId, user?.id]
   );
+  const contextbarStorageKey = useMemo(
+    () => (sessionId && user?.id ? `workbook:contextbar:${sessionId}:${user.id}` : ""),
+    [sessionId, user?.id]
+  );
   const personalBoardSettingsStorageKey = useMemo(() => {
     const actorUserId = actorParticipant?.userId ?? user?.id ?? "";
     return sessionId && actorUserId
@@ -2266,6 +2364,111 @@ export default function WorkbookSessionPage() {
     if (!isCompactViewport || !isUtilityPanelOpen) return;
     setIsUtilityPanelCollapsed(true);
   }, [isCompactViewport, isUtilityPanelOpen]);
+
+  const resolveContextbarDefaultPosition = useCallback(() => {
+    if (typeof window === "undefined") {
+      return { x: 24, y: 18 };
+    }
+    const dockWidth = contextbarRef.current?.offsetWidth ?? 760;
+    return {
+      x: Math.max(12, Math.round((window.innerWidth - dockWidth) / 2)),
+      y: 18,
+    };
+  }, []);
+
+  const clampContextbarPosition = useCallback(
+    (position: { x: number; y: number }) => {
+      if (typeof window === "undefined") return position;
+      const dockWidth = contextbarRef.current?.offsetWidth ?? 760;
+      const dockHeight = contextbarRef.current?.offsetHeight ?? 104;
+      const maxX = Math.max(12, window.innerWidth - dockWidth - 12);
+      const maxY = Math.max(12, window.innerHeight - dockHeight - 12);
+      return {
+        x: Math.min(maxX, Math.max(12, position.x)),
+        y: Math.min(maxY, Math.max(12, position.y)),
+      };
+    },
+    []
+  );
+
+  const handleContextbarDragStart = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (isCompactViewport || event.button !== 0) return;
+      event.preventDefault();
+      contextbarDragStateRef.current = {
+        pointerId: event.pointerId,
+        offsetX: event.clientX - contextbarPosition.x,
+        offsetY: event.clientY - contextbarPosition.y,
+      };
+    },
+    [contextbarPosition.x, contextbarPosition.y, isCompactViewport]
+  );
+
+  useEffect(() => {
+    if (!contextbarStorageKey) return;
+    const stored = readStorage<{
+      collapsed?: boolean;
+      position?: { x?: number; y?: number };
+    } | null>(contextbarStorageKey, null);
+    if (stored?.position) {
+      const x =
+        typeof stored.position.x === "number" && Number.isFinite(stored.position.x)
+          ? stored.position.x
+          : resolveContextbarDefaultPosition().x;
+      const y =
+        typeof stored.position.y === "number" && Number.isFinite(stored.position.y)
+          ? stored.position.y
+          : resolveContextbarDefaultPosition().y;
+      setContextbarPosition({ x, y });
+    } else {
+      setContextbarPosition(resolveContextbarDefaultPosition());
+    }
+    setIsContextbarCollapsed(Boolean(stored?.collapsed));
+  }, [contextbarStorageKey, resolveContextbarDefaultPosition]);
+
+  useEffect(() => {
+    if (!contextbarStorageKey) return;
+    writeStorage(contextbarStorageKey, {
+      collapsed: isContextbarCollapsed,
+      position: contextbarPosition,
+    });
+  }, [contextbarPosition, contextbarStorageKey, isContextbarCollapsed]);
+
+  useEffect(() => {
+    if (isCompactViewport) {
+      contextbarDragStateRef.current = null;
+      return;
+    }
+    setContextbarPosition((current) => clampContextbarPosition(current));
+  }, [clampContextbarPosition, isCompactViewport, isContextbarCollapsed]);
+
+  useEffect(() => {
+    if (isCompactViewport) return;
+    const onPointerMove = (event: PointerEvent) => {
+      const dragState = contextbarDragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+      setContextbarPosition(
+        clampContextbarPosition({
+          x: event.clientX - dragState.offsetX,
+          y: event.clientY - dragState.offsetY,
+        })
+      );
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      const dragState = contextbarDragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+      contextbarDragStateRef.current = null;
+    };
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+      contextbarDragStateRef.current = null;
+    };
+  }, [clampContextbarPosition, isCompactViewport]);
 
   useEffect(() => {
     latestSeqRef.current = latestSeq;
@@ -4358,9 +4561,21 @@ export default function WorkbookSessionPage() {
     }
   }, [smartInkOptions.mode]);
 
+  const sendWorkbookLiveEvents = useCallback(
+    (events: WorkbookClientEventInput[]) => {
+      if (!sessionId || events.length === 0) return;
+      const sent = workbookLiveSendRef.current?.(events) ?? false;
+      if (sent) return;
+      void appendWorkbookLiveEvents({ sessionId, events }).catch(() => {
+        // ignore volatile delivery failures: the next local frame will resend a fresher preview
+      });
+    },
+    [sessionId]
+  );
+
   const appendEventsAndApply = useCallback(
     async (
-      events: Array<{ type: WorkbookEvent["type"]; payload: unknown }>,
+      events: WorkbookClientEventInput[],
       options?: {
         trackHistory?: boolean;
         markDirty?: boolean;
@@ -4378,13 +4593,21 @@ export default function WorkbookSessionPage() {
           : trackHistory
             ? buildHistoryEntryFromEvents(events)
             : null;
+      const preparedEvents = withWorkbookClientEventIds(events);
+      const optimisticEventIds = preparedEvents
+        .filter((event) => OPTIMISTIC_WORKBOOK_EVENT_TYPES.has(event.type))
+        .map((event) => event.clientEventId)
+        .filter((eventId): eventId is string => typeof eventId === "string" && eventId.length > 0);
       if (historyEntry) {
         pushHistoryEntry(historyEntry);
       }
+      optimisticEventIds.forEach((eventId) => {
+        processedEventIdsRef.current.add(eventId);
+      });
       try {
         const response = await appendWorkbookEvents({
           sessionId,
-          events,
+          events: preparedEvents,
         });
         const unseenEvents = filterUnseenWorkbookEvents(response.events);
         if (unseenEvents.length > 0) {
@@ -4403,6 +4626,9 @@ export default function WorkbookSessionPage() {
           markDirty();
         }
       } catch (error) {
+        optimisticEventIds.forEach((eventId) => {
+          processedEventIdsRef.current.delete(eventId);
+        });
         if (historyEntry) {
           rollbackHistoryEntry();
         }
@@ -4418,18 +4644,6 @@ export default function WorkbookSessionPage() {
       rollbackHistoryEntry,
       sessionId,
     ]
-  );
-
-  const sendWorkbookLiveEvents = useCallback(
-    (events: Array<{ type: WorkbookEvent["type"]; payload: unknown }>) => {
-      if (!sessionId || events.length === 0) return;
-      const sent = workbookLiveSendRef.current?.(events) ?? false;
-      if (sent) return;
-      void appendWorkbookLiveEvents({ sessionId, events }).catch(() => {
-        // ignore volatile delivery failures: the next local frame will resend a fresher preview
-      });
-    },
-    [sessionId]
   );
 
   const flushQueuedVolatileSync = useCallback(() => {
@@ -8834,6 +9048,31 @@ export default function WorkbookSessionPage() {
       .sort((left, right) => left - right);
   }, [boardObjects, boardSettings.currentPage, boardSettings.pagesCount, boardStrokes]);
 
+  const resolvePageExportBounds = useCallback(
+    (pageNumber: number): WorkbookExportBounds | null => {
+      const safePage = Math.max(1, Math.floor(pageNumber));
+      const objectBounds = boardObjects
+        .filter((object) => Math.max(1, object.page ?? 1) === safePage)
+        .map((object) => getObjectExportBounds(object));
+      const strokeBounds = boardStrokes
+        .filter((stroke) => Math.max(1, stroke.page ?? 1) === safePage)
+        .map((stroke) => getStrokeExportBounds(stroke));
+      const merged = mergeExportBounds([...objectBounds, ...strokeBounds]);
+      if (!merged) return null;
+      const basePadding = Math.max(
+        40,
+        Math.round(
+          Math.max(
+            boardSettings.gridSize || 0,
+            boardSettings.dividerStep ? boardSettings.dividerStep * 0.045 : 0
+          )
+        )
+      );
+      return padExportBounds(merged, basePadding);
+    },
+    [boardObjects, boardSettings.dividerStep, boardSettings.gridSize, boardStrokes]
+  );
+
   const renderBoardToCanvas = async (
     scale = 2,
     options?: { bounds?: WorkbookExportBounds | null }
@@ -8971,6 +9210,26 @@ export default function WorkbookSessionPage() {
       if (!fileName) return;
       const exportPages = resolveExportPageNumbers();
       const previousPage = currentPage;
+      const rawPageBounds = exportPages.map((pageNumber) => ({
+        page: pageNumber,
+        bounds: resolvePageExportBounds(pageNumber),
+      }));
+      const canonicalSize = resolvePortraitExportSize(
+        Math.max(
+          EXPORT_PAGE_MIN_WIDTH,
+          ...rawPageBounds.map((entry) => entry.bounds?.width ?? EXPORT_PAGE_MIN_WIDTH)
+        ),
+        Math.max(
+          EXPORT_PAGE_MIN_HEIGHT,
+          ...rawPageBounds.map((entry) => entry.bounds?.height ?? EXPORT_PAGE_MIN_HEIGHT)
+        )
+      );
+      const fittedBoundsByPage = new Map<number, WorkbookExportBounds>(
+        rawPageBounds.map((entry) => [
+          entry.page,
+          fitExportBoundsToPageSize(entry.bounds, canonicalSize),
+        ])
+      );
       const renderedPages: Array<{ page: number; width: number; height: number; dataUrl: string }> =
         [];
       for (const pageNumber of exportPages) {
@@ -8980,7 +9239,9 @@ export default function WorkbookSessionPage() {
         } else {
           await waitForCanvasRender();
         }
-        const rendered = await renderBoardToCanvas(2.2);
+        const rendered = await renderBoardToCanvas(2.2, {
+          bounds: fittedBoundsByPage.get(pageNumber) ?? null,
+        });
         if (!rendered) continue;
         renderedPages.push({
           page: pageNumber,
@@ -9008,8 +9269,8 @@ export default function WorkbookSessionPage() {
       const pageMargin = 30;
       const contentWidth = Math.max(1, pageWidth - pageMargin * 2);
       const contentHeight = Math.max(1, pageHeight - pageMargin * 2);
-      const canonicalWidth = Math.max(1, renderedPages[0]?.width ?? 1);
-      const canonicalHeight = Math.max(1, renderedPages[0]?.height ?? 1);
+      const canonicalWidth = canonicalSize.width;
+      const canonicalHeight = canonicalSize.height;
       const fittedScale = Math.min(contentWidth / canonicalWidth, contentHeight / canonicalHeight);
       const drawWidth = Math.max(1, canonicalWidth * fittedScale);
       const drawHeight = Math.max(1, canonicalHeight * fittedScale);
@@ -10493,200 +10754,243 @@ export default function WorkbookSessionPage() {
           }`}
           ref={workspaceRef}
         >
-          <div className="workbook-session__contextbar">
-            <Menu
-              container={overlayContainer}
-              anchorEl={menuAnchor}
-              open={Boolean(menuAnchor)}
-              onClose={() => setMenuAnchor(null)}
+          <div
+            ref={contextbarRef}
+            className={`workbook-session__contextbar-dock${
+              isContextbarCollapsed ? " is-collapsed" : ""
+            }${isCompactViewport ? " is-compact" : ""}`}
+            style={
+              isCompactViewport
+                ? undefined
+                : {
+                    left: contextbarPosition.x,
+                    top: contextbarPosition.y,
+                  }
+            }
+          >
+            <div
+              className="workbook-session__contextbar-dock-head"
+              onPointerDown={handleContextbarDragStart}
             >
-              <MenuItem
-                onClick={() => {
-                  void exportBoardAsPdf();
-                  setMenuAnchor(null);
-                }}
-                disabled={exportingSections}
+              <div className="workbook-session__contextbar-dock-headline">
+                <DragHandleRoundedIcon fontSize="inherit" />
+                <span>Панель доски</span>
+              </div>
+              <IconButton
+                size="small"
+                className="workbook-session__toolbar-icon workbook-session__contextbar-dock-toggle"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => setIsContextbarCollapsed((current) => !current)}
               >
-                Экспорт PDF
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  void handleMenuClearBoard();
-                }}
-                disabled={!canClear || isEnded}
-              >
-                Очистить доску
-              </MenuItem>
-            </Menu>
-            <Tooltip title="Меню доски" placement="bottom" arrow>
-              <span>
-                <IconButton
-                  size="small"
-                  className="workbook-session__toolbar-icon"
-                  onClick={(event) => setMenuAnchor(event.currentTarget)}
-                >
-                  <MenuRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip
-              title={
-                canAccessBoardSettingsPanel
-                  ? "Настройки доски"
-                  : "Преподаватель еще не открыл доступ к настройкам доски"
-              }
-              placement="bottom"
-              arrow
-            >
-              <span>
-                <IconButton
-                  size="small"
-                  className={`workbook-session__toolbar-icon ${
-                    isUtilityPanelOpen && utilityTab === "settings" ? "is-active" : ""
-                  }`}
-                  disabled={!canAccessBoardSettingsPanel}
-                  onClick={() => openUtilityPanel("settings")}
-                >
-                  <TuneRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title="Слои" placement="bottom" arrow>
-              <span>
-                <IconButton
-                  size="small"
-                  className={`workbook-session__toolbar-icon ${
-                    isUtilityPanelOpen && utilityTab === "layers" ? "is-active" : ""
-                  }`}
-                  onClick={() => openUtilityPanel("layers")}
-                >
-                  <LayersRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title="Отменить" placement="bottom" arrow>
-              <span>
-                <IconButton
-                  size="small"
-                  className="workbook-session__toolbar-icon"
-                  onClick={() => void handleUndo()}
-                  disabled={!canUseUndo || undoDepth === 0}
-                >
-                  <UndoRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title="Повторить" placement="bottom" arrow>
-              <span>
-                <IconButton
-                  size="small"
-                  className="workbook-session__toolbar-icon"
-                  onClick={() => void handleRedo()}
-                  disabled={!canUseUndo || redoDepth === 0}
-                >
-                  <RedoRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title="Уменьшить масштаб" placement="bottom" arrow>
-              <span>
-                <IconButton
-                  size="small"
-                  className="workbook-session__toolbar-icon"
-                  onClick={zoomOut}
-                >
-                  <ZoomOutRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title="Сбросить масштаб до 100%" placement="bottom" arrow>
-              <button
-                type="button"
-                className="workbook-session__zoom-badge"
-                onClick={resetZoom}
-              >
-                {Math.round(viewportZoom * 100)}%
-              </button>
-            </Tooltip>
-            <Tooltip title="Увеличить масштаб" placement="bottom" arrow>
-              <span>
-                <IconButton
-                  size="small"
-                  className="workbook-session__toolbar-icon"
-                  onClick={zoomIn}
-                >
-                  <ZoomInRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title="Сбросить масштаб" placement="bottom" arrow>
-              <span>
-                <IconButton
-                  size="small"
-                  className="workbook-session__toolbar-icon"
-                  onClick={resetZoom}
-                >
-                  <CenterFocusStrongRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
+                {isContextbarCollapsed ? (
+                  <UnfoldMoreRoundedIcon fontSize="small" />
+                ) : (
+                  <UnfoldLessRoundedIcon fontSize="small" />
+                )}
+              </IconButton>
+            </div>
 
-            <Tooltip title="Загрузить документ" placement="bottom" arrow>
-              <span>
-                <IconButton
-                  size="small"
-                  className="workbook-session__toolbar-icon"
-                  onClick={() => docsInputRef.current?.click()}
-                  disabled={!canInsertImage}
+            {!isContextbarCollapsed ? (
+              <div className="workbook-session__contextbar">
+                <Menu
+                  container={overlayContainer}
+                  anchorEl={menuAnchor}
+                  open={Boolean(menuAnchor)}
+                  onClose={() => setMenuAnchor(null)}
                 >
-                  <UploadFileRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title={hotkeysTooltipContent} placement="bottom-start" arrow>
-              <span>
-                <IconButton size="small" className="workbook-session__toolbar-icon">
-                  <HelpOutlineRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip
-              title={isFullscreen ? "Выйти из полного экрана" : "Полный экран"}
-              placement="bottom"
-              arrow
-            >
-              <span>
-                <IconButton
-                  size="small"
-                  className="workbook-session__toolbar-icon"
-                  onClick={() => void toggleFullscreen()}
-                >
-                  {isFullscreen ? <FullscreenExitRoundedIcon /> : <FullscreenRoundedIcon />}
-                </IconButton>
-              </span>
-            </Tooltip>
-            {showCollaborationPanels ? (
-              <Tooltip
-                title={
-                  isParticipantsCollapsed
-                    ? "Открыть блок участников"
-                    : "Свернуть блок участников"
-                }
-                placement="bottom"
-                arrow
-              >
-                <span>
-                  <IconButton
-                    size="small"
-                    className={`workbook-session__toolbar-icon ${
-                      !isParticipantsCollapsed ? "is-active" : ""
-                    }`}
-                    onClick={() => setIsParticipantsCollapsed((current) => !current)}
+                  <MenuItem
+                    onClick={() => {
+                      void exportBoardAsPdf();
+                      setMenuAnchor(null);
+                    }}
+                    disabled={exportingSections}
                   >
-                    <GroupRoundedIcon />
-                  </IconButton>
-                </span>
-              </Tooltip>
+                    Экспорт PDF
+                  </MenuItem>
+                  <MenuItem
+                    onClick={() => {
+                      void handleMenuClearBoard();
+                    }}
+                    disabled={!canClear || isEnded}
+                  >
+                    Очистить доску
+                  </MenuItem>
+                </Menu>
+                <Tooltip title="Меню доски" placement="bottom" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      className="workbook-session__toolbar-icon"
+                      onClick={(event) => setMenuAnchor(event.currentTarget)}
+                    >
+                      <MenuRoundedIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip
+                  title={
+                    canAccessBoardSettingsPanel
+                      ? "Настройки доски"
+                      : "Преподаватель еще не открыл доступ к настройкам доски"
+                  }
+                  placement="bottom"
+                  arrow
+                >
+                  <span>
+                    <IconButton
+                      size="small"
+                      className={`workbook-session__toolbar-icon ${
+                        isUtilityPanelOpen && utilityTab === "settings" ? "is-active" : ""
+                      }`}
+                      disabled={!canAccessBoardSettingsPanel}
+                      onClick={() => openUtilityPanel("settings")}
+                    >
+                      <TuneRoundedIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Слои" placement="bottom" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      className={`workbook-session__toolbar-icon ${
+                        isUtilityPanelOpen && utilityTab === "layers" ? "is-active" : ""
+                      }`}
+                      onClick={() => openUtilityPanel("layers")}
+                    >
+                      <LayersRoundedIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Отменить" placement="bottom" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      className="workbook-session__toolbar-icon"
+                      onClick={() => void handleUndo()}
+                      disabled={!canUseUndo || undoDepth === 0}
+                    >
+                      <UndoRoundedIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Повторить" placement="bottom" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      className="workbook-session__toolbar-icon"
+                      onClick={() => void handleRedo()}
+                      disabled={!canUseUndo || redoDepth === 0}
+                    >
+                      <RedoRoundedIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Уменьшить масштаб" placement="bottom" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      className="workbook-session__toolbar-icon"
+                      onClick={zoomOut}
+                    >
+                      <ZoomOutRoundedIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Сбросить масштаб до 100%" placement="bottom" arrow>
+                  <button
+                    type="button"
+                    className="workbook-session__zoom-badge"
+                    onClick={resetZoom}
+                  >
+                    {Math.round(viewportZoom * 100)}%
+                  </button>
+                </Tooltip>
+                <Tooltip title="Увеличить масштаб" placement="bottom" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      className="workbook-session__toolbar-icon"
+                      onClick={zoomIn}
+                    >
+                      <ZoomInRoundedIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Сбросить масштаб" placement="bottom" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      className="workbook-session__toolbar-icon"
+                      onClick={resetZoom}
+                    >
+                      <CenterFocusStrongRoundedIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+
+                <Tooltip title="Загрузить документ" placement="bottom" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      className="workbook-session__toolbar-icon"
+                      onClick={() => docsInputRef.current?.click()}
+                      disabled={!canInsertImage}
+                    >
+                      <UploadFileRoundedIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title={hotkeysTooltipContent} placement="bottom-start" arrow>
+                  <span>
+                    <IconButton size="small" className="workbook-session__toolbar-icon">
+                      <HelpOutlineRoundedIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip
+                  title={isFullscreen ? "Выйти из полного экрана" : "Полный экран"}
+                  placement="bottom"
+                  arrow
+                >
+                  <span>
+                    <IconButton
+                      size="small"
+                      className="workbook-session__toolbar-icon"
+                      onClick={() => void toggleFullscreen()}
+                    >
+                      {isFullscreen ? (
+                        <FullscreenExitRoundedIcon />
+                      ) : (
+                        <FullscreenRoundedIcon />
+                      )}
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                {showCollaborationPanels ? (
+                  <Tooltip
+                    title={
+                      isParticipantsCollapsed
+                        ? "Открыть блок участников"
+                        : "Свернуть блок участников"
+                    }
+                    placement="bottom"
+                    arrow
+                  >
+                    <span>
+                      <IconButton
+                        size="small"
+                        className={`workbook-session__toolbar-icon ${
+                          !isParticipantsCollapsed ? "is-active" : ""
+                        }`}
+                        onClick={() => setIsParticipantsCollapsed((current) => !current)}
+                      >
+                        <GroupRoundedIcon />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                ) : null}
+              </div>
             ) : null}
           </div>
 

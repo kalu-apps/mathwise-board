@@ -16,6 +16,12 @@ import type {
   WorkbookStroke,
 } from "./types";
 
+export type WorkbookClientEventInput = {
+  clientEventId?: string;
+  type: WorkbookEvent["type"];
+  payload: unknown;
+};
+
 const buildWorkbookWebSocketUrl = (pathname: string) => {
   if (typeof window === "undefined") return null;
   const url = new URL(buildApiUrl(pathname), window.location.href);
@@ -315,10 +321,7 @@ export function subscribeWorkbookLiveSocket(params: {
 
   return {
     sendEvents: (
-      events: Array<{
-        type: WorkbookEvent["type"];
-        payload: unknown;
-      }>
+      events: WorkbookClientEventInput[]
     ) => {
       if (
         closed ||
@@ -348,10 +351,7 @@ export function subscribeWorkbookLiveSocket(params: {
 
 export async function appendWorkbookEvents(params: {
   sessionId: string;
-  events: Array<{
-    type: WorkbookEvent["type"];
-    payload: unknown;
-  }>;
+  events: WorkbookClientEventInput[];
 }) {
   return api.post<{ events: WorkbookEvent[]; latestSeq: number }>(
     `/workbook/sessions/${encodeURIComponent(params.sessionId)}/events`,
@@ -362,10 +362,7 @@ export async function appendWorkbookEvents(params: {
 
 export async function appendWorkbookLiveEvents(params: {
   sessionId: string;
-  events: Array<{
-    type: WorkbookEvent["type"];
-    payload: unknown;
-  }>;
+  events: WorkbookClientEventInput[];
 }) {
   return api.post<{ ok: true }>(
     `/workbook/sessions/${encodeURIComponent(params.sessionId)}/events/live`,

@@ -121,6 +121,7 @@ export type MockDb = {
 };
 
 export type WorkbookEventInput = {
+  clientEventId?: string;
   type: string;
   payload: unknown;
 };
