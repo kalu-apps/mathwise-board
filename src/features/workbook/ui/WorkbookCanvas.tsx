@@ -244,6 +244,11 @@ type ResolvedObjectEraserCut = {
   radius: number;
 };
 
+type ObjectEraserPreviewPath = {
+  points: WorkbookPoint[];
+  radius: number;
+};
+
 type MovingState = {
   object: WorkbookBoardObject;
   groupObjects: WorkbookBoardObject[];
@@ -334,6 +339,24 @@ const toPath = (points: WorkbookPoint[]) => {
   return points
     .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
     .join(" ");
+};
+
+const toSmoothPath = (points: WorkbookPoint[]) => {
+  if (points.length <= 2) return toPath(points);
+  const midpoints = Array.from({ length: points.length - 1 }, (_, index) => ({
+    x: (points[index].x + points[index + 1].x) / 2,
+    y: (points[index].y + points[index + 1].y) / 2,
+  }));
+  const commands = [`M ${points[0].x} ${points[0].y}`];
+  commands.push(`Q ${points[0].x} ${points[0].y} ${midpoints[0].x} ${midpoints[0].y}`);
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const point = points[index];
+    const midpoint = midpoints[index];
+    commands.push(`Q ${point.x} ${point.y} ${midpoint.x} ${midpoint.y}`);
+  }
+  const lastPoint = points[points.length - 1];
+  commands.push(`L ${lastPoint.x} ${lastPoint.y}`);
+  return commands.join(" ");
 };
 
 const STROKE_PREVIEW_MAX_POINTS = 96;
@@ -517,6 +540,7 @@ const ERASER_INTERSECTION_EPSILON = 1e-4;
 const OBJECT_ERASER_RATIO_MIN = 0.003;
 const OBJECT_ERASER_RATIO_MAX = 2.4;
 const OBJECT_ERASER_CUT_MERGE_RATIO = 0.38;
+const OBJECT_ERASER_PREVIEW_SEGMENT_GAP_FACTOR = 1.6;
 const ERASER_SAMPLE_SPACING_MIN = 0.8;
 const ERASER_SAMPLE_SPACING_FACTOR = 0.18;
 
@@ -804,6 +828,43 @@ const compactObjectEraserCuts = (
   return next;
 };
 
+const appendObjectEraserPreviewPathPoint = (
+  paths: ObjectEraserPreviewPath[],
+  point: WorkbookPoint,
+  radius: number
+) => {
+  if (paths.length === 0) {
+    return [{ points: [point], radius }];
+  }
+  const next = [...paths];
+  const lastIndex = next.length - 1;
+  const lastPath = next[lastIndex];
+  const lastPoint = lastPath.points[lastPath.points.length - 1] ?? null;
+  const gapThreshold = Math.max(radius * OBJECT_ERASER_PREVIEW_SEGMENT_GAP_FACTOR, 10);
+  if (
+    !lastPoint ||
+    Math.abs(lastPath.radius - radius) > 0.01 ||
+    distanceBetweenPoints(lastPoint, point) > gapThreshold
+  ) {
+    next.push({ points: [point], radius });
+    return next;
+  }
+  if (distanceBetweenPoints(lastPoint, point) <= 0.06) {
+    const updatedPoints = [...lastPath.points];
+    updatedPoints[updatedPoints.length - 1] = point;
+    next[lastIndex] = {
+      ...lastPath,
+      points: updatedPoints,
+    };
+    return next;
+  }
+  next[lastIndex] = {
+    ...lastPath,
+    points: [...lastPath.points, point],
+  };
+  return next;
+};
+
 const appendObjectEraserCut = (
   object: WorkbookBoardObject,
   cuts: ObjectEraserCut[],
@@ -891,6 +952,7 @@ const applyEraserPointToCollections = (
     objects: WorkbookBoardObject[];
     strokeFragmentsMap: Map<string, WorkbookPoint[][]>;
     objectCutsMap: Map<string, ObjectEraserCut[]>;
+    objectPreviewPathsMap?: Map<string, ObjectEraserPreviewPath[]>;
     touchedStrokeIds?: Set<string>;
     touchedObjectIds?: Set<string>;
     isStrokeErasedByCircle: (
@@ -912,6 +974,7 @@ const applyEraserPointToCollections = (
     objects,
     strokeFragmentsMap,
     objectCutsMap,
+    objectPreviewPathsMap,
     touchedStrokeIds,
     touchedObjectIds,
     isStrokeErasedByCircle,
@@ -951,6 +1014,13 @@ const applyEraserPointToCollections = (
       normalizeObjectEraserCut(object, center, radius)
     );
     objectCutsMap.set(object.id, nextCuts);
+    if (objectPreviewPathsMap) {
+      const currentPaths = objectPreviewPathsMap.get(object.id) ?? [];
+      objectPreviewPathsMap.set(
+        object.id,
+        appendObjectEraserPreviewPathPoint(currentPaths, center, radius)
+      );
+    }
     touchedObjectIds?.add(object.id);
   });
 };
@@ -1715,10 +1785,14 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const strokeFlushFrameRef = useRef<number | null>(null);
   const strokePreviewTimerRef = useRef<number | null>(null);
   const eraserStrokeFragmentsRef = useRef<Map<string, WorkbookPoint[][]>>(new Map());
+  const eraserObjectPreviewPathsRef = useRef<Map<string, ObjectEraserPreviewPath[]>>(new Map());
   const eraserPreviewFrameRef = useRef<number | null>(null);
   const remoteEraserPreviewFrameRef = useRef<number | null>(null);
   const remoteEraserStrokeFragmentsRef = useRef<Map<string, WorkbookPoint[][]>>(new Map());
   const remoteEraserObjectCutsRef = useRef<Map<string, ObjectEraserCut[]>>(new Map());
+  const remoteEraserObjectPreviewPathsRef = useRef<Map<string, ObjectEraserPreviewPath[]>>(
+    new Map()
+  );
   const remoteEraserProcessedPointsByIdRef = useRef<Map<string, number>>(new Map());
   const remoteEraserBaseStateRef = useRef<{
     strokes: WorkbookStroke[];
@@ -1731,11 +1805,17 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const [eraserPreviewObjectCuts, setEraserPreviewObjectCuts] = useState<
     Record<string, ObjectEraserCut[]>
   >({});
+  const [eraserPreviewObjectPaths, setEraserPreviewObjectPaths] = useState<
+    Record<string, ObjectEraserPreviewPath[]>
+  >({});
   const [remoteEraserPreviewStrokeFragments, setRemoteEraserPreviewStrokeFragments] = useState<
     Record<string, WorkbookPoint[][]>
   >({});
   const [remoteEraserPreviewObjectCuts, setRemoteEraserPreviewObjectCuts] = useState<
     Record<string, ObjectEraserCut[]>
+  >({});
+  const [remoteEraserPreviewObjectPaths, setRemoteEraserPreviewObjectPaths] = useState<
+    Record<string, ObjectEraserPreviewPath[]>
   >({});
   const [shapeDraft, setShapeDraft] = useState<ShapeDraft | null>(null);
   const [polygonPointDraft, setPolygonPointDraft] = useState<WorkbookPoint[]>([]);
@@ -1816,12 +1896,16 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       setEraserPreviewObjectCuts(
         Object.fromEntries(eraserObjectCutsRef.current.entries())
       );
+      setEraserPreviewObjectPaths(
+        Object.fromEntries(eraserObjectPreviewPathsRef.current.entries())
+      );
     });
   }, []);
 
   const clearEraserPreviewRuntime = useCallback(() => {
     eraserStrokeFragmentsRef.current.clear();
     eraserObjectCutsRef.current.clear();
+    eraserObjectPreviewPathsRef.current.clear();
     eraserTouchedObjectIdsRef.current.clear();
     eraserLastAppliedPointRef.current = null;
     if (eraserPreviewFrameRef.current !== null) {
@@ -1830,6 +1914,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
     setEraserPreviewStrokeFragments({});
     setEraserPreviewObjectCuts({});
+    setEraserPreviewObjectPaths({});
   }, []);
 
   const scheduleRemoteEraserPreviewRender = useCallback(() => {
@@ -1841,6 +1926,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       );
       setRemoteEraserPreviewObjectCuts(
         Object.fromEntries(remoteEraserObjectCutsRef.current.entries())
+      );
+      setRemoteEraserPreviewObjectPaths(
+        Object.fromEntries(remoteEraserObjectPreviewPathsRef.current.entries())
       );
     });
   }, []);
@@ -2437,6 +2525,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       };
       remoteEraserStrokeFragmentsRef.current.clear();
       remoteEraserObjectCutsRef.current.clear();
+      remoteEraserObjectPreviewPathsRef.current.clear();
       remoteEraserProcessedPointsByIdRef.current.clear();
       scheduleRemoteEraserPreviewRender();
       return;
@@ -2454,6 +2543,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     if (shouldRebuild) {
       remoteEraserStrokeFragmentsRef.current = new Map();
       remoteEraserObjectCutsRef.current = new Map();
+      remoteEraserObjectPreviewPathsRef.current = new Map();
       remoteEraserProcessedPointsByIdRef.current = new Map();
     }
 
@@ -2475,6 +2565,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           objects: boardObjects,
           strokeFragmentsMap: remoteEraserStrokeFragmentsRef.current,
           objectCutsMap: remoteEraserObjectCutsRef.current,
+          objectPreviewPathsMap: remoteEraserObjectPreviewPathsRef.current,
           isStrokeErasedByCircle,
           isObjectErasedByCircle,
         });
@@ -2506,9 +2597,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const activeEraserPreviewStrokeFragments = erasing
     ? eraserPreviewStrokeFragments
     : remoteEraserPreviewStrokeFragments;
-  const activeEraserPreviewObjectCuts = erasing
-    ? eraserPreviewObjectCuts
-    : remoteEraserPreviewObjectCuts;
+  const activeEraserPreviewObjectCuts = erasing ? eraserPreviewObjectCuts : remoteEraserPreviewObjectCuts;
+  const activeEraserPreviewObjectPaths = erasing
+    ? eraserPreviewObjectPaths
+    : remoteEraserPreviewObjectPaths;
   const eraserPreviewActive = erasing || incomingEraserPreviews.length > 0;
   const renderedStrokes = useMemo(() => {
     return allStrokes.flatMap((stroke) => {
@@ -2535,6 +2627,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         objects: boardObjects,
         strokeFragmentsMap: eraserStrokeFragmentsRef.current,
         objectCutsMap: eraserObjectCutsRef.current,
+        objectPreviewPathsMap: eraserObjectPreviewPathsRef.current,
         touchedStrokeIds: erasedStrokeIdsRef.current,
         touchedObjectIds: eraserTouchedObjectIdsRef.current,
         isStrokeErasedByCircle,
@@ -4507,6 +4600,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       erasedStrokeIdsRef.current.clear();
       eraserStrokeFragmentsRef.current.clear();
       eraserObjectCutsRef.current.clear();
+      eraserObjectPreviewPathsRef.current.clear();
       eraserTouchedObjectIdsRef.current.clear();
       eraserGestureIdRef.current = null;
       eraserLastAppliedPointRef.current = null;
@@ -7498,13 +7592,16 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           const renderSource =
             selectedPreviewObject?.id === object.id ? selectedPreviewObject : object;
           const renderedObject = renderObject(renderSource);
-          const eraserCuts =
-            eraserPreviewActive
-              ? (activeEraserPreviewObjectCuts[renderSource.id] ??
-                sanitizeObjectEraserCuts(renderSource))
-              : sanitizeObjectEraserCuts(renderSource);
-          const resolvedEraserCuts = resolveObjectEraserCutsForRender(renderSource, eraserCuts);
-          if (resolvedEraserCuts.length === 0) {
+          const committedEraserCuts = sanitizeObjectEraserCuts(renderSource);
+          const previewPaths = eraserPreviewActive
+            ? activeEraserPreviewObjectPaths[renderSource.id] ?? []
+            : [];
+          const previewCuts =
+            eraserPreviewActive && previewPaths.length === 0
+              ? activeEraserPreviewObjectCuts[renderSource.id] ?? committedEraserCuts
+              : committedEraserCuts;
+          const resolvedEraserCuts = resolveObjectEraserCutsForRender(renderSource, previewCuts);
+          if (resolvedEraserCuts.length === 0 && previewPaths.length === 0) {
             return <g key={object.id}>{renderedObject}</g>;
           }
           const objectRect = getObjectRect(renderSource);
@@ -7517,6 +7614,14 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
             minY = Math.min(minY, cut.y - cut.radius - ERASER_MASK_PADDING);
             maxX = Math.max(maxX, cut.x + cut.radius + ERASER_MASK_PADDING);
             maxY = Math.max(maxY, cut.y + cut.radius + ERASER_MASK_PADDING);
+          });
+          previewPaths.forEach((path) => {
+            path.points.forEach((point) => {
+              minX = Math.min(minX, point.x - path.radius - ERASER_MASK_PADDING);
+              minY = Math.min(minY, point.y - path.radius - ERASER_MASK_PADDING);
+              maxX = Math.max(maxX, point.x + path.radius + ERASER_MASK_PADDING);
+              maxY = Math.max(maxY, point.y + path.radius + ERASER_MASK_PADDING);
+            });
           });
           const maskWidth = Math.max(1, maxX - minX);
           const maskHeight = Math.max(1, maxY - minY);
@@ -7549,6 +7654,17 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
                       cy={cut.y}
                       r={Math.max(1, cut.radius)}
                       fill="#000000"
+                    />
+                  ))}
+                  {previewPaths.map((path, index) => (
+                    <path
+                      key={`${renderSource.id}-erase-path-${index}`}
+                      d={toSmoothPath(path.points)}
+                      stroke="#000000"
+                      strokeWidth={Math.max(1, path.radius * 2)}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      fill="none"
                     />
                   ))}
                 </mask>
