@@ -373,36 +373,12 @@
   pointer-events: auto;
   max-width: calc(100vw - 24px);
   will-change: left, top;
-}
-
-.workbook-session__contextbar-dock-head {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 6px 4px 10px;
-  border: 1px solid color-mix(in srgb, var(--brand-soft) 34%, var(--border-subtle));
-  border-radius: 999px;
-  background:
-    radial-gradient(circle at 88% 10%, color-mix(in srgb, #5d7dff 12%, transparent), transparent 65%),
-    color-mix(in srgb, var(--surface-soft) 94%, transparent);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 10px 22px color-mix(in srgb, #11214b 14%, transparent);
-  color: var(--text-secondary);
   cursor: grab;
   user-select: none;
 }
 
-.workbook-session__contextbar-dock-head:active {
+.workbook-session__contextbar-dock:active {
   cursor: grabbing;
-}
-
-.workbook-session__contextbar-dock-headline {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
 }
 
 .workbook-session__contextbar {
@@ -3565,17 +3541,7 @@
     bottom: calc(10px + env(safe-area-inset-bottom));
     max-width: none;
     align-items: stretch;
-    gap: 6px;
     z-index: 70;
-  }
-
-  .workbook-session__contextbar-dock-head {
-    align-self: flex-end;
-    padding-inline: 9px 5px;
-  }
-
-  .workbook-session__contextbar-dock-headline {
-    font-size: 11px;
   }
 
   .workbook-session__contextbar {

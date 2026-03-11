@@ -401,6 +401,7 @@ export type WorkbookInviteInfo = {
 export type WorkbookEventType =
   | "board.stroke"
   | "board.stroke.preview"
+  | "board.eraser.preview"
   | "board.stroke.delete"
   | "board.object.create"
   | "board.object.preview"

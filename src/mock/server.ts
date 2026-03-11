@@ -208,6 +208,7 @@ const getSessionLatestSeq = (db: MockDb, sessionId: string) =>
 const isVolatileWorkbookEventType = (type: string) =>
   type === "board.object.preview" ||
   type === "board.stroke.preview" ||
+  type === "board.eraser.preview" ||
   type === "annotations.stroke.preview" ||
   type === "board.viewport.sync" ||
   type === "presence.sync";
@@ -1370,6 +1371,71 @@ const sanitizeWorkbookLiveEvents = (
           objectId,
           patch,
           ...(previewVersion ? { previewVersion } : {}),
+        },
+      });
+      continue;
+    }
+    if (type === "board.eraser.preview") {
+      if (!participant.permissions.canDelete) continue;
+      const gestureId =
+        payload && typeof payload === "object"
+          ? String((payload as { gestureId?: unknown }).gestureId ?? "").trim()
+          : "";
+      const layer =
+        payload && typeof payload === "object" && (payload as { layer?: unknown }).layer === "annotations"
+          ? "annotations"
+          : "board";
+      const pageRaw =
+        payload && typeof payload === "object"
+          ? (payload as { page?: unknown }).page
+          : undefined;
+      const page =
+        typeof pageRaw === "number" && Number.isFinite(pageRaw)
+          ? Math.max(1, Math.trunc(pageRaw))
+          : 1;
+      const radiusRaw =
+        payload && typeof payload === "object"
+          ? (payload as { radius?: unknown }).radius
+          : undefined;
+      const radius =
+        typeof radiusRaw === "number" && Number.isFinite(radiusRaw)
+          ? Math.max(4, Math.min(160, radiusRaw))
+          : 14;
+      const ended =
+        payload && typeof payload === "object"
+          ? Boolean((payload as { ended?: unknown }).ended)
+          : false;
+      const rawPoints =
+        payload && typeof payload === "object" && Array.isArray((payload as { points?: unknown }).points)
+          ? ((payload as { points: unknown[] }).points ?? [])
+          : [];
+      const points = rawPoints.reduce<Array<{ x: number; y: number }>>((acc, point) => {
+        if (!point || typeof point !== "object") return acc;
+        const x = (point as { x?: unknown }).x;
+        const y = (point as { y?: unknown }).y;
+        if (
+          typeof x !== "number" ||
+          !Number.isFinite(x) ||
+          typeof y !== "number" ||
+          !Number.isFinite(y)
+        ) {
+          return acc;
+        }
+        if (acc.length >= 48) return acc;
+        acc.push({ x, y });
+        return acc;
+      }, []);
+      if (!gestureId || (!ended && points.length === 0)) continue;
+      sanitized.push({
+        ...(clientEventId ? { clientEventId } : {}),
+        type,
+        payload: {
+          gestureId,
+          layer,
+          page,
+          radius,
+          points,
+          ...(ended ? { ended: true } : {}),
         },
       });
       continue;

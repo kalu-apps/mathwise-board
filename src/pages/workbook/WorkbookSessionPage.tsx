@@ -201,6 +201,8 @@ const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
 const VOLATILE_SYNC_FLUSH_INTERVAL_MS = 16;
 const STROKE_PREVIEW_EXPIRY_MS = 3_000;
+const ERASER_PREVIEW_EXPIRY_MS = 220;
+const ERASER_PREVIEW_END_EXPIRY_MS = 120;
 const VIEWPORT_SYNC_MIN_INTERVAL_MS = 18;
 const VIEWPORT_SYNC_EPSILON = 0.2;
 const MAX_INCOMING_PREVIEW_PATCHES_PER_OBJECT = 20;
@@ -410,6 +412,7 @@ const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
     }
     if (
       event.type === "board.object.preview" ||
+      event.type === "board.eraser.preview" ||
       event.type === "board.stroke.preview" ||
       event.type === "annotations.stroke.preview"
     ) {
@@ -436,6 +439,7 @@ const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
 
 const VOLATILE_WORKBOOK_EVENT_TYPES = new Set<WorkbookEvent["type"]>([
   "board.object.preview",
+  "board.eraser.preview",
   "board.stroke.preview",
   "annotations.stroke.preview",
   "board.viewport.sync",
@@ -1663,6 +1667,17 @@ type StrokePreviewEntry = {
   updatedAt: number;
 };
 
+type IncomingEraserPreviewEntry = {
+  id: string;
+  authorUserId: string;
+  gestureId: string;
+  layer: WorkbookLayer;
+  page: number;
+  radius: number;
+  points: WorkbookPoint[];
+  updatedAt: number;
+};
+
 type ToolPaintSettings = {
   color: string;
   width: number;
@@ -1923,6 +1938,9 @@ export default function WorkbookSessionPage() {
   const [incomingStrokePreviews, setIncomingStrokePreviews] = useState<
     Record<string, StrokePreviewEntry>
   >({});
+  const [incomingEraserPreviews, setIncomingEraserPreviews] = useState<
+    Record<string, IncomingEraserPreviewEntry>
+  >({});
   const [isSessionChatOpen, setIsSessionChatOpen] = useState(false);
   const [isSessionChatMinimized, setIsSessionChatMinimized] = useState(false);
   const [isSessionChatMaximized, setIsSessionChatMaximized] = useState(false);
@@ -2026,11 +2044,25 @@ export default function WorkbookSessionPage() {
   const strokePreviewQueuedByIdRef = useRef<
     Map<string, { stroke: WorkbookStroke; previewVersion: number }>
   >(new Map());
+  const eraserPreviewQueuedByGestureRef = useRef<
+    Map<
+      string,
+      {
+        gestureId: string;
+        layer: WorkbookLayer;
+        page: number;
+        radius: number;
+        points: WorkbookPoint[];
+        ended?: boolean;
+      }
+    >
+  >(new Map());
   const incomingStrokePreviewQueuedRef = useRef<Map<string, StrokePreviewEntry | null>>(
     new Map()
   );
   const incomingStrokePreviewFrameRef = useRef<number | null>(null);
   const incomingStrokePreviewVersionRef = useRef<Map<string, number>>(new Map());
+  const incomingEraserPreviewTimersRef = useRef<Map<string, number>>(new Map());
   const finalizedStrokePreviewIdsRef = useRef<Set<string>>(new Set());
   const objectLastCommittedEventAtRef = useRef<Map<string, number>>(new Map());
   const incomingPreviewFrameRef = useRef<number | null>(null);
@@ -2415,6 +2447,14 @@ export default function WorkbookSessionPage() {
   const handleContextbarDragStart = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (isCompactViewport || event.button !== 0) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest(
+          "button, input, textarea, select, option, a, summary, [role='button'], [role='menuitem'], .MuiButtonBase-root, .MuiInputBase-root, .MuiSwitch-root, .MuiSlider-root"
+        )
+      ) {
+        return;
+      }
       event.preventDefault();
       contextbarDragStateRef.current = {
         pointerId: event.pointerId,
@@ -2616,6 +2656,35 @@ export default function WorkbookSessionPage() {
       incomingPreviewFrameRef.current = null;
     }
   }, []);
+
+  const clearIncomingEraserPreviewRuntime = useCallback(() => {
+    incomingEraserPreviewTimersRef.current.forEach((timerId) => {
+      window.clearTimeout(timerId);
+    });
+    incomingEraserPreviewTimersRef.current.clear();
+    eraserPreviewQueuedByGestureRef.current.clear();
+    setIncomingEraserPreviews({});
+  }, []);
+
+  const scheduleIncomingEraserPreviewExpiry = useCallback(
+    (previewId: string, delay: number) => {
+      const currentTimer = incomingEraserPreviewTimersRef.current.get(previewId);
+      if (currentTimer !== undefined) {
+        window.clearTimeout(currentTimer);
+      }
+      const timerId = window.setTimeout(() => {
+        incomingEraserPreviewTimersRef.current.delete(previewId);
+        setIncomingEraserPreviews((current) => {
+          if (!(previewId in current)) return current;
+          const next = { ...current };
+          delete next[previewId];
+          return next;
+        });
+      }, Math.max(60, delay));
+      incomingEraserPreviewTimersRef.current.set(previewId, timerId);
+    },
+    []
+  );
 
   const flushIncomingStrokePreviewQueue = useCallback(() => {
     incomingStrokePreviewFrameRef.current = null;
@@ -3168,6 +3237,7 @@ export default function WorkbookSessionPage() {
           const payload = event.payload as { scene?: unknown; operations?: unknown };
           clearObjectSyncRuntime();
           clearStrokePreviewRuntime();
+          clearIncomingEraserPreviewRuntime();
           if (Array.isArray(payload.operations)) {
             applyHistoryOperationsRef.current(payload.operations as WorkbookHistoryOperation[]);
             return;
@@ -3188,6 +3258,73 @@ export default function WorkbookSessionPage() {
             libraryState: normalized.library,
             documentState: normalized.document,
           });
+          return;
+        }
+        if (event.type === "board.eraser.preview") {
+          if (event.authorUserId === user?.id) return;
+          const payload = event.payload as {
+            gestureId?: unknown;
+            layer?: unknown;
+            page?: unknown;
+            radius?: unknown;
+            points?: unknown;
+            ended?: unknown;
+          };
+          const gestureId =
+            typeof payload.gestureId === "string" ? payload.gestureId.trim() : "";
+          if (!gestureId) return;
+          const points = Array.isArray(payload.points)
+            ? payload.points.reduce<WorkbookPoint[]>((acc, point) => {
+                if (!point || typeof point !== "object") return acc;
+                const x = (point as { x?: unknown }).x;
+                const y = (point as { y?: unknown }).y;
+                if (
+                  typeof x !== "number" ||
+                  !Number.isFinite(x) ||
+                  typeof y !== "number" ||
+                  !Number.isFinite(y)
+                ) {
+                  return acc;
+                }
+                acc.push({ x, y });
+                return acc;
+              }, [])
+            : [];
+          const previewId = `${event.authorUserId}:${gestureId}`;
+          const ended = Boolean(payload.ended);
+          setIncomingEraserPreviews((current) => {
+            const existing = current[previewId];
+            const nextPoints =
+              points.length > 0
+                ? [...(existing?.points ?? []), ...points].slice(-320)
+                : existing?.points ?? [];
+            if (!existing && nextPoints.length === 0 && ended) {
+              return current;
+            }
+            return {
+              ...current,
+              [previewId]: {
+                id: previewId,
+                authorUserId: event.authorUserId,
+                gestureId,
+                layer: payload.layer === "annotations" ? "annotations" : "board",
+                page:
+                  typeof payload.page === "number" && Number.isFinite(payload.page)
+                    ? Math.max(1, Math.trunc(payload.page))
+                    : existing?.page ?? 1,
+                radius:
+                  typeof payload.radius === "number" && Number.isFinite(payload.radius)
+                    ? Math.max(4, Math.min(160, payload.radius))
+                    : existing?.radius ?? 14,
+                points: nextPoints,
+                updatedAt: eventTimestamp,
+              },
+            };
+          });
+          scheduleIncomingEraserPreviewExpiry(
+            previewId,
+            ended ? ERASER_PREVIEW_END_EXPIRY_MS : ERASER_PREVIEW_EXPIRY_MS
+          );
           return;
         }
         if (event.type === "board.stroke.preview" || event.type === "annotations.stroke.preview") {
@@ -3376,6 +3513,7 @@ export default function WorkbookSessionPage() {
           setBoardObjects([]);
           clearObjectSyncRuntime();
           clearStrokePreviewRuntime();
+          clearIncomingEraserPreviewRuntime();
           setFocusPoint(null);
           setPointerPoint(null);
           setFocusPointsByUser({});
@@ -3393,6 +3531,7 @@ export default function WorkbookSessionPage() {
         }
         if (event.type === "annotations.clear") {
           clearStrokePreviewRuntime({ clearFinalized: false });
+          clearIncomingEraserPreviewRuntime();
           setAnnotationStrokes([]);
           return;
         }
@@ -3809,10 +3948,12 @@ export default function WorkbookSessionPage() {
     [
       areParticipantsEqual,
       awaitingClearRequest,
+      clearIncomingEraserPreviewRuntime,
       clearObjectSyncRuntime,
       clearStrokePreviewRuntime,
       finalizeStrokePreview,
       queueIncomingStrokePreview,
+      scheduleIncomingEraserPreviewExpiry,
       queueIncomingPreviewPatch,
       restoreSceneSnapshot,
       selectedObjectId,
@@ -3827,6 +3968,7 @@ export default function WorkbookSessionPage() {
       setLoading(true);
       setError(null);
       clearStrokePreviewRuntime();
+      clearIncomingEraserPreviewRuntime();
     }
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -3898,6 +4040,7 @@ export default function WorkbookSessionPage() {
         smartInkProcessedStrokeIdsRef.current = new Set();
         clearObjectSyncRuntime();
         clearStrokePreviewRuntime();
+        clearIncomingEraserPreviewRuntime();
         dirtyRef.current = false;
         undoStackRef.current = [];
         redoStackRef.current = [];
@@ -3979,6 +4122,7 @@ export default function WorkbookSessionPage() {
       setLoading(false);
     }
   }, [
+    clearIncomingEraserPreviewRuntime,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
     recoverChatMessagesFromEvents,
@@ -4531,6 +4675,7 @@ export default function WorkbookSessionPage() {
         volatileSyncTimerRef.current = null;
       }
       viewportSyncQueuedOffsetRef.current = null;
+      eraserPreviewQueuedByGestureRef.current.clear();
     },
     []
   );
@@ -4547,6 +4692,13 @@ export default function WorkbookSessionPage() {
       clearStrokePreviewRuntime();
     },
     [clearStrokePreviewRuntime]
+  );
+
+  useEffect(
+    () => () => {
+      clearIncomingEraserPreviewRuntime();
+    },
+    [clearIncomingEraserPreviewRuntime]
   );
 
   useEffect(() => {
@@ -4728,8 +4880,23 @@ export default function WorkbookSessionPage() {
           },
         });
       });
+      eraserPreviewQueuedByGestureRef.current.forEach((entry, gestureId) => {
+        eraserPreviewQueuedByGestureRef.current.delete(gestureId);
+        events.push({
+          type: "board.eraser.preview",
+          payload: {
+            gestureId: entry.gestureId,
+            layer: entry.layer,
+            page: entry.page,
+            radius: entry.radius,
+            points: entry.points,
+            ...(entry.ended ? { ended: true } : {}),
+          },
+        });
+      });
     } else {
       strokePreviewQueuedByIdRef.current.clear();
+      eraserPreviewQueuedByGestureRef.current.clear();
     }
 
     if (events.length > 0) {
@@ -4773,6 +4940,34 @@ export default function WorkbookSessionPage() {
       if (!strokeId || finalizedStrokePreviewIdsRef.current.has(strokeId)) return;
       strokePreviewQueuedByIdRef.current.set(strokeId, payload);
       scheduleVolatileSyncFlush();
+    },
+    [scheduleVolatileSyncFlush]
+  );
+
+  const queueEraserPreview = useCallback(
+    (payload: {
+      gestureId: string;
+      layer: WorkbookLayer;
+      page: number;
+      radius: number;
+      points: WorkbookPoint[];
+      ended?: boolean;
+    }) => {
+      if (!payload.gestureId) return;
+      const current = eraserPreviewQueuedByGestureRef.current.get(payload.gestureId);
+      const mergedPoints =
+        current && current.points.length > 0
+          ? [...current.points, ...payload.points]
+          : [...payload.points];
+      eraserPreviewQueuedByGestureRef.current.set(payload.gestureId, {
+        gestureId: payload.gestureId,
+        layer: payload.layer,
+        page: payload.page,
+        radius: payload.radius,
+        points: mergedPoints.slice(-64),
+        ended: Boolean(current?.ended || payload.ended),
+      });
+      scheduleVolatileSyncFlush(payload.ended ? 0 : undefined);
     },
     [scheduleVolatileSyncFlush]
   );
@@ -8124,6 +8319,7 @@ export default function WorkbookSessionPage() {
     if (!entry) return;
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
+    clearIncomingEraserPreviewRuntime();
     undoStackRef.current = undoStackRef.current.slice(0, -1);
     redoStackRef.current = [...redoStackRef.current, entry].slice(-80);
     setUndoDepth(undoStackRef.current.length);
@@ -8146,6 +8342,7 @@ export default function WorkbookSessionPage() {
     applyHistoryOperations,
     appendEventsAndApply,
     canUseUndo,
+    clearIncomingEraserPreviewRuntime,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
     markDirty,
@@ -8157,6 +8354,7 @@ export default function WorkbookSessionPage() {
     if (!entry) return;
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
+    clearIncomingEraserPreviewRuntime();
     redoStackRef.current = redoStackRef.current.slice(0, -1);
     undoStackRef.current = [...undoStackRef.current, entry].slice(-80);
     setUndoDepth(undoStackRef.current.length);
@@ -8179,6 +8377,7 @@ export default function WorkbookSessionPage() {
     applyHistoryOperations,
     appendEventsAndApply,
     canUseUndo,
+    clearIncomingEraserPreviewRuntime,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
     markDirty,
@@ -8618,7 +8817,7 @@ export default function WorkbookSessionPage() {
         return;
       }
       const sourceDataUrl = await readFileAsDataUrl(file);
-      const url = isImage
+      const documentAssetUrl = isImage
         ? await optimizeImageDataUrl(sourceDataUrl, {
             maxEdge: 1_080,
             quality: 0.68,
@@ -8629,7 +8828,7 @@ export default function WorkbookSessionPage() {
         setUploadProgress(45);
         const rendered = await renderWorkbookPdfPages({
           fileName: file.name,
-          dataUrl: url,
+          dataUrl: documentAssetUrl,
           dpi: 128,
           maxPages: 8,
         });
@@ -8649,7 +8848,11 @@ export default function WorkbookSessionPage() {
           : null;
       const objectImageUrl =
         isImage
-          ? url
+          ? await optimizeImageDataUrl(documentAssetUrl, {
+              maxEdge: 820,
+              quality: 0.58,
+              maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
+            })
           : renderedPage?.imageUrl
             ? await optimizeImageDataUrl(renderedPage.imageUrl, {
                 maxEdge: 820,
@@ -8668,14 +8871,14 @@ export default function WorkbookSessionPage() {
         id: assetId,
         name: file.name,
         type: isPdf ? "pdf" : isImage ? "image" : "file",
-        url,
+        url: documentAssetUrl,
         uploadedBy: user?.id ?? "unknown",
         uploadedAt: new Date().toISOString(),
         renderedPages,
       };
       const syncedAsset: WorkbookDocumentAsset = {
         ...asset,
-        url: isImage ? url : objectImageUrl || "data:,",
+        url: isImage ? documentAssetUrl : objectImageUrl || "data:,",
         renderedPages:
           renderedPage && objectImageUrl
             ? [
@@ -8703,7 +8906,7 @@ export default function WorkbookSessionPage() {
         fill: "transparent",
         strokeWidth: 2,
         opacity: 1,
-        imageUrl: isImage ? undefined : objectImageUrl,
+        imageUrl: objectImageUrl,
         imageName: file.name,
         text: isImage || objectImageUrl ? undefined : `PDF: ${file.name}`,
         fontSize: isImage || objectImageUrl ? undefined : 18,
@@ -8756,7 +8959,7 @@ export default function WorkbookSessionPage() {
         name: file.name,
         type: isPdf ? "pdf" : isImage ? "image" : "office",
         ownerUserId: user?.id ?? "unknown",
-        sourceUrl: isImage ? url : objectImageUrl ?? url,
+        sourceUrl: isImage ? documentAssetUrl : objectImageUrl ?? documentAssetUrl,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         folderId: null,
@@ -8802,7 +9005,11 @@ export default function WorkbookSessionPage() {
         : null;
     const snapshotImageUrl =
       active.type === "image"
-        ? undefined
+        ? await optimizeImageDataUrl(active.url, {
+            maxEdge: 820,
+            quality: 0.58,
+            maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
+          })
         : renderedPage
           ? await optimizeImageDataUrl(renderedPage.imageUrl, {
               maxEdge: 820,
@@ -9425,6 +9632,20 @@ export default function WorkbookSessionPage() {
       void commitStrokeReplaceRef.current(payload);
     },
     []
+  );
+
+  const handleCanvasEraserPreview = useCallback(
+    (payload: {
+      gestureId: string;
+      layer: WorkbookLayer;
+      page: number;
+      radius: number;
+      points: WorkbookPoint[];
+      ended?: boolean;
+    }) => {
+      queueEraserPreview(payload);
+    },
+    [queueEraserPreview]
   );
 
   const handleCanvasObjectDelete = useCallback((objectId: string) => {
@@ -10583,6 +10804,13 @@ export default function WorkbookSessionPage() {
       ),
     [documentState.assets]
   );
+  const visibleIncomingEraserPreviews = useMemo(
+    () =>
+      Object.values(incomingEraserPreviews).filter(
+        (preview) => preview.page === Math.max(1, boardSettings.currentPage || 1)
+      ),
+    [boardSettings.currentPage, incomingEraserPreviews]
+  );
 
   const activeFrameObject = useMemo(
     () =>
@@ -10824,6 +11052,7 @@ export default function WorkbookSessionPage() {
             className={`workbook-session__contextbar-dock${
               isCompactViewport ? " is-compact" : ""
             }`}
+            onPointerDown={handleContextbarDragStart}
             style={
               isCompactViewport
                 ? undefined
@@ -10833,16 +11062,6 @@ export default function WorkbookSessionPage() {
                   }
             }
           >
-            <div
-              className="workbook-session__contextbar-dock-head"
-              onPointerDown={handleContextbarDragStart}
-            >
-              <div className="workbook-session__contextbar-dock-headline">
-                <DragHandleRoundedIcon fontSize="inherit" />
-                <span>Панель доски</span>
-              </div>
-            </div>
-
             <div className="workbook-session__contextbar">
                 <Menu
                   container={overlayContainer}
@@ -11072,6 +11291,7 @@ export default function WorkbookSessionPage() {
               gridColor={boardSettings.gridColor}
               backgroundColor={boardSettings.backgroundColor}
               imageAssetUrls={imageAssetUrls}
+              incomingEraserPreviews={visibleIncomingEraserPreviews}
               showPageNumbers={boardSettings.showPageNumbers}
               currentPage={boardSettings.currentPage}
               disabled={!canEdit || boardLocked}
@@ -11102,6 +11322,7 @@ export default function WorkbookSessionPage() {
               onSelectedConstraintChange={setSelectedConstraintId}
               onStrokeCommit={handleCanvasStrokeCommit}
               onStrokePreview={commitStrokePreview}
+              onEraserPreview={handleCanvasEraserPreview}
               onStrokeDelete={handleCanvasStrokeDelete}
               onStrokeReplace={handleCanvasStrokeReplace}
               onObjectCreate={handleCanvasObjectCreate}
