@@ -153,7 +153,11 @@ type WorkbookSessionTransformPanelProps = {
     index: number,
     style: WorkbookShapeAngleMarkStyle
   ) => void | Promise<void>;
-  onUpdateSelectedShape2dSegmentNote: (index: number, value: string) => void | Promise<void>;
+  onScheduleSelectedShape2dSegmentDraftCommit: (index: number, value: string) => void;
+  onFlushSelectedShape2dSegmentDraftCommit: (
+    index: number,
+    value?: string
+  ) => void | Promise<void>;
   onUpdateSelectedShape2dVertexColor: (index: number, color: string) => void | Promise<void>;
   onUpdateSelectedShape2dAngleColor: (index: number, color: string) => void | Promise<void>;
   onUpdateSelectedShape2dSegmentColor: (index: number, color: string) => void | Promise<void>;
@@ -294,7 +298,8 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
   onScheduleSelectedShape2dAngleDraftCommit,
   onFlushSelectedShape2dAngleDraftCommit,
   onUpdateSelectedShape2dAngleStyle,
-  onUpdateSelectedShape2dSegmentNote,
+  onScheduleSelectedShape2dSegmentDraftCommit,
+  onFlushSelectedShape2dSegmentDraftCommit,
   onUpdateSelectedShape2dVertexColor,
   onUpdateSelectedShape2dAngleColor,
   onUpdateSelectedShape2dSegmentColor,
@@ -368,16 +373,11 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
           color: selectedShape2dAngleColors[index] ?? "#4f63ff",
           style: "arc_single" as const,
         };
-        const selectedStyleOption =
-          SHAPE_ANGLE_MARK_STYLE_OPTIONS.find((option) => option.value === angleMark.style) ??
-          SHAPE_ANGLE_MARK_STYLE_OPTIONS.find((option) => option.value === "arc_single") ??
-          SHAPE_ANGLE_MARK_STYLE_OPTIONS[0];
         return {
           key: `${selectedShape2dObject?.id ?? "shape"}:${index}`,
           index,
           label,
           angleMark,
-          selectedStyleOption,
         };
       }),
     [
@@ -670,7 +670,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                   {solid3dFigureTab === "angles" && !selectedSolidIsCurved ? (
                     <article className="workbook-session__solid-card">
                       <div className="workbook-session__solid-card-head">
-                        <span className="workbook-session__solid-card-title">Пометки углов</span>
+                        <span className="workbook-session__solid-card-title">Углы</span>
                         <Button size="small" variant="outlined" onClick={() => void onAddSolid3dAngleMark()}>
                           Добавить
                         </Button>
@@ -739,7 +739,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                                         </IconButton>
                                       </div>
                                     </div>
-                                    <div className="workbook-session__solid-angle-grid">
+                                    <div className="workbook-session__solid-angle-top">
                                       <Select
                                         native
                                         size="small"
@@ -790,10 +790,12 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                                           </option>
                                         ))}
                                       </Select>
+                                    </div>
+                                    <div className="workbook-session__solid-angle-bottom">
                                       <TextField
                                         size="small"
                                         className="workbook-session__solid-input"
-                                        label="Подпись"
+                                        label="Значение"
                                         value={mark.label}
                                         onChange={(event) =>
                                           void onUpdateSolid3dAngleMark(mark.id, {
@@ -801,8 +803,6 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                                           })
                                         }
                                       />
-                                    </div>
-                                    <div className="workbook-session__solid-angle-footer">
                                       <div className="workbook-session__solid-angle-visibility">
                                         <span>Скрыть</span>
                                         <Switch
@@ -824,7 +824,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                         </div>
                       ) : (
                         <p className="workbook-session__hint">
-                          Добавьте пометку угла и задайте комментарий вручную.
+                          Добавьте угол и задайте значение вручную.
                         </p>
                       )}
                     </article>
@@ -1518,7 +1518,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                     </div>
                   </div>
                   <p className="workbook-session__hint">
-                    Геометрические подписи и пометки вынесены в профильные вкладки.
+                    Геометрические значения и обозначения вынесены в профильные вкладки.
                   </p>
                 </article>
               ) : null}
@@ -1603,7 +1603,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                     />
                   </div>
                   <p className="workbook-session__hint">
-                    По умолчанию углы помечаются одной дугой. При необходимости меняйте тип
+                    По умолчанию углы обозначаются одной дугой. При необходимости меняйте тип
                     обозначения отдельно для каждого угла.
                   </p>
                   {selectedShape2dHasAngles ? (
@@ -1619,7 +1619,6 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                             onClick={() => setActiveShapeAngleKey(item.key)}
                           >
                             <span>∠{item.label}</span>
-                            <small>{item.selectedStyleOption.preview}</small>
                           </button>
                         ))}
                       </div>
@@ -1629,10 +1628,6 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                             <div className="workbook-session__shape-angle-meta">
                               <span className="workbook-session__shape-angle-badge">
                                 ∠{activeShapeAngleItem.label}
-                              </span>
-                              <span className="workbook-session__shape-angle-preview">
-                                {activeShapeAngleItem.selectedStyleOption.preview}
-                                <small>{activeShapeAngleItem.selectedStyleOption.label}</small>
                               </span>
                             </div>
                             <input
@@ -1683,7 +1678,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                               select
                               size="small"
                               className="workbook-session__solid-input workbook-session__shape-angle-field"
-                              label="Пометка"
+                              label="Обозначение"
                               value={activeShapeAngleItem.angleMark.style}
                               onChange={(event) =>
                                 void onUpdateSelectedShape2dAngleStyle(
@@ -1718,10 +1713,13 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                         key={`shape-segment-note-${selectedShape2dObject.id}-${index}`}
                         className="workbook-session__solid-point-row"
                       >
+                        <span className="workbook-session__shape-angle-badge workbook-session__shape-angle-badge--segment">
+                          {segment}
+                        </span>
                         <TextField
                           size="small"
                           className="workbook-session__solid-input workbook-session__solid-input--compact"
-                          label={`Отрезок ${segment}`}
+                          label="Значение"
                           placeholder="Например: 5"
                           value={shapeSegmentNoteDrafts[index] ?? ""}
                           onChange={(event) => {
@@ -1731,10 +1729,10 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                               next[index] = nextValue;
                               return next;
                             });
-                            void onUpdateSelectedShape2dSegmentNote(index, nextValue);
+                            onScheduleSelectedShape2dSegmentDraftCommit(index, nextValue);
                           }}
                           onBlur={() =>
-                            void onUpdateSelectedShape2dSegmentNote(
+                            void onFlushSelectedShape2dSegmentDraftCommit(
                               index,
                               shapeSegmentNoteDrafts[index] ?? ""
                             )

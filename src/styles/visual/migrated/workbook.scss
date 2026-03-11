@@ -770,8 +770,12 @@
   will-change: left, top;
 }
 
-.workbook-session__utility-float.is-anchored {
+.workbook-session__utility-float.is-contextual {
   width: min(380px, calc(100vw - 24px));
+}
+
+.workbook-session__utility-float.is-settings {
+  width: min(556px, calc(100vw - 20px));
 }
 
 .workbook-session__utility-float.is-collapsed {
@@ -818,14 +822,6 @@
 
   &:active {
     cursor: grabbing;
-  }
-}
-
-.workbook-session__utility-float.is-anchored .workbook-session__utility-float-head {
-  cursor: default;
-
-  &:active {
-    cursor: default;
   }
 }
 
@@ -1122,6 +1118,7 @@
 
 .workbook-session__board-settings {
   gap: 12px;
+  container-type: inline-size;
 }
 
 .workbook-session__board-settings-head {
@@ -1471,6 +1468,36 @@
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.45;
+}
+
+@container (max-width: 520px) {
+  .workbook-session__board-settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .workbook-session__board-settings-field {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .workbook-session__board-settings-card-title {
+    align-items: flex-start;
+  }
+
+  .workbook-session__board-settings-select,
+  .workbook-session__board-settings-range,
+  .workbook-session__board-settings-color-grid {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .workbook-session__board-settings-color-grid,
+  .workbook-session__board-settings-two-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .workbook-session__toggle-group {
@@ -2437,6 +2464,11 @@
   letter-spacing: 0.01em;
 }
 
+.workbook-session__shape-angle-badge--segment {
+  justify-self: start;
+  white-space: nowrap;
+}
+
 .workbook-session__shape-angle-preview {
   min-width: 0;
   display: inline-flex;
@@ -2580,7 +2612,7 @@
 }
 
 .workbook-session__solid-angle-top {
-  grid-template-columns: auto minmax(0, 1.2fr) minmax(0, 0.9fr) auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .workbook-session__solid-angle-bottom {
@@ -2597,6 +2629,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-height: 32px;
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 600;
@@ -2632,8 +2665,7 @@
 
   .workbook-session__shape-angle-fields,
   .workbook-session__solid-angle-grid,
-  .workbook-session__solid-angle-top,
-  .workbook-session__solid-angle-bottom {
+  .workbook-session__solid-angle-top {
     grid-template-columns: minmax(0, 1fr);
   }
 

@@ -1846,6 +1846,9 @@ export default function WorkbookSessionPage() {
   const shapeAngleDraftCommitTimersRef = useRef<Map<number, number>>(new Map());
   const shapeAngleDraftObjectIdRef = useRef<string | null>(null);
   const [shapeSegmentNoteDrafts, setShapeSegmentNoteDrafts] = useState<string[]>([]);
+  const shapeSegmentDraftValuesRef = useRef<Map<number, string>>(new Map());
+  const shapeSegmentDraftCommitTimersRef = useRef<Map<number, number>>(new Map());
+  const shapeSegmentDraftObjectIdRef = useRef<string | null>(null);
   const lineDraftObjectIdRef = useRef<string | null>(null);
   const shapeDraftObjectIdRef = useRef<string | null>(null);
   const dividerDraftObjectIdRef = useRef<string | null>(null);
@@ -1904,7 +1907,6 @@ export default function WorkbookSessionPage() {
   const utilityPanelRef = useRef<HTMLDivElement | null>(null);
   const boardFileInputRef = useRef<HTMLInputElement | null>(null);
   const docsInputRef = useRef<HTMLInputElement | null>(null);
-  const utilityPanelPositionFrameRef = useRef<number | null>(null);
   const focusResetTimersByUserRef = useRef<Map<string, number>>(new Map());
   const dirtyRef = useRef(false);
   const isSavingRef = useRef(false);
@@ -4919,12 +4921,6 @@ export default function WorkbookSessionPage() {
 
   const selectedObjectForUtilityPanel =
     boardObjects.find((item) => item.id === selectedObjectId) ?? null;
-  const selectedObjectSupportsTransformPanelForUtility = supportsTransformUtilityPanel(
-    selectedObjectForUtilityPanel
-  );
-  const selectedObjectSupportsGraphPanelForUtility = supportsGraphUtilityPanel(
-    selectedObjectForUtilityPanel
-  );
 
   const resolveUtilityPanelPositionNearObject = useCallback(
     (
@@ -4996,13 +4992,15 @@ export default function WorkbookSessionPage() {
       tab: "settings" | "graph" | "transform" | "layers",
       options?: {
         toggle?: boolean;
+        anchorObject?: WorkbookBoardObject | null;
       }
     ) => {
       if (tab === "settings" && !canAccessBoardSettingsPanel) {
         return;
       }
-      const canOpenTransformPanel = selectedObjectSupportsTransformPanelForUtility;
-      const canOpenGraphPanel = selectedObjectSupportsGraphPanelForUtility;
+      const anchorObject = options?.anchorObject ?? selectedObjectForUtilityPanel;
+      const canOpenTransformPanel = supportsTransformUtilityPanel(anchorObject);
+      const canOpenGraphPanel = supportsGraphUtilityPanel(anchorObject);
       if (tab === "transform" && !canOpenTransformPanel) {
         return;
       }
@@ -5011,12 +5009,7 @@ export default function WorkbookSessionPage() {
       }
       const allowToggle = options?.toggle ?? true;
       if (allowToggle && isUtilityPanelOpen && utilityTab === tab) {
-        const isSolid3dSelected = Boolean(
-          selectedObjectId &&
-            boardObjects.some(
-              (object) => object.id === selectedObjectId && object.type === "solid3d"
-            )
-        );
+        const isSolid3dSelected = anchorObject?.type === "solid3d";
         if (tab === "transform" && isFullscreen && isSolid3dSelected) {
           return;
         }
@@ -5031,7 +5024,7 @@ export default function WorkbookSessionPage() {
       }
       const anchoredPosition =
         tab === "graph" || tab === "transform"
-          ? resolveUtilityPanelPositionNearObject(selectedObjectForUtilityPanel, tab)
+          ? resolveUtilityPanelPositionNearObject(anchorObject, tab)
           : null;
       if (anchoredPosition) {
         setUtilityPanelPosition(anchoredPosition);
@@ -5058,27 +5051,18 @@ export default function WorkbookSessionPage() {
       });
     },
     [
-      boardObjects,
       canAccessBoardSettingsPanel,
       isCompactViewport,
       isFullscreen,
       isUtilityPanelOpen,
       resolveUtilityPanelPositionNearObject,
-      selectedObjectId,
       selectedObjectForUtilityPanel,
-      selectedObjectSupportsGraphPanelForUtility,
-      selectedObjectSupportsTransformPanelForUtility,
       utilityTab,
     ]
   );
 
   const handleUtilityPanelDragStart = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const isAnchoredPanel =
-      !isCompactViewport &&
-      isUtilityPanelOpen &&
-      ((utilityTab === "graph" && selectedObjectSupportsGraphPanelForUtility) ||
-        (utilityTab === "transform" && selectedObjectSupportsTransformPanelForUtility));
-    if (isCompactViewport || isAnchoredPanel) return;
+    if (isCompactViewport || !isUtilityPanelOpen) return;
     if (event.button !== 0) return;
     const target = event.target;
     if (target instanceof HTMLElement) {
@@ -5118,12 +5102,7 @@ export default function WorkbookSessionPage() {
   );
 
   useEffect(() => {
-    const shouldAnchorUtilityPanel =
-      !isCompactViewport &&
-      isUtilityPanelOpen &&
-      ((utilityTab === "graph" && selectedObjectSupportsGraphPanelForUtility) ||
-        (utilityTab === "transform" && selectedObjectSupportsTransformPanelForUtility));
-    if (isCompactViewport || shouldAnchorUtilityPanel) {
+    if (isCompactViewport || !isUtilityPanelOpen) {
       setUtilityPanelDragState(null);
       return;
     }
@@ -5159,19 +5138,11 @@ export default function WorkbookSessionPage() {
   }, [
     isCompactViewport,
     isUtilityPanelOpen,
-    selectedObjectSupportsGraphPanelForUtility,
-    selectedObjectSupportsTransformPanelForUtility,
     utilityPanelDragState,
-    utilityTab,
   ]);
 
   useEffect(() => {
-    const shouldAnchorUtilityPanel =
-      !isCompactViewport &&
-      isUtilityPanelOpen &&
-      ((utilityTab === "graph" && selectedObjectSupportsGraphPanelForUtility) ||
-        (utilityTab === "transform" && selectedObjectSupportsTransformPanelForUtility));
-    if (isCompactViewport || shouldAnchorUtilityPanel) return;
+    if (isCompactViewport) return;
     if (!isUtilityPanelOpen) return;
     if (!workspaceRef.current) return;
     setUtilityPanelPosition((current) => {
@@ -5196,8 +5167,6 @@ export default function WorkbookSessionPage() {
     isCompactViewport,
     isFullscreen,
     isUtilityPanelOpen,
-    selectedObjectSupportsGraphPanelForUtility,
-    selectedObjectSupportsTransformPanelForUtility,
     utilityTab,
   ]);
 
@@ -6479,11 +6448,15 @@ export default function WorkbookSessionPage() {
   );
 
   const focusObjectInWorkspace = useCallback((objectId: string) => {
+    const targetObject = boardObjects.find((item) => item.id === objectId) ?? null;
     setSelectedConstraintId(null);
     setSelectedObjectId(objectId);
     resetToolRuntimeToSelect();
-    openUtilityPanel("transform", { toggle: false });
-  }, [openUtilityPanel, resetToolRuntimeToSelect]);
+    openUtilityPanel("transform", {
+      toggle: false,
+      anchorObject: targetObject,
+    });
+  }, [boardObjects, openUtilityPanel, resetToolRuntimeToSelect]);
 
   const updateSelectedLineMeta = useCallback(
     async (
@@ -7281,6 +7254,48 @@ export default function WorkbookSessionPage() {
       shapeAngleDraftCommitTimersRef.current.set(index, timer);
     },
     [flushSelectedShape2dAngleDraftCommit, selectedObjectId]
+  );
+
+  const flushSelectedShape2dSegmentDraftCommit = useCallback(
+    async (index: number, draftOverride?: string) => {
+      const timer = shapeSegmentDraftCommitTimersRef.current.get(index);
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        shapeSegmentDraftCommitTimersRef.current.delete(index);
+      }
+      if (!selectedObjectId) return;
+      const draftObjectId = shapeSegmentDraftObjectIdRef.current;
+      if (!draftObjectId || draftObjectId !== selectedObjectId) return;
+      const nextValue = (draftOverride ?? shapeSegmentDraftValuesRef.current.get(index) ?? "")
+        .slice(0, 24);
+      const target = boardObjects.find((item) => item.id === selectedObjectId);
+      if (!target || !is2dFigureObject(target)) return;
+      const vertices = resolve2dFigureVertices(target);
+      if (vertices.length < 2) return;
+      const raw = Array.isArray(target.meta?.segmentNotes) ? target.meta.segmentNotes : [];
+      const currentValue = typeof raw[index] === "string" ? raw[index] : "";
+      if (currentValue === nextValue) return;
+      await updateSelectedShape2dSegmentNote(index, nextValue);
+    },
+    [boardObjects, selectedObjectId, updateSelectedShape2dSegmentNote]
+  );
+
+  const scheduleSelectedShape2dSegmentDraftCommit = useCallback(
+    (index: number, value: string) => {
+      if (!selectedObjectId) return;
+      const nextValue = value.slice(0, 24);
+      shapeSegmentDraftObjectIdRef.current = selectedObjectId;
+      shapeSegmentDraftValuesRef.current.set(index, nextValue);
+      const existingTimer = shapeSegmentDraftCommitTimersRef.current.get(index);
+      if (existingTimer !== undefined) {
+        window.clearTimeout(existingTimer);
+      }
+      const timer = window.setTimeout(() => {
+        void flushSelectedShape2dSegmentDraftCommit(index, nextValue);
+      }, 260);
+      shapeSegmentDraftCommitTimersRef.current.set(index, timer);
+    },
+    [flushSelectedShape2dSegmentDraftCommit, selectedObjectId]
   );
 
   const updateSelectedShape2dSegmentColor = useCallback(
@@ -9511,7 +9526,7 @@ export default function WorkbookSessionPage() {
     () => supportsGraphUtilityPanel(selectedObject),
     [selectedObject]
   );
-  const shouldAnchorUtilityPanel = useMemo(
+  const isContextualUtilityPanel = useMemo(
     () =>
       !isCompactViewport &&
       isUtilityPanelOpen &&
@@ -9542,47 +9557,6 @@ export default function WorkbookSessionPage() {
     utilityTab,
   ]);
 
-  useEffect(() => {
-    if (!shouldAnchorUtilityPanel || !selectedObject) return;
-    const syncPosition = () => {
-      utilityPanelPositionFrameRef.current = null;
-      const nextPosition =
-        utilityTab === "graph" || utilityTab === "transform"
-          ? resolveUtilityPanelPositionNearObject(selectedObject, utilityTab)
-          : null;
-      if (!nextPosition) return;
-      setUtilityPanelPosition((current) => {
-        const deltaX = Math.abs(current.x - nextPosition.x);
-        const deltaY = Math.abs(current.y - nextPosition.y);
-        return deltaX < 0.5 && deltaY < 0.5 ? current : nextPosition;
-      });
-    };
-    const requestSync = () => {
-      if (utilityPanelPositionFrameRef.current !== null) return;
-      utilityPanelPositionFrameRef.current = window.requestAnimationFrame(syncPosition);
-    };
-    requestSync();
-    window.addEventListener("scroll", requestSync, true);
-    window.addEventListener("resize", requestSync);
-    return () => {
-      window.removeEventListener("scroll", requestSync, true);
-      window.removeEventListener("resize", requestSync);
-      if (utilityPanelPositionFrameRef.current !== null) {
-        window.cancelAnimationFrame(utilityPanelPositionFrameRef.current);
-        utilityPanelPositionFrameRef.current = null;
-      }
-    };
-  }, [
-    canvasViewport.x,
-    canvasViewport.y,
-    isFullscreen,
-    selectedObject,
-    shouldAnchorUtilityPanel,
-    utilityTab,
-    viewportZoom,
-    resolveUtilityPanelPositionNearObject,
-  ]);
-
   const handleCanvasSelectedObjectChange = useCallback(
     (nextObjectId: string | null) => {
       const suppressedObjectId = suppressAutoPanelSelectionRef.current;
@@ -9599,12 +9573,14 @@ export default function WorkbookSessionPage() {
       if (supportsGraphUtilityPanel(target)) {
         openUtilityPanel("graph", {
           toggle: false,
+          anchorObject: target,
         });
         return;
       }
       if (supportsTransformUtilityPanel(target)) {
         openUtilityPanel("transform", {
           toggle: false,
+          anchorObject: target,
         });
       }
     },
@@ -10013,7 +9989,13 @@ export default function WorkbookSessionPage() {
       });
       shapeAngleDraftCommitTimersRef.current.clear();
       shapeAngleDraftValuesRef.current.clear();
+      shapeSegmentDraftCommitTimersRef.current.forEach((timer) => {
+        window.clearTimeout(timer);
+      });
+      shapeSegmentDraftCommitTimersRef.current.clear();
+      shapeSegmentDraftValuesRef.current.clear();
       shapeAngleDraftObjectIdRef.current = null;
+      shapeSegmentDraftObjectIdRef.current = null;
       shapeDraftObjectIdRef.current = null;
       return;
     }
@@ -10023,7 +10005,13 @@ export default function WorkbookSessionPage() {
     });
     shapeAngleDraftCommitTimersRef.current.clear();
     shapeAngleDraftValuesRef.current.clear();
+    shapeSegmentDraftCommitTimersRef.current.forEach((timer) => {
+      window.clearTimeout(timer);
+    });
+    shapeSegmentDraftCommitTimersRef.current.clear();
+    shapeSegmentDraftValuesRef.current.clear();
     shapeAngleDraftObjectIdRef.current = selectedShape2dObject.id;
+    shapeSegmentDraftObjectIdRef.current = selectedShape2dObject.id;
     shapeDraftObjectIdRef.current = selectedShape2dObject.id;
     setShapeVertexLabelDrafts(selectedShape2dLabels);
     setShapeAngleNoteDrafts(selectedShape2dAngleNotes);
@@ -10042,6 +10030,10 @@ export default function WorkbookSessionPage() {
         window.clearTimeout(timer);
       });
       shapeAngleDraftCommitTimersRef.current.clear();
+      shapeSegmentDraftCommitTimersRef.current.forEach((timer) => {
+        window.clearTimeout(timer);
+      });
+      shapeSegmentDraftCommitTimersRef.current.clear();
     },
     []
   );
@@ -10985,7 +10977,9 @@ export default function WorkbookSessionPage() {
             ref={utilityPanelRef}
             className={`workbook-session__utility-float${
               isUtilityPanelCollapsed ? " is-collapsed" : ""
-            }${shouldAnchorUtilityPanel ? " is-anchored" : ""}`}
+            }${isContextualUtilityPanel ? " is-contextual" : ""}${
+              utilityTab === "settings" ? " is-settings" : ""
+            }`}
             style={
               isCompactViewport
                 ? undefined
@@ -11210,7 +11204,8 @@ export default function WorkbookSessionPage() {
                 onScheduleSelectedShape2dAngleDraftCommit={scheduleSelectedShape2dAngleDraftCommit}
                 onFlushSelectedShape2dAngleDraftCommit={flushSelectedShape2dAngleDraftCommit}
                 onUpdateSelectedShape2dAngleStyle={updateSelectedShape2dAngleStyle}
-                onUpdateSelectedShape2dSegmentNote={updateSelectedShape2dSegmentNote}
+                onScheduleSelectedShape2dSegmentDraftCommit={scheduleSelectedShape2dSegmentDraftCommit}
+                onFlushSelectedShape2dSegmentDraftCommit={flushSelectedShape2dSegmentDraftCommit}
                 onUpdateSelectedShape2dVertexColor={updateSelectedShape2dVertexColor}
                 onUpdateSelectedShape2dAngleColor={updateSelectedShape2dAngleColor}
                 onUpdateSelectedShape2dSegmentColor={updateSelectedShape2dSegmentColor}
