@@ -5484,30 +5484,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       );
       const visibleVertexIndices = (() => {
         if (!projectedVertices.length) return [] as number[];
-        if (!isRoundPreset) return projectedVertices.map((vertex) => vertex.index);
-        const pickExtremum = (
-          comparator: (current: ProjectedSolidVertex, best: ProjectedSolidVertex) => boolean
-        ) =>
-          projectedVertices.reduce((best, current) =>
-            comparator(current, best) ? current : best
-          );
-        const candidates = [
-          pickExtremum((current, best) => current.x < best.x),
-          pickExtremum((current, best) => current.x > best.x),
-          pickExtremum((current, best) => current.y < best.y),
-          pickExtremum((current, best) => current.y > best.y),
-          pickExtremum((current, best) => current.depth < best.depth),
-          pickExtremum((current, best) => current.depth > best.depth),
-          pickExtremum((current, best) => current.x + current.y < best.x + best.y),
-          pickExtremum((current, best) => current.x + current.y > best.x + best.y),
-          pickExtremum((current, best) => current.x - current.y < best.x - best.y),
-          pickExtremum((current, best) => current.x - current.y > best.x - best.y),
-        ];
-        const unique = candidates.filter(
-          (vertex, index) =>
-            candidates.findIndex((candidate) => candidate.index === vertex.index) === index
-        );
-        return unique.map((vertex) => vertex.index);
+        if (isRoundPreset) return [] as number[];
+        return projectedVertices.map((vertex) => vertex.index);
       })();
 
       const vertexLabelPlacements = new Map(
@@ -5520,7 +5498,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
               resolveOutsideVertexLabelPlacement({
                 vertex: { x: vertex.x, y: vertex.y },
                 center: solidLabelCenter,
-                baseOffset: isRoundPreset ? 12 : 14,
+                baseOffset: 14,
               }),
             ] as const;
           })

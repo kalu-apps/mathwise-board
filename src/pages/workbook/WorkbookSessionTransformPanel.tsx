@@ -137,10 +137,14 @@ type WorkbookSessionTransformPanelProps = {
   setShapeAngleNoteDrafts: Dispatch<SetStateAction<string[]>>;
   shapeSegmentNoteDrafts: string[];
   setShapeSegmentNoteDrafts: Dispatch<SetStateAction<string[]>>;
+  shape2dStrokeWidthDraft: number;
+  setShape2dStrokeWidthDraft: Dispatch<SetStateAction<number>>;
   selectedShape2dVertexColors: string[];
   selectedShape2dAngleColors: string[];
   selectedShape2dSegmentColors: string[];
   onUpdateSelectedShape2dMeta: (patch: Record<string, unknown>) => void | Promise<void>;
+  onUpdateSelectedShape2dObject: (patch: Partial<WorkbookBoardObject>) => void | Promise<void>;
+  onCommitSelectedShape2dStrokeWidth: () => void | Promise<void>;
   onRenameSelectedShape2dVertex: (index: number, value: string) => void | Promise<void>;
   onScheduleSelectedShape2dAngleDraftCommit: (index: number, value: string) => void;
   onFlushSelectedShape2dAngleDraftCommit: (
@@ -182,6 +186,10 @@ type WorkbookSessionTransformPanelProps = {
   isSolid3dPointCollectionActive: boolean;
   onSetSolid3dHiddenEdges: (hidden: boolean) => void | Promise<void>;
   onUpdateSelectedSolid3dSurfaceColor: (color: string) => void | Promise<void>;
+  solid3dStrokeWidthDraft: number;
+  setSolid3dStrokeWidthDraft: Dispatch<SetStateAction<number>>;
+  onUpdateSelectedSolid3dStrokeWidth: (strokeWidthValue: number) => void | Promise<void>;
+  onCommitSelectedSolid3dStrokeWidth: () => void | Promise<void>;
   onResetSolid3dFaceColors: () => void | Promise<void>;
   onSetSolid3dFaceColor: (faceIndex: number, color: string) => void | Promise<void>;
   onResetSolid3dEdgeColors: () => void | Promise<void>;
@@ -279,10 +287,14 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
   setShapeAngleNoteDrafts,
   shapeSegmentNoteDrafts,
   setShapeSegmentNoteDrafts,
+  shape2dStrokeWidthDraft,
+  setShape2dStrokeWidthDraft,
   selectedShape2dVertexColors,
   selectedShape2dAngleColors,
   selectedShape2dSegmentColors,
   onUpdateSelectedShape2dMeta,
+  onUpdateSelectedShape2dObject,
+  onCommitSelectedShape2dStrokeWidth,
   onRenameSelectedShape2dVertex,
   onScheduleSelectedShape2dAngleDraftCommit,
   onFlushSelectedShape2dAngleDraftCommit,
@@ -315,6 +327,10 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
   isSolid3dPointCollectionActive,
   onSetSolid3dHiddenEdges,
   onUpdateSelectedSolid3dSurfaceColor,
+  solid3dStrokeWidthDraft,
+  setSolid3dStrokeWidthDraft,
+  onUpdateSelectedSolid3dStrokeWidth,
+  onCommitSelectedSolid3dStrokeWidth,
   onResetSolid3dFaceColors,
   onSetSolid3dFaceColor,
   onResetSolid3dEdgeColors,
@@ -451,6 +467,30 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
 
                   {solid3dFigureTab === "display" ? (
                     <article className="workbook-session__solid-card">
+                      <div className="workbook-session__settings-row">
+                        <span>Толщина контура</span>
+                        <div className="workbook-session__line-range">
+                          <input
+                            type="range"
+                            min={1}
+                            max={18}
+                            step={1}
+                            value={solid3dStrokeWidthDraft}
+                            onChange={(event) => {
+                              const nextWidth = Math.max(
+                                1,
+                                Math.min(18, Number(event.target.value) || 1)
+                              );
+                              setSolid3dStrokeWidthDraft(nextWidth);
+                              void onUpdateSelectedSolid3dStrokeWidth(nextWidth);
+                            }}
+                            onMouseUp={() => void onCommitSelectedSolid3dStrokeWidth()}
+                            onTouchEnd={() => void onCommitSelectedSolid3dStrokeWidth()}
+                            onBlur={() => void onCommitSelectedSolid3dStrokeWidth()}
+                          />
+                        </div>
+                      </div>
+                      <p className="workbook-session__hint">{solid3dStrokeWidthDraft} px</p>
                       <div className="workbook-session__solid-card-row">
                         <span>
                           {selectedSolidIsCurved
@@ -465,6 +505,12 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                           }
                         />
                       </div>
+                      {selectedSolidIsCurved ? (
+                        <p className="workbook-session__hint">
+                          Для тел с круговым основанием скрыты служебные mesh-точки: в учебной
+                          записи остаются контур, образующие, ось и сечения.
+                        </p>
+                      ) : null}
                     </article>
                   ) : null}
 
@@ -1404,6 +1450,30 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                     <span className="workbook-session__solid-card-title">Фигура</span>
                   </div>
                   <p className="workbook-session__hint">{selectedObjectLabel}</p>
+                  <div className="workbook-session__settings-row">
+                    <span>Толщина контура</span>
+                    <div className="workbook-session__line-range">
+                      <input
+                        type="range"
+                        min={1}
+                        max={18}
+                        step={1}
+                        value={shape2dStrokeWidthDraft}
+                        onChange={(event) => {
+                          const nextWidth = Math.max(
+                            1,
+                            Math.min(18, Number(event.target.value) || 1)
+                          );
+                          setShape2dStrokeWidthDraft(nextWidth);
+                          void onUpdateSelectedShape2dObject({ strokeWidth: nextWidth });
+                        }}
+                        onMouseUp={() => void onCommitSelectedShape2dStrokeWidth()}
+                        onTouchEnd={() => void onCommitSelectedShape2dStrokeWidth()}
+                        onBlur={() => void onCommitSelectedShape2dStrokeWidth()}
+                      />
+                    </div>
+                  </div>
+                  <p className="workbook-session__hint">{shape2dStrokeWidthDraft} px</p>
                   <p className="workbook-session__hint">
                     Геометрические подписи и пометки вынесены в профильные вкладки.
                   </p>

@@ -1722,6 +1722,7 @@ export default function WorkbookSessionPage() {
   const textPreset = "";
   const [lineStyle, setLineStyle] = useState<"solid" | "dashed">("solid");
   const [lineWidthDraft, setLineWidthDraft] = useState(3);
+  const [shape2dStrokeWidthDraft, setShape2dStrokeWidthDraft] = useState(2);
   const [graphExpressionDraft, setGraphExpressionDraft] = useState("");
   const [graphDraftFunctions, setGraphDraftFunctions] = useState<GraphFunctionDraft[]>([]);
   const [smartInkOptions, setSmartInkOptions] = useState<SmartInkOptions>(
@@ -1739,6 +1740,7 @@ export default function WorkbookSessionPage() {
     "catalog"
   );
   const [dividerWidthDraft, setDividerWidthDraft] = useState(2);
+  const [solid3dStrokeWidthDraft, setSolid3dStrokeWidthDraft] = useState(2);
   const [solid3dInspectorTab, setSolid3dInspectorTab] = useState<"figure" | "section">(
     "section"
   );
@@ -6963,6 +6965,16 @@ export default function WorkbookSessionPage() {
     [boardObjects, canSelect, commitObjectUpdate, selectedObjectId]
   );
 
+  const updateSelectedShape2dObject = useCallback(
+    async (patch: Partial<WorkbookBoardObject>) => {
+      if (!selectedObjectId || !canSelect) return;
+      const target = boardObjects.find((item) => item.id === selectedObjectId);
+      if (!target || !is2dFigureObject(target)) return;
+      await commitObjectUpdate(target.id, patch);
+    },
+    [boardObjects, canSelect, commitObjectUpdate, selectedObjectId]
+  );
+
   const buildShapeAngleMetaPatch = useCallback(
     (marks: WorkbookShapeAngleMark[]) => ({
       angleMarks: marks.map((mark) => ({
@@ -7090,6 +7102,21 @@ export default function WorkbookSessionPage() {
     [updateSelectedShape2dAngleMark]
   );
 
+  const commitSelectedShape2dStrokeWidth = useCallback(async () => {
+    if (!selectedObjectId) return;
+    const target = boardObjects.find((item) => item.id === selectedObjectId);
+    if (!target || !is2dFigureObject(target)) return;
+    const next = Math.max(1, Math.min(18, Math.round(shape2dStrokeWidthDraft)));
+    const current = target.strokeWidth ?? 2;
+    if (Math.abs(next - current) < 0.01) return;
+    await updateSelectedShape2dObject({ strokeWidth: next });
+  }, [
+    boardObjects,
+    selectedObjectId,
+    shape2dStrokeWidthDraft,
+    updateSelectedShape2dObject,
+  ]);
+
   const flushSelectedShape2dAngleDraftCommit = useCallback(
     async (index: number, draftOverride?: string) => {
       const timer = shapeAngleDraftCommitTimersRef.current.get(index);
@@ -7215,6 +7242,31 @@ export default function WorkbookSessionPage() {
     await commitObjectUpdate(targetObject.id, {
       fill: color || "#5f6aa0",
     });
+  };
+
+  const updateSelectedSolid3dStrokeWidth = async (strokeWidthValue: number) => {
+    if (!canSelect || !selectedObjectId) return;
+    const targetObject = boardObjects.find(
+      (item): item is WorkbookBoardObject & { type: "solid3d" } =>
+        item.id === selectedObjectId && item.type === "solid3d"
+    );
+    if (!targetObject) return;
+    await commitObjectUpdate(targetObject.id, {
+      strokeWidth: Math.max(1, Math.min(18, Math.round(strokeWidthValue))),
+    });
+  };
+
+  const commitSelectedSolid3dStrokeWidth = async () => {
+    if (!selectedObjectId) return;
+    const targetObject = boardObjects.find(
+      (item): item is WorkbookBoardObject & { type: "solid3d" } =>
+        item.id === selectedObjectId && item.type === "solid3d"
+    );
+    if (!targetObject) return;
+    const next = Math.max(1, Math.min(18, Math.round(solid3dStrokeWidthDraft)));
+    const current = targetObject.strokeWidth ?? 2;
+    if (Math.abs(next - current) < 0.01) return;
+    await updateSelectedSolid3dStrokeWidth(next);
   };
 
   const setSolid3dEdgeColor = async (edgeKey: string, color: string) => {
@@ -9814,6 +9866,14 @@ export default function WorkbookSessionPage() {
 
   useEffect(() => {
     if (!selectedShape2dObject) {
+      shapeDraftObjectIdRef.current = null;
+      return;
+    }
+    setShape2dStrokeWidthDraft(Math.max(1, Math.round(selectedShape2dObject.strokeWidth ?? 2)));
+  }, [selectedShape2dObject, selectedShape2dObject?.id, selectedShape2dObject?.strokeWidth]);
+
+  useEffect(() => {
+    if (!selectedShape2dObject) {
       shapeAngleDraftCommitTimersRef.current.forEach((timer) => {
         window.clearTimeout(timer);
       });
@@ -9922,6 +9982,10 @@ export default function WorkbookSessionPage() {
         : "#5f6aa0",
     [selectedObject]
   );
+  const selectedSolidStrokeWidth = useMemo(
+    () => (selectedObject?.type === "solid3d" ? selectedObject.strokeWidth ?? 2 : 2),
+    [selectedObject?.type, selectedObject?.strokeWidth]
+  );
   const selectedSolidEdgeColors = useMemo(
     () => selectedSolid3dState?.edgeColors ?? {},
     [selectedSolid3dState?.edgeColors]
@@ -9993,6 +10057,11 @@ export default function WorkbookSessionPage() {
       setSolid3dSectionContextMenu(null);
     }
   }, [selectedObject?.type]);
+
+  useEffect(() => {
+    if (selectedObject?.type !== "solid3d") return;
+    setSolid3dStrokeWidthDraft(Math.max(1, Math.round(selectedSolidStrokeWidth)));
+  }, [selectedObject?.id, selectedObject?.type, selectedSolidStrokeWidth]);
 
   useEffect(() => {
     if (!selectedSolid3dState) return;
@@ -11101,10 +11170,14 @@ export default function WorkbookSessionPage() {
                 setShapeAngleNoteDrafts={setShapeAngleNoteDrafts}
                 shapeSegmentNoteDrafts={shapeSegmentNoteDrafts}
                 setShapeSegmentNoteDrafts={setShapeSegmentNoteDrafts}
+                shape2dStrokeWidthDraft={shape2dStrokeWidthDraft}
+                setShape2dStrokeWidthDraft={setShape2dStrokeWidthDraft}
                 selectedShape2dVertexColors={selectedShape2dVertexColors}
                 selectedShape2dAngleColors={selectedShape2dAngleColors}
                 selectedShape2dSegmentColors={selectedShape2dSegmentColors}
                 onUpdateSelectedShape2dMeta={updateSelectedShape2dMeta}
+                onUpdateSelectedShape2dObject={updateSelectedShape2dObject}
+                onCommitSelectedShape2dStrokeWidth={commitSelectedShape2dStrokeWidth}
                 onRenameSelectedShape2dVertex={renameSelectedShape2dVertex}
                 onScheduleSelectedShape2dAngleDraftCommit={scheduleSelectedShape2dAngleDraftCommit}
                 onFlushSelectedShape2dAngleDraftCommit={flushSelectedShape2dAngleDraftCommit}
@@ -11137,6 +11210,10 @@ export default function WorkbookSessionPage() {
                 isSolid3dPointCollectionActive={isSolid3dPointCollectionActive}
                 onSetSolid3dHiddenEdges={setSolid3dHiddenEdges}
                 onUpdateSelectedSolid3dSurfaceColor={updateSelectedSolid3dSurfaceColor}
+                solid3dStrokeWidthDraft={solid3dStrokeWidthDraft}
+                setSolid3dStrokeWidthDraft={setSolid3dStrokeWidthDraft}
+                onUpdateSelectedSolid3dStrokeWidth={updateSelectedSolid3dStrokeWidth}
+                onCommitSelectedSolid3dStrokeWidth={commitSelectedSolid3dStrokeWidth}
                 onResetSolid3dFaceColors={resetSolid3dFaceColors}
                 onSetSolid3dFaceColor={setSolid3dFaceColor}
                 onResetSolid3dEdgeColors={resetSolid3dEdgeColors}
