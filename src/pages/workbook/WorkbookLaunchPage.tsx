@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, CircularProgress, Stack, Typography } from "@mui/material";
+import { Alert, Button, CircularProgress, Stack, Typography } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/features/auth/model/AuthContext";
 import {
@@ -13,7 +13,7 @@ const toSessionPath = (sessionId: string) =>
 
 export default function WorkbookLaunchPage() {
   const navigate = useNavigate();
-  const { user, isAuthReady, openAuthModal } = useAuth();
+  const { user, isAuthReady, openAuthModal, logout } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,7 +91,14 @@ export default function WorkbookLaunchPage() {
           </Stack>
         ) : null}
         {isAuthReady && user?.role === "student" ? (
-          <Alert severity="warning">
+          <Alert
+            severity="warning"
+            action={
+              <Button color="inherit" size="small" onClick={logout}>
+                {t("whiteboardLaunch.loginAsTeacher")}
+              </Button>
+            }
+          >
             {t("whiteboardLaunch.waitingStudent")}
           </Alert>
         ) : null}

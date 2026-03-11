@@ -18,7 +18,11 @@ import type {
   WorkbookTool,
 } from "../model/types";
 import { resolveSolid3dPresetId } from "../model/solid3d";
-import { readSolid3dState, writeSolid3dState } from "../model/solid3dState";
+import {
+  DEFAULT_SOLID3D_STATE,
+  readSolid3dState,
+  writeSolid3dState,
+} from "../model/solid3dState";
 import type { Solid3dSectionPoint } from "../model/solid3dState";
 import {
   computeSectionMetrics,
@@ -99,6 +103,10 @@ type WorkbookCanvasProps = {
   onSelectedConstraintChange: (constraintId: string | null) => void;
   onStrokeCommit: (stroke: WorkbookStroke) => void;
   onStrokeDelete: (strokeId: string, layer: WorkbookLayer) => void;
+  onStrokeReplace: (payload: {
+    stroke: WorkbookStroke;
+    fragments: WorkbookPoint[][];
+  }) => void;
   onObjectCreate: (object: WorkbookBoardObject) => void;
   onObjectUpdate: (
     objectId: string,
@@ -161,6 +169,11 @@ type WorkbookCanvasProps = {
   onLaserPoint: (point: WorkbookPoint) => void;
   onLaserClear?: () => void;
   onEraserRadiusChange?: (nextRadius: number) => void;
+  solid3dInsertPreset?: {
+    presetId: string;
+    presetTitle?: string;
+  } | null;
+  onSolid3dInsertConsumed?: () => void;
 };
 
 type Rect = { x: number; y: number; width: number; height: number };
@@ -186,9 +199,22 @@ type ShapeDraft = {
     | "frame"
     | "divider"
     | "sticker"
-    | "comment";
+    | "comment"
+    | "solid3d";
   start: WorkbookPoint;
   current: WorkbookPoint;
+};
+
+type ObjectEraserCut = {
+  u: number;
+  v: number;
+  radiusRatio: number;
+};
+
+type ResolvedObjectEraserCut = {
+  x: number;
+  y: number;
+  radius: number;
 };
 
 type MovingState = {
@@ -389,6 +415,250 @@ const ROUND_SOLID_PRESETS = new Set([
   "hemisphere",
   "torus",
 ]);
+const getSolidVertexLabel = (index: number) => `V${index + 1}`;
+const MAX_OBJECT_ERASER_CUTS = 220;
+const ERASER_MASK_PADDING = 20;
+const ERASER_INTERSECTION_EPSILON = 1e-4;
+const OBJECT_ERASER_RATIO_MIN = 0.003;
+const OBJECT_ERASER_RATIO_MAX = 2.4;
+
+const pointsAlmostEqual = (
+  left: WorkbookPoint,
+  right: WorkbookPoint,
+  epsilon = 1e-2
+) => Math.abs(left.x - right.x) <= epsilon && Math.abs(left.y - right.y) <= epsilon;
+
+const projectPointOnSegment = (
+  from: WorkbookPoint,
+  to: WorkbookPoint,
+  t: number
+): WorkbookPoint => ({
+  x: from.x + (to.x - from.x) * t,
+  y: from.y + (to.y - from.y) * t,
+});
+
+const distanceBetweenPoints = (left: WorkbookPoint, right: WorkbookPoint) =>
+  Math.hypot(left.x - right.x, left.y - right.y);
+
+const resolveSegmentCircleIntersections = (
+  from: WorkbookPoint,
+  to: WorkbookPoint,
+  center: WorkbookPoint,
+  radius: number
+) => {
+  const directionX = to.x - from.x;
+  const directionY = to.y - from.y;
+  const offsetX = from.x - center.x;
+  const offsetY = from.y - center.y;
+  const a = directionX * directionX + directionY * directionY;
+  if (a <= ERASER_INTERSECTION_EPSILON) return [] as number[];
+  const b = 2 * (offsetX * directionX + offsetY * directionY);
+  const c = offsetX * offsetX + offsetY * offsetY - radius * radius;
+  const discriminant = b * b - 4 * a * c;
+  if (discriminant < ERASER_INTERSECTION_EPSILON) return [] as number[];
+  const sqrtDiscriminant = Math.sqrt(discriminant);
+  const t1 = (-b - sqrtDiscriminant) / (2 * a);
+  const t2 = (-b + sqrtDiscriminant) / (2 * a);
+  const intersections = [t1, t2]
+    .filter(
+      (value) =>
+        Number.isFinite(value) &&
+        value > ERASER_INTERSECTION_EPSILON &&
+        value < 1 - ERASER_INTERSECTION_EPSILON
+    )
+    .sort((left, right) => left - right);
+  return intersections.reduce<number[]>((acc, value) => {
+    if (acc.length === 0 || Math.abs(acc[acc.length - 1] - value) > ERASER_INTERSECTION_EPSILON) {
+      acc.push(value);
+    }
+    return acc;
+  }, []);
+};
+
+const compactStrokePoints = (points: WorkbookPoint[]) =>
+  points.reduce<WorkbookPoint[]>((acc, point) => {
+    if (acc.length === 0) {
+      acc.push(point);
+      return acc;
+    }
+    const previous = acc[acc.length - 1];
+    if (!pointsAlmostEqual(previous, point)) {
+      acc.push(point);
+    }
+    return acc;
+  }, []);
+
+const splitStrokeByCircle = (
+  stroke: WorkbookStroke,
+  center: WorkbookPoint,
+  radius: number
+) => {
+  if (!Array.isArray(stroke.points) || stroke.points.length === 0) {
+    return [] as WorkbookPoint[][];
+  }
+  const threshold = Math.max(2, radius + (stroke.width ?? 2) / 2);
+  if (stroke.points.length === 1) {
+    return distanceBetweenPoints(stroke.points[0], center) <= threshold
+      ? ([] as WorkbookPoint[][])
+      : [[stroke.points[0]]];
+  }
+
+  const result: WorkbookPoint[][] = [];
+  let current: WorkbookPoint[] = [];
+
+  for (let index = 0; index < stroke.points.length - 1; index += 1) {
+    const from = stroke.points[index];
+    const to = stroke.points[index + 1];
+    const intersections = resolveSegmentCircleIntersections(from, to, center, threshold);
+    const checkpoints = [0, ...intersections, 1];
+
+    for (let checkpointIndex = 0; checkpointIndex < checkpoints.length - 1; checkpointIndex += 1) {
+      const startT = checkpoints[checkpointIndex];
+      const endT = checkpoints[checkpointIndex + 1];
+      if (endT - startT <= ERASER_INTERSECTION_EPSILON) continue;
+      const middle = projectPointOnSegment(from, to, (startT + endT) / 2);
+      const keepSegment = distanceBetweenPoints(middle, center) > threshold;
+      const segmentStart = projectPointOnSegment(from, to, startT);
+      const segmentEnd = projectPointOnSegment(from, to, endT);
+
+      if (keepSegment) {
+        if (current.length === 0) {
+          current.push(segmentStart);
+        } else if (!pointsAlmostEqual(current[current.length - 1], segmentStart)) {
+          current.push(segmentStart);
+        }
+        if (!pointsAlmostEqual(current[current.length - 1], segmentEnd)) {
+          current.push(segmentEnd);
+        }
+      } else if (current.length > 0) {
+        const compacted = compactStrokePoints(current);
+        if (compacted.length > 0) {
+          result.push(compacted);
+        }
+        current = [];
+      }
+    }
+  }
+
+  if (current.length > 0) {
+    const compacted = compactStrokePoints(current);
+    if (compacted.length > 0) {
+      result.push(compacted);
+    }
+  }
+  return result;
+};
+
+const areStrokeFragmentsEquivalent = (
+  stroke: WorkbookStroke,
+  fragments: WorkbookPoint[][]
+) => {
+  if (fragments.length !== 1) return false;
+  const [fragment] = fragments;
+  if (fragment.length !== stroke.points.length) return false;
+  return fragment.every((point, index) => pointsAlmostEqual(point, stroke.points[index]));
+};
+
+const clampObjectEraserCut = (cut: ObjectEraserCut): ObjectEraserCut => ({
+  u: Math.max(-2, Math.min(3, cut.u)),
+  v: Math.max(-2, Math.min(3, cut.v)),
+  radiusRatio: Math.max(
+    OBJECT_ERASER_RATIO_MIN,
+    Math.min(OBJECT_ERASER_RATIO_MAX, cut.radiusRatio)
+  ),
+});
+
+const normalizeObjectEraserCut = (
+  object: WorkbookBoardObject,
+  center: WorkbookPoint,
+  radius: number
+): ObjectEraserCut => {
+  const rect = getObjectRect(object);
+  const safeWidth = Math.max(1, Math.abs(rect.width));
+  const safeHeight = Math.max(1, Math.abs(rect.height));
+  const safeScale = Math.max(1, Math.max(safeWidth, safeHeight));
+  return clampObjectEraserCut({
+    u: (center.x - rect.x) / safeWidth,
+    v: (center.y - rect.y) / safeHeight,
+    radiusRatio: radius / safeScale,
+  });
+};
+
+const sanitizeObjectEraserCuts = (object: WorkbookBoardObject): ObjectEraserCut[] => {
+  const raw = Array.isArray(object.meta?.eraserCuts) ? object.meta.eraserCuts : [];
+  const rect = getObjectRect(object);
+  const safeWidth = Math.max(1, Math.abs(rect.width));
+  const safeHeight = Math.max(1, Math.abs(rect.height));
+  const safeScale = Math.max(1, Math.max(safeWidth, safeHeight));
+  return raw.reduce<ObjectEraserCut[]>((acc, item) => {
+    if (!item || typeof item !== "object") return acc;
+    const typed = item as {
+      u?: unknown;
+      v?: unknown;
+      radiusRatio?: unknown;
+      x?: unknown;
+      y?: unknown;
+      radius?: unknown;
+      r?: unknown;
+    };
+    if (
+      typeof typed.u === "number" &&
+      Number.isFinite(typed.u) &&
+      typeof typed.v === "number" &&
+      Number.isFinite(typed.v)
+    ) {
+      const ratioRaw =
+        typeof typed.radiusRatio === "number" && Number.isFinite(typed.radiusRatio)
+          ? typed.radiusRatio
+          : typeof typed.radius === "number" && Number.isFinite(typed.radius)
+            ? typed.radius / safeScale
+            : typeof typed.r === "number" && Number.isFinite(typed.r)
+              ? typed.r / safeScale
+              : null;
+      if (ratioRaw === null) return acc;
+      return [...acc, clampObjectEraserCut({ u: typed.u, v: typed.v, radiusRatio: ratioRaw })];
+    }
+    if (
+      typeof typed.x === "number" &&
+      Number.isFinite(typed.x) &&
+      typeof typed.y === "number" &&
+      Number.isFinite(typed.y)
+    ) {
+      const radiusRaw =
+        typeof typed.radius === "number" && Number.isFinite(typed.radius)
+          ? typed.radius
+          : typeof typed.r === "number" && Number.isFinite(typed.r)
+            ? typed.r
+            : null;
+      if (radiusRaw === null) return acc;
+      return [
+        ...acc,
+        clampObjectEraserCut({
+          u: (typed.x - rect.x) / safeWidth,
+          v: (typed.y - rect.y) / safeHeight,
+          radiusRatio: Math.max(1, Math.min(240, radiusRaw)) / safeScale,
+        }),
+      ];
+    }
+    return acc;
+  }, []);
+};
+
+const resolveObjectEraserCutsForRender = (
+  object: WorkbookBoardObject,
+  cuts: ObjectEraserCut[]
+): ResolvedObjectEraserCut[] => {
+  if (cuts.length === 0) return [];
+  const rect = getObjectRect(object);
+  const safeWidth = Math.max(1, Math.abs(rect.width));
+  const safeHeight = Math.max(1, Math.abs(rect.height));
+  const safeScale = Math.max(1, Math.max(safeWidth, safeHeight));
+  return cuts.map((cut) => ({
+    x: rect.x + cut.u * safeWidth,
+    y: rect.y + cut.v * safeHeight,
+    radius: Math.max(1, Math.min(320, cut.radiusRatio * safeScale)),
+  }));
+};
 
 const distanceToSegment = (point: WorkbookPoint, a: WorkbookPoint, b: WorkbookPoint) => {
   const abX = b.x - a.x;
@@ -1023,6 +1293,7 @@ export function WorkbookCanvas({
   onSelectedConstraintChange,
   onStrokeCommit,
   onStrokeDelete,
+  onStrokeReplace,
   onObjectCreate,
   onObjectUpdate,
   onObjectDelete,
@@ -1041,6 +1312,8 @@ export function WorkbookCanvas({
   onLaserPoint,
   onLaserClear,
   onEraserRadiusChange,
+  solid3dInsertPreset = null,
+  onSolid3dInsertConsumed,
 }: WorkbookCanvasProps) {
   const [containerNode, setContainerNode] = useState<HTMLDivElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
@@ -1064,7 +1337,8 @@ export function WorkbookCanvas({
   const [erasing, setErasing] = useState(false);
   const [eraserCursorPoint, setEraserCursorPoint] = useState<WorkbookPoint | null>(null);
   const erasedStrokeIdsRef = useRef<Set<string>>(new Set());
-  const erasedObjectIdsRef = useRef<Set<string>>(new Set());
+  const eraserObjectCutsRef = useRef<Map<string, ObjectEraserCut[]>>(new Map());
+  const eraserTouchedObjectIdsRef = useRef<Set<string>>(new Set());
   const [inlineTextEdit, setInlineTextEdit] = useState<{
     objectId: string;
     value: string;
@@ -1598,26 +1872,74 @@ export function WorkbookCanvas({
         const key = `${stroke.layer}:${stroke.id}`;
         if (erasedStrokeIdsRef.current.has(key)) return;
         if (!isStrokeErasedByCircle(stroke, center, radius)) return;
+        const fragments = splitStrokeByCircle(stroke, center, radius);
+        if (areStrokeFragmentsEquivalent(stroke, fragments)) return;
         erasedStrokeIdsRef.current.add(key);
-        onStrokeDelete(stroke.id, stroke.layer);
+        if (fragments.length === 0) {
+          onStrokeDelete(stroke.id, stroke.layer);
+          return;
+        }
+        onStrokeReplace({
+          stroke,
+          fragments,
+        });
       });
       boardObjects.forEach((object) => {
-        if (erasedObjectIdsRef.current.has(object.id)) return;
         if (!isObjectErasedByCircle(object, center, radius)) return;
-        erasedObjectIdsRef.current.add(object.id);
-        onObjectDelete(object.id);
+        const cachedCuts =
+          eraserObjectCutsRef.current.get(object.id) ?? sanitizeObjectEraserCuts(object);
+        const nextCuts = [...cachedCuts, normalizeObjectEraserCut(object, center, radius)].slice(
+          -MAX_OBJECT_ERASER_CUTS
+        );
+        eraserObjectCutsRef.current.set(object.id, nextCuts);
+        eraserTouchedObjectIdsRef.current.add(object.id);
+        onObjectUpdate(
+          object.id,
+          {
+            meta: {
+              eraserCuts: nextCuts,
+            },
+          },
+          {
+            trackHistory: false,
+            markDirty: false,
+          }
+        );
       });
     },
     [
       allStrokes,
       boardObjects,
+      onStrokeReplace,
       isObjectErasedByCircle,
       isStrokeErasedByCircle,
-      onObjectDelete,
+      normalizeObjectEraserCut,
+      onObjectUpdate,
       onStrokeDelete,
       width,
     ]
   );
+
+  const commitEraserObjectCuts = useCallback(() => {
+    if (eraserTouchedObjectIdsRef.current.size === 0) return;
+    const touchedIds = Array.from(eraserTouchedObjectIdsRef.current);
+    touchedIds.forEach((objectId) => {
+      const cuts = eraserObjectCutsRef.current.get(objectId);
+      if (!cuts || cuts.length === 0) return;
+      onObjectUpdate(
+        objectId,
+        {
+          meta: {
+            eraserCuts: cuts,
+          },
+        },
+        {
+          trackHistory: true,
+          markDirty: true,
+        }
+      );
+    });
+  }, [onObjectUpdate]);
 
   const resolveSolid3dPointAtPointer = useCallback(
     (object: WorkbookBoardObject, point: WorkbookPoint): SolidSurfacePick | null => {
@@ -2132,6 +2454,7 @@ export function WorkbookCanvas({
       return;
     }
     const shouldSnapPoint =
+      Boolean(solid3dInsertPreset) ||
       tool === "line" ||
       tool === "arrow" ||
       tool === "point" ||
@@ -2148,6 +2471,12 @@ export function WorkbookCanvas({
       tool === "sticker" ||
       tool === "comment";
     const point = mapPointer(svg, event.clientX, event.clientY, shouldSnapPoint);
+    if (solid3dInsertPreset) {
+      onSelectedConstraintChange(null);
+      onSelectedObjectChange(null);
+      startShape("solid3d", event, svg);
+      return;
+    }
     if (forcePanMode) {
       pointerIdRef.current = event.pointerId;
       setPanning({
@@ -2479,7 +2808,8 @@ export function WorkbookCanvas({
     if (tool === "eraser") {
       pointerIdRef.current = event.pointerId;
       erasedStrokeIdsRef.current.clear();
-      erasedObjectIdsRef.current.clear();
+      eraserObjectCutsRef.current.clear();
+      eraserTouchedObjectIdsRef.current.clear();
       setErasing(true);
       setEraserCursorPoint(point);
       eraseAtPoint(point);
@@ -2733,6 +3063,8 @@ export function WorkbookCanvas({
           ? "formula"
           : shapeDraft.tool === "function_graph"
           ? "function_graph"
+          : shapeDraft.tool === "solid3d"
+            ? "solid3d"
             : shapeDraft.tool === "frame"
               ? "frame"
               : shapeDraft.tool === "divider"
@@ -2769,6 +3101,30 @@ export function WorkbookCanvas({
     const lineDeltaX = shapeDraft.current.x - shapeDraft.start.x;
     const lineDeltaY = shapeDraft.current.y - shapeDraft.start.y;
     const hasLineLength = Math.hypot(lineDeltaX, lineDeltaY) > 0.25;
+    const solid3dPresetId = resolveSolid3dPresetId(solid3dInsertPreset?.presetId ?? "cube");
+    const solid3dPresetTitle =
+      typeof solid3dInsertPreset?.presetTitle === "string" &&
+      solid3dInsertPreset.presetTitle.trim().length > 0
+        ? solid3dInsertPreset.presetTitle.trim()
+        : null;
+    const solid3dWidth = Math.max(140, compassRect.width);
+    const solid3dHeight = Math.max(120, compassRect.height);
+    const solid3dMesh =
+      shapeDraft.tool === "solid3d"
+        ? getSolid3dMesh(solid3dPresetId, solid3dWidth, solid3dHeight)
+        : null;
+    const initialSolid3dState =
+      shapeDraft.tool === "solid3d"
+        ? {
+            ...DEFAULT_SOLID3D_STATE,
+            vertexLabels: ROUND_SOLID_PRESETS.has(solid3dPresetId)
+              ? []
+              : Array.from(
+                  { length: solid3dMesh?.vertices.length ?? 0 },
+                  (_, index) => getSolidVertexLabel(index)
+                ),
+          }
+        : null;
     const created: WorkbookBoardObject = {
       id: generateId(),
       type: objectType,
@@ -2792,6 +3148,8 @@ export function WorkbookCanvas({
             ? hasLineLength
               ? lineDeltaX
               : 1
+            : shapeDraft.tool === "solid3d"
+              ? solid3dWidth
             : shapeDraft.tool === "text"
               ? Math.max(140, compassRect.width)
               : compassRect.width,
@@ -2802,6 +3160,8 @@ export function WorkbookCanvas({
             ? hasLineLength
               ? lineDeltaY
               : 0
+            : shapeDraft.tool === "solid3d"
+              ? solid3dHeight
             : shapeDraft.tool === "text"
               ? Math.max(48, compassRect.height)
               : compassRect.height,
@@ -2881,6 +3241,15 @@ export function WorkbookCanvas({
                   ? {
                       title: textPreset.trim() || "Фрейм",
                     }
+                : shapeDraft.tool === "solid3d"
+                  ? {
+                      presetId: solid3dPresetId,
+                      presetTitle: solid3dPresetTitle,
+                      ...writeSolid3dState(
+                        initialSolid3dState ?? DEFAULT_SOLID3D_STATE,
+                        undefined
+                      ),
+                    }
                 : shapeDraft.tool === "divider"
                     ? { dividerType: "manual", lineStyle: "dashed" }
                 : undefined,
@@ -2892,6 +3261,10 @@ export function WorkbookCanvas({
         objectId: created.id,
         value: typeof created.text === "string" ? created.text : "",
       });
+    }
+    if (shapeDraft.tool === "solid3d") {
+      onSolid3dInsertConsumed?.();
+      onRequestSelectTool?.();
     }
     setShapeDraft(null);
   };
@@ -3220,9 +3593,11 @@ export function WorkbookCanvas({
     if (erasing) {
       const point = mapPointer(svg, event.clientX, event.clientY, false, false);
       eraseAtPoint(point);
+      commitEraserObjectCuts();
       setErasing(false);
       erasedStrokeIdsRef.current.clear();
-      erasedObjectIdsRef.current.clear();
+      eraserObjectCutsRef.current.clear();
+      eraserTouchedObjectIdsRef.current.clear();
     } else if (strokePointsRef.current.length > 0 || points.length > 0) {
       finishStroke(event, svg);
     } else if (shapeDraft) {
@@ -6148,7 +6523,61 @@ export function WorkbookCanvas({
         {boardObjects.map((object) => {
           const renderSource =
             selectedPreviewObject?.id === object.id ? selectedPreviewObject : object;
-          return <g key={object.id}>{renderObject(renderSource)}</g>;
+          const renderedObject = renderObject(renderSource);
+          const eraserCuts = sanitizeObjectEraserCuts(renderSource);
+          const resolvedEraserCuts = resolveObjectEraserCutsForRender(renderSource, eraserCuts);
+          if (resolvedEraserCuts.length === 0) {
+            return <g key={object.id}>{renderedObject}</g>;
+          }
+          const objectRect = getObjectRect(renderSource);
+          let minX = objectRect.x - ERASER_MASK_PADDING;
+          let minY = objectRect.y - ERASER_MASK_PADDING;
+          let maxX = objectRect.x + objectRect.width + ERASER_MASK_PADDING;
+          let maxY = objectRect.y + objectRect.height + ERASER_MASK_PADDING;
+          resolvedEraserCuts.forEach((cut) => {
+            minX = Math.min(minX, cut.x - cut.radius - ERASER_MASK_PADDING);
+            minY = Math.min(minY, cut.y - cut.radius - ERASER_MASK_PADDING);
+            maxX = Math.max(maxX, cut.x + cut.radius + ERASER_MASK_PADDING);
+            maxY = Math.max(maxY, cut.y + cut.radius + ERASER_MASK_PADDING);
+          });
+          const maskWidth = Math.max(1, maxX - minX);
+          const maskHeight = Math.max(1, maxY - minY);
+          const safeMaskId = `workbook-object-mask-${renderSource.id.replace(
+            /[^a-zA-Z0-9_-]/g,
+            "-"
+          )}`;
+          return (
+            <g key={object.id}>
+              <defs>
+                <mask
+                  id={safeMaskId}
+                  maskUnits="userSpaceOnUse"
+                  x={minX}
+                  y={minY}
+                  width={maskWidth}
+                  height={maskHeight}
+                >
+                  <rect
+                    x={minX}
+                    y={minY}
+                    width={maskWidth}
+                    height={maskHeight}
+                    fill="#ffffff"
+                  />
+                  {resolvedEraserCuts.map((cut, index) => (
+                    <circle
+                      key={`${renderSource.id}-erase-cut-${index}`}
+                      cx={cut.x}
+                      cy={cut.y}
+                      r={Math.max(1, cut.radius)}
+                      fill="#000000"
+                    />
+                  ))}
+                </mask>
+              </defs>
+              <g mask={`url(#${safeMaskId})`}>{renderedObject}</g>
+            </g>
+          );
         })}
         {(solid3dSectionMarkers?.objectId || solid3dPointPick?.objectId)
           ? solid3dPickMarkers.map((marker) => {

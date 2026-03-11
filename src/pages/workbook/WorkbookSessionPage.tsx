@@ -156,7 +156,6 @@ import {
   type Solid3dMesh,
 } from "@/features/workbook/model/solid3dGeometry";
 import {
-  DEFAULT_SOLID3D_STATE,
   readSolid3dState,
   type Solid3dSectionPoint,
   type Solid3dState,
@@ -183,13 +182,14 @@ import { generateId } from "@/shared/lib/id";
 import { ApiError } from "@/shared/api/client";
 
 const POLL_INTERVAL_MS = 220;
-const POLL_INTERVAL_STREAM_CONNECTED_MS = 400;
+const POLL_INTERVAL_STREAM_CONNECTED_MS = 180;
 const PRESENCE_INTERVAL_MS = 1_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
 const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 16;
-const VIEWPORT_SYNC_FLUSH_INTERVAL_MS = 28;
+const VIEWPORT_SYNC_MIN_INTERVAL_MS = 18;
 const VIEWPORT_SYNC_EPSILON = 0.2;
+const MAX_INCOMING_PREVIEW_PATCHES_PER_OBJECT = 20;
 const ERASER_RADIUS_MIN = 4;
 const ERASER_RADIUS_MAX = 160;
 const EXPORT_BOUNDS_PADDING = 48;
@@ -353,7 +353,7 @@ const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
     pendingByTypeAndObjectId.clear();
   };
   events.forEach((event) => {
-    if (event.type === "board.object.update" || event.type === "board.object.preview") {
+    if (event.type === "board.object.update") {
       const payload =
         event.payload && typeof event.payload === "object"
           ? (event.payload as { objectId?: unknown; patch?: unknown })
@@ -393,6 +393,11 @@ const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
       }
       return;
     }
+    if (event.type === "board.object.preview") {
+      flushPending();
+      compacted.push(event);
+      return;
+    }
     const deletedObjectId =
       event.type === "board.object.delete" &&
       event.payload &&
@@ -422,9 +427,9 @@ const resolveNextLatestSeq = (
   events: WorkbookEvent[]
 ) => {
   if (events.length === 0) {
-    return Math.max(0, responseLatestSeq);
+    return Math.max(0, currentLatestSeq, responseLatestSeq);
   }
-  return Math.max(0, ...events.map((event) => event.seq));
+  return Math.max(0, currentLatestSeq, responseLatestSeq, ...events.map((event) => event.seq));
 };
 
 const hasWorkbookEventGap = (currentLatestSeq: number, events: WorkbookEvent[]) => {
@@ -1561,6 +1566,10 @@ export default function WorkbookSessionPage() {
   const [graphDraftError, setGraphDraftError] = useState<string | null>(null);
   const [graphFunctionsDraft, setGraphFunctionsDraft] = useState<GraphFunctionDraft[]>([]);
   const [graphCatalogCursorActive, setGraphCatalogCursorActive] = useState(false);
+  const [pendingSolid3dInsertPreset, setPendingSolid3dInsertPreset] = useState<{
+    presetId: string;
+    presetTitle?: string;
+  } | null>(null);
   const [graphWorkbenchTab, setGraphWorkbenchTab] = useState<"catalog" | "work">(
     "catalog"
   );
@@ -1719,7 +1728,6 @@ export default function WorkbookSessionPage() {
     y: number;
   } | null>(null);
   const areaSelectionClipboardRef = useRef<WorkbookAreaSelectionClipboard | null>(null);
-  const [eraserMenuAnchor, setEraserMenuAnchor] = useState<HTMLElement | null>(null);
   const [, setSaveState] = useState<"saved" | "unsaved" | "saving" | "error">(
     "saved"
   );
@@ -1769,6 +1777,7 @@ export default function WorkbookSessionPage() {
   const presenceLeaveSentRef = useRef(false);
   const sessionResyncInFlightRef = useRef(false);
   const boardObjectsRef = useRef<WorkbookBoardObject[]>([]);
+  const boardSettingsRef = useRef<WorkbookBoardSettings>(DEFAULT_BOARD_SETTINGS);
   const objectUpdateQueuedPatchRef = useRef<
     Map<string, Partial<WorkbookBoardObject>>
   >(new Map());
@@ -1784,12 +1793,13 @@ export default function WorkbookSessionPage() {
   const objectPreviewInFlightByObjectRef = useRef<Map<string, number>>(new Map());
   const objectPreviewVersionRef = useRef<Map<string, number>>(new Map());
   const incomingPreviewQueuedPatchRef = useRef<
-    Map<string, Partial<WorkbookBoardObject>>
+    Map<string, Partial<WorkbookBoardObject>[]>
   >(new Map());
   const incomingPreviewVersionByAuthorObjectRef = useRef<Map<string, number>>(new Map());
   const objectLastCommittedEventAtRef = useRef<Map<string, number>>(new Map());
   const incomingPreviewFrameRef = useRef<number | null>(null);
-  const viewportSyncTimerRef = useRef<number | null>(null);
+  const viewportSyncFrameRef = useRef<number | null>(null);
+  const viewportSyncLastSentAtRef = useRef(0);
   const viewportSyncQueuedOffsetRef = useRef<WorkbookPoint | null>(null);
   const viewportLastReceivedAtRef = useRef(0);
   const fallbackBackPath = "/workbook";
@@ -1836,6 +1846,10 @@ export default function WorkbookSessionPage() {
   useEffect(() => {
     boardObjectsRef.current = boardObjects;
   }, [boardObjects]);
+
+  useEffect(() => {
+    boardSettingsRef.current = boardSettings;
+  }, [boardSettings]);
 
   useEffect(() => {
     if (!showCollaborationPanels) {
@@ -2080,8 +2094,19 @@ export default function WorkbookSessionPage() {
     incomingPreviewFrameRef.current = null;
     const queue = incomingPreviewQueuedPatchRef.current;
     if (queue.size === 0) return;
-    const patches = new Map(queue);
-    queue.clear();
+    const patches = new Map<string, Partial<WorkbookBoardObject>>();
+    queue.forEach((pendingQueue, objectId) => {
+      const nextPatch = pendingQueue.shift();
+      if (nextPatch) {
+        patches.set(objectId, nextPatch);
+      }
+      if (pendingQueue.length === 0) {
+        queue.delete(objectId);
+      } else {
+        queue.set(objectId, pendingQueue);
+      }
+    });
+    if (patches.size === 0) return;
     setBoardObjects((current) => {
       if (current.length === 0) return current;
       let changed = false;
@@ -2093,15 +2118,24 @@ export default function WorkbookSessionPage() {
       });
       return changed ? next : current;
     });
+    if (queue.size > 0 && typeof window !== "undefined") {
+      incomingPreviewFrameRef.current = window.requestAnimationFrame(() => {
+        flushIncomingPreviewQueue();
+      });
+    }
   }, []);
 
   const queueIncomingPreviewPatch = useCallback(
     (objectId: string, patch: Partial<WorkbookBoardObject>) => {
-      const pendingPatch = incomingPreviewQueuedPatchRef.current.get(objectId) ?? {};
-      incomingPreviewQueuedPatchRef.current.set(objectId, {
-        ...pendingPatch,
-        ...patch,
-      });
+      const pendingQueue = incomingPreviewQueuedPatchRef.current.get(objectId) ?? [];
+      pendingQueue.push(patch);
+      if (pendingQueue.length > MAX_INCOMING_PREVIEW_PATCHES_PER_OBJECT) {
+        pendingQueue.splice(
+          0,
+          pendingQueue.length - MAX_INCOMING_PREVIEW_PATCHES_PER_OBJECT
+        );
+      }
+      incomingPreviewQueuedPatchRef.current.set(objectId, pendingQueue);
       if (incomingPreviewFrameRef.current !== null) return;
       if (typeof window === "undefined") {
         flushIncomingPreviewQueue();
@@ -3893,9 +3927,9 @@ export default function WorkbookSessionPage() {
 
   useEffect(
     () => () => {
-      if (viewportSyncTimerRef.current !== null) {
-        window.clearTimeout(viewportSyncTimerRef.current);
-        viewportSyncTimerRef.current = null;
+      if (viewportSyncFrameRef.current !== null) {
+        window.cancelAnimationFrame(viewportSyncFrameRef.current);
+        viewportSyncFrameRef.current = null;
       }
       viewportSyncQueuedOffsetRef.current = null;
     },
@@ -3973,11 +4007,21 @@ export default function WorkbookSessionPage() {
   );
 
   const flushQueuedViewportSync = useCallback(() => {
-    viewportSyncTimerRef.current = null;
+    viewportSyncFrameRef.current = null;
     const queuedOffset = viewportSyncQueuedOffsetRef.current;
     viewportSyncQueuedOffsetRef.current = null;
     if (!queuedOffset) return;
     if (!sessionId || !session || session.kind !== "CLASS" || isEnded) return;
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const elapsed = now - viewportSyncLastSentAtRef.current;
+    if (elapsed < VIEWPORT_SYNC_MIN_INTERVAL_MS) {
+      viewportSyncQueuedOffsetRef.current = queuedOffset;
+      viewportSyncFrameRef.current = window.requestAnimationFrame(() => {
+        flushQueuedViewportSync();
+      });
+      return;
+    }
+    viewportSyncLastSentAtRef.current = now;
     void appendEventsAndApply(
       [
         {
@@ -3994,11 +4038,10 @@ export default function WorkbookSessionPage() {
   const queueViewportSync = useCallback(
     (offset: WorkbookPoint) => {
       viewportSyncQueuedOffsetRef.current = offset;
-      if (viewportSyncTimerRef.current !== null) return;
-      viewportSyncTimerRef.current = window.setTimeout(
-        flushQueuedViewportSync,
-        VIEWPORT_SYNC_FLUSH_INTERVAL_MS
-      );
+      if (viewportSyncFrameRef.current !== null) return;
+      viewportSyncFrameRef.current = window.requestAnimationFrame(() => {
+        flushQueuedViewportSync();
+      });
     },
     [flushQueuedViewportSync]
   );
@@ -4695,6 +4738,64 @@ export default function WorkbookSessionPage() {
     }
   };
 
+  const commitStrokeReplace = async (payload: {
+    stroke: WorkbookStroke;
+    fragments: WorkbookPoint[][];
+  }) => {
+    if (!sessionId || !canDelete) return;
+    const sourceStroke = payload.stroke;
+    const fragments = payload.fragments
+      .map((fragment) => fragment.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)))
+      .filter((fragment) => fragment.length > 0);
+    const layerTypeCreate =
+      sourceStroke.layer === "annotations"
+        ? ("annotations.stroke" as const)
+        : ("board.stroke" as const);
+    const layerTypeDelete =
+      sourceStroke.layer === "annotations"
+        ? ("annotations.stroke.delete" as const)
+        : ("board.stroke.delete" as const);
+    const replacementStrokes: WorkbookStroke[] = fragments.map((points) => ({
+      ...sourceStroke,
+      id: generateId(),
+      points,
+      createdAt: new Date().toISOString(),
+      page: Math.max(1, sourceStroke.page ?? boardSettings.currentPage),
+    }));
+    const replacementIds = new Set(replacementStrokes.map((item) => item.id));
+    const applyLocal = (updater: (current: WorkbookStroke[]) => WorkbookStroke[]) => {
+      if (sourceStroke.layer === "annotations") {
+        setAnnotationStrokes(updater);
+        return;
+      }
+      setBoardStrokes(updater);
+    };
+    applyLocal((current) => {
+      const withoutSource = current.filter((item) => item.id !== sourceStroke.id);
+      if (replacementStrokes.length === 0) return withoutSource;
+      return [...withoutSource, ...replacementStrokes];
+    });
+    try {
+      await appendEventsAndApply([
+        {
+          type: layerTypeDelete,
+          payload: { strokeId: sourceStroke.id },
+        },
+        ...replacementStrokes.map((stroke) => ({
+          type: layerTypeCreate,
+          payload: { stroke },
+        })),
+      ]);
+    } catch {
+      applyLocal((current) => {
+        const cleaned = current.filter((item) => !replacementIds.has(item.id));
+        if (cleaned.some((item) => item.id === sourceStroke.id)) return cleaned;
+        return [...cleaned, sourceStroke];
+      });
+      setError("Не удалось обновить штрих после стирания.");
+    }
+  };
+
   const commitObjectCreate = useCallback(
     async (object: WorkbookBoardObject) => {
       if (!sessionId || !canDraw) return;
@@ -5193,7 +5294,7 @@ export default function WorkbookSessionPage() {
         type:
           (stroke.layer === "annotations"
             ? "annotations.stroke"
-            : "board.stroke") as const,
+            : "board.stroke") as WorkbookEvent["type"],
         payload: {
           stroke: {
             ...stroke,
@@ -6613,40 +6714,27 @@ export default function WorkbookSessionPage() {
     options?: { presetId?: string; presetTitle?: string }
   ) => {
     if (!canDraw) return;
-    const solidPresetId = resolveSolid3dPresetId(options?.presetId ?? "cube");
+    if (type === "solid3d") {
+      setPendingSolid3dInsertPreset({
+        presetId: resolveSolid3dPresetId(options?.presetId ?? "cube"),
+        presetTitle: options?.presetTitle,
+      });
+      setSelectedObjectId(null);
+      setSelectedConstraintId(null);
+      setTool("select");
+      return;
+    }
     const defaultSolidWidth = 220;
     const defaultSolidHeight = 180;
-    const initialSolidMesh =
-      type === "solid3d"
-        ? getSolid3dMesh(solidPresetId, defaultSolidWidth, defaultSolidHeight)
-        : null;
-    const initialSolidState =
-      type === "solid3d"
-        ? {
-            ...DEFAULT_SOLID3D_STATE,
-            vertexLabels: ROUND_SOLID_PRESETS.has(solidPresetId)
-              ? []
-              : Array.from(
-                  { length: initialSolidMesh?.vertices.length ?? 0 },
-                  (_, index) => getSolidVertexLabel(index)
-                ),
-          }
-        : null;
     const objectMeta =
       type === "coordinate_grid"
         ? { step: boardSettings.gridSize }
-        : type === "solid3d"
+        : options?.presetId || options?.presetTitle
           ? {
-              presetId: solidPresetId,
+              presetId: options?.presetId ?? null,
               presetTitle: options?.presetTitle ?? null,
-              ...writeSolid3dState(initialSolidState ?? DEFAULT_SOLID3D_STATE, undefined),
             }
-          : options?.presetId || options?.presetTitle
-            ? {
-                presetId: options?.presetId ?? null,
-                presetTitle: options?.presetTitle ?? null,
-              }
-            : undefined;
+          : undefined;
     const object: WorkbookBoardObject = {
       id: generateId(),
       type,
@@ -6669,7 +6757,7 @@ export default function WorkbookSessionPage() {
             : "transparent",
       strokeWidth: 2,
       opacity: 1,
-      text: type === "solid3d" ? undefined : options?.presetTitle,
+      text: options?.presetTitle,
       meta: objectMeta,
       authorUserId: user?.id ?? "unknown",
       createdAt: new Date().toISOString(),
@@ -6680,44 +6768,26 @@ export default function WorkbookSessionPage() {
     setTool("select");
   };
 
-  const createFunctionGraphPlane = useCallback(async () => {
+  const createFunctionGraphPlane = useCallback(() => {
     if (!canDraw) return;
-    const graphPlaneCount = boardObjects.filter((item) => item.type === "function_graph").length;
-    const object: WorkbookBoardObject = {
-      id: generateId(),
-      type: "function_graph",
-      layer: "board",
-      x: canvasViewport.x + 90 + (graphPlaneCount % 3) * 28,
-      y: canvasViewport.y + 70 + (graphPlaneCount % 3) * 22,
-      width: 460,
-      height: 290,
-      color: "#6b78bd",
-      fill: "transparent",
-      strokeWidth: 1.8,
-      opacity: 1,
-      meta: {
-        functions: [],
-        axisColor: "#ff8e3c",
-        planeColor: "transparent",
-      },
-      authorUserId: user?.id ?? "unknown",
-      createdAt: new Date().toISOString(),
-    };
-    await commitObjectCreate(object);
-    suppressAutoPanelSelectionRef.current = object.id;
     setSelectedConstraintId(null);
-    setSelectedObjectId(object.id);
-    setGraphWorkbenchTab("catalog");
-    setTool("select");
+    setSelectedObjectId(null);
     setGraphDraftError(null);
-  }, [
-    boardObjects,
-    canDraw,
-    canvasViewport.x,
-    canvasViewport.y,
-    commitObjectCreate,
-    user?.id,
-  ]);
+    setGraphWorkbenchTab("catalog");
+    setTool("function_graph");
+    setStrokeWidth(getDefaultToolWidth("function_graph"));
+  }, [canDraw]);
+
+  useEffect(() => {
+    if (!pendingSolid3dInsertPreset) return;
+    if (tool === "select") return;
+    setPendingSolid3dInsertPreset(null);
+  }, [pendingSolid3dInsertPreset, tool]);
+
+  const clearPendingSolid3dInsertPreset = useCallback(() => {
+    setPendingSolid3dInsertPreset(null);
+    setTool("select");
+  }, []);
 
   const handleLaserPoint = useCallback(
     async (point: WorkbookPoint) => {
@@ -7580,6 +7650,35 @@ export default function WorkbookSessionPage() {
     []
   );
 
+  const switchBoardPageForExport = useCallback(
+    async (targetPage: number) => {
+      const safePage = Math.max(1, Math.floor(targetPage));
+      if ((boardSettingsRef.current.currentPage ?? 1) === safePage) {
+        await waitForCanvasRender();
+        return;
+      }
+      setBoardSettings((state) => ({
+        ...state,
+        currentPage: safePage,
+      }));
+      const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+      await new Promise<void>((resolve) => {
+        const poll = () => {
+          const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+          const current = boardSettingsRef.current.currentPage ?? 1;
+          if (current === safePage || now - startedAt > 900) {
+            resolve();
+            return;
+          }
+          window.requestAnimationFrame(poll);
+        };
+        window.requestAnimationFrame(poll);
+      });
+      await waitForCanvasRender();
+    },
+    [waitForCanvasRender]
+  );
+
   const resolvePageExportBounds = useCallback(
     (page: number): WorkbookExportBounds | null => {
       const safePage = Math.max(1, Math.floor(page));
@@ -7774,11 +7873,9 @@ export default function WorkbookSessionPage() {
         [];
       for (const entry of exportPages) {
         if (entry.page !== activePage) {
-          setBoardSettings((state) => ({
-            ...state,
-            currentPage: entry.page,
-          }));
+          await switchBoardPageForExport(entry.page);
           activePage = entry.page;
+        } else {
           await waitForCanvasRender();
         }
         const rendered = await renderBoardToCanvas(2.2, { bounds: entry.bounds });
@@ -7791,12 +7888,8 @@ export default function WorkbookSessionPage() {
         });
       }
       if (previousPage !== activePage) {
-        setBoardSettings((state) => ({
-          ...state,
-          currentPage: previousPage,
-        }));
+        await switchBoardPageForExport(previousPage);
         activePage = previousPage;
-        await waitForCanvasRender();
       }
       if (renderedPages.length === 0) {
         setError("Не удалось подготовить страницы для PDF.");
@@ -7917,6 +8010,11 @@ export default function WorkbookSessionPage() {
             disabled={isDisabled}
             onClick={() => {
               if (item.tool === "function_graph") {
+                if (tool === "function_graph") {
+                  setTool("select");
+                  setStrokeWidth(getDefaultToolWidth("select"));
+                  return;
+                }
                 void createFunctionGraphPlane();
                 return;
               }
@@ -7931,12 +8029,6 @@ export default function WorkbookSessionPage() {
               }
               setTool(item.tool);
               setStrokeWidth(getDefaultToolWidth(item.tool));
-            }}
-            onContextMenu={(event) => {
-              if (item.tool !== "eraser") return;
-              event.preventDefault();
-              if (isDisabled) return;
-              setEraserMenuAnchor(event.currentTarget);
             }}
             aria-label={item.label}
             title={item.label}
@@ -8930,6 +9022,37 @@ export default function WorkbookSessionPage() {
     setSelectedObjectId(null);
   }, [selectedObjectId, visibleBoardObjects]);
 
+  useEffect(() => {
+    setAreaSelection((current) => {
+      if (!current) return current;
+      const visibleObjectIds = new Set(visibleBoardObjects.map((object) => object.id));
+      const visibleBoardStrokeIds = new Set(visibleBoardStrokes.map((stroke) => stroke.id));
+      const visibleAnnotationStrokeIds = new Set(
+        visibleAnnotationStrokes.map((stroke) => stroke.id)
+      );
+      const nextObjectIds = current.objectIds.filter((id) => visibleObjectIds.has(id));
+      const nextStrokeIds = current.strokeIds.filter((entry) =>
+        entry.layer === "annotations"
+          ? visibleAnnotationStrokeIds.has(entry.id)
+          : visibleBoardStrokeIds.has(entry.id)
+      );
+      if (
+        nextObjectIds.length === current.objectIds.length &&
+        nextStrokeIds.length === current.strokeIds.length
+      ) {
+        return current;
+      }
+      if (nextObjectIds.length === 0 && nextStrokeIds.length === 0) {
+        return null;
+      }
+      return {
+        ...current,
+        objectIds: nextObjectIds,
+        strokeIds: nextStrokeIds,
+      };
+    });
+  }, [visibleAnnotationStrokes, visibleBoardObjects, visibleBoardStrokes]);
+
   const handleBack = useCallback(async () => {
     if (dirtyRef.current) {
       const saved = await persistSnapshots({ force: true });
@@ -9114,43 +9237,6 @@ export default function WorkbookSessionPage() {
                 Очистить доску
               </MenuItem>
             </Menu>
-            <Menu
-              container={overlayContainer}
-              anchorEl={eraserMenuAnchor}
-              open={Boolean(eraserMenuAnchor)}
-              onClose={() => setEraserMenuAnchor(null)}
-            >
-              <MenuItem
-                onClick={() => {
-                  setStrokeWidth((current) => clampEraserRadius(current - 4));
-                }}
-              >
-                Меньше
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setStrokeWidth((current) => clampEraserRadius(current + 4));
-                }}
-              >
-                Больше
-              </MenuItem>
-              <MenuItem disableRipple>
-                <label className="workbook-session__menu-range">
-                  <span>Радиус</span>
-                  <input
-                    type="range"
-                    min={ERASER_RADIUS_MIN}
-                    max={ERASER_RADIUS_MAX}
-                    value={clampEraserRadius(strokeWidth)}
-                    onChange={(event) =>
-                      setStrokeWidth(clampEraserRadius(Number(event.target.value)))
-                    }
-                  />
-                  <strong>{clampEraserRadius(strokeWidth)}</strong>
-                </label>
-              </MenuItem>
-            </Menu>
-
             <Tooltip title="Меню доски" placement="bottom" arrow>
               <span>
                 <IconButton
@@ -9441,6 +9527,7 @@ export default function WorkbookSessionPage() {
               onStrokeDelete={(strokeId, targetLayer) =>
                 void commitStrokeDelete(strokeId, targetLayer)
               }
+              onStrokeReplace={(payload) => void commitStrokeReplace(payload)}
               onObjectCreate={handleCanvasObjectCreate}
               onObjectUpdate={(objectId, patch, options) =>
                 void commitObjectUpdate(objectId, patch, options)
@@ -9484,6 +9571,8 @@ export default function WorkbookSessionPage() {
               onRequestSelectTool={() => setTool("select")}
               onLaserPoint={(point) => void handleLaserPoint(point)}
               onLaserClear={() => void clearLaserPointer()}
+              solid3dInsertPreset={pendingSolid3dInsertPreset}
+              onSolid3dInsertConsumed={clearPendingSolid3dInsertPreset}
             />
             <aside className="workbook-session__tools">
               {toolButtonsBeforeCatalog.map(renderToolButton)}
@@ -10300,7 +10389,7 @@ export default function WorkbookSessionPage() {
                       onClick={() => void createFunctionGraphPlane()}
                       disabled={!canDraw}
                     >
-                      Создать плоскость
+                      Разместить плоскость
                     </Button>
                   </div>
                   {functionGraphPlanes.length > 0 ? (
@@ -11226,6 +11315,27 @@ export default function WorkbookSessionPage() {
                       )}
                     </>
                   )}
+                </div>
+              ) : tool === "eraser" ? (
+                <div className="workbook-session__settings">
+                  <p className="workbook-session__hint">
+                    Ластик стирает части штрихов и объектов без полного удаления.
+                  </p>
+                  <div className="workbook-session__settings-row">
+                    <span>Радиус ластика</span>
+                    <div className="workbook-session__line-range">
+                      <input
+                        type="range"
+                        min={ERASER_RADIUS_MIN}
+                        max={ERASER_RADIUS_MAX}
+                        value={clampEraserRadius(strokeWidth)}
+                        onChange={(event) =>
+                          setStrokeWidth(clampEraserRadius(Number(event.target.value)))
+                        }
+                      />
+                    </div>
+                    <strong>{clampEraserRadius(strokeWidth)} px</strong>
+                  </div>
                 </div>
               ) : selectedFunctionGraphObject || tool === "function_graph" ? (
                 <div className="workbook-session__settings">

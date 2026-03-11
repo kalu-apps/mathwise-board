@@ -340,18 +340,18 @@ const solidMeshByPreset = (presetId: string): Solid3dGeometry => {
   if (presetId === "oblique_prism")
     return {
       kind: "mesh",
-      mesh: buildPrism(6, 0.72, 0.72, 1.16, { x: 0.24, z: -0.08 }),
+      mesh: buildPrism(6, 0.72, 0.72, 1.16, { x: 0.44, z: -0.2 }),
     };
   if (presetId === "oblique_parallelepiped")
     return {
       kind: "mesh",
-      mesh: buildPrism(4, 0.76, 0.76, 1.08, { x: 0.24, z: -0.08 }),
+      mesh: buildPrism(4, 0.76, 0.76, 1.08, { x: 0.42, z: -0.18 }),
     };
   if (presetId === "triangular_prism") return { kind: "mesh", mesh: buildPrism(3, 0.78, 0.78, 1.25) };
   if (presetId === "oblique_triangular_prism")
     return {
       kind: "mesh",
-      mesh: buildPrism(3, 0.78, 0.78, 1.25, { x: 0.24, z: -0.06 }),
+      mesh: buildPrism(3, 0.78, 0.78, 1.25, { x: 0.42, z: -0.16 }),
     };
   if (presetId === "prism_trapezoid") return { kind: "mesh", mesh: buildTrapezoidPrism() };
   if (presetId === "pentagonal_prism") return { kind: "mesh", mesh: buildPrism(5, 0.74, 0.74, 1.22) };

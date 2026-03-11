@@ -87,7 +87,7 @@ export function Header() {
             </>
           ) : !isGuestSession ? (
             <Tooltip title={t("header.login")}>
-              <IconButton onClick={openAuthModal}>
+              <IconButton onClick={() => openAuthModal()}>
                 <LoginIcon />
               </IconButton>
             </Tooltip>
