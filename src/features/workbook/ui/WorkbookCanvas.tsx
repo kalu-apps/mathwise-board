@@ -2107,6 +2107,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   const isObjectErasedByCircle = useCallback(
     (object: WorkbookBoardObject, center: WorkbookPoint, radius: number) => {
+      const isNonErasableSolidDomain =
+        object.type === "solid3d" ||
+        object.type === "section3d" ||
+        object.type === "net3d" ||
+        (typeof object.meta?.parentSolidId === "string" && object.meta.parentSolidId.trim().length > 0);
+      if (isNonErasableSolidDomain) return false;
       if (object.pinned || object.locked) return false;
       const objectRect = getObjectRect(object);
       if (!circleIntersectsRect(center, radius, objectRect)) return false;
@@ -3398,7 +3404,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
             angleMarks: Array.from({ length: figureVertices }, () => ({
               valueText: "",
               color,
-              style: "auto" as const,
+              style: "arc_single" as const,
             })),
           }
         : undefined;
@@ -4050,6 +4056,28 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     onSelectedObjectChange,
     selectedObjectId,
   ]);
+
+  useEffect(() => {
+    if (tool !== "pen" && tool !== "highlighter") {
+      if (strokeFlushFrameRef.current !== null) {
+        window.cancelAnimationFrame(strokeFlushFrameRef.current);
+        strokeFlushFrameRef.current = null;
+      }
+      if (strokePreviewTimerRef.current !== null) {
+        window.clearTimeout(strokePreviewTimerRef.current);
+        strokePreviewTimerRef.current = null;
+      }
+      activeStrokeRef.current = null;
+      strokePointsRef.current = [];
+      draftStrokePathRef.current?.setAttribute("d", "");
+    }
+    if (tool !== "eraser") {
+      erasedStrokeIdsRef.current.clear();
+      eraserStrokeFragmentsRef.current.clear();
+      eraserObjectCutsRef.current.clear();
+      eraserTouchedObjectIdsRef.current.clear();
+    }
+  }, [tool]);
 
   useEffect(() => {
     if (tool !== "polygon" || polygonMode !== "points") return;

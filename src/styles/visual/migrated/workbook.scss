@@ -366,7 +366,8 @@
   gap: 8px;
   flex-wrap: nowrap;
   align-items: center;
-  width: 100%;
+  width: fit-content;
+  max-width: 100%;
   box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--brand-soft) 34%, var(--border-subtle));
   border-radius: 12px;
@@ -750,8 +751,8 @@
 .workbook-session__utility-float {
   position: fixed;
   z-index: 80;
-  width: min(420px, calc(100vw - 20px));
-  max-height: min(78vh, 760px);
+  width: min(392px, calc(100vw - 20px));
+  max-height: min(76vh, 720px);
   max-width: calc(100vw - 20px);
   overflow: hidden;
   overflow-x: hidden;
@@ -767,6 +768,10 @@
   background-clip: padding-box;
   overscroll-behavior: contain;
   will-change: left, top;
+}
+
+.workbook-session__utility-float.is-anchored {
+  width: min(380px, calc(100vw - 24px));
 }
 
 .workbook-session__utility-float.is-collapsed {
@@ -813,6 +818,14 @@
 
   &:active {
     cursor: grabbing;
+  }
+}
+
+.workbook-session__utility-float.is-anchored .workbook-session__utility-float-head {
+  cursor: default;
+
+  &:active {
+    cursor: default;
   }
 }
 
@@ -2325,9 +2338,62 @@
   gap: 8px;
 }
 
-.workbook-session__shape-angle-card {
+.workbook-session__shape-angle-inspector {
   display: grid;
   gap: 10px;
+}
+
+.workbook-session__shape-angle-tabs {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
+}
+
+.workbook-session__shape-angle-tabs button {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--brand-soft) 18%, var(--border-subtle));
+  background: color-mix(in srgb, var(--surface-soft) 84%, transparent);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    transform 0.18s ease;
+
+  span {
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  small {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    line-height: 1;
+  }
+}
+
+.workbook-session__shape-angle-tabs button.is-active {
+  border-color: color-mix(in srgb, var(--brand-solid) 48%, var(--border-strong));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-elevated) 96%, transparent),
+      color-mix(in srgb, var(--brand-soft) 14%, var(--surface-soft))
+    );
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--brand-soft) 10%, transparent);
+}
+
+.workbook-session__shape-angle-card {
+  display: grid;
+  gap: 8px;
   padding: 10px;
   border: 1px solid color-mix(in srgb, var(--brand-soft) 18%, var(--border-subtle));
   border-radius: 14px;
@@ -2471,11 +2537,38 @@
 
 .workbook-session__solid-angle-card {
   display: grid;
-  gap: 6px;
-  padding: 8px;
+  gap: 8px;
+  padding: 10px;
   border: 1px solid color-mix(in srgb, var(--brand-soft) 14%, var(--border-subtle));
   border-radius: 12px;
   background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+}
+
+.workbook-session__solid-angle-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workbook-session__solid-angle-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.workbook-session__solid-angle-grid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.workbook-session__solid-angle-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .workbook-session__solid-angle-top,
@@ -2538,6 +2631,7 @@
   }
 
   .workbook-session__shape-angle-fields,
+  .workbook-session__solid-angle-grid,
   .workbook-session__solid-angle-top,
   .workbook-session__solid-angle-bottom {
     grid-template-columns: minmax(0, 1fr);
@@ -2569,6 +2663,16 @@
 
   .workbook-session__shape-angle-color {
     align-self: flex-start;
+  }
+
+  .workbook-session__shape-angle-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workbook-session__solid-angle-card-head,
+  .workbook-session__solid-angle-footer {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 
@@ -3436,6 +3540,7 @@
   .workbook-session__contextbar {
     position: static;
     top: auto;
+    width: 100%;
     flex-direction: row;
     align-items: stretch;
     flex-wrap: nowrap;

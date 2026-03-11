@@ -75,7 +75,7 @@ const readShapeAngleMark = (
         ? source.valueText.slice(0, 24)
         : legacyValueText.slice(0, 24),
     color: color || fallbackColor,
-    style: isShapeAngleMarkStyle(source.style) ? source.style : "auto",
+    style: isShapeAngleMarkStyle(source.style) ? source.style : "arc_single",
   };
 };
 
@@ -99,7 +99,7 @@ export const normalizeShapeAngleMarks = (
       readShapeAngleMark(rawMarks[index], fallbackColor, legacyValueText, legacyColor) ?? {
         valueText: legacyValueText.slice(0, 24),
         color: legacyColor || fallbackColor,
-        style: "auto",
+        style: "arc_single",
       }
     );
   });

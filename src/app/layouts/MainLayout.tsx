@@ -10,6 +10,9 @@ export function MainLayout() {
   const { user, isAuthReady, isAuthModalOpen, closeAuthModal, authModalEmail } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const hideAuthModalForWorkbook =
+    location.pathname.startsWith("/workbook/invite/") ||
+    location.pathname.startsWith("/workbook/session/");
 
   useEffect(() => {
     if (!isAuthReady || !user) return;
@@ -20,6 +23,11 @@ export function MainLayout() {
     navigate(from, { replace: true, state: null });
   }, [isAuthReady, location.pathname, location.state, navigate, user]);
 
+  useEffect(() => {
+    if (!hideAuthModalForWorkbook || !isAuthModalOpen) return;
+    closeAuthModal();
+  }, [closeAuthModal, hideAuthModalForWorkbook, isAuthModalOpen]);
+
   return (
     <>
       <Header />
@@ -28,11 +36,13 @@ export function MainLayout() {
       <main className="app-main">
         <Outlet />
       </main>
-      <AuthModal
-        open={isAuthModalOpen}
-        onClose={closeAuthModal}
-        initialEmail={authModalEmail}
-      />
+      {!hideAuthModalForWorkbook ? (
+        <AuthModal
+          open={isAuthModalOpen}
+          onClose={closeAuthModal}
+          initialEmail={authModalEmail}
+        />
+      ) : null}
     </>
   );
 }

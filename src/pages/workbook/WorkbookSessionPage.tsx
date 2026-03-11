@@ -49,7 +49,6 @@ import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import CleaningServicesRoundedIcon from "@mui/icons-material/CleaningServicesRounded";
 import MyLocationRoundedIcon from "@mui/icons-material/MyLocationRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
-import AutoFixHighRoundedIcon from "@mui/icons-material/AutoFixHighRounded";
 import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
@@ -1682,7 +1681,7 @@ const normalizeWorkbookPersonalBoardSettings = (
 });
 
 export default function WorkbookSessionPage() {
-  const { user, openAuthModal } = useAuth();
+  const { user } = useAuth();
   const { sessionId = "" } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -1902,8 +1901,10 @@ export default function WorkbookSessionPage() {
   const [redoDepth, setRedoDepth] = useState(0);
   const sessionRootRef = useRef<HTMLElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const utilityPanelRef = useRef<HTMLDivElement | null>(null);
   const boardFileInputRef = useRef<HTMLInputElement | null>(null);
   const docsInputRef = useRef<HTMLInputElement | null>(null);
+  const utilityPanelPositionFrameRef = useRef<number | null>(null);
   const focusResetTimersByUserRef = useRef<Map<string, number>>(new Map());
   const dirtyRef = useRef(false);
   const isSavingRef = useRef(false);
@@ -3823,7 +3824,6 @@ export default function WorkbookSessionPage() {
         if (error instanceof ApiError) {
           if (error.status === 401) {
             setError("Сессия недоступна: требуется повторная авторизация.");
-            openAuthModal();
           } else if (error.status === 403) {
             setError("Нет доступа к этой сессии. Запросите новую ссылку у преподавателя.");
           } else if (error.status === 404) {
@@ -3845,7 +3845,6 @@ export default function WorkbookSessionPage() {
   }, [
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
-    openAuthModal,
     recoverChatMessagesFromEvents,
     sessionId,
   ]);
@@ -4918,6 +4917,80 @@ export default function WorkbookSessionPage() {
     setViewportZoom(1);
   };
 
+  const selectedObjectForUtilityPanel =
+    boardObjects.find((item) => item.id === selectedObjectId) ?? null;
+  const selectedObjectSupportsTransformPanelForUtility = supportsTransformUtilityPanel(
+    selectedObjectForUtilityPanel
+  );
+  const selectedObjectSupportsGraphPanelForUtility = supportsGraphUtilityPanel(
+    selectedObjectForUtilityPanel
+  );
+
+  const resolveUtilityPanelPositionNearObject = useCallback(
+    (
+      targetObject: WorkbookBoardObject | null,
+      tab: "graph" | "transform"
+    ): { x: number; y: number } | null => {
+      if (isCompactViewport || !targetObject || typeof window === "undefined") {
+        return null;
+      }
+      const canvasElement = workspaceRef.current?.querySelector<HTMLDivElement>(
+        ".workbook-session__canvas"
+      );
+      if (!canvasElement) return null;
+      const canvasRect = canvasElement.getBoundingClientRect();
+      if (canvasRect.width <= 1 || canvasRect.height <= 1) return null;
+      const measuredPanelRect = utilityPanelRef.current?.getBoundingClientRect() ?? null;
+      const fallbackWidth = tab === "graph" ? 392 : 380;
+      const panelWidth = Math.max(
+        280,
+        Math.min(
+          measuredPanelRect?.width ?? fallbackWidth,
+          Math.max(280, canvasRect.width - 18)
+        )
+      );
+      const panelHeight = Math.max(
+        220,
+        measuredPanelRect?.height ?? (isUtilityPanelCollapsed ? 92 : 560)
+      );
+      const bounds = getObjectExportBounds(targetObject);
+      const objectLeft = canvasRect.left + (bounds.minX - canvasViewport.x) * viewportZoom;
+      const objectRight = canvasRect.left + (bounds.maxX - canvasViewport.x) * viewportZoom;
+      const objectTop = canvasRect.top + (bounds.minY - canvasViewport.y) * viewportZoom;
+      const objectBottom = canvasRect.top + (bounds.maxY - canvasViewport.y) * viewportZoom;
+      const objectHeight = Math.max(24, objectBottom - objectTop);
+      const gap = 14;
+      const availableLeft = Math.max(12, canvasRect.left + 6);
+      const availableRight = Math.min(window.innerWidth - 12, canvasRect.right - 6);
+      const availableTop = Math.max(12, canvasRect.top + 6);
+      const availableBottom = Math.min(window.innerHeight - 12, canvasRect.bottom - 6);
+      const maxX = Math.max(availableLeft, availableRight - panelWidth);
+      const maxY = Math.max(availableTop, availableBottom - panelHeight);
+      const fitsRight = objectRight + gap + panelWidth <= availableRight;
+      const fitsLeft = objectLeft - gap - panelWidth >= availableLeft;
+      const nextX = fitsRight
+        ? objectRight + gap
+        : fitsLeft
+          ? objectLeft - gap - panelWidth
+          : Math.max(
+              availableLeft,
+              Math.min(maxX, objectRight + gap)
+            );
+      const desiredY = objectTop + (objectHeight - panelHeight) / 2;
+      return {
+        x: Math.max(availableLeft, Math.min(maxX, nextX)),
+        y: Math.max(availableTop, Math.min(maxY, desiredY)),
+      };
+    },
+    [
+      canvasViewport.x,
+      canvasViewport.y,
+      isCompactViewport,
+      isUtilityPanelCollapsed,
+      viewportZoom,
+    ]
+  );
+
   const openUtilityPanel = useCallback(
     (
       tab: "settings" | "graph" | "transform" | "layers",
@@ -4928,10 +5001,8 @@ export default function WorkbookSessionPage() {
       if (tab === "settings" && !canAccessBoardSettingsPanel) {
         return;
       }
-      const selectedUtilityObject =
-        boardObjects.find((item) => item.id === selectedObjectId) ?? null;
-      const canOpenTransformPanel = supportsTransformUtilityPanel(selectedUtilityObject);
-      const canOpenGraphPanel = supportsGraphUtilityPanel(selectedUtilityObject);
+      const canOpenTransformPanel = selectedObjectSupportsTransformPanelForUtility;
+      const canOpenGraphPanel = selectedObjectSupportsGraphPanelForUtility;
       if (tab === "transform" && !canOpenTransformPanel) {
         return;
       }
@@ -4958,6 +5029,17 @@ export default function WorkbookSessionPage() {
       if (isCompactViewport) {
         return;
       }
+      const anchoredPosition =
+        tab === "graph" || tab === "transform"
+          ? resolveUtilityPanelPositionNearObject(selectedObjectForUtilityPanel, tab)
+          : null;
+      if (anchoredPosition) {
+        setUtilityPanelPosition(anchoredPosition);
+        return;
+      }
+      if (tab === "graph" || tab === "transform") {
+        return;
+      }
       if (!workspaceRef.current) return;
       const rect = workspaceRef.current.getBoundingClientRect();
       setUtilityPanelPosition((current) => {
@@ -4981,13 +5063,22 @@ export default function WorkbookSessionPage() {
       isCompactViewport,
       isFullscreen,
       isUtilityPanelOpen,
+      resolveUtilityPanelPositionNearObject,
       selectedObjectId,
+      selectedObjectForUtilityPanel,
+      selectedObjectSupportsGraphPanelForUtility,
+      selectedObjectSupportsTransformPanelForUtility,
       utilityTab,
     ]
   );
 
   const handleUtilityPanelDragStart = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (isCompactViewport) return;
+    const isAnchoredPanel =
+      !isCompactViewport &&
+      isUtilityPanelOpen &&
+      ((utilityTab === "graph" && selectedObjectSupportsGraphPanelForUtility) ||
+        (utilityTab === "transform" && selectedObjectSupportsTransformPanelForUtility));
+    if (isCompactViewport || isAnchoredPanel) return;
     if (event.button !== 0) return;
     const target = event.target;
     if (target instanceof HTMLElement) {
@@ -5027,7 +5118,12 @@ export default function WorkbookSessionPage() {
   );
 
   useEffect(() => {
-    if (isCompactViewport) {
+    const shouldAnchorUtilityPanel =
+      !isCompactViewport &&
+      isUtilityPanelOpen &&
+      ((utilityTab === "graph" && selectedObjectSupportsGraphPanelForUtility) ||
+        (utilityTab === "transform" && selectedObjectSupportsTransformPanelForUtility));
+    if (isCompactViewport || shouldAnchorUtilityPanel) {
       setUtilityPanelDragState(null);
       return;
     }
@@ -5036,10 +5132,18 @@ export default function WorkbookSessionPage() {
       const deltaX = event.clientX - utilityPanelDragState.startClientX;
       const deltaY = event.clientY - utilityPanelDragState.startClientY;
       const workspaceRect = workspaceRef.current?.getBoundingClientRect();
+      const panelWidth = utilityPanelRef.current?.offsetWidth ?? 360;
+      const panelHeight = utilityPanelRef.current?.offsetHeight ?? 420;
       const minX = (workspaceRect?.left ?? 0) + 8;
       const minY = (workspaceRect?.top ?? 0) + 8;
-      const maxX = Math.max(minX + 24, (workspaceRect?.right ?? window.innerWidth) - 320);
-      const maxY = Math.max(minY + 24, (workspaceRect?.bottom ?? window.innerHeight) - 120);
+      const maxX = Math.max(
+        minX + 24,
+        (workspaceRect?.right ?? window.innerWidth) - panelWidth - 8
+      );
+      const maxY = Math.max(
+        minY + 24,
+        (workspaceRect?.bottom ?? window.innerHeight) - panelHeight - 8
+      );
       setUtilityPanelPosition({
         x: Math.max(minX, Math.min(maxX, utilityPanelDragState.startLeft + deltaX)),
         y: Math.max(minY, Math.min(maxY, utilityPanelDragState.startTop + deltaY)),
@@ -5052,33 +5156,54 @@ export default function WorkbookSessionPage() {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [isCompactViewport, utilityPanelDragState]);
+  }, [
+    isCompactViewport,
+    isUtilityPanelOpen,
+    selectedObjectSupportsGraphPanelForUtility,
+    selectedObjectSupportsTransformPanelForUtility,
+    utilityPanelDragState,
+    utilityTab,
+  ]);
 
   useEffect(() => {
-    if (isCompactViewport) return;
+    const shouldAnchorUtilityPanel =
+      !isCompactViewport &&
+      isUtilityPanelOpen &&
+      ((utilityTab === "graph" && selectedObjectSupportsGraphPanelForUtility) ||
+        (utilityTab === "transform" && selectedObjectSupportsTransformPanelForUtility));
+    if (isCompactViewport || shouldAnchorUtilityPanel) return;
     if (!isUtilityPanelOpen) return;
     if (!workspaceRef.current) return;
     setUtilityPanelPosition((current) => {
       const rect = workspaceRef.current?.getBoundingClientRect();
       if (!rect) return current;
+      const panelWidth = utilityPanelRef.current?.offsetWidth ?? 360;
+      const panelHeight = utilityPanelRef.current?.offsetHeight ?? 420;
       const fallbackX = Math.max(rect.left + 8, rect.right - 420);
       const fallbackY = Math.max(rect.top + 8, 86);
       const nextX = current.x > 0 ? current.x : fallbackX;
       const nextY = current.y > 0 ? current.y : fallbackY;
       const minX = rect.left + 8;
       const minY = rect.top + 8;
-      const maxX = Math.max(minX + 24, rect.right - 320);
-      const maxY = Math.max(minY + 24, rect.bottom - 120);
+      const maxX = Math.max(minX + 24, rect.right - panelWidth - 8);
+      const maxY = Math.max(minY + 24, rect.bottom - panelHeight - 8);
       return {
         x: Math.max(minX, Math.min(maxX, nextX)),
         y: Math.max(minY, Math.min(maxY, nextY)),
       };
     });
-  }, [isCompactViewport, isFullscreen, isUtilityPanelOpen]);
+  }, [
+    isCompactViewport,
+    isFullscreen,
+    isUtilityPanelOpen,
+    selectedObjectSupportsGraphPanelForUtility,
+    selectedObjectSupportsTransformPanelForUtility,
+    utilityTab,
+  ]);
 
   const utilityPanelTitle = useMemo(() => {
     if (utilityTab === "settings") return "Настройки доски";
-    if (utilityTab === "graph") return "Графики функции";
+    if (utilityTab === "graph") return "График функции";
     if (utilityTab === "layers") return "Слои";
     return "Трансформации";
   }, [utilityTab]);
@@ -8965,21 +9090,32 @@ export default function WorkbookSessionPage() {
         setError("Не удалось подготовить страницы для PDF.");
         return;
       }
-      const firstPage = renderedPages[0];
       const { jsPDF } = await import("jspdf");
+      const landscapeVotes = renderedPages.reduce(
+        (count, page) => count + (page.width > page.height ? 1 : 0),
+        0
+      );
+      const pdfOrientation = landscapeVotes > renderedPages.length / 2 ? "landscape" : "portrait";
       const pdf = new jsPDF({
-        orientation: firstPage.width >= firstPage.height ? "landscape" : "portrait",
-        unit: "px",
-        format: [firstPage.width, firstPage.height],
+        orientation: pdfOrientation,
+        unit: "pt",
+        format: "a4",
       });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const pageMargin = 30;
+      const contentWidth = Math.max(1, pageWidth - pageMargin * 2);
+      const contentHeight = Math.max(1, pageHeight - pageMargin * 2);
       renderedPages.forEach((page, index) => {
         if (index > 0) {
-          pdf.addPage(
-            [page.width, page.height],
-            page.width >= page.height ? "landscape" : "portrait"
-          );
+          pdf.addPage("a4", pdfOrientation);
         }
-        pdf.addImage(page.dataUrl, "PNG", 0, 0, page.width, page.height);
+        const fittedScale = Math.min(contentWidth / page.width, contentHeight / page.height);
+        const drawWidth = Math.max(1, page.width * fittedScale);
+        const drawHeight = Math.max(1, page.height * fittedScale);
+        const offsetX = (pageWidth - drawWidth) / 2;
+        const offsetY = (pageHeight - drawHeight) / 2;
+        pdf.addImage(page.dataUrl, "PNG", offsetX, offsetY, drawWidth, drawHeight);
       });
       pdf.save(fileName);
     } catch {
@@ -9375,6 +9511,78 @@ export default function WorkbookSessionPage() {
     () => supportsGraphUtilityPanel(selectedObject),
     [selectedObject]
   );
+  const shouldAnchorUtilityPanel = useMemo(
+    () =>
+      !isCompactViewport &&
+      isUtilityPanelOpen &&
+      ((utilityTab === "graph" && selectedObjectSupportsGraphPanel) ||
+        (utilityTab === "transform" && selectedObjectSupportsTransformPanel)),
+    [
+      isCompactViewport,
+      isUtilityPanelOpen,
+      selectedObjectSupportsGraphPanel,
+      selectedObjectSupportsTransformPanel,
+      utilityTab,
+    ]
+  );
+
+  useEffect(() => {
+    if (!isUtilityPanelOpen) return;
+    if (utilityTab === "graph" && !selectedObjectSupportsGraphPanel) {
+      setIsUtilityPanelOpen(false);
+      return;
+    }
+    if (utilityTab === "transform" && !selectedObjectSupportsTransformPanel) {
+      setIsUtilityPanelOpen(false);
+    }
+  }, [
+    isUtilityPanelOpen,
+    selectedObjectSupportsGraphPanel,
+    selectedObjectSupportsTransformPanel,
+    utilityTab,
+  ]);
+
+  useEffect(() => {
+    if (!shouldAnchorUtilityPanel || !selectedObject) return;
+    const syncPosition = () => {
+      utilityPanelPositionFrameRef.current = null;
+      const nextPosition =
+        utilityTab === "graph" || utilityTab === "transform"
+          ? resolveUtilityPanelPositionNearObject(selectedObject, utilityTab)
+          : null;
+      if (!nextPosition) return;
+      setUtilityPanelPosition((current) => {
+        const deltaX = Math.abs(current.x - nextPosition.x);
+        const deltaY = Math.abs(current.y - nextPosition.y);
+        return deltaX < 0.5 && deltaY < 0.5 ? current : nextPosition;
+      });
+    };
+    const requestSync = () => {
+      if (utilityPanelPositionFrameRef.current !== null) return;
+      utilityPanelPositionFrameRef.current = window.requestAnimationFrame(syncPosition);
+    };
+    requestSync();
+    window.addEventListener("scroll", requestSync, true);
+    window.addEventListener("resize", requestSync);
+    return () => {
+      window.removeEventListener("scroll", requestSync, true);
+      window.removeEventListener("resize", requestSync);
+      if (utilityPanelPositionFrameRef.current !== null) {
+        window.cancelAnimationFrame(utilityPanelPositionFrameRef.current);
+        utilityPanelPositionFrameRef.current = null;
+      }
+    };
+  }, [
+    canvasViewport.x,
+    canvasViewport.y,
+    isFullscreen,
+    selectedObject,
+    shouldAnchorUtilityPanel,
+    utilityTab,
+    viewportZoom,
+    resolveUtilityPanelPositionNearObject,
+  ]);
+
   const handleCanvasSelectedObjectChange = useCallback(
     (nextObjectId: string | null) => {
       const suppressedObjectId = suppressAutoPanelSelectionRef.current;
@@ -10462,34 +10670,6 @@ export default function WorkbookSessionPage() {
                 </IconButton>
               </span>
             </Tooltip>
-            <Tooltip title="График функции" placement="bottom" arrow>
-              <span>
-                <IconButton
-                  size="small"
-                  className={`workbook-session__toolbar-icon ${
-                    isUtilityPanelOpen && utilityTab === "graph" ? "is-active" : ""
-                  }`}
-                  disabled={!selectedObjectSupportsGraphPanel}
-                  onClick={() => openUtilityPanel("graph")}
-                >
-                  <ShowChartRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title="Трансформации" placement="bottom" arrow>
-              <span>
-                <IconButton
-                  size="small"
-                  className={`workbook-session__toolbar-icon ${
-                    isUtilityPanelOpen && utilityTab === "transform" ? "is-active" : ""
-                  }`}
-                  disabled={!selectedObjectSupportsTransformPanel}
-                  onClick={() => openUtilityPanel("transform")}
-                >
-                  <AutoFixHighRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
             <Tooltip title="Слои" placement="bottom" arrow>
               <span>
                 <IconButton
@@ -10569,23 +10749,6 @@ export default function WorkbookSessionPage() {
                 </IconButton>
               </span>
             </Tooltip>
-
-            {tool === "function_graph" ? (
-              <div className="workbook-session__contextbar-inline">
-                <span className="workbook-session__hint">
-                  Конструктор графика доступен во вкладке «График функции».
-                </span>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<ShowChartRoundedIcon />}
-                  disabled={!selectedObjectSupportsGraphPanel}
-                  onClick={() => openUtilityPanel("graph", { toggle: false })}
-                >
-                  Открыть модуль
-                </Button>
-              </div>
-            ) : null}
 
             <Tooltip title="Загрузить документ" placement="bottom" arrow>
               <span>
@@ -10819,9 +10982,10 @@ export default function WorkbookSessionPage() {
 
           {isUtilityPanelOpen ? (
           <div
+            ref={utilityPanelRef}
             className={`workbook-session__utility-float${
               isUtilityPanelCollapsed ? " is-collapsed" : ""
-            }`}
+            }${shouldAnchorUtilityPanel ? " is-anchored" : ""}`}
             style={
               isCompactViewport
                 ? undefined

@@ -1,4 +1,4 @@
-import { memo, type Dispatch, type SetStateAction } from "react";
+import { memo, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import {
   Alert,
   Button,
@@ -338,6 +338,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
   getSolidVertexLabel,
   getSectionVertexLabel,
 }: WorkbookSessionTransformPanelProps) {
+  const [activeShapeAngleKey, setActiveShapeAngleKey] = useState<string | null>(null);
   const solid3dSectionSummaries = selectedSolid3dState?.sections.map((section) => {
     const polygon =
       selectedSolidMesh && section.visible
@@ -359,6 +360,35 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
       supportPointCount: section.points.length,
     };
   });
+  const shapeAngleItems = useMemo(
+    () =>
+      selectedShape2dLabels.map((label, index) => {
+        const angleMark = selectedShape2dAngleMarks[index] ?? {
+          valueText: "",
+          color: selectedShape2dAngleColors[index] ?? "#4f63ff",
+          style: "arc_single" as const,
+        };
+        const selectedStyleOption =
+          SHAPE_ANGLE_MARK_STYLE_OPTIONS.find((option) => option.value === angleMark.style) ??
+          SHAPE_ANGLE_MARK_STYLE_OPTIONS.find((option) => option.value === "arc_single") ??
+          SHAPE_ANGLE_MARK_STYLE_OPTIONS[0];
+        return {
+          key: `${selectedShape2dObject?.id ?? "shape"}:${index}`,
+          index,
+          label,
+          angleMark,
+          selectedStyleOption,
+        };
+      }),
+    [
+      selectedShape2dAngleColors,
+      selectedShape2dAngleMarks,
+      selectedShape2dLabels,
+      selectedShape2dObject?.id,
+    ]
+  );
+  const activeShapeAngleItem =
+    shapeAngleItems.find((item) => item.key === activeShapeAngleKey) ?? shapeAngleItems[0] ?? null;
   return (
     <div className="workbook-session__card">
       <h3>Трансформации</h3>
@@ -503,7 +533,6 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                           />
                         </div>
                       </div>
-                      <p className="workbook-session__hint">{solid3dStrokeWidthDraft} px</p>
                       <div className="workbook-session__solid-card-row">
                         <span>
                           {selectedSolidIsCurved
@@ -668,19 +697,49 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                                 const activeVertexValue = activeFace.includes(mark.vertexIndex)
                                   ? mark.vertexIndex
                                   : (activeFace[0] ?? mark.vertexIndex);
+                                const activeVertexLabel =
+                                  selectedSolidVertexLabels[activeVertexValue] ||
+                                  getSolidVertexLabel(activeVertexValue);
+                                const activeFaceLabel =
+                                  activeFace
+                                    .map(
+                                      (vertexIndex) =>
+                                        selectedSolidVertexLabels[vertexIndex] ||
+                                        getSolidVertexLabel(vertexIndex)
+                                    )
+                                    .join("-") || `Грань ${activeFaceIndex + 1}`;
                                 return (
                                   <>
-                                    <div className="workbook-session__solid-angle-top">
-                                      <input
-                                        type="color"
-                                        className="workbook-session__solid-color"
-                                        value={mark.color || "#ff8e3c"}
-                                        onChange={(event) =>
-                                          void onUpdateSolid3dAngleMark(mark.id, {
-                                            color: event.target.value || "#ff8e3c",
-                                          })
-                                        }
-                                      />
+                                    <div className="workbook-session__solid-angle-card-head">
+                                      <div className="workbook-session__shape-angle-meta">
+                                        <span className="workbook-session__shape-angle-badge">
+                                          ∠{activeVertexLabel}
+                                        </span>
+                                        <span className="workbook-session__shape-angle-preview">
+                                          {activeFaceLabel}
+                                        </span>
+                                      </div>
+                                      <div className="workbook-session__solid-angle-card-actions">
+                                        <input
+                                          type="color"
+                                          className="workbook-session__solid-color"
+                                          value={mark.color || "#ff8e3c"}
+                                          onChange={(event) =>
+                                            void onUpdateSolid3dAngleMark(mark.id, {
+                                              color: event.target.value || "#ff8e3c",
+                                            })
+                                          }
+                                        />
+                                        <IconButton
+                                          size="small"
+                                          className="workbook-session__solid-angle-delete"
+                                          onClick={() => void onDeleteSolid3dAngleMark(mark.id)}
+                                        >
+                                          <CloseRoundedIcon />
+                                        </IconButton>
+                                      </div>
+                                    </div>
+                                    <div className="workbook-session__solid-angle-grid">
                                       <Select
                                         native
                                         size="small"
@@ -731,19 +790,10 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                                           </option>
                                         ))}
                                       </Select>
-                                      <IconButton
-                                        size="small"
-                                        className="workbook-session__solid-angle-delete"
-                                        onClick={() => void onDeleteSolid3dAngleMark(mark.id)}
-                                      >
-                                        <CloseRoundedIcon />
-                                      </IconButton>
-                                    </div>
-                                    <div className="workbook-session__solid-angle-bottom">
                                       <TextField
                                         size="small"
                                         className="workbook-session__solid-input"
-                                        placeholder="Значение угла"
+                                        label="Подпись"
                                         value={mark.label}
                                         onChange={(event) =>
                                           void onUpdateSolid3dAngleMark(mark.id, {
@@ -751,6 +801,8 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                                           })
                                         }
                                       />
+                                    </div>
+                                    <div className="workbook-session__solid-angle-footer">
                                       <div className="workbook-session__solid-angle-visibility">
                                         <span>Скрыть</span>
                                         <Switch
@@ -925,7 +977,8 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
         ) : tool === "eraser" ? (
           <div className="workbook-session__settings">
             <p className="workbook-session__hint">
-              Ластик стирает части штрихов и объектов без полного удаления.
+              Ластик режет штрихи и 2D-объекты, но не изменяет 3D-фигуры, их сечения и связанные
+              элементы.
             </p>
             <div className="workbook-session__settings-row">
               <span>Радиус ластика</span>
@@ -1464,7 +1517,6 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                       />
                     </div>
                   </div>
-                  <p className="workbook-session__hint">{shape2dStrokeWidthDraft} px</p>
                   <p className="workbook-session__hint">
                     Геометрические подписи и пометки вынесены в профильные вкладки.
                   </p>
@@ -1551,94 +1603,104 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                     />
                   </div>
                   <p className="workbook-session__hint">
-                    Режим «Авто» сам покажет прямой угол квадратом, остальные углы дугой.
+                    По умолчанию углы помечаются одной дугой. При необходимости меняйте тип
+                    обозначения отдельно для каждого угла.
                   </p>
                   {selectedShape2dHasAngles ? (
-                    <div className="workbook-session__shape-angle-list">
-                      {selectedShape2dLabels.map((label, index) => {
-                        const angleMark = selectedShape2dAngleMarks[index] ?? {
-                          valueText: "",
-                          color: selectedShape2dAngleColors[index] ?? "#4f63ff",
-                          style: "auto" as const,
-                        };
-                        const selectedStyleOption =
-                          SHAPE_ANGLE_MARK_STYLE_OPTIONS.find(
-                            (option) => option.value === angleMark.style
-                          ) ?? SHAPE_ANGLE_MARK_STYLE_OPTIONS[0];
-                        return (
-                          <article
-                            key={`shape-angle-note-${selectedShape2dObject.id}-${index}`}
-                            className="workbook-session__shape-angle-card"
+                    <div className="workbook-session__shape-angle-inspector">
+                      <div className="workbook-session__shape-angle-tabs">
+                        {shapeAngleItems.map((item) => (
+                          <button
+                            key={`shape-angle-tab-${selectedShape2dObject.id}-${item.index}`}
+                            type="button"
+                            className={
+                              activeShapeAngleItem?.key === item.key ? "is-active" : ""
+                            }
+                            onClick={() => setActiveShapeAngleKey(item.key)}
                           >
-                            <div className="workbook-session__shape-angle-head">
-                              <div className="workbook-session__shape-angle-meta">
-                                <span className="workbook-session__shape-angle-badge">
-                                  ∠{label}
-                                </span>
-                                <span className="workbook-session__shape-angle-preview">
-                                  {selectedStyleOption.preview}
-                                  <small>{selectedStyleOption.label}</small>
-                                </span>
-                              </div>
-                              <input
-                                type="color"
-                                className="workbook-session__solid-color workbook-session__shape-angle-color"
-                                value={selectedShape2dAngleColors[index] ?? "#4f63ff"}
-                                onChange={(event) =>
-                                  void onUpdateSelectedShape2dAngleColor(index, event.target.value)
-                                }
-                              />
+                            <span>∠{item.label}</span>
+                            <small>{item.selectedStyleOption.preview}</small>
+                          </button>
+                        ))}
+                      </div>
+                      {activeShapeAngleItem ? (
+                        <article className="workbook-session__shape-angle-card">
+                          <div className="workbook-session__shape-angle-head">
+                            <div className="workbook-session__shape-angle-meta">
+                              <span className="workbook-session__shape-angle-badge">
+                                ∠{activeShapeAngleItem.label}
+                              </span>
+                              <span className="workbook-session__shape-angle-preview">
+                                {activeShapeAngleItem.selectedStyleOption.preview}
+                                <small>{activeShapeAngleItem.selectedStyleOption.label}</small>
+                              </span>
                             </div>
-                            <div className="workbook-session__shape-angle-fields">
-                              <TextField
-                                size="small"
-                                className="workbook-session__solid-input workbook-session__shape-angle-field"
-                                label="Значение"
-                                placeholder="Например: 45"
-                                value={shapeAngleNoteDrafts[index] ?? ""}
-                                onChange={(event) => {
-                                  const nextValue = event.target.value.slice(0, 24);
-                                  setShapeAngleNoteDrafts((current) => {
-                                    const next = [...current];
-                                    next[index] = nextValue;
-                                    return next;
-                                  });
-                                  onScheduleSelectedShape2dAngleDraftCommit(index, nextValue);
-                                }}
-                                onBlur={() =>
-                                  void onFlushSelectedShape2dAngleDraftCommit(
-                                    index,
-                                    shapeAngleNoteDrafts[index] ?? ""
-                                  )
-                                }
-                                onKeyDown={(event) => {
-                                  if (event.key !== "Enter") return;
-                                  event.currentTarget.blur();
-                                }}
-                              />
-                              <TextField
-                                select
-                                size="small"
-                                className="workbook-session__solid-input workbook-session__shape-angle-field"
-                                label="Обозначение"
-                                value={angleMark.style}
-                                onChange={(event) =>
-                                  void onUpdateSelectedShape2dAngleStyle(
-                                    index,
-                                    event.target.value as WorkbookShapeAngleMarkStyle
-                                  )
-                                }
-                              >
-                                {SHAPE_ANGLE_MARK_STYLE_OPTIONS.map((option) => (
-                                  <MenuItem key={option.value} value={option.value}>
-                                    {option.preview} {option.label}
-                                  </MenuItem>
-                                ))}
-                              </TextField>
-                            </div>
-                          </article>
-                        );
-                      })}
+                            <input
+                              type="color"
+                              className="workbook-session__solid-color workbook-session__shape-angle-color"
+                              value={
+                                selectedShape2dAngleColors[activeShapeAngleItem.index] ?? "#4f63ff"
+                              }
+                              onChange={(event) =>
+                                void onUpdateSelectedShape2dAngleColor(
+                                  activeShapeAngleItem.index,
+                                  event.target.value
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="workbook-session__shape-angle-fields">
+                            <TextField
+                              size="small"
+                              className="workbook-session__solid-input workbook-session__shape-angle-field"
+                              label="Значение"
+                              placeholder="Например: 45"
+                              value={shapeAngleNoteDrafts[activeShapeAngleItem.index] ?? ""}
+                              onChange={(event) => {
+                                const nextValue = event.target.value.slice(0, 24);
+                                setShapeAngleNoteDrafts((current) => {
+                                  const next = [...current];
+                                  next[activeShapeAngleItem.index] = nextValue;
+                                  return next;
+                                });
+                                onScheduleSelectedShape2dAngleDraftCommit(
+                                  activeShapeAngleItem.index,
+                                  nextValue
+                                );
+                              }}
+                              onBlur={() =>
+                                void onFlushSelectedShape2dAngleDraftCommit(
+                                  activeShapeAngleItem.index,
+                                  shapeAngleNoteDrafts[activeShapeAngleItem.index] ?? ""
+                                )
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key !== "Enter") return;
+                                event.currentTarget.blur();
+                              }}
+                            />
+                            <TextField
+                              select
+                              size="small"
+                              className="workbook-session__solid-input workbook-session__shape-angle-field"
+                              label="Пометка"
+                              value={activeShapeAngleItem.angleMark.style}
+                              onChange={(event) =>
+                                void onUpdateSelectedShape2dAngleStyle(
+                                  activeShapeAngleItem.index,
+                                  event.target.value as WorkbookShapeAngleMarkStyle
+                                )
+                              }
+                            >
+                              {SHAPE_ANGLE_MARK_STYLE_OPTIONS.map((option) => (
+                                <MenuItem key={option.value} value={option.value}>
+                                  {option.preview} {option.label}
+                                </MenuItem>
+                              ))}
+                            </TextField>
+                          </div>
+                        </article>
+                      ) : null}
                     </div>
                   ) : (
                     <p className="workbook-session__hint">У выбранного объекта нет углов.</p>
