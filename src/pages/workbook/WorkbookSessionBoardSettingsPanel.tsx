@@ -1,5 +1,5 @@
 import { memo, type Dispatch, type SetStateAction } from "react";
-import { Select, Switch, TextField } from "@mui/material";
+import { Select, Switch, TextField, useMediaQuery } from "@mui/material";
 import AutoFixHighRoundedIcon from "@mui/icons-material/AutoFixHighRounded";
 import BrushRoundedIcon from "@mui/icons-material/BrushRounded";
 import CropFreeRoundedIcon from "@mui/icons-material/CropFreeRounded";
@@ -46,6 +46,7 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
   eraserRadiusMax,
   canManageSharedBoardSettings,
 }: WorkbookSessionBoardSettingsPanelProps) {
+  const isCompactViewport = useMediaQuery("(max-width: 760px)");
   const updateSmartInk = (patch: Partial<SmartInkOptions>) => {
     setSmartInkOptions((current) =>
       normalizeSmartInkOptions({
@@ -61,8 +62,12 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
         <h3>Настройки доски</h3>
         <p>
           {canManageSharedBoardSettings
-            ? "Личные настройки письма сохраняются автоматически только для вас, а общие параметры доски синхронно обновляются у всех участников."
-            : "Здесь доступны только ваши личные настройки письма и Smart Ink. Общие параметры доски изменяет преподаватель."}
+            ? isCompactViewport
+              ? "Личные настройки применяются только у вас, общие синхронизируются у всех."
+              : "Личные настройки письма сохраняются автоматически только для вас, а общие параметры доски синхронно обновляются у всех участников."
+            : isCompactViewport
+              ? "Здесь доступны только личные настройки письма и Smart Ink."
+              : "Здесь доступны только ваши личные настройки письма и Smart Ink. Общие параметры доски изменяет преподаватель."}
         </p>
       </div>
 
@@ -309,7 +314,8 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
               </div>
               <TextField
                 size="small"
-                label="Название доски"
+                placeholder="Название доски"
+                inputProps={{ "aria-label": "Название доски" }}
                 className="workbook-session__board-settings-text"
                 value={sharedBoardSettings.title}
                 onChange={(event) =>

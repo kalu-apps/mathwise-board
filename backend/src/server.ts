@@ -177,14 +177,14 @@ const staticMiddleware: NextHandleFunction = async (req, res, next) => {
 };
 
 const app = connect();
-setupMockServer({
-  middlewares: app as unknown as ViteDevServer["middlewares"],
-});
-app.use(staticMiddleware);
-
 const server = createServer(app);
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 66_000;
+setupMockServer({
+  middlewares: app as unknown as ViteDevServer["middlewares"],
+  httpServer: server,
+});
+app.use(staticMiddleware);
 
 const start = async () => {
   try {

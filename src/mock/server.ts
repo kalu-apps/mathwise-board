@@ -5,7 +5,9 @@ import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { promises as fsPromises } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { ViteDevServer } from "vite";
+import type { Duplex } from "node:stream";
+import type { Connect, PreviewServer, ViteDevServer } from "vite";
+import { WebSocket, WebSocketServer } from "ws";
 import {
   getDb,
   saveDb,
@@ -101,10 +103,19 @@ const MEDIA_LIVEKIT_ENABLED =
   MEDIA_LIVEKIT_API_SECRET.length > 0;
 const PUBLIC_BASE_URL = String(process.env.VITE_PUBLIC_BASE_URL ?? "").trim().replace(/\/+$/g, "");
 
+type HttpUpgradeServer = {
+  on(
+    event: "upgrade",
+    listener: (req: IncomingMessage, socket: Duplex, head: Buffer) => void
+  ): unknown;
+};
+
 type MiddlewareHost =
   | ViteDevServer
+  | PreviewServer
   | {
-      middlewares: ViteDevServer["middlewares"];
+      middlewares: Connect.Server;
+      httpServer?: HttpUpgradeServer | null;
     };
 
 type WorkbookSettings = {
@@ -139,6 +150,12 @@ type WorkbookStreamClient = {
   res: ServerResponse;
 };
 
+type WorkbookLiveSocketClient = {
+  id: string;
+  userId: string;
+  socket: WebSocket;
+};
+
 type WorkbookRealtimeEnvelope = {
   sessionId: string;
   latestSeq: number;
@@ -152,14 +169,20 @@ type WorkbookRealtimeEnvelope = {
     createdAt: string;
   }>;
   nodeId?: string;
+  channel?: "stream" | "live";
 };
 
 const workbookStreamClientsBySession = new Map<string, Map<string, WorkbookStreamClient>>();
+const workbookLiveSocketClientsBySession = new Map<
+  string,
+  Map<string, WorkbookLiveSocketClient>
+>();
 const presencePersistAtByParticipant = new Map<string, number>();
 const presenceSnapshotHashBySession = new Map<string, string>();
 const runtimeUnsubscribeBySession = new Map<string, () => Promise<void> | void>();
 const runtimeSubscribeInFlightBySession = new Map<string, Promise<void>>();
 const RUNTIME_NODE_ID = `${os.hostname()}-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
+const workbookLiveSocketServerByHost = new WeakMap<HttpUpgradeServer, WebSocketServer>();
 
 const nowIso = () => new Date().toISOString();
 const nowTs = () => Date.now();
@@ -812,6 +835,34 @@ const deliverWorkbookStreamEventsToLocalClients = (
   }
 };
 
+const deliverWorkbookLiveEventsToLocalClients = (
+  db: MockDb,
+  payload: WorkbookRealtimeEnvelope
+) => {
+  const sessionClients = workbookLiveSocketClientsBySession.get(payload.sessionId);
+  if (!sessionClients || sessionClients.size === 0) return;
+  const chunk = JSON.stringify({
+    sessionId: payload.sessionId,
+    latestSeq: payload.latestSeq,
+    events: payload.events,
+  });
+  for (const [clientId, client] of sessionClients.entries()) {
+    const hasAccess = db.workbookParticipants.some(
+      (participant) =>
+        participant.sessionId === payload.sessionId && participant.userId === client.userId
+    );
+    if (!hasAccess || client.socket.readyState !== WebSocket.OPEN) {
+      closeWorkbookLiveSocketClient(payload.sessionId, clientId);
+      continue;
+    }
+    try {
+      client.socket.send(chunk);
+    } catch {
+      closeWorkbookLiveSocketClient(payload.sessionId, clientId);
+    }
+  }
+};
+
 const trimWorkbookEventsOverflow = (db: MockDb, sessionId: string) => {
   const sessionEvents = db.workbookEvents
     .filter((event) => event.sessionId === sessionId)
@@ -823,6 +874,7 @@ const trimWorkbookEventsOverflow = (db: MockDb, sessionId: string) => {
 };
 
 const mergeRuntimeEventsIntoDb = (db: MockDb, payload: WorkbookRealtimeEnvelope) => {
+  if (payload.channel === "live") return false;
   if (!Array.isArray(payload.events) || payload.events.length === 0) return false;
   const existingEventIds = new Set(
     db.workbookEvents
@@ -879,6 +931,10 @@ async function ensureRuntimeSessionBridge(sessionId: string) {
         if (!payload || payload.sessionId !== sessionId) return;
         if (payload.nodeId && payload.nodeId === RUNTIME_NODE_ID) return;
         const db = getDb();
+        if (payload.channel === "live") {
+          deliverWorkbookLiveEventsToLocalClients(db, payload);
+          return;
+        }
         mergeRuntimeEventsIntoDb(db, payload);
         deliverWorkbookStreamEventsToLocalClients(db, payload);
       }
@@ -896,6 +952,8 @@ async function ensureRuntimeSessionBridge(sessionId: string) {
 async function teardownRuntimeSessionBridgeIfIdle(sessionId: string) {
   const sessionClients = workbookStreamClientsBySession.get(sessionId);
   if (sessionClients && sessionClients.size > 0) return;
+  const liveClients = workbookLiveSocketClientsBySession.get(sessionId);
+  if (liveClients && liveClients.size > 0) return;
   const inFlight = runtimeSubscribeInFlightBySession.get(sessionId);
   if (inFlight) {
     await inFlight.catch(() => undefined);
@@ -920,6 +978,24 @@ function closeWorkbookStreamClient(sessionId: string, clientId: string) {
   }
 }
 
+function closeWorkbookLiveSocketClient(sessionId: string, clientId: string) {
+  const sessionClients = workbookLiveSocketClientsBySession.get(sessionId);
+  if (!sessionClients) return;
+  const client = sessionClients.get(clientId);
+  sessionClients.delete(clientId);
+  if (client && client.socket.readyState === WebSocket.OPEN) {
+    try {
+      client.socket.close();
+    } catch {
+      // ignore close failures
+    }
+  }
+  if (sessionClients.size === 0) {
+    workbookLiveSocketClientsBySession.delete(sessionId);
+    void teardownRuntimeSessionBridgeIfIdle(sessionId);
+  }
+}
+
 const publishWorkbookStreamEvents = (
   db: MockDb,
   payload: WorkbookRealtimeEnvelope,
@@ -930,6 +1006,21 @@ const publishWorkbookStreamEvents = (
   void publishWorkbookRealtimePayload(payload.sessionId, {
     ...payload,
     nodeId: RUNTIME_NODE_ID,
+    channel: "stream",
+  });
+};
+
+const publishWorkbookLiveEvents = (
+  db: MockDb,
+  payload: WorkbookRealtimeEnvelope,
+  options?: { publishRuntime?: boolean }
+) => {
+  deliverWorkbookLiveEventsToLocalClients(db, payload);
+  if (options?.publishRuntime === false) return;
+  void publishWorkbookRealtimePayload(payload.sessionId, {
+    ...payload,
+    nodeId: RUNTIME_NODE_ID,
+    channel: "live",
   });
 };
 
@@ -1194,6 +1285,195 @@ const parsePath = (req: IncomingMessage) => {
   };
 };
 
+const sanitizeLivePreviewVersion = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.max(1, Math.trunc(value))
+    : undefined;
+
+const sanitizeWorkbookLiveEvents = (
+  participant: WorkbookSessionParticipantRecord,
+  events: unknown[]
+): WorkbookEventPayload[] => {
+  const sanitized: WorkbookEventPayload[] = [];
+  for (const candidate of events.slice(0, 96)) {
+    const raw =
+      candidate && typeof candidate === "object"
+        ? (candidate as { type?: unknown; payload?: unknown })
+        : null;
+    const type = typeof raw?.type === "string" ? raw.type : "";
+    const payload = raw?.payload;
+    if (type === "board.stroke.preview" || type === "annotations.stroke.preview") {
+      if (!participant.permissions.canDraw) continue;
+      const stroke =
+        payload && typeof payload === "object" && (payload as { stroke?: unknown }).stroke
+          ? (payload as { stroke: unknown }).stroke
+          : null;
+      if (!stroke || typeof stroke !== "object") continue;
+      const previewVersion = sanitizeLivePreviewVersion(
+        payload && typeof payload === "object"
+          ? (payload as { previewVersion?: unknown }).previewVersion
+          : undefined
+      );
+      sanitized.push({
+        type,
+        payload: {
+          stroke,
+          ...(previewVersion ? { previewVersion } : {}),
+        },
+      });
+      continue;
+    }
+    if (type === "board.object.preview") {
+      if (!participant.permissions.canSelect) continue;
+      const objectId =
+        payload && typeof payload === "object"
+          ? String((payload as { objectId?: unknown }).objectId ?? "").trim()
+          : "";
+      const patch =
+        payload && typeof payload === "object" && (payload as { patch?: unknown }).patch
+          ? (payload as { patch: unknown }).patch
+          : null;
+      if (!objectId || !patch || typeof patch !== "object") continue;
+      const previewVersion = sanitizeLivePreviewVersion(
+        payload && typeof payload === "object"
+          ? (payload as { previewVersion?: unknown }).previewVersion
+          : undefined
+      );
+      sanitized.push({
+        type,
+        payload: {
+          objectId,
+          patch,
+          ...(previewVersion ? { previewVersion } : {}),
+        },
+      });
+      continue;
+    }
+    if (type === "board.viewport.sync") {
+      const offset =
+        payload && typeof payload === "object"
+          ? (payload as { offset?: unknown }).offset
+          : null;
+      if (
+        !offset ||
+        typeof offset !== "object" ||
+        typeof (offset as { x?: unknown }).x !== "number" ||
+        !Number.isFinite((offset as { x: number }).x) ||
+        typeof (offset as { y?: unknown }).y !== "number" ||
+        !Number.isFinite((offset as { y: number }).y)
+      ) {
+        continue;
+      }
+      sanitized.push({
+        type,
+        payload: {
+          offset: {
+            x: (offset as { x: number }).x,
+            y: (offset as { y: number }).y,
+          },
+        },
+      });
+    }
+  }
+  return sanitized;
+};
+
+const rejectUpgrade = (
+  socket: Duplex,
+  statusCode: 400 | 401 | 403 | 404,
+  statusText: string
+) => {
+  try {
+    socket.write(
+      `HTTP/1.1 ${statusCode} ${statusText}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`
+    );
+  } finally {
+    socket.destroy();
+  }
+};
+
+const attachWorkbookLiveSocketServer = (host: MiddlewareHost) => {
+  const httpServer = resolveHttpServer(host);
+  if (!httpServer || workbookLiveSocketServerByHost.has(httpServer)) return;
+  const socketServer = new WebSocketServer({ noServer: true });
+  workbookLiveSocketServerByHost.set(httpServer, socketServer);
+
+  httpServer.on("upgrade", (req, socket, head) => {
+    const { pathname } = parsePath(req);
+    const match = pathname.match(/^\/api\/workbook\/sessions\/([^/]+)\/events\/live$/);
+    if (!match) return;
+    const db = getDb();
+    pickTeacher(db);
+    normalizeDbParticipantPermissions(db);
+    const actor = resolveAuthUser(req, db);
+    if (!actor) {
+      rejectUpgrade(socket, 401, "Unauthorized");
+      return;
+    }
+    const sessionId = decodeURIComponent(match[1]);
+    if (!getWorkbookParticipant(db, sessionId, actor.id)) {
+      rejectUpgrade(socket, 403, "Forbidden");
+      return;
+    }
+    void ensureRuntimeSessionBridge(sessionId);
+    socketServer.handleUpgrade(req, socket, head, (ws) => {
+      const clientId = ensureId();
+      const sessionClients = workbookLiveSocketClientsBySession.get(sessionId) ?? new Map();
+      sessionClients.set(clientId, { id: clientId, userId: actor.id, socket: ws });
+      workbookLiveSocketClientsBySession.set(sessionId, sessionClients);
+
+      const cleanup = () => {
+        const currentClients = workbookLiveSocketClientsBySession.get(sessionId);
+        if (!currentClients) return;
+        currentClients.delete(clientId);
+        if (currentClients.size === 0) {
+          workbookLiveSocketClientsBySession.delete(sessionId);
+          void teardownRuntimeSessionBridgeIfIdle(sessionId);
+        }
+      };
+
+      ws.on("message", async (rawMessage) => {
+        let parsed: { events?: unknown[] } | null = null;
+        try {
+          parsed = JSON.parse(String(rawMessage)) as { events?: unknown[] };
+        } catch {
+          parsed = null;
+        }
+        const currentDb = getDb();
+        const currentSession = getWorkbookSessionById(currentDb, sessionId);
+        const currentParticipant = getWorkbookParticipant(currentDb, sessionId, actor.id);
+        if (!currentSession || !currentParticipant) {
+          try {
+            ws.close();
+          } catch {
+            // ignore close failures
+          }
+          return;
+        }
+        const events = Array.isArray(parsed?.events) ? parsed.events : [];
+        const sanitizedEvents = sanitizeWorkbookLiveEvents(currentParticipant, events);
+        if (sanitizedEvents.length === 0) return;
+        const appendResult = await appendEvents(currentDb, {
+          sessionId,
+          authorUserId: actor.id,
+          events: sanitizedEvents,
+          persist: false,
+        });
+        touchSessionActivity(currentSession, appendResult.timestamp);
+        publishWorkbookLiveEvents(currentDb, {
+          sessionId,
+          latestSeq: appendResult.latestSeq,
+          events: appendResult.events,
+          channel: "live",
+        });
+      });
+
+      ws.on("close", cleanup);
+      ws.on("error", cleanup);
+    });
+  });
+};
+
 const applyStudentControls = (session: WorkbookSessionRecord, db: MockDb) => {
   const settings = readSessionSettings(session);
   db.workbookParticipants = db.workbookParticipants.map((participant) => {
@@ -1241,11 +1521,18 @@ const setAuthSession = (db: MockDb, res: ServerResponse, user: UserRecord) => {
 };
 
 const resolveMiddlewares = (host: MiddlewareHost) => host.middlewares;
+const resolveHttpServer = (host: MiddlewareHost): HttpUpgradeServer | null => {
+  if ("httpServer" in host) {
+    return host.httpServer ?? null;
+  }
+  return null;
+};
 
 export function setupMockServer(host: MiddlewareHost) {
   const middlewares = resolveMiddlewares(host);
+  attachWorkbookLiveSocketServer(host);
 
-  middlewares.use(async (req, res, next) => {
+  middlewares.use(async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
     if (!req.url) {
       next();
       return;
@@ -2051,6 +2338,45 @@ export function setupMockServer(host: MiddlewareHost) {
         return;
       }
 
+      const workbookLiveMatch = pathname.match(/^\/api\/workbook\/sessions\/([^/]+)\/events\/live$/);
+      if (workbookLiveMatch && method === "POST") {
+        const actor = requireAuthUser(req, res, db);
+        if (!actor) return;
+        const sessionId = decodeURIComponent(workbookLiveMatch[1]);
+        const session = getWorkbookSessionById(db, sessionId);
+        if (!session) {
+          notFound(res);
+          return;
+        }
+        const participant = getWorkbookParticipant(db, sessionId, actor.id);
+        if (!participant) {
+          forbidden(res);
+          return;
+        }
+        const body = (await readBody(req)) as { events?: unknown[] } | null;
+        const events = Array.isArray(body?.events) ? body.events : [];
+        const sanitizedEvents = sanitizeWorkbookLiveEvents(participant, events);
+        if (sanitizedEvents.length === 0) {
+          json(res, 200, { ok: true });
+          return;
+        }
+        const appendResult = await appendEvents(db, {
+          sessionId,
+          authorUserId: actor.id,
+          events: sanitizedEvents,
+          persist: false,
+        });
+        touchSessionActivity(session, appendResult.timestamp);
+        publishWorkbookLiveEvents(db, {
+          sessionId,
+          latestSeq: appendResult.latestSeq,
+          events: appendResult.events,
+          channel: "live",
+        });
+        json(res, 200, { ok: true });
+        return;
+      }
+
       const workbookPreviewMatch = pathname.match(
         /^\/api\/workbook\/sessions\/([^/]+)\/events\/preview$/
       );
@@ -2133,13 +2459,11 @@ export function setupMockServer(host: MiddlewareHost) {
         });
 
         touchSessionActivity(session, appendResult.timestamp);
-        ensureDraftForOwner(db, session, actor.id).updatedAt = appendResult.timestamp;
-        saveDb();
-
-        publishWorkbookStreamEvents(db, {
+        publishWorkbookLiveEvents(db, {
           sessionId,
           latestSeq: appendResult.latestSeq,
           events: appendResult.events,
+          channel: "live",
         });
 
         json(res, 200, { ok: true });

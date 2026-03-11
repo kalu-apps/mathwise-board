@@ -448,6 +448,44 @@ const ROUND_SOLID_PRESETS = new Set([
   "hemisphere",
   "torus",
 ]);
+const getRoundSolidSemanticVertexDefaults = (presetId: string, vertexCount = 0) => {
+  if (presetId !== "cone" || vertexCount <= 0) return [];
+  return Array.from({ length: vertexCount }, (_, index) =>
+    index === vertexCount - 1 ? "A" : ""
+  );
+};
+
+const summarizeProjectedVertices = (
+  projectedVertexByIndex: Map<number, ProjectedSolidVertex>,
+  indices: number[]
+) => {
+  const points = indices
+    .map((index) => projectedVertexByIndex.get(index))
+    .filter((point): point is ProjectedSolidVertex => Boolean(point));
+  if (points.length === 0) return null;
+  const minX = Math.min(...points.map((point) => point.x));
+  const maxX = Math.max(...points.map((point) => point.x));
+  const minY = Math.min(...points.map((point) => point.y));
+  const maxY = Math.max(...points.map((point) => point.y));
+  const center = points.reduce(
+    (acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }),
+    { x: 0, y: 0 }
+  );
+  return {
+    points,
+    center: {
+      x: center.x / points.length,
+      y: center.y / points.length,
+    },
+    minX,
+    maxX,
+    minY,
+    maxY,
+    rx: Math.max(2, (maxX - minX) / 2),
+    ry: Math.max(2, (maxY - minY) / 2),
+  };
+};
+
 const getSolidVertexLabel = (index: number) => `V${index + 1}`;
 const getSectionVertexLabel = (index: number) => {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -3429,7 +3467,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         ? {
             ...DEFAULT_SOLID3D_STATE,
             vertexLabels: ROUND_SOLID_PRESETS.has(solid3dPresetId)
-              ? []
+              ? getRoundSolidSemanticVertexDefaults(
+                  solid3dPresetId,
+                  solid3dMesh?.vertices.length ?? 0
+                )
               : Array.from(
                   { length: solid3dMesh?.vertices.length ?? 0 },
                   (_, index) => getSolidVertexLabel(index)
@@ -5446,7 +5487,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       const measurementLabels = solidState.measurements.filter((measurement) => measurement.visible);
       const faceFill = object.fill ?? "rgba(95, 106, 160, 0.16)";
       const vertexLabels = solidState.vertexLabels ?? [];
-      const showVertexLabels = object.meta?.showLabels !== false && !isRoundPreset;
+      const showVertexLabels =
+        object.meta?.showLabels !== false && (!isRoundPreset || presetId === "cone");
       const solidLabelCenter = projectedBounds
         ? {
             x: (projectedBounds.minX + projectedBounds.maxX) / 2,
@@ -5474,9 +5516,40 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       const projectedVertexByIndex = new Map(
         projectedVertices.map((vertex) => [vertex.index, vertex] as const)
       );
+      const roundRingVertexCount =
+        isRoundPreset && mesh
+          ? presetId === "cone"
+            ? Math.max(0, mesh.vertices.length - 1)
+            : presetId === "cylinder" || presetId === "truncated_cone"
+              ? Math.max(0, Math.floor(mesh.vertices.length / 2))
+              : 0
+          : 0;
+      const roundBottomStats =
+        roundRingVertexCount > 0
+          ? summarizeProjectedVertices(
+              projectedVertexByIndex,
+              Array.from({ length: roundRingVertexCount }, (_, index) => index)
+            )
+          : null;
+      const roundTopStats =
+        roundRingVertexCount > 0 &&
+        mesh &&
+        (presetId === "cylinder" || presetId === "truncated_cone")
+          ? summarizeProjectedVertices(
+              projectedVertexByIndex,
+              Array.from({ length: roundRingVertexCount }, (_, index) => index + roundRingVertexCount)
+            )
+          : null;
+      const roundConeApex =
+        presetId === "cone" && mesh ? projectedVertexByIndex.get(mesh.vertices.length - 1) ?? null : null;
       const visibleVertexIndices = (() => {
         if (!projectedVertices.length) return [] as number[];
-        if (isRoundPreset) return [] as number[];
+        if (isRoundPreset) {
+          if (presetId === "cone" && mesh && mesh.vertices.length > 0) {
+            return [mesh.vertices.length - 1];
+          }
+          return [] as number[];
+        }
         return projectedVertices.map((vertex) => vertex.index);
       })();
 
@@ -5735,44 +5808,50 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         }
 
         if (presetId === "cylinder") {
-          const topY = center.y - baseRy * 0.68;
-          const bottomY = center.y + baseRy * 0.68;
+          const topEllipse = roundTopStats;
+          const bottomEllipse = roundBottomStats;
+          const topCenter = topEllipse?.center ?? { x: center.x, y: center.y - baseRy * 0.68 };
+          const bottomCenter = bottomEllipse?.center ?? { x: center.x, y: center.y + baseRy * 0.68 };
+          const topRx = topEllipse?.rx ?? baseRx;
+          const bottomRx = bottomEllipse?.rx ?? baseRx;
+          const topRy = topEllipse?.ry ?? ellipseDepth;
+          const bottomRy = bottomEllipse?.ry ?? ellipseDepth;
           return (
             <g>
               <path
-                d={`M ${center.x - baseRx} ${topY} L ${center.x - baseRx} ${bottomY} L ${center.x + baseRx} ${bottomY} L ${center.x + baseRx} ${topY} Z`}
+                d={`M ${topCenter.x - topRx} ${topCenter.y} L ${bottomCenter.x - bottomRx} ${bottomCenter.y} L ${bottomCenter.x + bottomRx} ${bottomCenter.y} L ${topCenter.x + topRx} ${topCenter.y} Z`}
                 fill={fillColor}
                 fillOpacity={0.86}
                 stroke="none"
               />
               <ellipse
-                cx={center.x}
-                cy={topY}
-                rx={baseRx}
-                ry={ellipseDepth}
+                cx={topCenter.x}
+                cy={topCenter.y}
+                rx={topRx}
+                ry={topRy}
                 fill="none"
                 stroke={lineColor}
                 strokeWidth={strokeWidth}
               />
               <line
-                x1={center.x - baseRx}
-                y1={topY}
-                x2={center.x - baseRx}
-                y2={bottomY}
+                x1={topCenter.x - topRx}
+                y1={topCenter.y}
+                x2={bottomCenter.x - bottomRx}
+                y2={bottomCenter.y}
                 stroke={lineColor}
                 strokeWidth={strokeWidth}
               />
               <line
-                x1={center.x + baseRx}
-                y1={topY}
-                x2={center.x + baseRx}
-                y2={bottomY}
+                x1={topCenter.x + topRx}
+                y1={topCenter.y}
+                x2={bottomCenter.x + bottomRx}
+                y2={bottomCenter.y}
                 stroke={lineColor}
                 strokeWidth={strokeWidth}
               />
               {!hideHiddenEdges ? (
                 <path
-                  d={ellipseBackPath(center.x, bottomY, baseRx, ellipseDepth)}
+                  d={ellipseBackPath(bottomCenter.x, bottomCenter.y, bottomRx, bottomRy)}
                   fill="none"
                   stroke={lineColor}
                   strokeWidth={Math.max(1, strokeWidth * 0.8)}
@@ -5781,7 +5860,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
                 />
               ) : null}
               <path
-                d={ellipseFrontPath(center.x, bottomY, baseRx, ellipseDepth)}
+                d={ellipseFrontPath(bottomCenter.x, bottomCenter.y, bottomRx, bottomRy)}
                 fill="none"
                 stroke={lineColor}
                 strokeWidth={strokeWidth}
@@ -5791,25 +5870,37 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         }
 
         if (presetId === "cone" || presetId === "truncated_cone") {
-          const topRx = presetId === "cone" ? 0 : Math.max(9, baseRx * 0.44);
-          const topY = center.y - baseRy * 0.78;
-          const bottomY = center.y + baseRy * 0.68;
-          const apexXLeft = center.x - topRx;
-          const apexXRight = center.x + topRx;
+          const bottomEllipse = roundBottomStats;
+          const topEllipse = roundTopStats;
+          const bottomCenter = bottomEllipse?.center ?? { x: center.x, y: center.y + baseRy * 0.68 };
+          const bottomRx = bottomEllipse?.rx ?? baseRx;
+          const bottomRy = bottomEllipse?.ry ?? ellipseDepth;
+          const coneTopCenter =
+            presetId === "cone"
+              ? roundConeApex
+                ? { x: roundConeApex.x, y: roundConeApex.y }
+                : { x: center.x, y: center.y - baseRy * 0.78 }
+              : topEllipse?.center ?? { x: center.x, y: center.y - baseRy * 0.78 };
+          const topRx =
+            presetId === "cone" ? 0 : topEllipse?.rx ?? Math.max(9, baseRx * 0.44);
+          const topRy =
+            presetId === "cone" ? 0 : topEllipse?.ry ?? Math.max(3, ellipseDepth * 0.74);
+          const apexXLeft = coneTopCenter.x - topRx;
+          const apexXRight = coneTopCenter.x + topRx;
           return (
             <g>
               <path
-                d={`M ${center.x - baseRx} ${bottomY} L ${apexXLeft} ${topY} L ${apexXRight} ${topY} L ${center.x + baseRx} ${bottomY} Z`}
+                d={`M ${bottomCenter.x - bottomRx} ${bottomCenter.y} L ${apexXLeft} ${coneTopCenter.y} L ${apexXRight} ${coneTopCenter.y} L ${bottomCenter.x + bottomRx} ${bottomCenter.y} Z`}
                 fill={fillColor}
                 fillOpacity={0.86}
                 stroke="none"
               />
               {topRx > 0 ? (
                 <ellipse
-                  cx={center.x}
-                  cy={topY}
+                  cx={coneTopCenter.x}
+                  cy={coneTopCenter.y}
                   rx={topRx}
-                  ry={Math.max(3, ellipseDepth * 0.74)}
+                  ry={topRy}
                   fill="none"
                   stroke={lineColor}
                   strokeWidth={Math.max(1, strokeWidth * 0.94)}
@@ -5817,23 +5908,23 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
               ) : null}
               <line
                 x1={apexXLeft}
-                y1={topY}
-                x2={center.x - baseRx}
-                y2={bottomY}
+                y1={coneTopCenter.y}
+                x2={bottomCenter.x - bottomRx}
+                y2={bottomCenter.y}
                 stroke={lineColor}
                 strokeWidth={strokeWidth}
               />
               <line
                 x1={apexXRight}
-                y1={topY}
-                x2={center.x + baseRx}
-                y2={bottomY}
+                y1={coneTopCenter.y}
+                x2={bottomCenter.x + bottomRx}
+                y2={bottomCenter.y}
                 stroke={lineColor}
                 strokeWidth={strokeWidth}
               />
               {!hideHiddenEdges ? (
                 <path
-                  d={ellipseBackPath(center.x, bottomY, baseRx, ellipseDepth)}
+                  d={ellipseBackPath(bottomCenter.x, bottomCenter.y, bottomRx, bottomRy)}
                   fill="none"
                   stroke={lineColor}
                   strokeWidth={Math.max(1, strokeWidth * 0.8)}
@@ -5842,7 +5933,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
                 />
               ) : null}
               <path
-                d={ellipseFrontPath(center.x, bottomY, baseRx, ellipseDepth)}
+                d={ellipseFrontPath(bottomCenter.x, bottomCenter.y, bottomRx, bottomRy)}
                 fill="none"
                 stroke={lineColor}
                 strokeWidth={strokeWidth}
@@ -6166,7 +6257,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           {visibleVertexIndices.map((vertexIndex) => {
             const vertex = projectedVertexByIndex.get(vertexIndex);
             if (!vertex) return null;
-            const label = vertexLabels[vertexIndex] || `V${vertexIndex + 1}`;
+            const label =
+              isRoundPreset && presetId === "cone" && mesh && vertexIndex === mesh.vertices.length - 1
+                ? vertexLabels[vertexIndex] || "A"
+                : vertexLabels[vertexIndex] || `V${vertexIndex + 1}`;
             const placement = vertexLabelPlacements.get(vertexIndex);
             return (
               <g key={`${object.id}-vertex-${vertex.index}`}>

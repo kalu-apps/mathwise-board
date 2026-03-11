@@ -71,8 +71,7 @@ import KeyboardDoubleArrowDownRoundedIcon from "@mui/icons-material/KeyboardDoub
 import { useAuth } from "@/features/auth/model/AuthContext";
 import {
   appendWorkbookEvents,
-  appendWorkbookPreview,
-  appendWorkbookStrokePreview,
+  appendWorkbookLiveEvents,
   createWorkbookInvite,
   getWorkbookEvents,
   getWorkbookSession,
@@ -84,6 +83,7 @@ import {
   renderWorkbookPdfPages,
   saveWorkbookSnapshot,
   subscribeWorkbookEventsStream,
+  subscribeWorkbookLiveSocket,
 } from "@/features/workbook/model/api";
 import type {
   WorkbookBoardSettings,
@@ -197,15 +197,13 @@ const POLL_INTERVAL_STREAM_CONNECTED_MS = 180;
 const PRESENCE_INTERVAL_MS = 1_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
-const OBJECT_PREVIEW_FLUSH_INTERVAL_MS = 16;
-const STROKE_PREVIEW_FLUSH_INTERVAL_MS = 24;
+const VOLATILE_SYNC_FLUSH_INTERVAL_MS = 16;
 const STROKE_PREVIEW_EXPIRY_MS = 3_000;
 const VIEWPORT_SYNC_MIN_INTERVAL_MS = 18;
 const VIEWPORT_SYNC_EPSILON = 0.2;
 const MAX_INCOMING_PREVIEW_PATCHES_PER_OBJECT = 20;
 const ERASER_RADIUS_MIN = 4;
 const ERASER_RADIUS_MAX = 160;
-const EXPORT_BOUNDS_PADDING = 48;
 const MAX_EXPORT_CANVAS_SIDE = 8192;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 const MAIN_SCENE_LAYER_ID = "main";
@@ -957,75 +955,12 @@ type WorkbookExportBounds = {
   height: number;
 };
 
-type WorkbookExportPageEntry = {
-  page: number;
-  bandIndex: number;
-  bounds: WorkbookExportBounds;
-};
-
-const mergeExportBounds = (
-  left: WorkbookExportBounds | null,
-  right: WorkbookExportBounds | null
-) => {
-  if (!left) return right;
-  if (!right) return left;
-  const minX = Math.min(left.minX, right.minX);
-  const minY = Math.min(left.minY, right.minY);
-  const maxX = Math.max(left.maxX, right.maxX);
-  const maxY = Math.max(left.maxY, right.maxY);
-  return {
-    minX,
-    minY,
-    maxX,
-    maxY,
-    width: Math.max(1, maxX - minX),
-    height: Math.max(1, maxY - minY),
-  };
-};
-
 const padExportBounds = (bounds: WorkbookExportBounds, padding: number): WorkbookExportBounds => {
   const safePadding = Math.max(0, padding);
   const minX = bounds.minX - safePadding;
   const minY = bounds.minY - safePadding;
   const maxX = bounds.maxX + safePadding;
   const maxY = bounds.maxY + safePadding;
-  return {
-    minX,
-    minY,
-    maxX,
-    maxY,
-    width: Math.max(1, maxX - minX),
-    height: Math.max(1, maxY - minY),
-  };
-};
-
-const intersectExportBounds = (
-  bounds: WorkbookExportBounds,
-  clip: { minY: number; maxY: number }
-): WorkbookExportBounds | null => {
-  const minY = Math.max(bounds.minY, clip.minY);
-  const maxY = Math.min(bounds.maxY, clip.maxY);
-  if (maxY <= minY) return null;
-  return {
-    minX: bounds.minX,
-    minY,
-    maxX: bounds.maxX,
-    maxY,
-    width: Math.max(1, bounds.maxX - bounds.minX),
-    height: Math.max(1, maxY - minY),
-  };
-};
-
-const padExportBoundsWithinBand = (
-  bounds: WorkbookExportBounds,
-  padding: number,
-  band: { minY: number; maxY: number }
-): WorkbookExportBounds => {
-  const safePadding = Math.max(0, padding);
-  const minX = bounds.minX - safePadding;
-  const maxX = bounds.maxX + safePadding;
-  const minY = Math.max(band.minY, bounds.minY - safePadding);
-  const maxY = Math.min(band.maxY, bounds.maxY + safePadding);
   return {
     minX,
     minY,
@@ -1886,6 +1821,7 @@ export default function WorkbookSessionPage() {
   const [isParticipantsCollapsed, setIsParticipantsCollapsed] = useState(false);
   const [isSessionChatAtBottom, setIsSessionChatAtBottom] = useState(true);
   const [isWorkbookStreamConnected, setIsWorkbookStreamConnected] = useState(false);
+  const [isWorkbookLiveConnected, setIsWorkbookLiveConnected] = useState(false);
   const [sessionChatDraft, setSessionChatDraft] = useState("");
   const [isSessionChatEmojiOpen, setIsSessionChatEmojiOpen] = useState(false);
   const [sessionChatPosition, setSessionChatPosition] = useState({ x: 24, y: 96 });
@@ -1967,8 +1903,6 @@ export default function WorkbookSessionPage() {
   const objectPreviewQueuedPatchRef = useRef<
     Map<string, Partial<WorkbookBoardObject>>
   >(new Map());
-  const objectPreviewTimersRef = useRef<Map<string, number>>(new Map());
-  const objectPreviewInFlightByObjectRef = useRef<Map<string, number>>(new Map());
   const objectPreviewVersionRef = useRef<Map<string, number>>(new Map());
   const incomingPreviewQueuedPatchRef = useRef<
     Map<string, Partial<WorkbookBoardObject>[]>
@@ -1977,8 +1911,6 @@ export default function WorkbookSessionPage() {
   const strokePreviewQueuedByIdRef = useRef<
     Map<string, { stroke: WorkbookStroke; previewVersion: number }>
   >(new Map());
-  const strokePreviewTimersRef = useRef<Map<string, number>>(new Map());
-  const strokePreviewInFlightVersionByIdRef = useRef<Map<string, number>>(new Map());
   const incomingStrokePreviewQueuedRef = useRef<Map<string, StrokePreviewEntry | null>>(
     new Map()
   );
@@ -1987,7 +1919,10 @@ export default function WorkbookSessionPage() {
   const finalizedStrokePreviewIdsRef = useRef<Set<string>>(new Set());
   const objectLastCommittedEventAtRef = useRef<Map<string, number>>(new Map());
   const incomingPreviewFrameRef = useRef<number | null>(null);
-  const viewportSyncFrameRef = useRef<number | null>(null);
+  const workbookLiveSendRef = useRef<
+    ((events: Array<{ type: WorkbookEvent["type"]; payload: unknown }>) => boolean) | null
+  >(null);
+  const volatileSyncTimerRef = useRef<number | null>(null);
   const viewportSyncLastSentAtRef = useRef(0);
   const viewportSyncQueuedOffsetRef = useRef<WorkbookPoint | null>(null);
   const viewportLastReceivedAtRef = useRef(0);
@@ -2447,15 +2382,10 @@ export default function WorkbookSessionPage() {
     objectUpdateTimersRef.current.forEach((timerId) => {
       window.clearTimeout(timerId);
     });
-    objectPreviewTimersRef.current.forEach((timerId) => {
-      window.clearTimeout(timerId);
-    });
     objectUpdateTimersRef.current.clear();
     objectUpdateInFlightRef.current.clear();
     objectUpdateDispatchOptionsRef.current.clear();
-    objectPreviewTimersRef.current.clear();
     objectPreviewQueuedPatchRef.current.clear();
-    objectPreviewInFlightByObjectRef.current.clear();
     objectPreviewVersionRef.current.clear();
     incomingPreviewQueuedPatchRef.current.clear();
     incomingPreviewVersionByAuthorObjectRef.current.clear();
@@ -2516,13 +2446,7 @@ export default function WorkbookSessionPage() {
     (strokeId: string) => {
       if (!strokeId) return;
       finalizedStrokePreviewIdsRef.current.add(strokeId);
-      const previewTimer = strokePreviewTimersRef.current.get(strokeId);
-      if (previewTimer !== undefined) {
-        window.clearTimeout(previewTimer);
-        strokePreviewTimersRef.current.delete(strokeId);
-      }
       strokePreviewQueuedByIdRef.current.delete(strokeId);
-      strokePreviewInFlightVersionByIdRef.current.delete(strokeId);
       incomingStrokePreviewVersionRef.current.delete(strokeId);
       queueIncomingStrokePreview(null, strokeId);
     },
@@ -2532,11 +2456,6 @@ export default function WorkbookSessionPage() {
   const clearStrokePreviewRuntime = useCallback(
     (options?: { clearFinalized?: boolean; cancelIncomingFrame?: boolean }) => {
       strokePreviewQueuedByIdRef.current.clear();
-      strokePreviewTimersRef.current.forEach((timerId) => {
-        window.clearTimeout(timerId);
-      });
-      strokePreviewTimersRef.current.clear();
-      strokePreviewInFlightVersionByIdRef.current.clear();
       incomingStrokePreviewQueuedRef.current.clear();
       incomingStrokePreviewVersionRef.current.clear();
       if (options?.clearFinalized !== false) {
@@ -3192,7 +3111,6 @@ export default function WorkbookSessionPage() {
           objectUpdateHistoryBeforeRef.current.delete(objectId);
           objectPreviewQueuedPatchRef.current.delete(objectId);
           objectUpdateInFlightRef.current.delete(objectId);
-          objectPreviewInFlightByObjectRef.current.delete(objectId);
           objectPreviewVersionRef.current.delete(objectId);
           incomingPreviewQueuedPatchRef.current.delete(objectId);
           Array.from(incomingPreviewVersionByAuthorObjectRef.current.keys()).forEach((key) => {
@@ -3204,11 +3122,6 @@ export default function WorkbookSessionPage() {
           if (pendingUpdateTimer !== undefined) {
             window.clearTimeout(pendingUpdateTimer);
             objectUpdateTimersRef.current.delete(objectId);
-          }
-          const pendingPreviewTimer = objectPreviewTimersRef.current.get(objectId);
-          if (pendingPreviewTimer !== undefined) {
-            window.clearTimeout(pendingPreviewTimer);
-            objectPreviewTimersRef.current.delete(objectId);
           }
           setBoardObjects((current) => current.filter((item) => item.id !== objectId));
           setConstraints((current) =>
@@ -3892,7 +3805,7 @@ export default function WorkbookSessionPage() {
       }
     };
     void poll();
-    const intervalMs = isWorkbookStreamConnected
+    const intervalMs = isWorkbookStreamConnected || isWorkbookLiveConnected
       ? POLL_INTERVAL_STREAM_CONNECTED_MS
       : POLL_INTERVAL_MS;
     const intervalId = window.setInterval(() => {
@@ -3905,6 +3818,7 @@ export default function WorkbookSessionPage() {
   }, [
     applyIncomingEvents,
     filterUnseenWorkbookEvents,
+    isWorkbookLiveConnected,
     isWorkbookStreamConnected,
     session,
     sessionId,
@@ -3940,6 +3854,43 @@ export default function WorkbookSessionPage() {
     return () => {
       setIsWorkbookStreamConnected(false);
       unsubscribe();
+    };
+  }, [applyIncomingEvents, filterUnseenWorkbookEvents, session, sessionId, triggerSessionResync]);
+
+  useEffect(() => {
+    if (!sessionId || !session) {
+      workbookLiveSendRef.current = null;
+      return;
+    }
+    const connection = subscribeWorkbookLiveSocket({
+      sessionId,
+      onEvents: (payload) => {
+        if (payload.sessionId !== sessionId) return;
+        const unseenEvents = filterUnseenWorkbookEvents(payload.events);
+        if (hasWorkbookEventGap(latestSeqRef.current, unseenEvents)) {
+          triggerSessionResync();
+          return;
+        }
+        if (unseenEvents.length > 0) {
+          applyIncomingEvents(unseenEvents);
+        }
+        const nextLatest = resolveNextLatestSeq(
+          latestSeqRef.current,
+          payload.latestSeq,
+          unseenEvents
+        );
+        if (nextLatest > latestSeqRef.current) {
+          latestSeqRef.current = nextLatest;
+          setLatestSeq(nextLatest);
+        }
+      },
+      onConnectionChange: setIsWorkbookLiveConnected,
+    });
+    workbookLiveSendRef.current = connection.sendEvents;
+    return () => {
+      workbookLiveSendRef.current = null;
+      setIsWorkbookLiveConnected(false);
+      connection.close();
     };
   }, [applyIncomingEvents, filterUnseenWorkbookEvents, session, sessionId, triggerSessionResync]);
 
@@ -4354,9 +4305,9 @@ export default function WorkbookSessionPage() {
 
   useEffect(
     () => () => {
-      if (viewportSyncFrameRef.current !== null) {
-        window.cancelAnimationFrame(viewportSyncFrameRef.current);
-        viewportSyncFrameRef.current = null;
+      if (volatileSyncTimerRef.current !== null) {
+        window.clearTimeout(volatileSyncTimerRef.current);
+        volatileSyncTimerRef.current = null;
       }
       viewportSyncQueuedOffsetRef.current = null;
     },
@@ -4469,44 +4420,111 @@ export default function WorkbookSessionPage() {
     ]
   );
 
-  const flushQueuedViewportSync = useCallback(() => {
-    viewportSyncFrameRef.current = null;
-    const queuedOffset = viewportSyncQueuedOffsetRef.current;
-    viewportSyncQueuedOffsetRef.current = null;
-    if (!queuedOffset) return;
-    if (!sessionId || !session || session.kind !== "CLASS" || isEnded) return;
-    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-    const elapsed = now - viewportSyncLastSentAtRef.current;
-    if (elapsed < VIEWPORT_SYNC_MIN_INTERVAL_MS) {
-      viewportSyncQueuedOffsetRef.current = queuedOffset;
-      viewportSyncFrameRef.current = window.requestAnimationFrame(() => {
-        flushQueuedViewportSync();
+  const sendWorkbookLiveEvents = useCallback(
+    (events: Array<{ type: WorkbookEvent["type"]; payload: unknown }>) => {
+      if (!sessionId || events.length === 0) return;
+      const sent = workbookLiveSendRef.current?.(events) ?? false;
+      if (sent) return;
+      void appendWorkbookLiveEvents({ sessionId, events }).catch(() => {
+        // ignore volatile delivery failures: the next local frame will resend a fresher preview
       });
+    },
+    [sessionId]
+  );
+
+  const flushQueuedVolatileSync = useCallback(() => {
+    if (!sessionId || !session || isEnded) {
+      viewportSyncQueuedOffsetRef.current = null;
+      objectPreviewQueuedPatchRef.current.clear();
+      strokePreviewQueuedByIdRef.current.clear();
       return;
     }
-    viewportSyncLastSentAtRef.current = now;
-    void appendEventsAndApply(
-      [
-        {
+
+    const events: Array<{ type: WorkbookEvent["type"]; payload: unknown }> = [];
+    const queuedOffset = viewportSyncQueuedOffsetRef.current;
+    if (queuedOffset && session.kind === "CLASS") {
+      const now = Date.now();
+      const elapsed = now - viewportSyncLastSentAtRef.current;
+      if (elapsed >= VIEWPORT_SYNC_MIN_INTERVAL_MS) {
+        viewportSyncQueuedOffsetRef.current = null;
+        viewportSyncLastSentAtRef.current = now;
+        events.push({
           type: "board.viewport.sync",
           payload: { offset: queuedOffset },
-        },
-      ],
-      { trackHistory: false, markDirty: false }
-    ).catch(() => {
-      // ignore transient viewport sync errors, next interaction sends fresh offset
-    });
-  }, [appendEventsAndApply, isEnded, session, sessionId]);
+        });
+      } else if (volatileSyncTimerRef.current === null) {
+        volatileSyncTimerRef.current = window.setTimeout(() => {
+          volatileSyncTimerRef.current = null;
+          flushQueuedVolatileSync();
+        }, VIEWPORT_SYNC_MIN_INTERVAL_MS - elapsed);
+      }
+    }
+
+    if (canSelect) {
+      objectPreviewQueuedPatchRef.current.forEach((patch, objectId) => {
+        objectPreviewQueuedPatchRef.current.delete(objectId);
+        const nextPreviewVersion = (objectPreviewVersionRef.current.get(objectId) ?? 0) + 1;
+        objectPreviewVersionRef.current.set(objectId, nextPreviewVersion);
+        events.push({
+          type: "board.object.preview",
+          payload: {
+            objectId,
+            patch,
+            previewVersion: nextPreviewVersion,
+          },
+        });
+      });
+    } else {
+      objectPreviewQueuedPatchRef.current.clear();
+    }
+
+    if (canDraw) {
+      strokePreviewQueuedByIdRef.current.forEach((entry, strokeId) => {
+        if (finalizedStrokePreviewIdsRef.current.has(strokeId)) {
+          strokePreviewQueuedByIdRef.current.delete(strokeId);
+          return;
+        }
+        strokePreviewQueuedByIdRef.current.delete(strokeId);
+        events.push({
+          type:
+            entry.stroke.layer === "annotations"
+              ? ("annotations.stroke.preview" as const)
+              : ("board.stroke.preview" as const),
+          payload: {
+            stroke: entry.stroke,
+            previewVersion: entry.previewVersion,
+          },
+        });
+      });
+    } else {
+      strokePreviewQueuedByIdRef.current.clear();
+    }
+
+    if (events.length > 0) {
+      sendWorkbookLiveEvents(events);
+    }
+  }, [canDraw, canSelect, isEnded, sendWorkbookLiveEvents, session, sessionId]);
+
+  const scheduleVolatileSyncFlush = useCallback(
+    (delay = VOLATILE_SYNC_FLUSH_INTERVAL_MS) => {
+      if (volatileSyncTimerRef.current !== null) return;
+      volatileSyncTimerRef.current = window.setTimeout(() => {
+        volatileSyncTimerRef.current = null;
+        flushQueuedVolatileSync();
+      }, Math.max(0, delay));
+    },
+    [flushQueuedVolatileSync]
+  );
 
   const queueViewportSync = useCallback(
     (offset: WorkbookPoint) => {
       viewportSyncQueuedOffsetRef.current = offset;
-      if (viewportSyncFrameRef.current !== null) return;
-      viewportSyncFrameRef.current = window.requestAnimationFrame(() => {
-        flushQueuedViewportSync();
-      });
+      const elapsed = Date.now() - viewportSyncLastSentAtRef.current;
+      const delay =
+        elapsed >= VIEWPORT_SYNC_MIN_INTERVAL_MS ? 0 : VIEWPORT_SYNC_MIN_INTERVAL_MS - elapsed;
+      scheduleVolatileSyncFlush(delay);
     },
-    [flushQueuedViewportSync]
+    [scheduleVolatileSyncFlush]
   );
 
   const handleCanvasViewportOffsetChange = useCallback(
@@ -4517,98 +4535,14 @@ export default function WorkbookSessionPage() {
     [queueViewportSync]
   );
 
-  const flushQueuedStrokePreview = useCallback(
-    (strokeId: string) => {
-      if (strokePreviewTimersRef.current.has(strokeId)) return;
-      const timerId = window.setTimeout(() => {
-        strokePreviewTimersRef.current.delete(strokeId);
-        if (!sessionId || !canDraw || finalizedStrokePreviewIdsRef.current.has(strokeId)) {
-          strokePreviewQueuedByIdRef.current.delete(strokeId);
-          strokePreviewInFlightVersionByIdRef.current.delete(strokeId);
-          return;
-        }
-        if (strokePreviewInFlightVersionByIdRef.current.has(strokeId)) {
-          flushQueuedStrokePreview(strokeId);
-          return;
-        }
-        const queuedPreview = strokePreviewQueuedByIdRef.current.get(strokeId);
-        if (!queuedPreview) return;
-        strokePreviewQueuedByIdRef.current.delete(strokeId);
-        strokePreviewInFlightVersionByIdRef.current.set(strokeId, queuedPreview.previewVersion);
-        void appendWorkbookStrokePreview({
-          sessionId,
-          stroke: queuedPreview.stroke,
-          previewVersion: queuedPreview.previewVersion,
-        })
-          .catch(() => {
-            // ignore preview delivery errors: final board.stroke event will reconcile state
-          })
-          .finally(() => {
-            const inFlightVersion = strokePreviewInFlightVersionByIdRef.current.get(strokeId);
-            if (inFlightVersion === queuedPreview.previewVersion) {
-              strokePreviewInFlightVersionByIdRef.current.delete(strokeId);
-            }
-            if (strokePreviewQueuedByIdRef.current.has(strokeId)) {
-              flushQueuedStrokePreview(strokeId);
-            }
-          });
-      }, STROKE_PREVIEW_FLUSH_INTERVAL_MS);
-      strokePreviewTimersRef.current.set(strokeId, timerId);
-    },
-    [canDraw, sessionId]
-  );
-
   const queueStrokePreview = useCallback(
     (payload: { stroke: WorkbookStroke; previewVersion: number }) => {
       const strokeId = payload.stroke.id;
       if (!strokeId || finalizedStrokePreviewIdsRef.current.has(strokeId)) return;
       strokePreviewQueuedByIdRef.current.set(strokeId, payload);
-      flushQueuedStrokePreview(strokeId);
+      scheduleVolatileSyncFlush();
     },
-    [flushQueuedStrokePreview]
-  );
-
-  const flushPreviewObjectUpdate = useCallback(
-    (objectId: string) => {
-      if (objectPreviewTimersRef.current.has(objectId)) return;
-      const timerId = window.setTimeout(() => {
-        objectPreviewTimersRef.current.delete(objectId);
-        if (!sessionId || !canSelect) {
-          objectPreviewQueuedPatchRef.current.delete(objectId);
-          objectPreviewInFlightByObjectRef.current.delete(objectId);
-          return;
-        }
-        if (objectPreviewInFlightByObjectRef.current.has(objectId)) {
-          return;
-        }
-        const queuedPatch = objectPreviewQueuedPatchRef.current.get(objectId);
-        if (!queuedPatch) return;
-        objectPreviewQueuedPatchRef.current.delete(objectId);
-        const nextPreviewVersion = (objectPreviewVersionRef.current.get(objectId) ?? 0) + 1;
-        objectPreviewVersionRef.current.set(objectId, nextPreviewVersion);
-        objectPreviewInFlightByObjectRef.current.set(objectId, nextPreviewVersion);
-        void appendWorkbookPreview({
-          sessionId,
-          objectId,
-          patch: queuedPatch as Partial<Record<string, unknown>>,
-          previewVersion: nextPreviewVersion,
-        })
-          .catch(() => {
-            // ignore preview delivery errors: authoritative object.update will reconcile state
-          })
-          .finally(() => {
-            const inFlightVersion = objectPreviewInFlightByObjectRef.current.get(objectId);
-            if (inFlightVersion === nextPreviewVersion) {
-              objectPreviewInFlightByObjectRef.current.delete(objectId);
-            }
-            if (objectPreviewQueuedPatchRef.current.has(objectId)) {
-              flushPreviewObjectUpdate(objectId);
-            }
-          });
-      }, OBJECT_PREVIEW_FLUSH_INTERVAL_MS);
-      objectPreviewTimersRef.current.set(objectId, timerId);
-    },
-    [canSelect, sessionId]
+    [scheduleVolatileSyncFlush]
   );
 
   const flushQueuedObjectUpdate = useCallback(
@@ -5471,7 +5405,6 @@ export default function WorkbookSessionPage() {
           objectUpdateDispatchOptionsRef.current.delete(objectId);
           objectUpdateHistoryBeforeRef.current.delete(objectId);
           objectPreviewQueuedPatchRef.current.delete(objectId);
-          objectPreviewInFlightByObjectRef.current.delete(objectId);
           objectPreviewVersionRef.current.delete(objectId);
           incomingPreviewQueuedPatchRef.current.delete(objectId);
           objectUpdateInFlightRef.current.delete(objectId);
@@ -5484,11 +5417,6 @@ export default function WorkbookSessionPage() {
           if (pendingUpdateTimer !== undefined) {
             window.clearTimeout(pendingUpdateTimer);
             objectUpdateTimersRef.current.delete(objectId);
-          }
-          const pendingPreviewTimer = objectPreviewTimersRef.current.get(objectId);
-          if (pendingPreviewTimer !== undefined) {
-            window.clearTimeout(pendingPreviewTimer);
-            objectPreviewTimersRef.current.delete(objectId);
           }
           setBoardObjects((current) => current.filter((item) => item.id !== objectId));
           setConstraints((current) =>
@@ -5830,7 +5758,7 @@ export default function WorkbookSessionPage() {
           ...pendingPatch,
           ...normalizedPatch,
         });
-        flushPreviewObjectUpdate(objectId);
+        scheduleVolatileSyncFlush();
         return;
       }
       if (options?.trackHistory !== false && !objectUpdateHistoryBeforeRef.current.has(objectId)) {
@@ -5862,8 +5790,8 @@ export default function WorkbookSessionPage() {
       applyConstraintsForObject,
       boardObjectsRef,
       canSelect,
-      flushPreviewObjectUpdate,
       flushQueuedObjectUpdate,
+      scheduleVolatileSyncFlush,
       sessionId,
     ]
   );
@@ -5874,7 +5802,6 @@ export default function WorkbookSessionPage() {
     objectUpdateDispatchOptionsRef.current.delete(objectId);
     objectUpdateHistoryBeforeRef.current.delete(objectId);
     objectPreviewQueuedPatchRef.current.delete(objectId);
-    objectPreviewInFlightByObjectRef.current.delete(objectId);
     objectPreviewVersionRef.current.delete(objectId);
     Array.from(incomingPreviewVersionByAuthorObjectRef.current.keys()).forEach((key) => {
       if (key.endsWith(`:${objectId}`)) {
@@ -5885,11 +5812,6 @@ export default function WorkbookSessionPage() {
     if (pendingTimer !== undefined) {
       window.clearTimeout(pendingTimer);
       objectUpdateTimersRef.current.delete(objectId);
-    }
-    const previewTimer = objectPreviewTimersRef.current.get(objectId);
-    if (previewTimer !== undefined) {
-      window.clearTimeout(previewTimer);
-      objectPreviewTimersRef.current.delete(objectId);
     }
     objectUpdateInFlightRef.current.delete(objectId);
     const targetObject = boardObjects.find((item) => item.id === objectId);
@@ -8885,60 +8807,32 @@ export default function WorkbookSessionPage() {
     [waitForCanvasRender]
   );
 
-  const resolveExportPageEntries = useCallback((): WorkbookExportPageEntry[] => {
-    const bandHeight = Math.max(320, Math.round(boardSettings.dividerStep || 960));
-    const pageMap = new Map<number, WorkbookExportBounds[]>();
+  const resolveExportPageNumbers = useCallback((): number[] => {
+    const maxReferencedPage = Math.max(
+      1,
+      boardSettings.pagesCount || 1,
+      ...boardObjects.map((object) => Math.max(1, object.page ?? 1)),
+      ...boardStrokes.map((stroke) => Math.max(1, stroke.page ?? 1))
+    );
+    const contentPages = new Set<number>();
 
     boardObjects.forEach((object) => {
-      const safePage = Math.max(1, object.page ?? 1);
-      const bucket = pageMap.get(safePage) ?? [];
-      bucket.push(getObjectExportBounds(object));
-      pageMap.set(safePage, bucket);
+      contentPages.add(Math.max(1, object.page ?? 1));
     });
 
     boardStrokes.forEach((stroke) => {
-      const bounds = getStrokeExportBounds(stroke);
-      if (!bounds) return;
-      const safePage = Math.max(1, stroke.page ?? 1);
-      const bucket = pageMap.get(safePage) ?? [];
-      bucket.push(bounds);
-      pageMap.set(safePage, bucket);
+      if (!getStrokeExportBounds(stroke)) return;
+      contentPages.add(Math.max(1, stroke.page ?? 1));
     });
 
-    return Array.from(pageMap.entries())
-      .sort(([leftPage], [rightPage]) => leftPage - rightPage)
-      .flatMap(([page, boundsList]) => {
-        const bands = new Map<number, WorkbookExportBounds | null>();
-        boundsList.forEach((bounds) => {
-          const startBand = Math.floor(bounds.minY / bandHeight);
-          const endBand = Math.floor((Math.max(bounds.minY, bounds.maxY - 1)) / bandHeight);
-          for (let bandIndex = startBand; bandIndex <= endBand; bandIndex += 1) {
-            const band = {
-              minY: bandIndex * bandHeight,
-              maxY: (bandIndex + 1) * bandHeight,
-            };
-            const clipped = intersectExportBounds(bounds, band);
-            if (!clipped) continue;
-            const padded = padExportBoundsWithinBand(clipped, EXPORT_BOUNDS_PADDING, band);
-            bands.set(
-              bandIndex,
-              mergeExportBounds(bands.get(bandIndex) ?? null, padded)
-            );
-          }
-        });
-        return Array.from(bands.entries())
-          .filter(
-            (entry): entry is [number, WorkbookExportBounds] =>
-              Boolean(entry[1] && entry[1].width > 0 && entry[1].height > 0)
-          )
-          .sort(([leftBand], [rightBand]) => leftBand - rightBand)
-          .map(([bandIndex, bounds]) => ({
-            page,
-            bandIndex,
-            bounds,
-          }));
-      });
-  }, [boardObjects, boardSettings.dividerStep, boardStrokes]);
+    if (contentPages.size === 0) {
+      return [Math.max(1, boardSettings.currentPage || 1)];
+    }
+
+    return Array.from(contentPages)
+      .filter((page) => page >= 1 && page <= maxReferencedPage)
+      .sort((left, right) => left - right);
+  }, [boardObjects, boardSettings.currentPage, boardSettings.pagesCount, boardStrokes]);
 
   const renderBoardToCanvas = async (
     scale = 2,
@@ -9075,25 +8969,21 @@ export default function WorkbookSessionPage() {
     try {
       const fileName = requestExportFileName("pdf");
       if (!fileName) return;
-      const exportPages = resolveExportPageEntries();
-      if (exportPages.length === 0) {
-        setError("Для экспорта нет объектов на доске.");
-        return;
-      }
+      const exportPages = resolveExportPageNumbers();
       const previousPage = currentPage;
       const renderedPages: Array<{ page: number; width: number; height: number; dataUrl: string }> =
         [];
-      for (const entry of exportPages) {
-        if (entry.page !== activePage) {
-          await switchBoardPageForExport(entry.page);
-          activePage = entry.page;
+      for (const pageNumber of exportPages) {
+        if (pageNumber !== activePage) {
+          await switchBoardPageForExport(pageNumber);
+          activePage = pageNumber;
         } else {
           await waitForCanvasRender();
         }
-        const rendered = await renderBoardToCanvas(2.2, { bounds: entry.bounds });
+        const rendered = await renderBoardToCanvas(2.2);
         if (!rendered) continue;
         renderedPages.push({
-          page: entry.page,
+          page: pageNumber,
           width: Math.max(1, Math.round(rendered.width)),
           height: Math.max(1, Math.round(rendered.height)),
           dataUrl: rendered.canvas.toDataURL("image/png"),
@@ -9108,13 +8998,8 @@ export default function WorkbookSessionPage() {
         return;
       }
       const { jsPDF } = await import("jspdf");
-      const landscapeVotes = renderedPages.reduce(
-        (count, page) => count + (page.width > page.height ? 1 : 0),
-        0
-      );
-      const pdfOrientation = landscapeVotes > renderedPages.length / 2 ? "landscape" : "portrait";
       const pdf = new jsPDF({
-        orientation: pdfOrientation,
+        orientation: "portrait",
         unit: "pt",
         format: "a4",
       });
@@ -9123,15 +9008,17 @@ export default function WorkbookSessionPage() {
       const pageMargin = 30;
       const contentWidth = Math.max(1, pageWidth - pageMargin * 2);
       const contentHeight = Math.max(1, pageHeight - pageMargin * 2);
+      const canonicalWidth = Math.max(1, renderedPages[0]?.width ?? 1);
+      const canonicalHeight = Math.max(1, renderedPages[0]?.height ?? 1);
+      const fittedScale = Math.min(contentWidth / canonicalWidth, contentHeight / canonicalHeight);
+      const drawWidth = Math.max(1, canonicalWidth * fittedScale);
+      const drawHeight = Math.max(1, canonicalHeight * fittedScale);
+      const offsetX = (pageWidth - drawWidth) / 2;
+      const offsetY = (pageHeight - drawHeight) / 2;
       renderedPages.forEach((page, index) => {
         if (index > 0) {
-          pdf.addPage("a4", pdfOrientation);
+          pdf.addPage("a4", "portrait");
         }
-        const fittedScale = Math.min(contentWidth / page.width, contentHeight / page.height);
-        const drawWidth = Math.max(1, page.width * fittedScale);
-        const drawHeight = Math.max(1, page.height * fittedScale);
-        const offsetX = (pageWidth - drawWidth) / 2;
-        const offsetY = (pageHeight - drawHeight) / 2;
         pdf.addImage(page.dataUrl, "PNG", offsetX, offsetY, drawWidth, drawHeight);
       });
       pdf.save(fileName);
@@ -11508,7 +11395,8 @@ export default function WorkbookSessionPage() {
             <div className="workbook-session__solid-menu">
               <TextField
                 size="small"
-                label="Название вершины"
+                placeholder="Название вершины"
+                inputProps={{ "aria-label": "Название вершины" }}
                 value={solid3dVertexContextMenu?.label ?? ""}
                 onChange={(event) =>
                   setSolid3dVertexContextMenu((current) =>
@@ -11567,7 +11455,8 @@ export default function WorkbookSessionPage() {
             <div className="workbook-session__solid-menu">
               <TextField
                 size="small"
-                label="Название вершины сечения"
+                placeholder="Название вершины сечения"
+                inputProps={{ "aria-label": "Название вершины сечения" }}
                 value={solid3dSectionVertexContextMenu?.label ?? ""}
                 onChange={(event) =>
                   setSolid3dSectionVertexContextMenu((current) =>
@@ -11707,7 +11596,8 @@ export default function WorkbookSessionPage() {
               <div className="workbook-session__solid-menu">
                 <TextField
                   size="small"
-                  label="Название вершины"
+                  placeholder="Название вершины"
+                  inputProps={{ "aria-label": "Название вершины" }}
                   value={shapeVertexLabelDraft}
                   onChange={(event) =>
                     setShapeVertexLabelDraft(event.target.value.slice(0, 12))
@@ -11774,11 +11664,17 @@ export default function WorkbookSessionPage() {
               <div className="workbook-session__solid-menu">
                 <TextField
                   size="small"
-                  label={
+                  placeholder={
                     lineEndpointContextMenu.endpoint === "start"
                       ? "Название конца A"
                       : "Название конца B"
                   }
+                  inputProps={{
+                    "aria-label":
+                      lineEndpointContextMenu.endpoint === "start"
+                        ? "Название конца A"
+                        : "Название конца B",
+                  }}
                   value={lineEndpointLabelDraft}
                   onChange={(event) =>
                     setLineEndpointLabelDraft(event.target.value.slice(0, 12))
@@ -11845,7 +11741,8 @@ export default function WorkbookSessionPage() {
               <div className="workbook-session__solid-menu">
                 <TextField
                   size="small"
-                  label="Название точки"
+                  placeholder="Название точки"
+                  inputProps={{ "aria-label": "Название точки" }}
                   value={pointLabelDraft}
                   onChange={(event) => setPointLabelDraft(event.target.value.slice(0, 12))}
                   onKeyDown={(event) => {

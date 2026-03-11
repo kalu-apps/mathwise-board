@@ -798,7 +798,8 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                                       <TextField
                                         size="small"
                                         className="workbook-session__solid-input workbook-session__solid-angle-field workbook-session__solid-angle-field--value"
-                                        label="Значение"
+                                        placeholder="Значение"
+                                        inputProps={{ "aria-label": "Значение угла" }}
                                         value={mark.label}
                                         onChange={(event) =>
                                           void onUpdateSolid3dAngleMark(mark.id, {
@@ -810,7 +811,9 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                                         select
                                         size="small"
                                         className="workbook-session__solid-input workbook-session__solid-angle-field workbook-session__solid-angle-field--style"
-                                        label="Обозначение"
+                                        SelectProps={{
+                                          inputProps: { "aria-label": "Обозначение угла" },
+                                        }}
                                         value={mark.style ?? "arc_single"}
                                         onChange={(event) =>
                                           void onUpdateSolid3dAngleMark(mark.id, {
@@ -1032,7 +1035,8 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
               multiline
               minRows={2}
               maxRows={5}
-              label="Текст"
+              placeholder="Текст"
+              inputProps={{ "aria-label": "Текст объекта" }}
               value={selectedTextObject ? selectedTextDraft : ""}
               disabled={!selectedTextObject}
               onChange={(event) => {
@@ -1411,7 +1415,8 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
               <div className="workbook-session__line-endpoints-row">
                 <TextField
                   size="small"
-                  label="A"
+                  placeholder="A"
+                  inputProps={{ "aria-label": "Название конца A" }}
                   value={selectedLineStartLabelDraft}
                   onChange={(event) => {
                     const nextValue = event.target.value.slice(0, 12);
@@ -1426,7 +1431,8 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                 />
                 <TextField
                   size="small"
-                  label="B"
+                  placeholder="B"
+                  inputProps={{ "aria-label": "Название конца B" }}
                   value={selectedLineEndLabelDraft}
                   onChange={(event) => {
                     const nextValue = event.target.value.slice(0, 12);
@@ -1561,7 +1567,8 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                         <TextField
                           size="small"
                           className="workbook-session__solid-input workbook-session__solid-input--compact"
-                          label={`Вершина ${label}`}
+                          placeholder={`Вершина ${label}`}
+                          inputProps={{ "aria-label": `Название вершины ${label}` }}
                           value={shapeVertexLabelDrafts[index] ?? ""}
                           onChange={(event) => {
                             const nextValue = event.target.value.slice(0, 12);
@@ -1659,8 +1666,8 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                             <TextField
                               size="small"
                               className="workbook-session__solid-input workbook-session__shape-angle-field"
-                              label="Значение"
                               placeholder="Например: 45"
+                              inputProps={{ "aria-label": "Значение угла" }}
                               value={shapeAngleNoteDrafts[activeShapeAngleItem.index] ?? ""}
                               onChange={(event) => {
                                 const nextValue = event.target.value.slice(0, 24);
@@ -1689,7 +1696,9 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                               select
                               size="small"
                               className="workbook-session__solid-input workbook-session__shape-angle-field"
-                              label="Обозначение"
+                              SelectProps={{
+                                inputProps: { "aria-label": "Обозначение угла" },
+                              }}
                               value={activeShapeAngleItem.angleMark.style}
                               onChange={(event) =>
                                 void onUpdateSelectedShape2dAngleStyle(
@@ -1730,8 +1739,8 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                         <TextField
                           size="small"
                           className="workbook-session__solid-input workbook-session__solid-input--compact"
-                          label="Значение"
                           placeholder="Например: 5"
+                          inputProps={{ "aria-label": `Значение отрезка ${segment}` }}
                           value={shapeSegmentNoteDrafts[index] ?? ""}
                           onChange={(event) => {
                             const nextValue = event.target.value.slice(0, 24);

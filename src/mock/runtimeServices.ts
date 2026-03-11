@@ -19,6 +19,7 @@ export type WorkbookRealtimePayload = {
   latestSeq: number;
   events: WorkbookRealtimeEvent[];
   nodeId?: string;
+  channel?: "stream" | "live";
 };
 
 type WorkbookRealtimeListener = (payload: WorkbookRealtimePayload) => void;

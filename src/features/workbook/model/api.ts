@@ -16,6 +16,13 @@ import type {
   WorkbookStroke,
 } from "./types";
 
+const buildWorkbookWebSocketUrl = (pathname: string) => {
+  if (typeof window === "undefined") return null;
+  const url = new URL(buildApiUrl(pathname), window.location.href);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
+};
+
 export async function getWorkbookDrafts(scope: "all" | "personal" | "class" = "all") {
   const query = new URLSearchParams({ scope }).toString();
   return api.get<{ items: WorkbookDraftCard[] }>(`/workbook/drafts?${query}`, {
@@ -209,6 +216,136 @@ export function subscribeWorkbookEventsStream(params: {
   };
 }
 
+export function subscribeWorkbookLiveSocket(params: {
+  sessionId: string;
+  onEvents: (payload: WorkbookEventsResponse) => void;
+  onConnectionChange?: (connected: boolean) => void;
+  onError?: (error: Event | EventTarget | null) => void;
+}) {
+  if (typeof window === "undefined" || typeof WebSocket === "undefined") {
+    return {
+      sendEvents: () => false,
+      close: () => {
+        params.onConnectionChange?.(false);
+      },
+    };
+  }
+  const socketUrl = buildWorkbookWebSocketUrl(
+    `/workbook/sessions/${encodeURIComponent(params.sessionId)}/events/live`
+  );
+  if (!socketUrl) {
+    return {
+      sendEvents: () => false,
+      close: () => {
+        params.onConnectionChange?.(false);
+      },
+    };
+  }
+  let closed = false;
+  let reconnectTimer: number | null = null;
+  let socket: WebSocket | null = null;
+  let reconnectAttempt = 0;
+
+  const handlePayload = (raw: unknown) => {
+    if (!raw || typeof raw !== "object") return;
+    const payload = raw as Partial<WorkbookEventsResponse>;
+    if (
+      typeof payload.sessionId !== "string" ||
+      typeof payload.latestSeq !== "number" ||
+      !Array.isArray(payload.events)
+    ) {
+      return;
+    }
+    params.onEvents({
+      sessionId: payload.sessionId,
+      latestSeq: payload.latestSeq,
+      events: payload.events as WorkbookEvent[],
+    });
+  };
+
+  const clearReconnectTimer = () => {
+    if (reconnectTimer === null) return;
+    window.clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  };
+
+  const scheduleReconnect = () => {
+    if (closed || reconnectTimer !== null) return;
+    const delay = Math.min(4_000, 250 * 2 ** reconnectAttempt);
+    reconnectAttempt += 1;
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = null;
+      connectSocket();
+    }, delay);
+  };
+
+  const connectSocket = () => {
+    if (closed) return;
+    clearReconnectTimer();
+    const nextSocket = new WebSocket(socketUrl);
+    socket = nextSocket;
+
+    nextSocket.onopen = () => {
+      reconnectAttempt = 0;
+      params.onConnectionChange?.(true);
+    };
+
+    nextSocket.onmessage = (event) => {
+      try {
+        handlePayload(JSON.parse(String(event.data ?? "{}")));
+      } catch {
+        // ignore malformed live payloads
+      }
+    };
+
+    nextSocket.onerror = (error) => {
+      params.onError?.(error);
+    };
+
+    nextSocket.onclose = () => {
+      if (socket === nextSocket) {
+        socket = null;
+      }
+      params.onConnectionChange?.(false);
+      scheduleReconnect();
+    };
+  };
+
+  connectSocket();
+
+  return {
+    sendEvents: (
+      events: Array<{
+        type: WorkbookEvent["type"];
+        payload: unknown;
+      }>
+    ) => {
+      if (
+        closed ||
+        !socket ||
+        socket.readyState !== WebSocket.OPEN ||
+        events.length === 0
+      ) {
+        return false;
+      }
+      try {
+        socket.send(JSON.stringify({ events }));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    close: () => {
+      if (closed) return;
+      closed = true;
+       clearReconnectTimer();
+      params.onConnectionChange?.(false);
+      socket?.close();
+      socket = null;
+    },
+  };
+}
+
 export async function appendWorkbookEvents(params: {
   sessionId: string;
   events: Array<{
@@ -218,6 +355,20 @@ export async function appendWorkbookEvents(params: {
 }) {
   return api.post<{ events: WorkbookEvent[]; latestSeq: number }>(
     `/workbook/sessions/${encodeURIComponent(params.sessionId)}/events`,
+    { events: params.events },
+    { notifyDataUpdate: false }
+  );
+}
+
+export async function appendWorkbookLiveEvents(params: {
+  sessionId: string;
+  events: Array<{
+    type: WorkbookEvent["type"];
+    payload: unknown;
+  }>;
+}) {
+  return api.post<{ ok: true }>(
+    `/workbook/sessions/${encodeURIComponent(params.sessionId)}/events/live`,
     { events: params.events },
     { notifyDataUpdate: false }
   );

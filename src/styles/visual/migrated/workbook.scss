@@ -3517,8 +3517,8 @@
   }
 
   .workbook-session__contextbar {
-    position: static;
-    top: auto;
+    position: sticky;
+    top: max(8px, env(safe-area-inset-top));
     width: 100%;
     flex-direction: row;
     align-items: stretch;
@@ -3530,6 +3530,8 @@
     border-radius: 14px;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
+    box-shadow: 0 10px 24px color-mix(in srgb, #11214b 16%, transparent);
+    z-index: 12;
   }
 
   .workbook-session__contextbar::-webkit-scrollbar {
@@ -3608,10 +3610,9 @@
   }
 
   .workbook-session__board-settings-field {
-    flex-direction: column;
     align-items: stretch;
-    gap: 10px;
-    padding: 12px;
+    gap: 8px;
+    padding: 10px 11px;
   }
 
   .workbook-session__board-settings-select {
@@ -3640,12 +3641,17 @@
     max-height: min(80dvh, 680px);
     top: auto !important;
     bottom: max(8px, env(safe-area-inset-bottom));
-    height: min(80dvh, 680px);
+    height: auto;
     border-radius: 20px;
     padding: 10px;
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+
+  .workbook-session__utility-float.is-settings {
+    height: auto;
+    max-height: min(78dvh, 640px);
   }
 
   .workbook-session__utility-float.is-collapsed {
@@ -3682,6 +3688,10 @@
     display: block;
     font-size: 10px;
     line-height: 1.45;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
   }
 
   .workbook-session__board-settings-field-main strong {
@@ -3690,6 +3700,10 @@
 
   .workbook-session__board-settings-field-main small {
     font-size: 10px;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
   }
 
   .workbook-session__board-settings-head {
@@ -3819,7 +3833,7 @@
     right: 6px !important;
     width: auto !important;
     max-height: min(84dvh, 620px);
-    height: min(84dvh, 620px);
+    height: auto;
     border-radius: 22px;
     padding: 10px 8px 8px;
   }
@@ -3835,8 +3849,8 @@
   }
 
   .workbook-session__board-settings-field {
-    gap: 11px;
-    padding: 12px 11px;
+    gap: 8px;
+    padding: 10px;
   }
 
   .workbook-session__board-settings-color-grid {
@@ -3849,8 +3863,8 @@
   }
 
   .workbook-session__board-settings-card {
-    padding: 11px;
-    gap: 11px;
+    padding: 10px;
+    gap: 9px;
   }
 
   .workbook-session__board-settings-card-title {
@@ -3883,6 +3897,11 @@
   .workbook-session__board-settings-note {
     padding: 10px 11px;
     font-size: 10.5px;
+  }
+
+  .workbook-session__utility-float.is-settings .workbook-session__board-settings-field-main small,
+  .workbook-session__utility-float.is-settings .workbook-session__board-settings-card-head p {
+    display: none;
   }
 
   .workbook-session__contextbar-inline {
