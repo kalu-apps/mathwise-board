@@ -249,6 +249,11 @@ type ObjectEraserPreviewPath = {
   radius: number;
 };
 
+type ObjectEraserStoredPath = {
+  points: Array<{ u: number; v: number }>;
+  radiusRatio: number;
+};
+
 type MovingState = {
   object: WorkbookBoardObject;
   groupObjects: WorkbookBoardObject[];
@@ -944,6 +949,102 @@ const sanitizeObjectEraserCuts = (object: WorkbookBoardObject): ObjectEraserCut[
   }, []);
 };
 
+const normalizeObjectEraserPreviewPath = (
+  object: WorkbookBoardObject,
+  path: ObjectEraserPreviewPath
+): ObjectEraserStoredPath | null => {
+  if (!Array.isArray(path.points) || path.points.length === 0) return null;
+  const rect = getObjectRect(object);
+  const safeWidth = Math.max(1, Math.abs(rect.width));
+  const safeHeight = Math.max(1, Math.abs(rect.height));
+  const safeScale = Math.max(1, Math.max(safeWidth, safeHeight));
+  const normalizedPoints = path.points.reduce<Array<{ u: number; v: number }>>((acc, point) => {
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return acc;
+    acc.push({
+      u: (point.x - rect.x) / safeWidth,
+      v: (point.y - rect.y) / safeHeight,
+    });
+    return acc;
+  }, []);
+  if (normalizedPoints.length === 0) return null;
+  return {
+    points: normalizedPoints,
+    radiusRatio: Math.max(
+      OBJECT_ERASER_RATIO_MIN,
+      Math.min(OBJECT_ERASER_RATIO_MAX, path.radius / safeScale)
+    ),
+  };
+};
+
+const convertObjectEraserCutToStoredPath = (cut: ObjectEraserCut): ObjectEraserStoredPath => ({
+  points: [{ u: cut.u, v: cut.v }],
+  radiusRatio: cut.radiusRatio,
+});
+
+const sanitizeObjectEraserPaths = (object: WorkbookBoardObject): ObjectEraserStoredPath[] => {
+  const raw = Array.isArray(object.meta?.eraserPaths) ? object.meta.eraserPaths : [];
+  const rect = getObjectRect(object);
+  const safeWidth = Math.max(1, Math.abs(rect.width));
+  const safeHeight = Math.max(1, Math.abs(rect.height));
+  const safeScale = Math.max(1, Math.max(safeWidth, safeHeight));
+  return raw.reduce<ObjectEraserStoredPath[]>((acc, item) => {
+    if (!item || typeof item !== "object") return acc;
+    const typed = item as {
+      points?: unknown;
+      radiusRatio?: unknown;
+      radius?: unknown;
+      r?: unknown;
+    };
+    const rawPoints = Array.isArray(typed.points) ? typed.points : [];
+    const normalizedPoints = rawPoints.reduce<Array<{ u: number; v: number }>>((pointsAcc, point) => {
+      if (!point || typeof point !== "object") return pointsAcc;
+      const rawU = (point as { u?: unknown }).u;
+      const rawV = (point as { v?: unknown }).v;
+      if (
+        typeof rawU === "number" &&
+        Number.isFinite(rawU) &&
+        typeof rawV === "number" &&
+        Number.isFinite(rawV)
+      ) {
+        pointsAcc.push({ u: rawU, v: rawV });
+        return pointsAcc;
+      }
+      const rawX = (point as { x?: unknown }).x;
+      const rawY = (point as { y?: unknown }).y;
+      if (
+        typeof rawX === "number" &&
+        Number.isFinite(rawX) &&
+        typeof rawY === "number" &&
+        Number.isFinite(rawY)
+      ) {
+        pointsAcc.push({
+          u: (rawX - rect.x) / safeWidth,
+          v: (rawY - rect.y) / safeHeight,
+        });
+      }
+      return pointsAcc;
+    }, []);
+    if (normalizedPoints.length === 0) return acc;
+    const radiusRatio =
+      typeof typed.radiusRatio === "number" && Number.isFinite(typed.radiusRatio)
+        ? typed.radiusRatio
+        : typeof typed.radius === "number" && Number.isFinite(typed.radius)
+          ? typed.radius / safeScale
+          : typeof typed.r === "number" && Number.isFinite(typed.r)
+            ? typed.r / safeScale
+            : null;
+    if (radiusRatio === null) return acc;
+    acc.push({
+      points: normalizedPoints,
+      radiusRatio: Math.max(
+        OBJECT_ERASER_RATIO_MIN,
+        Math.min(OBJECT_ERASER_RATIO_MAX, radiusRatio)
+      ),
+    });
+    return acc;
+  }, []);
+};
+
 const applyEraserPointToCollections = (
   params: {
     center: WorkbookPoint;
@@ -1031,6 +1132,42 @@ const resolveObjectEraserCutsForRender = (
 ): ResolvedObjectEraserCut[] => {
   if (cuts.length === 0) return [];
   return cuts.map((cut) => resolveObjectEraserCutGeometry(object, cut));
+};
+
+const resolveObjectEraserPathsForRender = (
+  object: WorkbookBoardObject,
+  paths: ObjectEraserStoredPath[]
+): ObjectEraserPreviewPath[] => {
+  if (paths.length === 0) return [];
+  const rect = getObjectRect(object);
+  const safeWidth = Math.max(1, Math.abs(rect.width));
+  const safeHeight = Math.max(1, Math.abs(rect.height));
+  const safeScale = Math.max(1, Math.max(safeWidth, safeHeight));
+  return paths.reduce<ObjectEraserPreviewPath[]>((acc, path) => {
+    if (!Array.isArray(path.points) || path.points.length === 0) return acc;
+    const resolvedPoints = path.points.reduce<WorkbookPoint[]>((pointsAcc, point) => {
+      if (!point || typeof point !== "object") return pointsAcc;
+      if (
+        typeof point.u !== "number" ||
+        !Number.isFinite(point.u) ||
+        typeof point.v !== "number" ||
+        !Number.isFinite(point.v)
+      ) {
+        return pointsAcc;
+      }
+      pointsAcc.push({
+        x: rect.x + point.u * safeWidth,
+        y: rect.y + point.v * safeHeight,
+      });
+      return pointsAcc;
+    }, []);
+    if (resolvedPoints.length === 0) return acc;
+    acc.push({
+      points: resolvedPoints,
+      radius: Math.max(1, Math.min(320, path.radiusRatio * safeScale)),
+    });
+    return acc;
+  }, []);
 };
 
 const distanceToSegment = (point: WorkbookPoint, a: WorkbookPoint, b: WorkbookPoint) => {
@@ -2680,13 +2817,34 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     if (eraserTouchedObjectIdsRef.current.size === 0) return;
     const touchedIds = Array.from(eraserTouchedObjectIdsRef.current);
     touchedIds.forEach((objectId) => {
+      const sourceObject = boardObjects.find((object) => object.id === objectId) ?? null;
       const cuts = eraserObjectCutsRef.current.get(objectId);
       if (!cuts || cuts.length === 0) return;
+      const nextStoredPaths = (
+        eraserObjectPreviewPathsRef.current.get(objectId) ?? []
+      ).reduce<ObjectEraserStoredPath[]>((acc, path) => {
+        const normalized = sourceObject ? normalizeObjectEraserPreviewPath(sourceObject, path) : null;
+        if (normalized) {
+          acc.push(normalized);
+        }
+        return acc;
+      }, []);
+      const existingStoredPaths = sourceObject ? sanitizeObjectEraserPaths(sourceObject) : [];
+      const fallbackStoredPaths =
+        existingStoredPaths.length > 0
+          ? existingStoredPaths
+          : sourceObject
+            ? sanitizeObjectEraserCuts(sourceObject).map((cut) =>
+                convertObjectEraserCutToStoredPath(cut)
+              )
+            : [];
+      const persistedPaths = [...fallbackStoredPaths, ...nextStoredPaths];
       onObjectUpdate(
         objectId,
         {
           meta: {
             eraserCuts: cuts,
+            eraserPaths: persistedPaths,
           },
         },
         {
@@ -2695,7 +2853,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         }
       );
     });
-  }, [allStrokes, onObjectUpdate, onStrokeDelete, onStrokeReplace]);
+  }, [allStrokes, boardObjects, onObjectUpdate, onStrokeDelete, onStrokeReplace]);
 
   const resolveSolid3dPointAtPointer = useCallback(
     (object: WorkbookBoardObject, point: WorkbookPoint): SolidSurfacePick | null => {
@@ -7593,15 +7751,24 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
             selectedPreviewObject?.id === object.id ? selectedPreviewObject : object;
           const renderedObject = renderObject(renderSource);
           const committedEraserCuts = sanitizeObjectEraserCuts(renderSource);
+          const committedEraserPaths = resolveObjectEraserPathsForRender(
+            renderSource,
+            sanitizeObjectEraserPaths(renderSource)
+          );
           const previewPaths = eraserPreviewActive
             ? activeEraserPreviewObjectPaths[renderSource.id] ?? []
             : [];
+          const maskPaths =
+            committedEraserPaths.length > 0 ? [...committedEraserPaths, ...previewPaths] : previewPaths;
           const previewCuts =
-            eraserPreviewActive && previewPaths.length === 0
+            eraserPreviewActive && maskPaths.length === 0
               ? activeEraserPreviewObjectCuts[renderSource.id] ?? committedEraserCuts
               : committedEraserCuts;
-          const resolvedEraserCuts = resolveObjectEraserCutsForRender(renderSource, previewCuts);
-          if (resolvedEraserCuts.length === 0 && previewPaths.length === 0) {
+          const resolvedEraserCuts =
+            committedEraserPaths.length > 0
+              ? []
+              : resolveObjectEraserCutsForRender(renderSource, previewCuts);
+          if (resolvedEraserCuts.length === 0 && maskPaths.length === 0) {
             return <g key={object.id}>{renderedObject}</g>;
           }
           const objectRect = getObjectRect(renderSource);
@@ -7615,7 +7782,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
             maxX = Math.max(maxX, cut.x + cut.radius + ERASER_MASK_PADDING);
             maxY = Math.max(maxY, cut.y + cut.radius + ERASER_MASK_PADDING);
           });
-          previewPaths.forEach((path) => {
+          maskPaths.forEach((path) => {
             path.points.forEach((point) => {
               minX = Math.min(minX, point.x - path.radius - ERASER_MASK_PADDING);
               minY = Math.min(minY, point.y - path.radius - ERASER_MASK_PADDING);
@@ -7656,7 +7823,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
                       fill="#000000"
                     />
                   ))}
-                  {previewPaths.map((path, index) => (
+                  {maskPaths.map((path, index) => (
                     <path
                       key={`${renderSource.id}-erase-path-${index}`}
                       d={toSmoothPath(path.points)}
