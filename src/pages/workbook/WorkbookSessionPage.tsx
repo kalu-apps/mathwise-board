@@ -574,6 +574,8 @@ const getFigureVertexLabel = (index: number) => {
   return `${alphabet[index % alphabet.length]}${Math.floor(index / alphabet.length)}`;
 };
 
+const getSectionVertexLabel = (index: number) => getFigureVertexLabel(index);
+
 const collectBoardObjectLabels = (object: WorkbookBoardObject) => {
   const labels: string[] = [];
   if (object.type === "line" || object.type === "arrow") {
@@ -597,11 +599,11 @@ const collectBoardObjectLabels = (object: WorkbookBoardObject) => {
   if (Array.isArray(object.meta?.sections)) {
     object.meta.sections.forEach((section: unknown) => {
       if (!section || typeof section !== "object") return;
-      const typedSection = section as { points?: unknown };
-      if (!Array.isArray(typedSection.points)) return;
-      typedSection.points.forEach((point: unknown) => {
-        if (point && typeof point === "object" && typeof (point as { label?: unknown }).label === "string") {
-          labels.push((point as { label: string }).label);
+      const typedSection = section as { vertexLabels?: unknown };
+      if (!Array.isArray(typedSection.vertexLabels)) return;
+      typedSection.vertexLabels.forEach((label: unknown) => {
+        if (typeof label === "string") {
+          labels.push(label);
         }
       });
     });
@@ -1754,10 +1756,6 @@ export default function WorkbookSessionPage() {
   const [solid3dSectionPointCollecting, setSolid3dSectionPointCollecting] = useState<
     string | null
   >(null);
-  const [solid3dSectionPointTarget, setSolid3dSectionPointTarget] = useState<{
-    sectionId: string;
-    pointIndex: number;
-  } | null>(null);
   const [solid3dDraftPoints, setSolid3dDraftPoints] = useState<{
     objectId: string;
     points: Solid3dSectionPoint[];
@@ -1818,10 +1816,10 @@ export default function WorkbookSessionPage() {
     y: number;
     label: string;
   } | null>(null);
-  const [solid3dPointContextMenu, setSolid3dPointContextMenu] = useState<{
+  const [solid3dSectionVertexContextMenu, setSolid3dSectionVertexContextMenu] = useState<{
     objectId: string;
     sectionId: string;
-    pointIndex: number;
+    vertexIndex: number;
     x: number;
     y: number;
     label: string;
@@ -7389,6 +7387,19 @@ export default function WorkbookSessionPage() {
     return getSolidSectionPointLimit(presetId, mesh);
   };
 
+  const createUniqueSectionVertexLabels = useCallback(
+    (vertexCount: number) => {
+      const used = new Set<string>();
+      boardObjects.forEach((object) => {
+        collectBoardObjectLabels(object).forEach((label) => used.add(label));
+      });
+      return Array.from({ length: Math.max(0, vertexCount) }, (_, index) =>
+        getNextUniqueBoardLabel(used, index)
+      );
+    },
+    [boardObjects]
+  );
+
   const addDraftPointToSolid = (payload: { objectId: string; point: Solid3dSectionPoint }) => {
     const targetObject = boardObjects.find((item) => item.id === payload.objectId);
     if (!targetObject || targetObject.type !== "solid3d") return;
@@ -7476,6 +7487,7 @@ export default function WorkbookSessionPage() {
       points: ensureUniqueSectionPointLabels(
         solid3dDraftPoints.points.slice(0, maxPoints)
       ),
+      vertexLabels: [],
       offset: 0,
       tiltX: 0,
       tiltY: 0,
@@ -7496,6 +7508,7 @@ export default function WorkbookSessionPage() {
       points: ensureUniqueSectionPointLabels(
         solid3dDraftPoints.points.slice(0, maxPoints)
       ),
+      vertexLabels: createUniqueSectionVertexLabels(polygon.length),
     };
     const nextState: Solid3dState = {
       ...currentState,
@@ -7507,7 +7520,6 @@ export default function WorkbookSessionPage() {
     setSelectedObjectId(targetObject.id);
     setActiveSolidSectionId(nextSection.id);
     setSolid3dSectionPointCollecting(null);
-    setSolid3dSectionPointTarget(null);
     setSolid3dDraftPoints(null);
   };
 
@@ -7519,6 +7531,12 @@ export default function WorkbookSessionPage() {
     const normalizedPatch: Partial<Solid3dSectionState> = { ...patch };
     if (Array.isArray(patch.points)) {
       normalizedPatch.points = ensureUniqueSectionPointLabels(patch.points);
+    }
+    if (Array.isArray(patch.vertexLabels)) {
+      normalizedPatch.vertexLabels = patch.vertexLabels.map((label, index) =>
+        (typeof label === "string" ? label.trim().slice(0, 16) : "") ||
+        getSectionVertexLabel(index)
+      );
     }
     await updateSelectedSolid3dState((state) => ({
       ...state,
@@ -7538,7 +7556,7 @@ export default function WorkbookSessionPage() {
         selectedSolid3dState?.sections.find((section) => section.id !== sectionId)?.id ?? null;
       setActiveSolidSectionId(fallback);
     }
-    setSolid3dSectionPointTarget((current) =>
+    setSolid3dSectionVertexContextMenu((current) =>
       current?.sectionId === sectionId ? null : current
     );
   };
@@ -7551,90 +7569,15 @@ export default function WorkbookSessionPage() {
     setSolid3dInspectorTab("section");
     resetToolRuntimeToSelect();
     setSolid3dSectionPointCollecting(selectedObject.id);
-    setSolid3dSectionPointTarget(null);
     setSolid3dDraftPoints({
       objectId: selectedObject.id,
       points: [],
     });
   };
 
-  const handleSolid3dSectionPointPick = async (payload: {
-    objectId: string;
-    point: Solid3dSectionPoint;
-    replaceIndex?: number;
-    selectOnly?: boolean;
-  }) => {
-    if (!selectedObject || selectedObject.type !== "solid3d") return;
-    if (selectedObject.id !== payload.objectId) return;
-    if (!selectedActiveSection || !selectedSolid3dState) return;
-    const triangleIndices = payload.point.triangleVertexIndices ?? [];
-    const barycentric = payload.point.barycentric ?? [];
-    const hasEdgeOrVertexBarycentric =
-      barycentric.length === 3 && barycentric.some((weight) => Math.abs(weight) <= 1e-4);
-    if (
-      !Number.isInteger(payload.point.faceIndex) ||
-      triangleIndices.length !== 3 ||
-      !hasEdgeOrVertexBarycentric
-    ) {
-      return;
-    }
-    if (payload.selectOnly) {
-      if (!Number.isInteger(payload.replaceIndex)) {
-        setSolid3dSectionPointTarget(null);
-        return;
-      }
-      const replaceIndex = Number(payload.replaceIndex);
-      if (replaceIndex < 0 || replaceIndex >= selectedActiveSection.points.length) {
-        setSolid3dSectionPointTarget(null);
-        return;
-      }
-      setSolid3dSectionPointTarget({
-        sectionId: selectedActiveSection.id,
-        pointIndex: replaceIndex,
-      });
-      return;
-    }
-    const replaceIndex = Number.isInteger(payload.replaceIndex)
-      ? Number(payload.replaceIndex)
-      : solid3dSectionPointTarget &&
-          solid3dSectionPointTarget.sectionId === selectedActiveSection.id
-        ? solid3dSectionPointTarget.pointIndex
-        : -1;
-    if (replaceIndex < 0 || replaceIndex >= selectedActiveSection.points.length) return;
-
-    const nextPoints = selectedActiveSection.points.map((point, index) =>
-      index === replaceIndex
-        ? {
-            ...payload.point,
-            label: point.label || getSectionPointLabel(index),
-          }
-        : point
-    );
-
-    if (selectedSolidMesh && nextPoints.length >= 3) {
-      const candidatePolygon = computeSectionPolygon(selectedSolidMesh, {
-        ...selectedActiveSection,
-        mode: "through_points",
-        pointIndices: [],
-        points: nextPoints,
-      }).polygon;
-      if (candidatePolygon.length < 3) {
-        setError("Точку нельзя установить в эту позицию: сечение не пересекает фигуру корректно.");
-        return;
-      }
-    }
-
-    await updateSolid3dSection(selectedActiveSection.id, {
-      mode: "through_points",
-      pointIndices: [],
-      points: ensureUniqueSectionPointLabels(nextPoints),
-    });
-    setSolid3dSectionPointTarget(null);
-  };
-
-  const renameSolid3dSectionPoint = async (
+  const renameSolid3dSectionVertex = async (
     sectionId: string,
-    pointIndex: number,
+    vertexIndex: number,
     label: string
   ) => {
     const normalized = label.trim().slice(0, 16);
@@ -7642,17 +7585,16 @@ export default function WorkbookSessionPage() {
       ...state,
       sections: state.sections.map((section) => {
         if (section.id !== sectionId) return section;
-        const updatedPoints = section.points.map((point, index) =>
-          index === pointIndex
-            ? {
-                ...point,
-                label: normalized || getSectionPointLabel(index),
-              }
-            : point
+        const current = Array.isArray(section.vertexLabels) ? section.vertexLabels : [];
+        const nextLength = Math.max(current.length, vertexIndex + 1);
+        const nextLabels = Array.from({ length: nextLength }, (_, index) =>
+          (typeof current[index] === "string" ? current[index].trim().slice(0, 16) : "") ||
+          getSectionVertexLabel(index)
         );
+        nextLabels[vertexIndex] = normalized || getSectionVertexLabel(vertexIndex);
         return {
           ...section,
-          points: ensureUniqueSectionPointLabels(updatedPoints),
+          vertexLabels: nextLabels,
         };
       }),
     }));
@@ -8000,7 +7942,7 @@ export default function WorkbookSessionPage() {
     setShapeVertexContextMenu(null);
     setLineEndpointContextMenu(null);
     setSolid3dVertexContextMenu(null);
-    setSolid3dPointContextMenu(null);
+    setSolid3dSectionVertexContextMenu(null);
     setSolid3dSectionContextMenu(null);
     setSelectedObjectId(objectId);
     setObjectContextMenu({ objectId, x: anchor.x, y: anchor.y });
@@ -8015,7 +7957,7 @@ export default function WorkbookSessionPage() {
     setObjectContextMenu(null);
     setLineEndpointContextMenu(null);
     setSolid3dVertexContextMenu(null);
-    setSolid3dPointContextMenu(null);
+    setSolid3dSectionVertexContextMenu(null);
     setSolid3dSectionContextMenu(null);
     setSelectedObjectId(payload.objectId);
     setShapeVertexContextMenu({
@@ -8036,7 +7978,7 @@ export default function WorkbookSessionPage() {
     setObjectContextMenu(null);
     setShapeVertexContextMenu(null);
     setSolid3dVertexContextMenu(null);
-    setSolid3dPointContextMenu(null);
+    setSolid3dSectionVertexContextMenu(null);
     setSolid3dSectionContextMenu(null);
     setSelectedObjectId(payload.objectId);
     setLineEndpointContextMenu({
@@ -8063,7 +8005,7 @@ export default function WorkbookSessionPage() {
     setObjectContextMenu(null);
     setShapeVertexContextMenu(null);
     setLineEndpointContextMenu(null);
-    setSolid3dPointContextMenu(null);
+    setSolid3dSectionVertexContextMenu(null);
     setSolid3dSectionContextMenu(null);
     setSelectedObjectId(payload.objectId);
     setSolid3dVertexContextMenu({
@@ -8075,10 +8017,10 @@ export default function WorkbookSessionPage() {
     });
   };
 
-  const handleSolid3dPointContextMenu = (payload: {
+  const handleSolid3dSectionVertexContextMenu = (payload: {
     objectId: string;
     sectionId: string;
-    pointIndex: number;
+    vertexIndex: number;
     anchor: { x: number; y: number };
   }) => {
     const targetObject = boardObjects.find(
@@ -8089,7 +8031,7 @@ export default function WorkbookSessionPage() {
     const section = targetState.sections.find((item) => item.id === payload.sectionId);
     if (!section) return;
     const label =
-      section.points[payload.pointIndex]?.label || getSectionPointLabel(payload.pointIndex);
+      section.vertexLabels[payload.vertexIndex] || getSectionVertexLabel(payload.vertexIndex);
     setObjectContextMenu(null);
     setShapeVertexContextMenu(null);
     setLineEndpointContextMenu(null);
@@ -8097,10 +8039,10 @@ export default function WorkbookSessionPage() {
     setSolid3dSectionContextMenu(null);
     setSelectedObjectId(payload.objectId);
     setActiveSolidSectionId(payload.sectionId);
-    setSolid3dPointContextMenu({
+    setSolid3dSectionVertexContextMenu({
       objectId: payload.objectId,
       sectionId: payload.sectionId,
-      pointIndex: payload.pointIndex,
+      vertexIndex: payload.vertexIndex,
       x: payload.anchor.x,
       y: payload.anchor.y,
       label,
@@ -8123,7 +8065,7 @@ export default function WorkbookSessionPage() {
     setShapeVertexContextMenu(null);
     setLineEndpointContextMenu(null);
     setSolid3dVertexContextMenu(null);
-    setSolid3dPointContextMenu(null);
+    setSolid3dSectionVertexContextMenu(null);
     setSelectedObjectId(payload.objectId);
     setActiveSolidSectionId(payload.sectionId);
     setSolid3dSectionContextMenu({
@@ -9113,9 +9055,6 @@ export default function WorkbookSessionPage() {
   const commitObjectDeleteRef = useRef(commitObjectDelete);
   commitObjectDeleteRef.current = commitObjectDelete;
 
-  const handleSolid3dSectionPointPickRef = useRef(handleSolid3dSectionPointPick);
-  handleSolid3dSectionPointPickRef.current = handleSolid3dSectionPointPick;
-
   const handleCanvasStrokeCommit = useCallback((stroke: WorkbookStroke) => {
     void commitStrokeRef.current(stroke);
   }, []);
@@ -9134,19 +9073,6 @@ export default function WorkbookSessionPage() {
   const handleCanvasObjectDelete = useCallback((objectId: string) => {
     void commitObjectDeleteRef.current(objectId);
   }, []);
-
-  const handleCanvasSolid3dPointPick = useCallback(
-    (payload: {
-      objectId: string;
-      point: Solid3dSectionPoint;
-      faceIndex?: number;
-      replaceIndex?: number;
-      selectOnly?: boolean;
-    }) => {
-      void handleSolid3dSectionPointPickRef.current(payload);
-    },
-    []
-  );
 
   const handleCanvasAreaSelectionChange = useCallback(
     (selection: WorkbookAreaSelection | null) => {
@@ -10019,16 +9945,6 @@ export default function WorkbookSessionPage() {
     if (selectedObjectSceneLayerId === MAIN_SCENE_LAYER_ID) return;
     void dissolveCompositionLayer(selectedObjectSceneLayerId);
   }, [dissolveCompositionLayer, selectedObjectSceneLayerId]);
-  const selectedActiveSection = useMemo(() => {
-    if (!selectedSolid3dState?.sections.length) return null;
-    if (activeSolidSectionId) {
-      return (
-        selectedSolid3dState.sections.find((section) => section.id === activeSolidSectionId) ??
-        selectedSolid3dState.sections[0]
-      );
-    }
-    return selectedSolid3dState.sections[0];
-  }, [activeSolidSectionId, selectedSolid3dState]);
   const selectedSolidSectionPointLimit = useMemo(
     () => getSolidSectionPointLimit(selectedSolidPresetId, selectedSolidMesh),
     [selectedSolidPresetId, selectedSolidMesh]
@@ -10049,11 +9965,10 @@ export default function WorkbookSessionPage() {
     if (selectedObject?.type !== "solid3d") {
       setActiveSolidSectionId(null);
       setSolid3dSectionPointCollecting(null);
-      setSolid3dSectionPointTarget(null);
       setSolid3dInspectorTab("section");
       setSolid3dDraftPoints(null);
       setSolid3dVertexContextMenu(null);
-      setSolid3dPointContextMenu(null);
+      setSolid3dSectionVertexContextMenu(null);
       setSolid3dSectionContextMenu(null);
     }
   }, [selectedObject?.type]);
@@ -10109,28 +10024,6 @@ export default function WorkbookSessionPage() {
   }, [canSelect, commitObjectUpdate, selectedObject, selectedSolid3dState, selectedSolidMesh]);
 
   useEffect(() => {
-    if (!selectedObject || selectedObject.type !== "solid3d") return;
-    if (!selectedSolid3dState || !canSelect) return;
-    const needsUpdate = selectedSolid3dState.sections.some((section) =>
-      section.points.some((point) => !(point.label && point.label.trim()))
-    );
-    if (!needsUpdate) return;
-    const nextState: Solid3dState = {
-      ...selectedSolid3dState,
-      sections: selectedSolid3dState.sections.map((section) => ({
-        ...section,
-        points: section.points.map((point, index) => ({
-          ...point,
-          label: point.label?.trim() || getSectionPointLabel(index),
-        })),
-      })),
-    };
-    void commitObjectUpdate(selectedObject.id, {
-      meta: writeSolid3dState(nextState, selectedObject.meta),
-    });
-  }, [canSelect, commitObjectUpdate, selectedObject, selectedSolid3dState]);
-
-  useEffect(() => {
     if (!solid3dDraftPoints) return;
     const targetObject = boardObjects.find((item) => item.id === solid3dDraftPoints.objectId);
     if (!targetObject || targetObject.type !== "solid3d") {
@@ -10148,19 +10041,14 @@ export default function WorkbookSessionPage() {
   }, [selectedObject, solid3dSectionPointCollecting]);
 
   useEffect(() => {
-    if (!solid3dSectionPointTarget || !selectedSolid3dState) return;
+    if (!solid3dSectionVertexContextMenu || !selectedSolid3dState) return;
     const section = selectedSolid3dState.sections.find(
-      (entry) => entry.id === solid3dSectionPointTarget.sectionId
+      (entry) => entry.id === solid3dSectionVertexContextMenu.sectionId
     );
-    if (!section || solid3dSectionPointTarget.pointIndex >= section.points.length) {
-      setSolid3dSectionPointTarget(null);
+    if (!section) {
+      setSolid3dSectionVertexContextMenu(null);
     }
-  }, [solid3dSectionPointTarget, selectedSolid3dState]);
-
-  useEffect(() => {
-    if (!selectedActiveSection || selectedActiveSection.visible) return;
-    setSolid3dSectionPointTarget(null);
-  }, [selectedActiveSection]);
+  }, [selectedSolid3dState, solid3dSectionVertexContextMenu]);
 
   useEffect(() => {
     setCanvasViewport({ x: 0, y: 0 });
@@ -10800,21 +10688,6 @@ export default function WorkbookSessionPage() {
               autoDividersEnabled={boardSettings.autoSectionDividers}
               autoDividerStep={boardSettings.dividerStep}
               areaSelection={areaSelection}
-              solid3dPointPick={
-                selectedObject?.type === "solid3d" &&
-                selectedActiveSection &&
-                selectedActiveSection.visible
-                  ? {
-                      objectId: selectedObject.id,
-                      sectionId: selectedActiveSection.id,
-                      selectedPoints: selectedActiveSection.points,
-                      replaceIndex:
-                        solid3dSectionPointTarget?.sectionId === selectedActiveSection.id
-                          ? solid3dSectionPointTarget.pointIndex
-                          : null,
-                    }
-                  : null
-              }
               solid3dDraftPointCollectionObjectId={solid3dSectionPointCollecting}
               solid3dSectionMarkers={
                 isSolid3dPointCollectionActive && solid3dDraftPoints
@@ -10822,14 +10695,6 @@ export default function WorkbookSessionPage() {
                       objectId: solid3dDraftPoints.objectId,
                       sectionId: "draft",
                       selectedPoints: solid3dDraftPoints.points,
-                    }
-                  : selectedObject?.type === "solid3d" &&
-                      selectedActiveSection &&
-                      selectedActiveSection.visible
-                  ? {
-                      objectId: selectedObject.id,
-                      sectionId: selectedActiveSection.id,
-                      selectedPoints: selectedActiveSection.points,
                     }
                   : null
               }
@@ -10846,9 +10711,8 @@ export default function WorkbookSessionPage() {
               onShapeVertexContextMenu={handleShapeVertexContextMenu}
               onLineEndpointContextMenu={handleLineEndpointContextMenu}
               onSolid3dVertexContextMenu={handleSolid3dVertexContextMenu}
-              onSolid3dPointContextMenu={handleSolid3dPointContextMenu}
+              onSolid3dSectionVertexContextMenu={handleSolid3dSectionVertexContextMenu}
               onSolid3dSectionContextMenu={handleSolid3dSectionContextMenu}
-              onSolid3dPointPick={handleCanvasSolid3dPointPick}
               onSolid3dDraftPointAdd={addDraftPointToSolid}
               onAreaSelectionChange={handleCanvasAreaSelectionChange}
               onAreaSelectionContextMenu={handleCanvasAreaSelectionContextMenu}
@@ -11200,11 +11064,8 @@ export default function WorkbookSessionPage() {
                 selectedSolidEdges={selectedSolidEdges}
                 selectedSolidAngleMarks={selectedSolidAngleMarks}
                 selectedSolidVertexLabels={selectedSolidVertexLabels}
-                selectedActiveSection={selectedActiveSection}
                 activeSolidSectionId={activeSolidSectionId}
                 setActiveSolidSectionId={setActiveSolidSectionId}
-                solid3dSectionPointTarget={solid3dSectionPointTarget}
-                setSolid3dSectionPointTarget={setSolid3dSectionPointTarget}
                 solid3dDraftPoints={solid3dDraftPoints}
                 solid3dDraftPointLimit={solid3dDraftPointLimit}
                 isSolid3dPointCollectionActive={isSolid3dPointCollectionActive}
@@ -11227,7 +11088,7 @@ export default function WorkbookSessionPage() {
                 onUpdateSolid3dSection={updateSolid3dSection}
                 onDeleteSolid3dSection={deleteSolid3dSection}
                 getSolidVertexLabel={getSolidVertexLabel}
-                getSectionPointLabel={getSectionPointLabel}
+                getSectionVertexLabel={getSectionVertexLabel}
               />
             </Suspense>
           ) : null}
@@ -11530,22 +11391,25 @@ export default function WorkbookSessionPage() {
 
           <Menu
             container={overlayContainer}
-            open={Boolean(solid3dPointContextMenu)}
-            onClose={() => setSolid3dPointContextMenu(null)}
+            open={Boolean(solid3dSectionVertexContextMenu)}
+            onClose={() => setSolid3dSectionVertexContextMenu(null)}
             anchorReference="anchorPosition"
             anchorPosition={
-              solid3dPointContextMenu
-                ? { top: solid3dPointContextMenu.y, left: solid3dPointContextMenu.x }
+              solid3dSectionVertexContextMenu
+                ? {
+                    top: solid3dSectionVertexContextMenu.y,
+                    left: solid3dSectionVertexContextMenu.x,
+                  }
                 : undefined
             }
           >
             <div className="workbook-session__solid-menu">
               <TextField
                 size="small"
-                label="Название угла сечения"
-                value={solid3dPointContextMenu?.label ?? ""}
+                label="Название вершины сечения"
+                value={solid3dSectionVertexContextMenu?.label ?? ""}
                 onChange={(event) =>
-                  setSolid3dPointContextMenu((current) =>
+                  setSolid3dSectionVertexContextMenu((current) =>
                     current ? { ...current, label: event.target.value } : current
                   )
                 }
@@ -11553,15 +11417,15 @@ export default function WorkbookSessionPage() {
               <div className="workbook-session__solid-menu-actions workbook-session__solid-menu-actions--icons">
                 <IconButton
                   size="small"
-                  aria-label="Сбросить название точки сечения"
+                  aria-label="Сбросить название вершины сечения"
                   onClick={() => {
-                    if (!solid3dPointContextMenu) return;
-                    void renameSolid3dSectionPoint(
-                      solid3dPointContextMenu.sectionId,
-                      solid3dPointContextMenu.pointIndex,
-                      getSectionPointLabel(solid3dPointContextMenu.pointIndex)
+                    if (!solid3dSectionVertexContextMenu) return;
+                    void renameSolid3dSectionVertex(
+                      solid3dSectionVertexContextMenu.sectionId,
+                      solid3dSectionVertexContextMenu.vertexIndex,
+                      getSectionVertexLabel(solid3dSectionVertexContextMenu.vertexIndex)
                     );
-                    setSolid3dPointContextMenu(null);
+                    setSolid3dSectionVertexContextMenu(null);
                   }}
                 >
                   <DeleteOutlineRoundedIcon fontSize="small" />
@@ -11569,15 +11433,15 @@ export default function WorkbookSessionPage() {
                 <IconButton
                   size="small"
                   color="primary"
-                  aria-label="Сохранить название точки сечения"
+                  aria-label="Сохранить название вершины сечения"
                   onClick={() => {
-                    if (!solid3dPointContextMenu) return;
-                    void renameSolid3dSectionPoint(
-                      solid3dPointContextMenu.sectionId,
-                      solid3dPointContextMenu.pointIndex,
-                      solid3dPointContextMenu.label
+                    if (!solid3dSectionVertexContextMenu) return;
+                    void renameSolid3dSectionVertex(
+                      solid3dSectionVertexContextMenu.sectionId,
+                      solid3dSectionVertexContextMenu.vertexIndex,
+                      solid3dSectionVertexContextMenu.label
                     );
-                    setSolid3dPointContextMenu(null);
+                    setSolid3dSectionVertexContextMenu(null);
                   }}
                 >
                   <SaveRoundedIcon fontSize="small" />

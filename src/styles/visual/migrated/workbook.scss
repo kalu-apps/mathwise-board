@@ -2180,6 +2180,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -2192,7 +2193,55 @@
 .workbook-session__solid-card-controls {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 4px;
+}
+
+.workbook-session__solid-section-summary {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workbook-session__solid-section-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.workbook-session__solid-section-badge {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand-soft) 22%, var(--border-subtle));
+  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+  color: var(--text-primary);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.workbook-session__solid-section-badge.is-muted {
+  border-color: color-mix(in srgb, var(--border-subtle) 84%, transparent);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.workbook-session__solid-section-preview {
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 84%, transparent);
+  background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .workbook-session__layer-subcards {

@@ -2,7 +2,6 @@ import { memo, type Dispatch, type SetStateAction } from "react";
 import {
   Alert,
   Button,
-  Chip,
   IconButton,
   MenuItem,
   Select,
@@ -23,7 +22,10 @@ import PolylineRoundedIcon from "@mui/icons-material/PolylineRounded";
 import ShowChartRoundedIcon from "@mui/icons-material/ShowChartRounded";
 import ViewInArRoundedIcon from "@mui/icons-material/ViewInArRounded";
 import type { WorkbookBoardObject, WorkbookTool } from "@/features/workbook/model/types";
-import type { Solid3dMesh } from "@/features/workbook/model/solid3dGeometry";
+import {
+  computeSectionPolygon,
+  type Solid3dMesh,
+} from "@/features/workbook/model/solid3dGeometry";
 import {
   SHAPE_ANGLE_MARK_STYLE_OPTIONS,
   type WorkbookShapeAngleMark,
@@ -47,10 +49,6 @@ type TextAlign = "left" | "center" | "right";
 type Solid3dInspectorTab = "figure" | "section";
 type Solid3dFigureTab = "display" | "surface" | "faces" | "edges" | "angles";
 type Shape2dInspectorTab = "display" | "vertices" | "angles" | "segments";
-type Solid3dSectionPointTarget = {
-  sectionId: string;
-  pointIndex: number;
-};
 type Solid3dDraftPoints = {
   objectId: string;
   points: Solid3dSectionPoint[];
@@ -176,11 +174,8 @@ type WorkbookSessionTransformPanelProps = {
   }>;
   selectedSolidAngleMarks: Solid3dAngleMark[];
   selectedSolidVertexLabels: string[];
-  selectedActiveSection: Solid3dSectionState | null;
   activeSolidSectionId: string | null;
   setActiveSolidSectionId: Dispatch<SetStateAction<string | null>>;
-  solid3dSectionPointTarget: Solid3dSectionPointTarget | null;
-  setSolid3dSectionPointTarget: Dispatch<SetStateAction<Solid3dSectionPointTarget | null>>;
   solid3dDraftPoints: Solid3dDraftPoints | null;
   solid3dDraftPointLimit: number;
   isSolid3dPointCollectionActive: boolean;
@@ -209,7 +204,7 @@ type WorkbookSessionTransformPanelProps = {
   ) => void | Promise<void>;
   onDeleteSolid3dSection: (sectionId: string) => void | Promise<void>;
   getSolidVertexLabel: (index: number) => string;
-  getSectionPointLabel: (index: number) => string;
+  getSectionVertexLabel: (index: number) => string;
 };
 
 export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransformPanel({
@@ -317,11 +312,8 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
   selectedSolidEdges,
   selectedSolidAngleMarks,
   selectedSolidVertexLabels,
-  selectedActiveSection,
   activeSolidSectionId,
   setActiveSolidSectionId,
-  solid3dSectionPointTarget,
-  setSolid3dSectionPointTarget,
   solid3dDraftPoints,
   solid3dDraftPointLimit,
   isSolid3dPointCollectionActive,
@@ -344,8 +336,29 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
   onUpdateSolid3dSection,
   onDeleteSolid3dSection,
   getSolidVertexLabel,
-  getSectionPointLabel,
+  getSectionVertexLabel,
 }: WorkbookSessionTransformPanelProps) {
+  const solid3dSectionSummaries = selectedSolid3dState?.sections.map((section) => {
+    const polygon =
+      selectedSolidMesh && section.visible
+        ? computeSectionPolygon(selectedSolidMesh, section).polygon
+        : [];
+    const vertexCount = polygon.length;
+    const isPolygonal = !selectedSolidIsCurved && vertexCount >= 3;
+    const resolvedLabels = Array.from({ length: vertexCount }, (_, index) => {
+      const raw = section.vertexLabels[index];
+      return typeof raw === "string" && raw.trim()
+        ? raw.trim()
+        : getSectionVertexLabel(index);
+    });
+    return {
+      sectionId: section.id,
+      vertexCount,
+      isPolygonal,
+      labelPreview: isPolygonal ? resolvedLabels.slice(0, 4).join(", ") : "",
+      supportPointCount: section.points.length,
+    };
+  });
   return (
     <div className="workbook-session__card">
       <h3>Трансформации</h3>
@@ -810,118 +823,96 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                       ? ` Точки: ${solid3dDraftPoints.points.length}/${solid3dDraftPointLimit}.`
                       : null}
                   </Alert>
-                ) : solid3dSectionPointTarget ? (
-                  <Alert severity="info">
-                    Выбрана вершина{" "}
-                    {selectedActiveSection?.points[solid3dSectionPointTarget.pointIndex]?.label ??
-                      getSectionPointLabel(solid3dSectionPointTarget.pointIndex)}
-                    . Кликните по ребру или вершине фигуры, чтобы перенести её.
-                  </Alert>
                 ) : null}
 
                 {selectedSolid3dState?.sections.length ? (
                   <div className="workbook-session__solid-card-list">
-                    {selectedSolid3dState.sections.map((section) => (
-                      <article
-                        key={section.id}
-                        className={`workbook-session__solid-card ${
-                          activeSolidSectionId === section.id ? "is-selected" : ""
-                        }`}
-                        onClick={() => setActiveSolidSectionId(section.id)}
-                      >
-                        <div className="workbook-session__solid-card-head">
-                          <span className="workbook-session__solid-card-title">{section.name}</span>
-                          <div className="workbook-session__solid-card-controls">
-                            <input
-                              type="color"
-                              className="workbook-session__solid-color"
-                              value={section.color}
-                              onClick={(event) => event.stopPropagation()}
-                              onChange={(event) =>
-                                void onUpdateSolid3dSection(section.id, {
-                                  color: event.target.value || "#ff8e3c",
-                                })
-                              }
-                            />
-                            <Switch
-                              size="small"
-                              checked={section.visible}
-                              onClick={(event) => event.stopPropagation()}
-                              onChange={(event) => {
-                                const nextVisible = event.target.checked;
-                                if (!nextVisible) {
-                                  setSolid3dSectionPointTarget((current) =>
-                                    current?.sectionId === section.id ? null : current
-                                  );
+                    {selectedSolid3dState.sections.map((section) => {
+                      const summary = solid3dSectionSummaries?.find(
+                        (item) => item.sectionId === section.id
+                      );
+                      return (
+                        <article
+                          key={section.id}
+                          className={`workbook-session__solid-card ${
+                            activeSolidSectionId === section.id ? "is-selected" : ""
+                          }`}
+                          onClick={() => setActiveSolidSectionId(section.id)}
+                        >
+                          <div className="workbook-session__solid-card-head">
+                            <span className="workbook-session__solid-card-title">{section.name}</span>
+                            <div className="workbook-session__solid-card-controls">
+                              <input
+                                type="color"
+                                className="workbook-session__solid-color"
+                                value={section.color}
+                                onClick={(event) => event.stopPropagation()}
+                                onChange={(event) =>
+                                  void onUpdateSolid3dSection(section.id, {
+                                    color: event.target.value || "#ff8e3c",
+                                  })
                                 }
-                                void onUpdateSolid3dSection(section.id, {
-                                  visible: nextVisible,
-                                });
-                              }}
-                            />
-                            <IconButton
-                              size="small"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void onDeleteSolid3dSection(section.id);
-                              }}
-                            >
-                              <CloseRoundedIcon />
-                            </IconButton>
-                          </div>
-                        </div>
-
-                        {section.points.length ? (
-                          <div className="workbook-session__solid-points">
-                            {section.points.map((point, index) => (
-                              <div
-                                key={`${section.id}-point-${index}`}
-                                className="workbook-session__solid-point-row"
+                              />
+                              <Switch
+                                size="small"
+                                checked={section.visible}
+                                onClick={(event) => event.stopPropagation()}
+                                onChange={(event) => {
+                                  void onUpdateSolid3dSection(section.id, {
+                                    visible: event.target.checked,
+                                  });
+                                }}
+                              />
+                              <IconButton
+                                size="small"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void onDeleteSolid3dSection(section.id);
+                                }}
                               >
-                                <Chip
-                                  size="small"
-                                  clickable
-                                  label={point.label || getSectionPointLabel(index)}
-                                  color={
-                                    solid3dSectionPointTarget?.sectionId === section.id &&
-                                    solid3dSectionPointTarget.pointIndex === index
-                                      ? "primary"
-                                      : "default"
-                                  }
-                                  variant={
-                                    solid3dSectionPointTarget?.sectionId === section.id &&
-                                    solid3dSectionPointTarget.pointIndex === index
-                                      ? "filled"
-                                      : "outlined"
-                                  }
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setActiveSolidSectionId(section.id);
-                                    setSolid3dSectionPointTarget({
-                                      sectionId: section.id,
-                                      pointIndex: index,
-                                    });
-                                  }}
-                                />
-                                <TextField
-                                  size="small"
-                                  className="workbook-session__solid-input"
-                                  value={point.label || getSectionPointLabel(index)}
-                                  InputProps={{
-                                    readOnly: true,
-                                  }}
-                                  onClick={(event) => event.stopPropagation()}
-                                />
-                              </div>
-                            ))}
+                                <CloseRoundedIcon />
+                              </IconButton>
+                            </div>
                           </div>
-                        ) : (
-                          <p className="workbook-session__hint">
-                            Точки не заданы для этого сечения.
-                          </p>
-                        )}
-                      </article>
-                    ))}
+                          <div className="workbook-session__solid-section-summary">
+                            <div className="workbook-session__solid-section-badges">
+                              <span className="workbook-session__solid-section-badge">
+                                {selectedSolidIsCurved
+                                  ? "Криволинейное сечение"
+                                  : summary?.vertexCount && summary.vertexCount >= 3
+                                    ? `Многоугольник, ${summary.vertexCount} вершин`
+                                    : "Контур вычисляется автоматически"}
+                              </span>
+                              <span className="workbook-session__solid-section-badge is-muted">
+                                Опорных точек: {summary?.supportPointCount ?? section.points.length}
+                              </span>
+                            </div>
+                            {selectedSolidIsCurved ? (
+                              <p className="workbook-session__hint">
+                                Для тел с круговым основанием вершины сечения не используются.
+                              </p>
+                            ) : summary?.isPolygonal ? (
+                              <>
+                                <p className="workbook-session__hint">
+                                  Переименовывайте вершины сечения правым кликом прямо на доске.
+                                </p>
+                                {summary.labelPreview ? (
+                                  <div className="workbook-session__solid-section-preview">
+                                    {summary.labelPreview}
+                                    {summary.vertexCount > 4 ? " ..." : ""}
+                                  </div>
+                                ) : null}
+                              </>
+                            ) : (
+                              <p className="workbook-session__hint">
+                                Сечение сохранено как плоскость пересечения. Контур появится, когда
+                                фигура корректно пересечётся этой плоскостью.
+                              </p>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="workbook-session__hint">

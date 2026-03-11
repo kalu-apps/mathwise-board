@@ -93,12 +93,6 @@ type WorkbookCanvasProps = {
   autoDividerStep?: number;
   autoDividersEnabled?: boolean;
   areaSelection?: WorkbookCanvasAreaSelection | null;
-  solid3dPointPick?: {
-    objectId: string;
-    sectionId: string;
-    selectedPoints: Solid3dSectionPoint[];
-    replaceIndex: number | null;
-  } | null;
   solid3dDraftPointCollectionObjectId?: string | null;
   solid3dSectionMarkers?: {
     objectId: string;
@@ -142,23 +136,16 @@ type WorkbookCanvasProps = {
     vertexIndex: number;
     anchor: { x: number; y: number };
   }) => void;
-  onSolid3dPointContextMenu?: (payload: {
+  onSolid3dSectionVertexContextMenu?: (payload: {
     objectId: string;
     sectionId: string;
-    pointIndex: number;
+    vertexIndex: number;
     anchor: { x: number; y: number };
   }) => void;
   onSolid3dSectionContextMenu?: (payload: {
     objectId: string;
     sectionId: string;
     anchor: { x: number; y: number };
-  }) => void;
-  onSolid3dPointPick?: (payload: {
-    objectId: string;
-    point: Solid3dSectionPoint;
-    faceIndex?: number;
-    replaceIndex?: number;
-    selectOnly?: boolean;
   }) => void;
   onSolid3dDraftPointAdd?: (payload: {
     objectId: string;
@@ -462,6 +449,11 @@ const ROUND_SOLID_PRESETS = new Set([
   "torus",
 ]);
 const getSolidVertexLabel = (index: number) => `V${index + 1}`;
+const getSectionVertexLabel = (index: number) => {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  if (index < alphabet.length) return alphabet[index];
+  return `${alphabet[index % alphabet.length]}${Math.floor(index / alphabet.length)}`;
+};
 const MAX_OBJECT_ERASER_CUTS = 220;
 const ERASER_MASK_PADDING = 20;
 const ERASER_INTERSECTION_EPSILON = 1e-4;
@@ -1428,7 +1420,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   autoDividerStep = 960,
   autoDividersEnabled = false,
   areaSelection = null,
-  solid3dPointPick = null,
   solid3dDraftPointCollectionObjectId = null,
   solid3dSectionMarkers = null,
   onSelectedObjectChange,
@@ -1444,9 +1435,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   onShapeVertexContextMenu,
   onLineEndpointContextMenu,
   onSolid3dVertexContextMenu,
-  onSolid3dPointContextMenu,
+  onSolid3dSectionVertexContextMenu,
   onSolid3dSectionContextMenu,
-  onSolid3dPointPick,
   onSolid3dDraftPointAdd,
   onAreaSelectionChange,
   onAreaSelectionContextMenu,
@@ -2447,6 +2437,63 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     [solid3dPreviewMetaById]
   );
 
+  const resolveSolid3dSectionVertexAtPointer = useCallback(
+    (sourceObject: WorkbookBoardObject, point: WorkbookPoint) => {
+      if (sourceObject.type !== "solid3d") return null;
+      const object =
+        solid3dPreviewMetaById[sourceObject.id] && sourceObject.type === "solid3d"
+          ? { ...sourceObject, meta: solid3dPreviewMetaById[sourceObject.id] }
+          : sourceObject;
+      const rect = normalizeRect(
+        { x: object.x, y: object.y },
+        { x: object.x + object.width, y: object.y + object.height }
+      );
+      const presetIdRaw =
+        typeof object.meta?.presetId === "string" ? object.meta.presetId : "cube";
+      const presetId = resolveSolid3dPresetId(presetIdRaw);
+      if (ROUND_SOLID_PRESETS.has(presetId)) return null;
+      const mesh = getSolid3dMesh(
+        presetId,
+        Math.max(1, Math.abs(object.width)),
+        Math.max(1, Math.abs(object.height))
+      );
+      if (!mesh) return null;
+      const solidState = readSolid3dState(object.meta);
+      const view = solidState.view;
+      let bestMatch: { sectionId: string; vertexIndex: number; distance: number } | null = null;
+      for (const section of solidState.sections) {
+        if (!section.visible) continue;
+        const polygon3d = computeSectionPolygon(mesh, section).polygon;
+        if (polygon3d.length < 3) continue;
+        for (let vertexIndex = 0; vertexIndex < polygon3d.length; vertexIndex += 1) {
+          const vertex = polygon3d[vertexIndex];
+          const projected = projectSolidPointForObject({
+            point: vertex,
+            view,
+            objectRect: rect,
+          });
+          const distance = Math.hypot(projected.x - point.x, projected.y - point.y);
+          if (distance > 11) continue;
+          if (!bestMatch || distance < bestMatch.distance) {
+            bestMatch = {
+              sectionId: section.id,
+              vertexIndex,
+              distance,
+            };
+          }
+        }
+      }
+      const match: { sectionId: string; vertexIndex: number; distance: number } | null =
+        bestMatch;
+      if (!match) return null;
+      return {
+        sectionId: match.sectionId,
+        vertexIndex: match.vertexIndex,
+      };
+    },
+    [solid3dPreviewMetaById]
+  );
+
   const resolveSolid3dSectionAtPointer = useCallback(
     (sourceObject: WorkbookBoardObject, point: WorkbookPoint) => {
       if (sourceObject.type !== "solid3d") return null;
@@ -2961,69 +3008,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
 
     if (tool === "select") {
-      if (solid3dPointPick?.objectId && onSolid3dPointPick) {
-        const targetSolid = resolveTopObject(point);
-        if (
-          targetSolid &&
-          targetSolid.type === "solid3d" &&
-          targetSolid.id === solid3dPointPick.objectId
-        ) {
-          const markerPoints = resolveSolid3dPickMarkersForObject(
-            targetSolid,
-            solid3dPointPick.selectedPoints
-          );
-          if (markerPoints.length > 0) {
-            const nearestMarker = markerPoints.reduce<{
-              index: number;
-              distance: number;
-            }>(
-              (acc, marker) => {
-                const distance = Math.hypot(marker.x - point.x, marker.y - point.y);
-                if (distance < acc.distance) {
-                  return { index: marker.index, distance };
-                }
-                return acc;
-              },
-              { index: -1, distance: Number.POSITIVE_INFINITY }
-            );
-            if (nearestMarker.index >= 0 && nearestMarker.distance <= 8) {
-              const selectedPoint = solid3dPointPick.selectedPoints[nearestMarker.index];
-              if (selectedPoint) {
-                onSelectedConstraintChange(null);
-                onSelectedObjectChange(targetSolid.id);
-                onSolid3dPointPick({
-                  objectId: targetSolid.id,
-                  point: selectedPoint,
-                  replaceIndex: nearestMarker.index,
-                  selectOnly: true,
-                });
-                return;
-              }
-            }
-          }
-          if (Number.isInteger(solid3dPointPick.replaceIndex)) {
-            const picked = resolveSolid3dPointAtPointer(targetSolid, point);
-            if (picked) {
-              onSelectedConstraintChange(null);
-              onSelectedObjectChange(targetSolid.id);
-              onSolid3dPointPick({
-                objectId: targetSolid.id,
-                point: {
-                  x: picked.point.x,
-                  y: picked.point.y,
-                  z: picked.point.z,
-                  faceIndex: picked.faceIndex,
-                  triangleVertexIndices: picked.triangleVertexIndices,
-                  barycentric: picked.barycentric,
-                },
-                replaceIndex: solid3dPointPick.replaceIndex ?? undefined,
-                selectOnly: false,
-              });
-              return;
-            }
-          }
-        }
-      }
       const selected = selectedObjectId
         ? boardObjects.find((object) => object.id === selectedObjectId) ?? null
         : null;
@@ -5305,47 +5289,27 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         sectionPolygons.map((polygon) => [polygon.section.id, polygon])
       );
 
-      const hiddenSectionMarkerId =
-        solid3dSectionMarkers?.objectId === object.id
-          ? solid3dSectionMarkers.sectionId
-          : solid3dPointPick?.objectId === object.id
-            ? solid3dPointPick.sectionId
-            : null;
-
-      const visibleSectionMarkers = mesh
-        ? solidState.sections
-            .filter((section) => section.visible && section.id !== hiddenSectionMarkerId)
-            .flatMap((section) => {
-              if (!Array.isArray(section.points) || section.points.length === 0) return [];
-              const polygon = sectionPolygonsById.get(section.id);
-              const polygon2d = polygon
-                ? polygon.points.map((point) => ({ x: point.x, y: point.y }))
-                : [];
-              const sectionCenter =
-                polygon2d.length >= 2 ? getPointsCentroid(polygon2d) : solidLabelCenter;
-              return section.points.map((point3d, index) => {
-                const worldPoint = resolveSectionPointForMesh(point3d, mesh);
-                const projected = projectSolidPointForObject({
-                  point: worldPoint,
-                  view,
-                  objectRect: normalized,
-                });
-                return {
-                  sectionId: section.id,
-                  index,
-                  x: projected.x,
-                  y: projected.y,
-                  color: section.color,
-                  label: point3d.label?.trim() || `P${index + 1}`,
-                  placement: resolveOutsideVertexLabelPlacement({
-                    vertex: { x: projected.x, y: projected.y },
-                    center: sectionCenter,
-                    polygon: polygon2d,
-                    baseOffset: 13,
-                  }),
-                };
-              });
-            })
+      const visibleSectionMarkers = !isRoundPreset
+        ? sectionPolygons.flatMap((polygon) => {
+            if (polygon.points.length < 3) return [];
+            const polygon2d = polygon.points.map((point) => ({ x: point.x, y: point.y }));
+            const sectionCenter = getPointsCentroid(polygon2d);
+            return polygon.points.map((point, index) => ({
+              sectionId: polygon.section.id,
+              index,
+              x: point.x,
+              y: point.y,
+              color: polygon.section.color,
+              label:
+                polygon.section.vertexLabels[index]?.trim() || getSectionVertexLabel(index),
+              placement: resolveOutsideVertexLabelPlacement({
+                vertex: { x: point.x, y: point.y },
+                center: sectionCenter,
+                polygon: polygon2d,
+                baseOffset: 14,
+              }),
+            }));
+          })
         : [];
 
       const sectionLines = solidState.sections
@@ -6673,7 +6637,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   );
 
   const solid3dPickMarkers = useMemo(() => {
-    const markerSource = solid3dSectionMarkers ?? solid3dPointPick;
+    const markerSource = solid3dSectionMarkers;
     if (!markerSource?.objectId) {
       return [] as Array<{ index: number; x: number; y: number; label: string }>;
     }
@@ -6687,7 +6651,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     boardObjects,
     resolveSolid3dPickMarkersForObject,
     selectedPreviewObject,
-    solid3dPointPick,
     solid3dSectionMarkers,
   ]);
 
@@ -6799,37 +6762,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           const target = resolveTopObject(point);
           if (!target) return;
           if (target.type === "solid3d") {
-            if (
-              solid3dSectionMarkers &&
-              solid3dSectionMarkers.objectId === target.id &&
-              onSolid3dPointContextMenu
-            ) {
-              const markers = resolveSolid3dPickMarkersForObject(
-                target,
-                solid3dSectionMarkers.selectedPoints
-              );
-              const nearest = markers.reduce(
-                (acc, marker) => {
-                  const distance = Math.hypot(marker.x - point.x, marker.y - point.y);
-                  if (distance < acc.distance) return { index: marker.index, distance };
-                  return acc;
-                },
-                { index: -1, distance: Number.POSITIVE_INFINITY }
-              );
-              if (nearest.index >= 0 && nearest.distance <= 8) {
-                event.preventDefault();
-                onSelectedConstraintChange(null);
-                onSelectedObjectChange(target.id);
-                onSolid3dPointContextMenu({
-                  objectId: target.id,
-                  sectionId: solid3dSectionMarkers.sectionId,
-                  pointIndex: nearest.index,
-                  anchor: { x: event.clientX, y: event.clientY },
-                });
-                return;
-              }
-            }
-
             const vertexIndex = resolveSolid3dVertexAtPointer(target, point);
             if (vertexIndex !== null && onSolid3dVertexContextMenu) {
               event.preventDefault();
@@ -6838,6 +6770,20 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
               onSolid3dVertexContextMenu({
                 objectId: target.id,
                 vertexIndex,
+                anchor: { x: event.clientX, y: event.clientY },
+              });
+              return;
+            }
+
+            const sectionVertex = resolveSolid3dSectionVertexAtPointer(target, point);
+            if (sectionVertex && onSolid3dSectionVertexContextMenu) {
+              event.preventDefault();
+              onSelectedConstraintChange(null);
+              onSelectedObjectChange(target.id);
+              onSolid3dSectionVertexContextMenu({
+                objectId: target.id,
+                sectionId: sectionVertex.sectionId,
+                vertexIndex: sectionVertex.vertexIndex,
                 anchor: { x: event.clientX, y: event.clientY },
               });
               return;
@@ -7035,18 +6981,14 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
             </g>
           );
         })}
-        {(solid3dSectionMarkers?.objectId || solid3dPointPick?.objectId)
+        {solid3dSectionMarkers?.objectId
           ? solid3dPickMarkers.map((marker) => {
-              const markerObjectId =
-                solid3dSectionMarkers?.objectId ?? solid3dPointPick?.objectId ?? "";
+              const markerObjectId = solid3dSectionMarkers.objectId;
               const markerObject =
                 selectedPreviewObject?.id === markerObjectId
                   ? selectedPreviewObject
                   : boardObjects.find((item) => item.id === markerObjectId);
               const showMarkerLabels = markerObject?.meta?.showLabels !== false;
-              const isTarget =
-                solid3dPointPick?.objectId === markerObjectId &&
-                solid3dPointPick.replaceIndex === marker.index;
               const markerCenter = markerObject ? getObjectCenter(markerObject) : marker;
               const markerPlacement = resolveOutsideVertexLabelPlacement({
                 vertex: marker,
@@ -7059,7 +7001,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
                     cx={marker.x}
                     cy={marker.y}
                     r={2.8}
-                    fill={isTarget ? "#4f63ff" : "#ff8e3c"}
+                    fill="#ff8e3c"
                     stroke="#ffffff"
                     strokeWidth={1}
                   />
@@ -7067,7 +7009,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
                     <text
                       x={markerPlacement.x}
                       y={markerPlacement.y}
-                      fill={isTarget ? "#4f63ff" : "#ff8e3c"}
+                      fill="#ff8e3c"
                       fontSize={8.5}
                       fontWeight={700}
                       textAnchor={markerPlacement.textAnchor}

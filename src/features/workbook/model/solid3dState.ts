@@ -19,6 +19,7 @@ export type Solid3dSectionState = {
   mode: Solid3dSectionMode;
   pointIndices: number[];
   points: Solid3dSectionPoint[];
+  vertexLabels: string[];
   offset: number;
   tiltX: number;
   tiltY: number;
@@ -199,6 +200,11 @@ const readSection = (value: unknown): Solid3dSectionState | null => {
     mode,
     pointIndices,
     points,
+    vertexLabels: Array.isArray((source as { vertexLabels?: unknown[] }).vertexLabels)
+      ? ((source as { vertexLabels?: unknown[] }).vertexLabels ?? [])
+          .map((item) => (typeof item === "string" ? item.trim().slice(0, 32) : ""))
+          .slice(0, 64)
+      : [],
     offset: clamp(toFinite(source.offset, 0), -1, 1),
     tiltX: clamp(toFinite(source.tiltX, 0), -180, 180),
     tiltY: clamp(toFinite(source.tiltY, 0), -180, 180),
@@ -406,6 +412,11 @@ export const writeSolid3dState = (
                   : undefined,
             }))
             .slice(0, 32)
+        : [],
+      vertexLabels: Array.isArray(section.vertexLabels)
+        ? section.vertexLabels
+            .map((label) => (typeof label === "string" ? label.trim().slice(0, 32) : ""))
+            .slice(0, 64)
         : [],
       offset: clamp(toFinite(section.offset, 0), -1, 1),
       tiltX: clamp(toFinite(section.tiltX, 0), -180, 180),
