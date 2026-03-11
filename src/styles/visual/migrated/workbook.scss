@@ -405,14 +405,6 @@
   letter-spacing: 0.02em;
 }
 
-.workbook-session__contextbar-dock-toggle {
-  flex: 0 0 auto;
-}
-
-.workbook-session__contextbar-dock.is-collapsed .workbook-session__contextbar-dock-head {
-  box-shadow: 0 12px 26px color-mix(in srgb, #11214b 14%, transparent);
-}
-
 .workbook-session__contextbar {
   display: flex;
   gap: 8px;

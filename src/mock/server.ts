@@ -185,9 +185,16 @@ const runtimeSubscribeInFlightBySession = new Map<string, Promise<void>>();
 const RUNTIME_NODE_ID = `${os.hostname()}-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
 const workbookLiveSocketServerByHost = new WeakMap<HttpUpgradeServer, WebSocketServer>();
 const WORKBOOK_URGENT_LIVE_EVENT_TYPES = new Set<string>([
+  "board.stroke",
+  "annotations.stroke",
+  "board.stroke.delete",
+  "annotations.stroke.delete",
   "board.object.create",
+  "board.object.update",
+  "board.object.delete",
   "board.undo",
   "board.redo",
+  "document.asset.add",
   "chat.message",
   "chat.clear",
 ]);

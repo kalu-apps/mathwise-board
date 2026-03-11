@@ -36,6 +36,7 @@ import {
   resolveSectionPointForMesh,
 } from "../model/solid3dGeometry";
 import type { ProjectedSolidVertex, SolidSurfacePick } from "../model/solid3dGeometry";
+import { resolveBoardObjectImageAssetId } from "../model/scene";
 import {
   buildFunctionGraphPlots,
   getAutoGraphGridStep,
@@ -78,6 +79,7 @@ type WorkbookCanvasProps = {
   showGrid?: boolean;
   gridColor?: string;
   backgroundColor?: string;
+  imageAssetUrls?: Record<string, string>;
   showPageNumbers?: boolean;
   currentPage?: number;
   disabled?: boolean;
@@ -1443,6 +1445,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   showGrid = true,
   gridColor = "rgba(92, 129, 192, 0.32)",
   backgroundColor = "#ffffff",
+  imageAssetUrls = {},
   showPageNumbers = false,
   currentPage = 1,
   disabled = false,
@@ -5076,10 +5079,17 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       );
     }
 
-    if (object.type === "image" && object.imageUrl) {
+    const imageSource =
+      object.type === "image"
+        ? object.imageUrl ?? (() => {
+            const assetId = resolveBoardObjectImageAssetId(object);
+            return assetId ? imageAssetUrls[assetId] : undefined;
+          })()
+        : undefined;
+    if (object.type === "image" && imageSource) {
       return (
         <image
-          href={object.imageUrl}
+          href={imageSource}
           x={normalized.x}
           y={normalized.y}
           width={normalized.width}

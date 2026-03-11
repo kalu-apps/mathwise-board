@@ -116,6 +116,7 @@ import {
   normalizeObjectPayload,
   normalizeScenePayload,
   normalizeStrokePayload,
+  WORKBOOK_IMAGE_ASSET_META_KEY,
 } from "@/features/workbook/model/scene";
 import { WorkbookCanvas } from "@/features/workbook/ui/WorkbookCanvas";
 import {
@@ -244,6 +245,8 @@ const WORKBOOK_CHAT_EMOJIS = [
 
 const WORKBOOK_PDF_IMPORT_MAX_BYTES = 15 * 1024 * 1024;
 const WORKBOOK_IMAGE_IMPORT_MAX_BYTES = 20 * 1024 * 1024;
+const WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS = 46_000;
+const WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS = 72_000;
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   "png",
   "jpg",
@@ -1292,7 +1295,7 @@ const optimizeImageDataUrl = async (
   const image = await loadImageFromDataUrl(dataUrl);
   const maxEdge = Math.max(720, options?.maxEdge ?? 1_920);
   const quality = Math.max(0.5, Math.min(0.95, options?.quality ?? 0.84));
-  const maxChars = Math.max(120_000, options?.maxChars ?? 420_000);
+  const maxChars = Math.max(18_000, Math.round(options?.maxChars ?? 420_000));
   const sourceWidth = Math.max(1, image.naturalWidth || image.width);
   const sourceHeight = Math.max(1, image.naturalHeight || image.height);
   const ratio = Math.min(1, maxEdge / Math.max(sourceWidth, sourceHeight));
@@ -1318,17 +1321,36 @@ const optimizeImageDataUrl = async (
   }
   if (best.length <= maxChars) return best;
   let nextQuality = quality;
-  for (let attempt = 0; attempt < 16; attempt += 1) {
+  for (let attempt = 0; attempt < 32; attempt += 1) {
     nextQuality = Math.max(0.28, nextQuality * 0.86);
     if (attempt % 2 === 1 || best.length > maxChars * 1.6) {
-      targetWidth = Math.max(96, Math.round(targetWidth * 0.82));
-      targetHeight = Math.max(96, Math.round(targetHeight * 0.82));
+      targetWidth = Math.max(64, Math.round(targetWidth * 0.82));
+      targetHeight = Math.max(64, Math.round(targetHeight * 0.82));
     }
     const candidate = renderCandidate(targetWidth, targetHeight, nextQuality);
     if (candidate && candidate.length < best.length) {
       best = candidate;
     }
     if (best.length <= maxChars) break;
+  }
+  if (best.length > maxChars) {
+    let emergencyWidth = targetWidth;
+    let emergencyHeight = targetHeight;
+    let emergencyQuality = nextQuality;
+    while (
+      best.length > maxChars &&
+      (emergencyWidth > 64 || emergencyHeight > 64 || emergencyQuality > 0.18)
+    ) {
+      emergencyWidth = Math.max(64, Math.round(emergencyWidth * 0.76));
+      emergencyHeight = Math.max(64, Math.round(emergencyHeight * 0.76));
+      emergencyQuality = Math.max(0.18, emergencyQuality * 0.82);
+      const candidate = renderCandidate(emergencyWidth, emergencyHeight, emergencyQuality);
+      if (candidate && candidate.length < best.length) {
+        best = candidate;
+      } else {
+        break;
+      }
+    }
   }
   return best;
 };
@@ -1905,7 +1927,6 @@ export default function WorkbookSessionPage() {
   const [isSessionChatMinimized, setIsSessionChatMinimized] = useState(false);
   const [isSessionChatMaximized, setIsSessionChatMaximized] = useState(false);
   const [isParticipantsCollapsed, setIsParticipantsCollapsed] = useState(false);
-  const [isContextbarCollapsed, setIsContextbarCollapsed] = useState(false);
   const [isSessionChatAtBottom, setIsSessionChatAtBottom] = useState(true);
   const [isWorkbookStreamConnected, setIsWorkbookStreamConnected] = useState(false);
   const [isWorkbookLiveConnected, setIsWorkbookLiveConnected] = useState(false);
@@ -2407,7 +2428,6 @@ export default function WorkbookSessionPage() {
   useEffect(() => {
     if (!contextbarStorageKey) return;
     const stored = readStorage<{
-      collapsed?: boolean;
       position?: { x?: number; y?: number };
     } | null>(contextbarStorageKey, null);
     if (stored?.position) {
@@ -2423,16 +2443,14 @@ export default function WorkbookSessionPage() {
     } else {
       setContextbarPosition(resolveContextbarDefaultPosition());
     }
-    setIsContextbarCollapsed(Boolean(stored?.collapsed));
   }, [contextbarStorageKey, resolveContextbarDefaultPosition]);
 
   useEffect(() => {
     if (!contextbarStorageKey) return;
     writeStorage(contextbarStorageKey, {
-      collapsed: isContextbarCollapsed,
       position: contextbarPosition,
     });
-  }, [contextbarPosition, contextbarStorageKey, isContextbarCollapsed]);
+  }, [contextbarPosition, contextbarStorageKey]);
 
   useEffect(() => {
     if (isCompactViewport) {
@@ -2440,7 +2458,7 @@ export default function WorkbookSessionPage() {
       return;
     }
     setContextbarPosition((current) => clampContextbarPosition(current));
-  }, [clampContextbarPosition, isCompactViewport, isContextbarCollapsed]);
+  }, [clampContextbarPosition, isCompactViewport]);
 
   useEffect(() => {
     if (isCompactViewport) return;
@@ -5857,8 +5875,13 @@ export default function WorkbookSessionPage() {
   };
 
   const commitObjectCreate = useCallback(
-    async (object: WorkbookBoardObject) => {
-      if (!sessionId || !canDraw) return;
+    async (
+      object: WorkbookBoardObject,
+      options?: {
+        auxiliaryEvents?: WorkbookClientEventInput[];
+      }
+    ) => {
+      if (!sessionId || !canDraw) return false;
       const currentMeta =
         object.meta && typeof object.meta === "object" ? object.meta : {};
       let objectWithPage: WorkbookBoardObject = {
@@ -5873,16 +5896,27 @@ export default function WorkbookSessionPage() {
         objectWithPage.type === "image" &&
         typeof objectWithPage.imageUrl === "string" &&
         objectWithPage.imageUrl.startsWith("data:image/") &&
-        objectWithPage.imageUrl.length > 46_000
+        objectWithPage.imageUrl.length > WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS
       ) {
         objectWithPage = {
           ...objectWithPage,
           imageUrl: await optimizeImageDataUrl(objectWithPage.imageUrl, {
             maxEdge: 820,
             quality: 0.58,
-            maxChars: 46_000,
+            maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
           }),
         };
+      }
+      if (
+        objectWithPage.type === "image" &&
+        typeof objectWithPage.imageUrl === "string" &&
+        objectWithPage.imageUrl.startsWith("data:image/") &&
+        objectWithPage.imageUrl.length > WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS
+      ) {
+        setError(
+          "Не удалось подготовить изображение для доски. Уменьшите размер файла или добавьте его через окно документов."
+        );
+        return false;
       }
       setBoardObjects((current) =>
         current.some((item) => item.id === objectWithPage.id)
@@ -5891,6 +5925,7 @@ export default function WorkbookSessionPage() {
       );
       try {
         await appendEventsAndApply([
+          ...(options?.auxiliaryEvents ?? []),
           {
             type: "board.object.create",
             payload: { object: objectWithPage },
@@ -5909,6 +5944,7 @@ export default function WorkbookSessionPage() {
             folderId: null,
           });
         }
+        return true;
       } catch {
         setBoardObjects((current) =>
           current.filter((item) => item.id !== objectWithPage.id)
@@ -5917,6 +5953,7 @@ export default function WorkbookSessionPage() {
           current === objectWithPage.id ? null : current
         );
         setError("Не удалось создать объект.");
+        return false;
       }
     },
     [
@@ -7947,7 +7984,8 @@ export default function WorkbookSessionPage() {
       authorUserId: user?.id ?? "unknown",
       createdAt: new Date().toISOString(),
     };
-    await commitObjectCreate(object);
+    const created = await commitObjectCreate(object);
+    if (!created) return;
     suppressAutoPanelSelectionRef.current = object.id;
     setSelectedObjectId(object.id);
     resetToolRuntimeToSelect();
@@ -8582,9 +8620,9 @@ export default function WorkbookSessionPage() {
       const sourceDataUrl = await readFileAsDataUrl(file);
       const url = isImage
         ? await optimizeImageDataUrl(sourceDataUrl, {
-            maxEdge: 920,
-            quality: 0.62,
-            maxChars: 46_000,
+            maxEdge: 1_080,
+            quality: 0.68,
+            maxChars: WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS,
           })
         : sourceDataUrl;
       if (isPdf) {
@@ -8616,7 +8654,7 @@ export default function WorkbookSessionPage() {
             ? await optimizeImageDataUrl(renderedPage.imageUrl, {
                 maxEdge: 820,
                 quality: 0.58,
-                maxChars: 46_000,
+                maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
               })
             : undefined;
       if (isImage && !objectImageUrl) {
@@ -8625,26 +8663,6 @@ export default function WorkbookSessionPage() {
         );
         return;
       }
-      const object: WorkbookBoardObject = {
-        id: generateId(),
-        type: objectImageUrl ? "image" : "text",
-        layer: "board",
-        x: canvasViewport.x + 96 + insertOffset * 20,
-        y: canvasViewport.y + 92 + insertOffset * 16,
-        width: objectImageUrl ? 380 : 320,
-        height: objectImageUrl ? 260 : 120,
-        color: "#16213e",
-        fill: "transparent",
-        strokeWidth: 2,
-        opacity: 1,
-        imageUrl: objectImageUrl,
-        imageName: file.name,
-        text: objectImageUrl ? undefined : `PDF: ${file.name}`,
-        fontSize: objectImageUrl ? undefined : 18,
-        authorUserId: user?.id ?? "unknown",
-        createdAt: new Date().toISOString(),
-      };
-      await commitObjectCreate(object);
       const assetId = generateId();
       const asset: WorkbookDocumentAsset = {
         id: assetId,
@@ -8655,19 +8673,9 @@ export default function WorkbookSessionPage() {
         uploadedAt: new Date().toISOString(),
         renderedPages,
       };
-      setDocumentState((current) => ({
-        ...current,
-        assets: current.assets.some((item) => item.id === asset.id)
-          ? current.assets
-          : [...current.assets, asset],
-        activeAssetId: asset.id,
-        page: 1,
-      }));
       const syncedAsset: WorkbookDocumentAsset = {
         ...asset,
-        url:
-          objectImageUrl ||
-          (isImage ? url : "data:,"),
+        url: isImage ? url : objectImageUrl || "data:,",
         renderedPages:
           renderedPage && objectImageUrl
             ? [
@@ -8681,28 +8689,74 @@ export default function WorkbookSessionPage() {
               ]
             : undefined,
       };
-      void appendEventsAndApply(
-        [
+      const previousActiveAssetId = documentState.activeAssetId;
+      const previousDocumentPage = documentState.page;
+      const object: WorkbookBoardObject = {
+        id: generateId(),
+        type: isImage || objectImageUrl ? "image" : "text",
+        layer: "board",
+        x: canvasViewport.x + 96 + insertOffset * 20,
+        y: canvasViewport.y + 92 + insertOffset * 16,
+        width: isImage || objectImageUrl ? 380 : 320,
+        height: isImage || objectImageUrl ? 260 : 120,
+        color: "#16213e",
+        fill: "transparent",
+        strokeWidth: 2,
+        opacity: 1,
+        imageUrl: isImage ? undefined : objectImageUrl,
+        imageName: file.name,
+        text: isImage || objectImageUrl ? undefined : `PDF: ${file.name}`,
+        fontSize: isImage || objectImageUrl ? undefined : 18,
+        meta: isImage
+          ? {
+              [WORKBOOK_IMAGE_ASSET_META_KEY]: assetId,
+            }
+          : undefined,
+        authorUserId: user?.id ?? "unknown",
+        createdAt: new Date().toISOString(),
+      };
+      setDocumentState((current) => ({
+        ...current,
+        assets: current.assets.some((item) => item.id === asset.id)
+          ? current.assets
+          : [...current.assets, asset],
+        activeAssetId: asset.id,
+        page: 1,
+      }));
+      const created = await commitObjectCreate(object, {
+        auxiliaryEvents: [
           {
             type: "document.asset.add",
             payload: { asset: syncedAsset },
           },
+          {
+            type: "document.state.update",
+            payload: {
+              activeAssetId: assetId,
+              page: 1,
+            },
+          },
         ],
-        { trackHistory: false, markDirty: false }
-      )
-        .then(() =>
-          updateDocumentState({
-            activeAssetId: assetId,
-            page: 1,
-          })
-        )
-        .catch(() => undefined);
+      });
+      if (!created) {
+        setDocumentState((current) => ({
+          ...current,
+          assets: current.assets.filter((item) => item.id !== assetId),
+          activeAssetId:
+            current.activeAssetId === assetId
+              ? previousActiveAssetId ?? current.activeAssetId
+              : current.activeAssetId,
+          page:
+            current.activeAssetId === assetId ? previousDocumentPage : current.page,
+        }));
+        return;
+      }
       void upsertLibraryItem({
         id: generateId(),
         name: file.name,
         type: isPdf ? "pdf" : isImage ? "image" : "office",
         ownerUserId: user?.id ?? "unknown",
-        sourceUrl: objectImageUrl ?? url,
+        sourceUrl: isImage ? url : objectImageUrl ?? url,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         folderId: null,
@@ -8748,16 +8802,12 @@ export default function WorkbookSessionPage() {
         : null;
     const snapshotImageUrl =
       active.type === "image"
-        ? await optimizeImageDataUrl(active.url, {
-            maxEdge: 820,
-            quality: 0.58,
-            maxChars: 46_000,
-          })
+        ? undefined
         : renderedPage
           ? await optimizeImageDataUrl(renderedPage.imageUrl, {
               maxEdge: 820,
               quality: 0.58,
-              maxChars: 46_000,
+              maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
             })
           : undefined;
     const object: WorkbookBoardObject = {
@@ -8774,6 +8824,12 @@ export default function WorkbookSessionPage() {
       opacity: 1,
       imageUrl: snapshotImageUrl,
       imageName: active.name,
+      meta:
+        active.type === "image"
+          ? {
+              [WORKBOOK_IMAGE_ASSET_META_KEY]: active.id,
+            }
+          : undefined,
       text:
         active.type === "pdf"
           ? `PDF: ${active.name}`
@@ -9740,7 +9796,7 @@ export default function WorkbookSessionPage() {
   const handleCanvasObjectCreate = useCallback(
     (object: WorkbookBoardObject) => {
       suppressAutoPanelSelectionRef.current = object.id;
-      void commitObjectCreate(object);
+      void commitObjectCreate(object).catch(() => undefined);
     },
     [commitObjectCreate]
   );
@@ -10518,6 +10574,15 @@ export default function WorkbookSessionPage() {
     activeDocument?.type === "pdf"
       ? Math.max(1, activeDocument.renderedPages?.length ?? 1)
       : 1;
+  const imageAssetUrls = useMemo(
+    () =>
+      Object.fromEntries(
+        documentState.assets
+          .filter((asset) => asset.type === "image" && typeof asset.url === "string" && asset.url)
+          .map((asset) => [asset.id, asset.url])
+      ),
+    [documentState.assets]
+  );
 
   const activeFrameObject = useMemo(
     () =>
@@ -10757,8 +10822,8 @@ export default function WorkbookSessionPage() {
           <div
             ref={contextbarRef}
             className={`workbook-session__contextbar-dock${
-              isContextbarCollapsed ? " is-collapsed" : ""
-            }${isCompactViewport ? " is-compact" : ""}`}
+              isCompactViewport ? " is-compact" : ""
+            }`}
             style={
               isCompactViewport
                 ? undefined
@@ -10776,22 +10841,9 @@ export default function WorkbookSessionPage() {
                 <DragHandleRoundedIcon fontSize="inherit" />
                 <span>Панель доски</span>
               </div>
-              <IconButton
-                size="small"
-                className="workbook-session__toolbar-icon workbook-session__contextbar-dock-toggle"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={() => setIsContextbarCollapsed((current) => !current)}
-              >
-                {isContextbarCollapsed ? (
-                  <UnfoldMoreRoundedIcon fontSize="small" />
-                ) : (
-                  <UnfoldLessRoundedIcon fontSize="small" />
-                )}
-              </IconButton>
             </div>
 
-            {!isContextbarCollapsed ? (
-              <div className="workbook-session__contextbar">
+            <div className="workbook-session__contextbar">
                 <Menu
                   container={overlayContainer}
                   anchorEl={menuAnchor}
@@ -10990,8 +11042,7 @@ export default function WorkbookSessionPage() {
                     </span>
                   </Tooltip>
                 ) : null}
-              </div>
-            ) : null}
+            </div>
           </div>
 
           <div className="workbook-session__board-shell">
@@ -11020,6 +11071,7 @@ export default function WorkbookSessionPage() {
               showGrid={boardSettings.showGrid}
               gridColor={boardSettings.gridColor}
               backgroundColor={boardSettings.backgroundColor}
+              imageAssetUrls={imageAssetUrls}
               showPageNumbers={boardSettings.showPageNumbers}
               currentPage={boardSettings.currentPage}
               disabled={!canEdit || boardLocked}

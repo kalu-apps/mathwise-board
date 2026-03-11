@@ -36,6 +36,7 @@ const toColor = (value: unknown, fallback: string) =>
 
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
+export const WORKBOOK_IMAGE_ASSET_META_KEY = "documentAssetId";
 
 const normalizeSceneLayers = (
   rawLayers: unknown,
@@ -809,6 +810,15 @@ export const normalizeDocumentAssetPayload = (raw: unknown) =>
   normalizeDocumentAsset(raw);
 export const normalizeDocumentAnnotationPayload = (raw: unknown) =>
   normalizeDocumentAnnotation(raw);
+export const resolveBoardObjectImageAssetId = (
+  object: Pick<WorkbookBoardObject, "type" | "meta"> | null | undefined
+) => {
+  if (!object || object.type !== "image") return null;
+  const assetId = object.meta?.[WORKBOOK_IMAGE_ASSET_META_KEY];
+  return typeof assetId === "string" && assetId.trim().length > 0
+    ? assetId.trim()
+    : null;
+};
 
 export const encodeSessionState = (state: WorkbookSessionState) => ({
   strokes: state.strokes,
