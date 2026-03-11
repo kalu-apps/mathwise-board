@@ -1,6 +1,7 @@
 import { api } from "@/shared/api/client";
 import { buildApiUrl } from "@/shared/api/base";
 import type { User } from "@/entities/user/model/types";
+import type { WorkbookClientEventInput } from "./events";
 import type {
   WorkbookDraftCard,
   WorkbookEvent,
@@ -15,12 +16,6 @@ import type {
   WorkbookSnapshot,
   WorkbookStroke,
 } from "./types";
-
-export type WorkbookClientEventInput = {
-  clientEventId?: string;
-  type: WorkbookEvent["type"];
-  payload: unknown;
-};
 
 const buildWorkbookWebSocketUrl = (pathname: string) => {
   if (typeof window === "undefined") return null;

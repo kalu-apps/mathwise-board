@@ -73,7 +73,6 @@ import { useAuth } from "@/features/auth/model/AuthContext";
 import {
   appendWorkbookEvents,
   appendWorkbookLiveEvents,
-  type WorkbookClientEventInput,
   createWorkbookInvite,
   getWorkbookEvents,
   getWorkbookSession,
@@ -87,6 +86,24 @@ import {
   subscribeWorkbookEventsStream,
   subscribeWorkbookLiveSocket,
 } from "@/features/workbook/model/api";
+import {
+  type WorkbookClientEventInput,
+  isDirtyWorkbookEventType,
+  isHistoryTrackedWorkbookEventType,
+  isLiveReplayableWorkbookEventType,
+  isOptimisticWorkbookEventType,
+  isVolatileWorkbookEventType,
+} from "@/features/workbook/model/events";
+import {
+  compactWorkbookObjectUpdateEvents,
+  hasWorkbookEventGap,
+  mergeBoardObjectWithPatch,
+  mergePreviewPathPoints,
+  resolveNextLatestSeq,
+  withWorkbookClientEventIds,
+} from "@/features/workbook/model/runtime";
+import { applyWorkbookIncomingRealtimeEvent } from "@/features/workbook/model/incomingRealtime";
+import { applyWorkbookIncomingSessionMetaEvent } from "@/features/workbook/model/incomingSessionMeta";
 import type {
   WorkbookBoardSettings,
   WorkbookBoardObject,
@@ -206,7 +223,6 @@ const STROKE_PREVIEW_EXPIRY_MS = 3_000;
 const ERASER_PREVIEW_EXPIRY_MS = 600;
 const ERASER_PREVIEW_END_EXPIRY_MS = 900;
 const CONTEXTBAR_VIEWPORT_MARGIN_PX = 12;
-const PREVIEW_POINT_MERGE_MIN_DISTANCE_PX = 2.5;
 const ERASER_PREVIEW_POINT_MERGE_MIN_DISTANCE_PX = 1.2;
 const VIEWPORT_SYNC_MIN_INTERVAL_MS = 18;
 const VIEWPORT_SYNC_EPSILON = 0.2;
@@ -282,29 +298,6 @@ const readFileExtension = (fileName: string) => {
   return safeName.slice(dotIndex + 1);
 };
 
-const mergePreviewPathPoints = (
-  current: WorkbookPoint[],
-  incoming: WorkbookPoint[],
-  minDistance = PREVIEW_POINT_MERGE_MIN_DISTANCE_PX
-) => {
-  if (incoming.length === 0) return current;
-  const merged = current.length > 0 ? [...current] : [];
-  let lastPoint = merged[merged.length - 1] ?? null;
-  incoming.forEach((point) => {
-    if (
-      !lastPoint ||
-      Math.hypot(point.x - lastPoint.x, point.y - lastPoint.y) >= minDistance
-    ) {
-      merged.push(point);
-      lastPoint = point;
-      return;
-    }
-    merged[merged.length - 1] = point;
-    lastPoint = point;
-  });
-  return merged;
-};
-
 const isPdfUploadFile = (file: File) =>
   file.type.toLowerCase().includes("pdf") || readFileExtension(file.name) === "pdf";
 
@@ -346,188 +339,6 @@ const defaultWidthByTool: Partial<Record<WorkbookTool, number>> = {
   divider: 2,
   sticker: 2,
   comment: 2,
-};
-
-const HISTORY_EVENT_TYPES = new Set<WorkbookEvent["type"]>([
-  "board.stroke",
-  "board.stroke.delete",
-  "annotations.stroke",
-  "annotations.stroke.delete",
-  "board.object.create",
-  "board.object.update",
-  "board.object.delete",
-  "board.object.pin",
-  "board.clear",
-  "annotations.clear",
-  "geometry.constraint.add",
-  "geometry.constraint.remove",
-  "board.settings.update",
-  "document.asset.add",
-  "document.annotation.add",
-  "document.annotation.clear",
-]);
-
-const DIRTY_EVENT_TYPES = new Set<WorkbookEvent["type"]>([
-  ...HISTORY_EVENT_TYPES,
-  "chat.message",
-  "chat.message.delete",
-  "chat.clear",
-  "comments.upsert",
-  "comments.remove",
-  "timer.update",
-  "settings.update",
-  "permissions.update",
-]);
-
-const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
-  if (events.length <= 1) return events;
-  const compacted: WorkbookEvent[] = [];
-  const pendingByTypeAndObjectId = new Map<string, WorkbookEvent>();
-  const removePendingByObjectId = (objectId: string) => {
-    if (!objectId || pendingByTypeAndObjectId.size === 0) return;
-    const suffix = `:${objectId}`;
-    Array.from(pendingByTypeAndObjectId.keys()).forEach((key) => {
-      if (key.endsWith(suffix)) {
-        pendingByTypeAndObjectId.delete(key);
-      }
-    });
-  };
-  const flushPending = () => {
-    if (pendingByTypeAndObjectId.size === 0) return;
-    pendingByTypeAndObjectId.forEach((event) => compacted.push(event));
-    pendingByTypeAndObjectId.clear();
-  };
-  events.forEach((event) => {
-    if (event.type === "board.object.update") {
-      const payload =
-        event.payload && typeof event.payload === "object"
-          ? (event.payload as { objectId?: unknown; patch?: unknown })
-          : null;
-      const objectId = payload && typeof payload.objectId === "string" ? payload.objectId : "";
-      const patch =
-        payload?.patch && typeof payload.patch === "object"
-          ? (payload.patch as Partial<WorkbookBoardObject>)
-          : null;
-      if (!objectId || !patch) {
-        flushPending();
-        compacted.push(event);
-        return;
-      }
-      const eventKey = `${event.type}:${objectId}`;
-      const previous = pendingByTypeAndObjectId.get(eventKey);
-      if (previous) {
-        const previousPayload =
-          previous.payload && typeof previous.payload === "object"
-            ? (previous.payload as {
-                objectId: string;
-                patch: Partial<WorkbookBoardObject>;
-              })
-            : { objectId, patch: {} as Partial<WorkbookBoardObject> };
-        pendingByTypeAndObjectId.set(eventKey, {
-          ...event,
-          payload: {
-            objectId,
-            patch: {
-              ...previousPayload.patch,
-              ...patch,
-            },
-          },
-        });
-      } else {
-        pendingByTypeAndObjectId.set(eventKey, event);
-      }
-      return;
-    }
-    if (
-      event.type === "board.object.preview" ||
-      event.type === "board.eraser.preview" ||
-      event.type === "board.stroke.preview" ||
-      event.type === "annotations.stroke.preview"
-    ) {
-      flushPending();
-      compacted.push(event);
-      return;
-    }
-    const deletedObjectId =
-      event.type === "board.object.delete" &&
-      event.payload &&
-      typeof event.payload === "object" &&
-      typeof (event.payload as { objectId?: unknown }).objectId === "string"
-        ? ((event.payload as { objectId: string }).objectId ?? "")
-        : "";
-    if (deletedObjectId) {
-      removePendingByObjectId(deletedObjectId);
-    }
-    flushPending();
-    compacted.push(event);
-  });
-  flushPending();
-  return compacted;
-};
-
-const VOLATILE_WORKBOOK_EVENT_TYPES = new Set<WorkbookEvent["type"]>([
-  "board.object.preview",
-  "board.eraser.preview",
-  "board.stroke.preview",
-  "annotations.stroke.preview",
-  "board.viewport.sync",
-  "presence.sync",
-]);
-
-const LIVE_REPLAYABLE_WORKBOOK_EVENT_TYPES = new Set<WorkbookEvent["type"]>([
-  "board.object.create",
-]);
-
-const OPTIMISTIC_WORKBOOK_EVENT_TYPES = new Set<WorkbookEvent["type"]>([
-  "board.object.create",
-  "board.undo",
-  "board.redo",
-  "chat.message",
-  "chat.clear",
-]);
-
-const withWorkbookClientEventIds = (
-  events: WorkbookClientEventInput[]
-): WorkbookClientEventInput[] =>
-  events.map((event) =>
-    typeof event.clientEventId === "string" && event.clientEventId
-      ? event
-      : {
-          ...event,
-          clientEventId: generateId(),
-        }
-  );
-
-const resolveNextLatestSeq = (
-  currentLatestSeq: number,
-  responseLatestSeq: number,
-  events: WorkbookEvent[]
-) => {
-  if (events.length === 0) {
-    return Math.max(0, currentLatestSeq, responseLatestSeq);
-  }
-  return Math.max(0, currentLatestSeq, responseLatestSeq, ...events.map((event) => event.seq));
-};
-
-const hasWorkbookEventGap = (currentLatestSeq: number, events: WorkbookEvent[]) => {
-  const sequenced = events
-    .filter(
-      (event) =>
-        !VOLATILE_WORKBOOK_EVENT_TYPES.has(event.type) &&
-        typeof event.seq === "number" &&
-        Number.isFinite(event.seq)
-    )
-    .map((event) => Math.trunc(event.seq))
-    .sort((left, right) => left - right)
-    .filter((seq, index, source) => index === 0 || source[index - 1] !== seq);
-  if (sequenced.length === 0) return false;
-  let expected = Math.max(0, Math.trunc(currentLatestSeq)) + 1;
-  for (const seq of sequenced) {
-    if (seq < expected) continue;
-    if (seq > expected) return true;
-    expected = seq + 1;
-  }
-  return false;
 };
 
 const DEFAULT_SETTINGS: WorkbookSessionSettings = {
@@ -684,40 +495,6 @@ const getNextUniqueBoardLabel = (used: Set<string>, indexSeed: number) => {
 };
 
 const clampGraphOffset = (value: number) => Math.max(-999, Math.min(999, value));
-
-const mergeBoardObjectWithPatch = (
-  current: WorkbookBoardObject,
-  patch: Partial<WorkbookBoardObject>
-): WorkbookBoardObject => {
-  const hasMetaPatch = Object.prototype.hasOwnProperty.call(patch, "meta");
-  if (!hasMetaPatch) {
-    return {
-      ...current,
-      ...patch,
-    };
-  }
-  const patchMeta = patch.meta;
-  if (!patchMeta || typeof patchMeta !== "object" || Array.isArray(patchMeta)) {
-    return {
-      ...current,
-      ...patch,
-      meta: patchMeta,
-    };
-  }
-  const currentMeta =
-    current.meta && typeof current.meta === "object" && !Array.isArray(current.meta)
-      ? (current.meta as Record<string, unknown>)
-      : {};
-  const nextMeta = {
-    ...currentMeta,
-    ...(patchMeta as Record<string, unknown>),
-  };
-  return {
-    ...current,
-    ...patch,
-    meta: nextMeta,
-  };
-};
 
 const cloneSerializable = <T,>(value: T): T => structuredClone(value);
 
@@ -2698,11 +2475,11 @@ export default function WorkbookSessionPage() {
     events.forEach((event) => {
       const allowReplay = Boolean(
         options?.allowLiveReplay &&
-        LIVE_REPLAYABLE_WORKBOOK_EVENT_TYPES.has(event.type)
+        isLiveReplayableWorkbookEventType(event.type)
       );
       if (
         !allowReplay &&
-        !VOLATILE_WORKBOOK_EVENT_TYPES.has(event.type) &&
+        !isVolatileWorkbookEventType(event.type) &&
         typeof event?.seq === "number" &&
         Number.isFinite(event.seq) &&
         event.seq <= latestSeqRef.current
@@ -3302,757 +3079,82 @@ export default function WorkbookSessionPage() {
         const eventTimestamp = Number.isFinite(parsedEventTs)
           ? parsedEventTs
           : Date.now();
-        if (event.type === "presence.sync") {
-          const payload = event.payload as { participants?: unknown };
-          if (!Array.isArray(payload.participants)) return;
-          const participants = payload.participants as WorkbookSessionParticipant[];
-          setSession((current) =>
-            current
-              ? areParticipantsEqual(current.participants, participants)
-                ? current
-                : {
-                    ...current,
-                    participants,
-                  }
-              : current
-          );
+        if (
+          applyWorkbookIncomingRealtimeEvent({
+            event,
+            eventTimestamp,
+            userId: user?.id,
+            selectedObjectId,
+            selectedTextDraftDirty: selectedTextDraftDirtyRef.current,
+            selectedTextDraftObjectId: selectedTextDraftObjectIdRef.current,
+            awaitingClearRequest,
+            areParticipantsEqual,
+            applyHistoryOperations: (operations) =>
+              applyHistoryOperationsRef.current(operations as WorkbookHistoryOperation[]),
+            restoreSceneSnapshot,
+            clearObjectSyncRuntime,
+            clearStrokePreviewRuntime,
+            clearIncomingEraserPreviewRuntime,
+            scheduleIncomingEraserPreviewExpiry,
+            queueIncomingStrokePreview,
+            finalizeStrokePreview,
+            queueIncomingPreviewPatch,
+            setSession,
+            setCanvasViewport,
+            setIncomingEraserPreviews,
+            setBoardStrokes,
+            setAnnotationStrokes,
+            setBoardObjects,
+            setConstraints,
+            setSelectedObjectId,
+            setSelectedConstraintId,
+            setPendingClearRequest,
+            setAwaitingClearRequest,
+            setConfirmedClearRequest,
+            setFocusPoint,
+            setPointerPoint,
+            setFocusPointsByUser,
+            setPointerPointsByUser,
+            viewportLastReceivedAtRef,
+            finalizedStrokePreviewIdsRef,
+            incomingStrokePreviewVersionRef,
+            objectLastCommittedEventAtRef,
+            incomingPreviewQueuedPatchRef,
+            incomingPreviewVersionByAuthorObjectRef,
+            objectUpdateQueuedPatchRef,
+            objectUpdateDispatchOptionsRef,
+            objectUpdateHistoryBeforeRef,
+            objectPreviewQueuedPatchRef,
+            objectUpdateInFlightRef,
+            objectPreviewVersionRef,
+            objectUpdateTimersRef,
+            focusResetTimersByUserRef,
+            generateId,
+            eraserPreviewPointMergeMinDistancePx:
+              ERASER_PREVIEW_POINT_MERGE_MIN_DISTANCE_PX,
+            eraserPreviewExpiryMs: ERASER_PREVIEW_EXPIRY_MS,
+            eraserPreviewEndExpiryMs: ERASER_PREVIEW_END_EXPIRY_MS,
+            viewportSyncEpsilon: VIEWPORT_SYNC_EPSILON,
+          })
+        ) {
           return;
         }
-        if (event.type === "board.viewport.sync") {
-          if (event.authorUserId === user?.id) return;
-          const payload = event.payload as { offset?: unknown };
-          const rawOffset =
-            payload.offset && typeof payload.offset === "object"
-              ? (payload.offset as Partial<WorkbookPoint>)
-              : null;
-          if (
-            !rawOffset ||
-            typeof rawOffset.x !== "number" ||
-            !Number.isFinite(rawOffset.x) ||
-            typeof rawOffset.y !== "number" ||
-            !Number.isFinite(rawOffset.y)
-          ) {
-            return;
-          }
-          const offset: WorkbookPoint = { x: rawOffset.x, y: rawOffset.y };
-          viewportLastReceivedAtRef.current = Date.now();
-          setCanvasViewport((current) => {
-            if (
-              Math.abs(current.x - offset.x) <= VIEWPORT_SYNC_EPSILON &&
-              Math.abs(current.y - offset.y) <= VIEWPORT_SYNC_EPSILON
-            ) {
-              return current;
-            }
-            return { x: offset.x, y: offset.y };
-          });
-          return;
-        }
-        if (event.type === "board.undo" || event.type === "board.redo") {
-          const payload = event.payload as { scene?: unknown; operations?: unknown };
-          clearObjectSyncRuntime();
-          clearStrokePreviewRuntime();
-          clearIncomingEraserPreviewRuntime();
-          if (Array.isArray(payload.operations)) {
-            applyHistoryOperationsRef.current(payload.operations as WorkbookHistoryOperation[]);
-            return;
-          }
-          if (!payload.scene || typeof payload.scene !== "object") return;
-          const normalized = normalizeScenePayload(payload.scene);
-          restoreSceneSnapshot({
-            boardStrokes: normalized.strokes.filter((stroke) => stroke.layer === "board"),
-            boardObjects: normalized.objects,
-            constraints: normalized.constraints,
-            annotationStrokes: normalized.strokes.filter(
-              (stroke) => stroke.layer === "annotations"
-            ),
-            chatMessages: normalized.chat,
-            comments: normalized.comments,
-            timerState: normalized.timer,
-            boardSettings: normalized.boardSettings,
-            libraryState: normalized.library,
-            documentState: normalized.document,
-          });
-          return;
-        }
-        if (event.type === "board.eraser.preview") {
-          if (event.authorUserId === user?.id) return;
-          const payload = event.payload as {
-            gestureId?: unknown;
-            layer?: unknown;
-            page?: unknown;
-            radius?: unknown;
-            points?: unknown;
-            ended?: unknown;
-          };
-          const gestureId =
-            typeof payload.gestureId === "string" ? payload.gestureId.trim() : "";
-          if (!gestureId) return;
-          const points = Array.isArray(payload.points)
-            ? payload.points.reduce<WorkbookPoint[]>((acc, point) => {
-                if (!point || typeof point !== "object") return acc;
-                const x = (point as { x?: unknown }).x;
-                const y = (point as { y?: unknown }).y;
-                if (
-                  typeof x !== "number" ||
-                  !Number.isFinite(x) ||
-                  typeof y !== "number" ||
-                  !Number.isFinite(y)
-                ) {
-                  return acc;
-                }
-                acc.push({ x, y });
-                return acc;
-              }, [])
-            : [];
-          const previewId = `${event.authorUserId}:${gestureId}`;
-          const ended = Boolean(payload.ended);
-          setIncomingEraserPreviews((current) => {
-            const existing = current[previewId];
-            const nextPoints = mergePreviewPathPoints(
-              existing?.points ?? [],
-              points,
-              ERASER_PREVIEW_POINT_MERGE_MIN_DISTANCE_PX
-            );
-            if (!existing && nextPoints.length === 0 && ended) {
-              return current;
-            }
-            return {
-              ...current,
-              [previewId]: {
-                id: previewId,
-                authorUserId: event.authorUserId,
-                gestureId,
-                layer: payload.layer === "annotations" ? "annotations" : "board",
-                page:
-                  typeof payload.page === "number" && Number.isFinite(payload.page)
-                    ? Math.max(1, Math.trunc(payload.page))
-                    : existing?.page ?? 1,
-                radius:
-                  typeof payload.radius === "number" && Number.isFinite(payload.radius)
-                    ? Math.max(4, Math.min(160, payload.radius))
-                    : existing?.radius ?? 14,
-                points: nextPoints,
-                updatedAt: eventTimestamp,
-              },
-            };
-          });
-          scheduleIncomingEraserPreviewExpiry(
-            previewId,
-            ended ? ERASER_PREVIEW_END_EXPIRY_MS : ERASER_PREVIEW_EXPIRY_MS
-          );
-          return;
-        }
-        if (event.type === "board.stroke.preview" || event.type === "annotations.stroke.preview") {
-          if (event.authorUserId === user?.id) return;
-          const payload = event.payload as {
-            stroke?: unknown;
-            previewVersion?: unknown;
-          };
-          const stroke = normalizeStrokePayload(payload.stroke);
-          if (!stroke) return;
-          if (finalizedStrokePreviewIdsRef.current.has(stroke.id)) return;
-          const previewVersion =
-            typeof payload.previewVersion === "number" && Number.isFinite(payload.previewVersion)
-              ? Math.max(1, Math.trunc(payload.previewVersion))
-              : 0;
-          const appliedVersion = incomingStrokePreviewVersionRef.current.get(stroke.id) ?? 0;
-          if (previewVersion > 0 && previewVersion <= appliedVersion) return;
-          if (previewVersion > 0) {
-            incomingStrokePreviewVersionRef.current.set(stroke.id, previewVersion);
-          }
-          queueIncomingStrokePreview(
-            {
-              stroke,
-              previewVersion,
-              updatedAt: Date.now(),
-            },
-            stroke.id
-          );
-          return;
-        }
-        if (event.type === "board.stroke") {
-          const stroke = normalizeStrokePayload((event.payload as { stroke?: unknown })?.stroke);
-          if (!stroke || stroke.layer !== "board") return;
-          finalizeStrokePreview(stroke.id);
-          setBoardStrokes((current) =>
-            current.some((item) => item.id === stroke.id) ? current : [...current, stroke]
-          );
-          return;
-        }
-        if (event.type === "board.stroke.delete") {
-          const strokeId = (event.payload as { strokeId?: unknown })?.strokeId;
-          if (typeof strokeId !== "string") return;
-          finalizeStrokePreview(strokeId);
-          setBoardStrokes((current) => current.filter((item) => item.id !== strokeId));
-          return;
-        }
-        if (event.type === "annotations.stroke") {
-          const stroke = normalizeStrokePayload((event.payload as { stroke?: unknown })?.stroke);
-          if (!stroke || stroke.layer !== "annotations") return;
-          finalizeStrokePreview(stroke.id);
-          setAnnotationStrokes((current) =>
-            current.some((item) => item.id === stroke.id) ? current : [...current, stroke]
-          );
-          return;
-        }
-        if (event.type === "annotations.stroke.delete") {
-          const strokeId = (event.payload as { strokeId?: unknown })?.strokeId;
-          if (typeof strokeId !== "string") return;
-          finalizeStrokePreview(strokeId);
-          setAnnotationStrokes((current) => current.filter((item) => item.id !== strokeId));
-          return;
-        }
-        if (event.type === "board.object.create") {
-          const object = normalizeObjectPayload((event.payload as { object?: unknown })?.object);
-          if (!object) return;
-          objectLastCommittedEventAtRef.current.set(object.id, eventTimestamp);
-          setBoardObjects((current) =>
-            current.some((item) => item.id === object.id) ? current : [...current, object]
-          );
-          return;
-        }
-        if (event.type === "board.object.update") {
-          const payload = event.payload as {
-            objectId?: unknown;
-            patch?: unknown;
-          };
-          const objectId = typeof payload.objectId === "string" ? payload.objectId : "";
-          const patch =
-            payload.patch && typeof payload.patch === "object"
-              ? (payload.patch as Partial<WorkbookBoardObject>)
-              : null;
-          if (!objectId || !patch) return;
-          objectLastCommittedEventAtRef.current.set(objectId, eventTimestamp);
-          const shouldKeepLocalTextDraft =
-            selectedTextDraftDirtyRef.current &&
-            selectedTextDraftObjectIdRef.current === objectId &&
-            event.authorUserId === user?.id &&
-            typeof patch.text === "string";
-          let safePatch = patch;
-          if (shouldKeepLocalTextDraft) {
-            safePatch = { ...patch };
-            delete safePatch.text;
-            if (Object.keys(safePatch).length === 0) return;
-          }
-          incomingPreviewQueuedPatchRef.current.delete(objectId);
-          setBoardObjects((current) => {
-            let found = false;
-            const next = current.map((item) => {
-              if (item.id !== objectId) return item;
-              found = true;
-              return mergeBoardObjectWithPatch(item, safePatch);
-            });
-            return found ? next : current;
-          });
-          return;
-        }
-        if (event.type === "board.object.preview") {
-          if (event.authorUserId === user?.id) return;
-          const payload = event.payload as {
-            objectId?: unknown;
-            patch?: unknown;
-            previewVersion?: unknown;
-          };
-          const objectId = typeof payload.objectId === "string" ? payload.objectId : "";
-          const patch =
-            payload.patch && typeof payload.patch === "object"
-              ? (payload.patch as Partial<WorkbookBoardObject>)
-              : null;
-          if (!objectId || !patch) return;
-          const committedAt = objectLastCommittedEventAtRef.current.get(objectId) ?? 0;
-          if (committedAt > 0 && eventTimestamp <= committedAt) return;
-          const previewVersion =
-            typeof payload.previewVersion === "number" && Number.isFinite(payload.previewVersion)
-              ? Math.max(1, Math.trunc(payload.previewVersion))
-              : null;
-          if (previewVersion !== null) {
-            const versionKey = `${event.authorUserId ?? "unknown"}:${objectId}`;
-            const appliedVersion =
-              incomingPreviewVersionByAuthorObjectRef.current.get(versionKey) ?? 0;
-            if (previewVersion <= appliedVersion) return;
-            incomingPreviewVersionByAuthorObjectRef.current.set(versionKey, previewVersion);
-          }
-          queueIncomingPreviewPatch(objectId, patch);
-          return;
-        }
-        if (event.type === "board.object.delete") {
-          const objectId = (event.payload as { objectId?: unknown })?.objectId;
-          if (typeof objectId !== "string") return;
-          objectLastCommittedEventAtRef.current.set(objectId, eventTimestamp);
-          objectUpdateQueuedPatchRef.current.delete(objectId);
-          objectUpdateDispatchOptionsRef.current.delete(objectId);
-          objectUpdateHistoryBeforeRef.current.delete(objectId);
-          objectPreviewQueuedPatchRef.current.delete(objectId);
-          objectUpdateInFlightRef.current.delete(objectId);
-          objectPreviewVersionRef.current.delete(objectId);
-          incomingPreviewQueuedPatchRef.current.delete(objectId);
-          Array.from(incomingPreviewVersionByAuthorObjectRef.current.keys()).forEach((key) => {
-            if (key.endsWith(`:${objectId}`)) {
-              incomingPreviewVersionByAuthorObjectRef.current.delete(key);
-            }
-          });
-          const pendingUpdateTimer = objectUpdateTimersRef.current.get(objectId);
-          if (pendingUpdateTimer !== undefined) {
-            window.clearTimeout(pendingUpdateTimer);
-            objectUpdateTimersRef.current.delete(objectId);
-          }
-          setBoardObjects((current) => current.filter((item) => item.id !== objectId));
-          setConstraints((current) =>
-            current.filter(
-              (constraint) =>
-                constraint.sourceObjectId !== objectId &&
-                constraint.targetObjectId !== objectId
-            )
-          );
-          if (selectedObjectId === objectId) {
-            setSelectedObjectId(null);
-          }
-          return;
-        }
-        if (event.type === "board.object.pin") {
-          const payload = event.payload as {
-            objectId?: unknown;
-            pinned?: unknown;
-          };
-          const objectId = typeof payload.objectId === "string" ? payload.objectId : "";
-          if (!objectId) return;
-          setBoardObjects((current) =>
-            current.map((item) =>
-              item.id === objectId ? { ...item, pinned: Boolean(payload.pinned) } : item
-            )
-          );
-          return;
-        }
-        if (event.type === "board.clear") {
-          setBoardStrokes([]);
-          setBoardObjects([]);
-          clearObjectSyncRuntime();
-          clearStrokePreviewRuntime();
-          clearIncomingEraserPreviewRuntime();
-          setFocusPoint(null);
-          setPointerPoint(null);
-          setFocusPointsByUser({});
-          setPointerPointsByUser({});
-          focusResetTimersByUserRef.current.forEach((timerId) => {
-            window.clearTimeout(timerId);
-          });
-          focusResetTimersByUserRef.current.clear();
-          setConstraints([]);
-          setSelectedObjectId(null);
-          setSelectedConstraintId(null);
-          setPendingClearRequest(null);
-          setAwaitingClearRequest(null);
-          return;
-        }
-        if (event.type === "annotations.clear") {
-          clearStrokePreviewRuntime({ clearFinalized: false });
-          clearIncomingEraserPreviewRuntime();
-          setAnnotationStrokes([]);
-          return;
-        }
-        if (event.type === "board.clear.request") {
-          const payload = event.payload as {
-            requestId?: unknown;
-            targetLayer?: unknown;
-          };
-          const requestId =
-            typeof payload.requestId === "string" ? payload.requestId : generateId();
-          const targetLayer =
-            payload.targetLayer === "annotations" ? "annotations" : "board";
-          const request: ClearRequest = {
-            requestId,
-            targetLayer,
-            authorUserId: event.authorUserId,
-          };
-          setPendingClearRequest(request);
-          if (event.authorUserId === user?.id) {
-            setAwaitingClearRequest(request);
-          }
-          return;
-        }
-        if (event.type === "board.clear.confirm") {
-          const requestId = (event.payload as { requestId?: unknown })?.requestId;
-          if (typeof requestId !== "string") return;
-          if (awaitingClearRequest && awaitingClearRequest.requestId === requestId) {
-            setConfirmedClearRequest(awaitingClearRequest);
-          }
-          setPendingClearRequest((current) => {
-            if (!current || current.requestId !== requestId) return current;
-            return null;
-          });
-          setAwaitingClearRequest((current) => {
-            if (!current || current.requestId !== requestId) return current;
-            return null;
-          });
-          return;
-        }
-        if (event.type === "focus.point") {
-          const payload = event.payload as {
-            target?: unknown;
-            point?: unknown;
-            mode?: unknown;
-          };
-          if (payload.target !== "board") return;
-          const mode =
-            payload.mode === "pin" || payload.mode === "move" || payload.mode === "clear"
-              ? payload.mode
-              : "flash";
-          const authorKey = event.authorUserId || "unknown";
-          if (mode === "clear") {
-            if (event.authorUserId === user?.id) {
-              setPointerPoint(null);
-              setFocusPoint(null);
-            }
-            setPointerPointsByUser((current) => {
-              if (!(authorKey in current)) return current;
-              const next = { ...current };
-              delete next[authorKey];
-              return next;
-            });
-            setFocusPointsByUser((current) => {
-              if (!(authorKey in current)) return current;
-              const next = { ...current };
-              delete next[authorKey];
-              return next;
-            });
-            const existingTimer = focusResetTimersByUserRef.current.get(authorKey);
-            if (existingTimer !== undefined) {
-              window.clearTimeout(existingTimer);
-              focusResetTimersByUserRef.current.delete(authorKey);
-            }
-            return;
-          }
-          const point = payload.point as Partial<WorkbookPoint> | undefined;
-          if (!point || typeof point.x !== "number" || typeof point.y !== "number") return;
-          const pointX = point.x;
-          const pointY = point.y;
-          if (mode === "pin" || mode === "move") {
-            if (event.authorUserId === user?.id) {
-              setPointerPoint({ x: pointX, y: pointY });
-            }
-            setPointerPointsByUser((current) => ({
-              ...current,
-              [authorKey]: { x: pointX, y: pointY },
-            }));
-          }
-          if (event.authorUserId === user?.id) {
-            setFocusPoint({ x: pointX, y: pointY });
-          }
-          setFocusPointsByUser((current) => ({
-            ...current,
-            [authorKey]: { x: pointX, y: pointY },
-          }));
-          const previousTimer = focusResetTimersByUserRef.current.get(authorKey);
-          if (previousTimer !== undefined) {
-            window.clearTimeout(previousTimer);
-          }
-          const nextTimer = window.setTimeout(() => {
-            setFocusPointsByUser((current) => {
-              if (!(authorKey in current)) return current;
-              const next = { ...current };
-              delete next[authorKey];
-              return next;
-            });
-            if (event.authorUserId === user?.id) {
-              setFocusPoint(null);
-            }
-            focusResetTimersByUserRef.current.delete(authorKey);
-          }, 800);
-          focusResetTimersByUserRef.current.set(authorKey, nextTimer);
-          return;
-        }
-        if (event.type === "document.asset.add") {
-          const asset = normalizeDocumentAssetPayload(
-            (event.payload as { asset?: unknown })?.asset
-          );
-          if (!asset) return;
-          setDocumentState((current) => ({
-            ...current,
-            assets: current.assets.some((item) => item.id === asset.id)
-              ? current.assets
-              : [...current.assets, asset],
-            activeAssetId: current.activeAssetId ?? asset.id,
-          }));
-          return;
-        }
-        if (event.type === "document.state.update") {
-          const payload = event.payload as {
-            activeAssetId?: unknown;
-            page?: unknown;
-            zoom?: unknown;
-          };
-          setDocumentState((current) => ({
-            ...current,
-            activeAssetId:
-              typeof payload.activeAssetId === "string"
-                ? payload.activeAssetId
-                : current.activeAssetId,
-            page:
-              typeof payload.page === "number" && Number.isFinite(payload.page)
-                ? Math.max(1, Math.floor(payload.page))
-                : current.page,
-            zoom:
-              typeof payload.zoom === "number" && Number.isFinite(payload.zoom)
-                ? Math.max(0.2, Math.min(4, payload.zoom))
-                : current.zoom,
-          }));
-          return;
-        }
-        if (event.type === "document.annotation.add") {
-          const annotation = normalizeDocumentAnnotationPayload(
-            (event.payload as { annotation?: unknown })?.annotation
-          );
-          if (!annotation) return;
-          setDocumentState((current) => ({
-            ...current,
-            annotations: [...current.annotations, annotation],
-          }));
-          return;
-        }
-        if (event.type === "document.annotation.clear") {
-          setDocumentState((current) => ({
-            ...current,
-            annotations: [],
-          }));
-          return;
-        }
-        if (event.type === "geometry.constraint.add") {
-          const payload = event.payload as { constraint?: unknown };
-          if (!payload.constraint || typeof payload.constraint !== "object") return;
-          const typed = payload.constraint as WorkbookConstraint;
-          if (!typed.id || !typed.type || !typed.sourceObjectId || !typed.targetObjectId) {
-            return;
-          }
-          setConstraints((current) => {
-            const exists = current.some((item) => item.id === typed.id);
-            if (!exists) return [...current, typed];
-            return current.map((item) => (item.id === typed.id ? { ...item, ...typed } : item));
-          });
-          return;
-        }
-        if (event.type === "geometry.constraint.remove") {
-          const constraintId = (event.payload as { constraintId?: unknown })?.constraintId;
-          if (typeof constraintId !== "string") return;
-          setConstraints((current) => current.filter((item) => item.id !== constraintId));
-          setSelectedConstraintId((current) =>
-            current === constraintId ? null : current
-          );
-          return;
-        }
-        if (event.type === "board.settings.update") {
-          const payload = event.payload as { boardSettings?: unknown };
-          if (!payload.boardSettings || typeof payload.boardSettings !== "object") return;
-          setBoardSettings((current) => {
-            const merged = {
-              ...current,
-              ...(payload.boardSettings as Partial<WorkbookBoardSettings>),
-            };
-            const normalizedLayers = normalizeSceneLayersForBoard(
-              merged.sceneLayers,
-              merged.activeSceneLayerId
-            );
-            return {
-              ...merged,
-              sceneLayers: normalizedLayers.sceneLayers,
-              activeSceneLayerId: normalizedLayers.activeSceneLayerId,
-            };
-          });
-          return;
-        }
-        if (event.type === "library.folder.upsert") {
-          const payload = event.payload as { folder?: unknown };
-          if (!payload.folder || typeof payload.folder !== "object") return;
-          const folder = payload.folder as WorkbookLibraryState["folders"][number];
-          if (!folder.id) return;
-          setLibraryState((current) => {
-            const exists = current.folders.some((item) => item.id === folder.id);
-            return {
-              ...current,
-              folders: exists
-                ? current.folders.map((item) =>
-                    item.id === folder.id ? { ...item, ...folder } : item
-                  )
-                : [...current.folders, folder],
-            };
-          });
-          return;
-        }
-        if (event.type === "library.folder.remove") {
-          const payload = event.payload as { folderId?: unknown };
-          if (typeof payload.folderId !== "string") return;
-          setLibraryState((current) => ({
-            ...current,
-            folders: current.folders.filter((item) => item.id !== payload.folderId),
-            items: current.items.map((item) =>
-              item.folderId === payload.folderId ? { ...item, folderId: null } : item
-            ),
-          }));
-          return;
-        }
-        if (event.type === "library.item.upsert") {
-          const payload = event.payload as { item?: unknown };
-          if (!payload.item || typeof payload.item !== "object") return;
-          const item = payload.item as WorkbookLibraryState["items"][number];
-          if (!item.id) return;
-          setLibraryState((current) => {
-            const exists = current.items.some((entry) => entry.id === item.id);
-            return {
-              ...current,
-              items: exists
-                ? current.items.map((entry) =>
-                    entry.id === item.id ? { ...entry, ...item } : entry
-                  )
-                : [...current.items, item],
-            };
-          });
-          return;
-        }
-        if (event.type === "library.item.remove") {
-          const payload = event.payload as { itemId?: unknown };
-          if (typeof payload.itemId !== "string") return;
-          setLibraryState((current) => ({
-            ...current,
-            items: current.items.filter((item) => item.id !== payload.itemId),
-          }));
-          return;
-        }
-        if (event.type === "library.template.upsert") {
-          const payload = event.payload as { template?: unknown };
-          if (!payload.template || typeof payload.template !== "object") return;
-          const template = payload.template as WorkbookLibraryState["templates"][number];
-          if (!template.id) return;
-          setLibraryState((current) => {
-            const exists = current.templates.some((entry) => entry.id === template.id);
-            return {
-              ...current,
-              templates: exists
-                ? current.templates.map((entry) =>
-                    entry.id === template.id ? { ...entry, ...template } : entry
-                  )
-                : [...current.templates, template],
-            };
-          });
-          return;
-        }
-        if (event.type === "library.template.remove") {
-          const payload = event.payload as { templateId?: unknown };
-          if (typeof payload.templateId !== "string") return;
-          setLibraryState((current) => ({
-            ...current,
-            templates: current.templates.filter(
-              (template) => template.id !== payload.templateId
-            ),
-          }));
-          return;
-        }
-        if (event.type === "comments.upsert") {
-          const payload = event.payload as { comment?: unknown };
-          if (!payload.comment || typeof payload.comment !== "object") return;
-          const comment = payload.comment as WorkbookComment;
-          if (!comment.id) return;
-          setComments((current) => {
-            const exists = current.some((item) => item.id === comment.id);
-            return exists
-              ? current.map((item) =>
-                  item.id === comment.id ? { ...item, ...comment } : item
-                )
-              : [...current, comment];
-          });
-          return;
-        }
-        if (event.type === "comments.remove") {
-          const payload = event.payload as { commentId?: unknown };
-          if (typeof payload.commentId !== "string") return;
-          setComments((current) =>
-            current.filter((comment) => comment.id !== payload.commentId)
-          );
-          return;
-        }
-        if (event.type === "timer.update") {
-          const payload = event.payload as { timer?: unknown };
-          if (payload.timer === null) {
-            setTimerState(null);
-            return;
-          }
-          if (!payload.timer || typeof payload.timer !== "object") return;
-          const timer = payload.timer as WorkbookTimerState;
-          if (!timer.id) return;
-          setTimerState(timer);
-          return;
-        }
-        if (event.type === "settings.update") {
-          const payload = event.payload as {
-            settings?: Partial<WorkbookSessionSettings>;
-          };
-          const incomingSettings = payload.settings;
-          if (!incomingSettings) return;
-          setSession((current) =>
-            current
-              ? {
-                  ...current,
-                  settings: {
-                    ...current.settings,
-                    ...incomingSettings,
-                    studentControls: {
-                      ...current.settings.studentControls,
-                      ...incomingSettings.studentControls,
-                    },
-                    smartInk: normalizeSmartInkOptions(incomingSettings.smartInk),
-                  },
-                }
-              : current
-          );
-          return;
-        }
-        if (event.type === "permissions.update") {
-          const payload = event.payload as {
-            userId?: unknown;
-            permissions?: unknown;
-          };
-          const targetUserId =
-            typeof payload.userId === "string" ? payload.userId : "";
-          const patch =
-            payload.permissions && typeof payload.permissions === "object"
-              ? (payload.permissions as Partial<WorkbookSessionParticipant["permissions"]>)
-              : null;
-          if (!targetUserId || !patch) return;
-          setSession((current) => {
-            if (!current) return current;
-            return {
-              ...current,
-              participants: current.participants.map((participant) =>
-                participant.userId === targetUserId
-                  ? {
-                      ...participant,
-                      permissions: {
-                        ...participant.permissions,
-                        ...patch,
-                      },
-                    }
-                  : participant
-              ),
-            };
-          });
-          return;
-        }
-        if (event.type === "chat.message") {
-          const message = normalizeChatMessagePayload(
-            (event.payload as { message?: unknown })?.message
-          );
-          if (!message) return;
-          setChatMessages((current) =>
-            current.some((item) => item.id === message.id) ? current : [...current, message]
-          );
-          return;
-        }
-        if (event.type === "chat.message.delete") {
-          const messageId = (event.payload as { messageId?: unknown })?.messageId;
-          if (typeof messageId !== "string" || !messageId) return;
-          setChatMessages((current) => current.filter((item) => item.id !== messageId));
-          return;
-        }
-        if (event.type === "chat.clear") {
-          setChatMessages([]);
+        if (
+          applyWorkbookIncomingSessionMetaEvent({
+            event,
+            normalizeSceneLayersForBoard,
+            normalizeSmartInkOptions,
+            setDocumentState,
+            setConstraints,
+            setSelectedConstraintId,
+            setBoardSettings,
+            setLibraryState,
+            setComments,
+            setTimerState,
+            setSession,
+            setChatMessages,
+          })
+        ) {
           return;
         }
         } catch (error) {
@@ -4871,9 +3973,10 @@ export default function WorkbookSessionPage() {
     ) => {
       if (!sessionId) return;
       const trackHistory =
-        options?.trackHistory ?? events.some((event) => HISTORY_EVENT_TYPES.has(event.type));
+        options?.trackHistory ??
+        events.some((event) => isHistoryTrackedWorkbookEventType(event.type));
       const shouldMarkDirty =
-        options?.markDirty ?? events.some((event) => DIRTY_EVENT_TYPES.has(event.type));
+        options?.markDirty ?? events.some((event) => isDirtyWorkbookEventType(event.type));
       const historyEntry =
         options && Object.prototype.hasOwnProperty.call(options, "historyEntry")
           ? options.historyEntry ?? null
@@ -4882,7 +3985,7 @@ export default function WorkbookSessionPage() {
             : null;
       const preparedEvents = withWorkbookClientEventIds(events);
       const optimisticEventIds = preparedEvents
-        .filter((event) => OPTIMISTIC_WORKBOOK_EVENT_TYPES.has(event.type))
+        .filter((event) => isOptimisticWorkbookEventType(event.type))
         .map((event) => event.clientEventId)
         .filter((eventId): eventId is string => typeof eventId === "string" && eventId.length > 0);
       if (historyEntry) {
