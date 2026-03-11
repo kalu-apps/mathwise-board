@@ -337,11 +337,13 @@
 }
 
 .workbook-session__layout--sidebar-overlay .workbook-session__sidebar {
-  position: absolute;
-  top: 0;
-  right: 0;
+  position: fixed;
+  top: var(--workbook-floating-top, 86px);
+  right: 18px;
   width: min(320px, 28vw);
+  max-height: calc(100vh - var(--workbook-floating-top, 86px) - 12px);
   z-index: 14;
+  transition: top 0.18s ease;
 }
 
 .workbook-session__layout--sidebar-overlay .workbook-session__sidebar > * {
@@ -791,6 +793,7 @@
   background-clip: padding-box;
   overscroll-behavior: contain;
   will-change: left, top;
+  transition: top 0.18s ease;
 }
 
 .workbook-session__utility-float.is-contextual {

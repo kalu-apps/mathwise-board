@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ChangeEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -1981,6 +1982,7 @@ export default function WorkbookSessionPage() {
   const [isSessionChatEmojiOpen, setIsSessionChatEmojiOpen] = useState(false);
   const [sessionChatPosition, setSessionChatPosition] = useState({ x: 24, y: 96 });
   const [contextbarPosition, setContextbarPosition] = useState({ x: 24, y: 18 });
+  const [floatingPanelsTop, setFloatingPanelsTop] = useState(86);
   const [sessionChatReadAt, setSessionChatReadAt] = useState<string | null>(null);
   const [isClearSessionChatDialogOpen, setIsClearSessionChatDialogOpen] = useState(false);
   const [areaSelection, setAreaSelection] = useState<WorkbookAreaSelection | null>(null);
@@ -1995,6 +1997,7 @@ export default function WorkbookSessionPage() {
   const [undoDepth, setUndoDepth] = useState(0);
   const [redoDepth, setRedoDepth] = useState(0);
   const sessionRootRef = useRef<HTMLElement | null>(null);
+  const sessionHeadRef = useRef<HTMLElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const utilityPanelRef = useRef<HTMLDivElement | null>(null);
   const boardFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -2446,6 +2449,36 @@ export default function WorkbookSessionPage() {
     if (!isCompactViewport || !isUtilityPanelOpen) return;
     setIsUtilityPanelCollapsed(true);
   }, [isCompactViewport, isUtilityPanelOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (isCompactViewport) {
+      setFloatingPanelsTop(12);
+      return;
+    }
+    const updateFloatingPanelsTop = () => {
+      const headRect = sessionHeadRef.current?.getBoundingClientRect() ?? null;
+      if (!headRect) {
+        setFloatingPanelsTop(86);
+        return;
+      }
+      const nextTop = Math.max(
+        12,
+        Math.min(112, Math.round((headRect.bottom > 0 ? headRect.bottom : 0) + 10))
+      );
+      setFloatingPanelsTop((current) => (current === nextTop ? current : nextTop));
+    };
+    updateFloatingPanelsTop();
+    window.addEventListener("scroll", updateFloatingPanelsTop, {
+      capture: true,
+      passive: true,
+    });
+    window.addEventListener("resize", updateFloatingPanelsTop, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", updateFloatingPanelsTop, true);
+      window.removeEventListener("resize", updateFloatingPanelsTop);
+    };
+  }, [isCompactViewport]);
 
   const resolveContextbarDefaultPosition = useCallback(() => {
     if (typeof window === "undefined") {
@@ -5467,11 +5500,11 @@ export default function WorkbookSessionPage() {
       const rect = workspaceRef.current.getBoundingClientRect();
       setUtilityPanelPosition((current) => {
         const fallbackX = Math.max(rect.left + 8, rect.right - 420);
-        const fallbackY = Math.max(rect.top + 8, 86);
+        const fallbackY = Math.max(rect.top + 8, floatingPanelsTop);
         const nextX = current.x > 0 ? current.x : fallbackX;
         const nextY = current.y > 0 ? current.y : fallbackY;
         const minX = rect.left + 8;
-        const minY = rect.top + 8;
+        const minY = Math.max(rect.top + 8, floatingPanelsTop);
         const maxX = Math.max(minX + 24, rect.right - 320);
         const maxY = Math.max(minY + 24, rect.bottom - 120);
         return {
@@ -5482,6 +5515,7 @@ export default function WorkbookSessionPage() {
     },
     [
       canAccessBoardSettingsPanel,
+      floatingPanelsTop,
       isCompactViewport,
       isFullscreen,
       isUtilityPanelOpen,
@@ -5544,7 +5578,7 @@ export default function WorkbookSessionPage() {
       const panelWidth = utilityPanelRef.current?.offsetWidth ?? 360;
       const panelHeight = utilityPanelRef.current?.offsetHeight ?? 420;
       const minX = (workspaceRect?.left ?? 0) + 8;
-      const minY = (workspaceRect?.top ?? 0) + 8;
+      const minY = Math.max((workspaceRect?.top ?? 0) + 8, floatingPanelsTop);
       const maxX = Math.max(
         minX + 24,
         (workspaceRect?.right ?? window.innerWidth) - panelWidth - 8
@@ -5566,6 +5600,7 @@ export default function WorkbookSessionPage() {
       window.removeEventListener("pointerup", onPointerUp);
     };
   }, [
+    floatingPanelsTop,
     isCompactViewport,
     isUtilityPanelOpen,
     utilityPanelDragState,
@@ -5581,11 +5616,11 @@ export default function WorkbookSessionPage() {
       const panelWidth = utilityPanelRef.current?.offsetWidth ?? 360;
       const panelHeight = utilityPanelRef.current?.offsetHeight ?? 420;
       const fallbackX = Math.max(rect.left + 8, rect.right - 420);
-      const fallbackY = Math.max(rect.top + 8, 86);
+      const fallbackY = Math.max(rect.top + 8, floatingPanelsTop);
       const nextX = current.x > 0 ? current.x : fallbackX;
       const nextY = current.y > 0 ? current.y : fallbackY;
       const minX = rect.left + 8;
-      const minY = rect.top + 8;
+      const minY = Math.max(rect.top + 8, floatingPanelsTop);
       const maxX = Math.max(minX + 24, rect.right - panelWidth - 8);
       const maxY = Math.max(minY + 24, rect.bottom - panelHeight - 8);
       return {
@@ -5594,10 +5629,11 @@ export default function WorkbookSessionPage() {
       };
     });
   }, [
-    isCompactViewport,
-    isFullscreen,
-    isUtilityPanelOpen,
-    utilityTab,
+      isCompactViewport,
+      isFullscreen,
+      isUtilityPanelOpen,
+      floatingPanelsTop,
+      utilityTab,
   ]);
 
   const utilityPanelTitle = useMemo(() => {
@@ -11029,7 +11065,7 @@ export default function WorkbookSessionPage() {
         onChange={handleDocsUpload}
       />
 
-      <header className="workbook-session__head">
+      <header className="workbook-session__head" ref={sessionHeadRef}>
         <div className="workbook-session__head-main">
           <IconButton
             className="workbook-session__back"
@@ -11470,7 +11506,16 @@ export default function WorkbookSessionPage() {
 
         </div>
 
-        <aside className="workbook-session__sidebar">
+        <aside
+          className="workbook-session__sidebar"
+          style={
+            !isCompactViewport && showSidebarParticipants
+              ? ({
+                  ["--workbook-floating-top" as string]: `${floatingPanelsTop}px`,
+                } as CSSProperties)
+              : undefined
+          }
+        >
           {showSidebarParticipants ? (
             <Suspense
               fallback={
@@ -11512,7 +11557,10 @@ export default function WorkbookSessionPage() {
             style={
               isCompactViewport
                 ? undefined
-                : { left: utilityPanelPosition.x, top: utilityPanelPosition.y }
+                : {
+                    left: utilityPanelPosition.x,
+                    top: Math.max(utilityPanelPosition.y, floatingPanelsTop),
+                  }
             }
           >
             <div

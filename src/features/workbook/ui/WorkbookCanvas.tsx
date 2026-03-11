@@ -517,6 +517,8 @@ const ERASER_INTERSECTION_EPSILON = 1e-4;
 const OBJECT_ERASER_RATIO_MIN = 0.003;
 const OBJECT_ERASER_RATIO_MAX = 2.4;
 const OBJECT_ERASER_CUT_MERGE_RATIO = 0.38;
+const ERASER_SAMPLE_SPACING_MIN = 1.2;
+const ERASER_SAMPLE_SPACING_FACTOR = 0.32;
 
 const pointsAlmostEqual = (
   left: WorkbookPoint,
@@ -535,6 +537,20 @@ const projectPointOnSegment = (
 
 const distanceBetweenPoints = (left: WorkbookPoint, right: WorkbookPoint) =>
   Math.hypot(left.x - right.x, left.y - right.y);
+
+const buildEraserSegmentPoints = (
+  from: WorkbookPoint,
+  to: WorkbookPoint,
+  radius: number
+) => {
+  const distance = distanceBetweenPoints(from, to);
+  if (distance <= 0.01) return [to];
+  const spacing = Math.max(ERASER_SAMPLE_SPACING_MIN, radius * ERASER_SAMPLE_SPACING_FACTOR);
+  const steps = Math.max(1, Math.ceil(distance / spacing));
+  return Array.from({ length: steps }, (_, index) =>
+    projectPointOnSegment(from, to, (index + 1) / steps)
+  );
+};
 
 const resolveSegmentCircleIntersections = (
   from: WorkbookPoint,
@@ -1656,6 +1672,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const eraserObjectCutsRef = useRef<Map<string, ObjectEraserCut[]>>(new Map());
   const eraserTouchedObjectIdsRef = useRef<Set<string>>(new Set());
   const eraserGestureIdRef = useRef<string | null>(null);
+  const eraserLastAppliedPointRef = useRef<WorkbookPoint | null>(null);
   const eraserLastPreviewPointRef = useRef<WorkbookPoint | null>(null);
   const [inlineTextEdit, setInlineTextEdit] = useState<{
     objectId: string;
@@ -1723,6 +1740,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     eraserStrokeFragmentsRef.current.clear();
     eraserObjectCutsRef.current.clear();
     eraserTouchedObjectIdsRef.current.clear();
+    eraserLastAppliedPointRef.current = null;
     if (eraserPreviewFrameRef.current !== null) {
       window.cancelAnimationFrame(eraserPreviewFrameRef.current);
       eraserPreviewFrameRef.current = null;
@@ -2397,6 +2415,18 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       scheduleEraserPreviewRender,
       width,
     ]
+  );
+
+  const eraseAlongSegment = useCallback(
+    (from: WorkbookPoint, to: WorkbookPoint) => {
+      const radius = Math.max(4, width);
+      const sampledPoints = buildEraserSegmentPoints(from, to, radius);
+      sampledPoints.forEach((point) => {
+        eraseAtPoint(point);
+      });
+      return sampledPoints;
+    },
+    [eraseAtPoint, width]
   );
 
   const commitEraserGesture = useCallback(() => {
@@ -3320,6 +3350,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       clearEraserPreviewRuntime();
       erasedStrokeIdsRef.current.clear();
       eraserGestureIdRef.current = generateId();
+      eraserLastAppliedPointRef.current = point;
       eraserLastPreviewPointRef.current = point;
       setErasing(true);
       setEraserCursorPoint(point);
@@ -3451,15 +3482,40 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
 
     if (erasing && tool === "eraser") {
-      eraseAtPoint(point);
+      const nativeEvent = event.nativeEvent;
+      const coalesced =
+        typeof nativeEvent.getCoalescedEvents === "function"
+          ? nativeEvent.getCoalescedEvents()
+          : [];
+      const sourceEvents =
+        coalesced.length > 0
+          ? coalesced
+          : [{ clientX: event.clientX, clientY: event.clientY }];
+      let lastAppliedPoint = eraserLastAppliedPointRef.current ?? point;
+      const previewPoints: WorkbookPoint[] = [];
+      sourceEvents.forEach((sourceEvent) => {
+        const nextPoint = mapPointer(svg, sourceEvent.clientX, sourceEvent.clientY, false, false);
+        const sampledPoints = eraseAlongSegment(lastAppliedPoint, nextPoint);
+        if (sampledPoints.length > 0) {
+          previewPoints.push(...sampledPoints);
+          lastAppliedPoint = sampledPoints[sampledPoints.length - 1];
+        } else {
+          lastAppliedPoint = nextPoint;
+        }
+      });
+      eraserLastAppliedPointRef.current = lastAppliedPoint;
       const lastPreviewPoint = eraserLastPreviewPointRef.current;
-      if (
-        !lastPreviewPoint ||
-        Math.hypot(point.x - lastPreviewPoint.x, point.y - lastPreviewPoint.y) >=
+      const filteredPreviewPoints = previewPoints.filter((previewPoint) => {
+        if (!lastPreviewPoint) return true;
+        return (
+          Math.hypot(previewPoint.x - lastPreviewPoint.x, previewPoint.y - lastPreviewPoint.y) >=
           Math.max(1.2, Math.max(4, width) * 0.22)
-      ) {
-        eraserLastPreviewPointRef.current = point;
-        emitEraserPreviewPoints([point]);
+        );
+      });
+      if (filteredPreviewPoints.length > 0) {
+        eraserLastPreviewPointRef.current =
+          filteredPreviewPoints[filteredPreviewPoints.length - 1];
+        emitEraserPreviewPoints(filteredPreviewPoints);
       }
       return;
     }
@@ -4142,12 +4198,19 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
     if (erasing) {
       const point = mapPointer(svg, event.clientX, event.clientY, false, false);
-      eraseAtPoint(point);
-      emitEraserPreviewPoints([point], true);
+      const lastAppliedPoint = eraserLastAppliedPointRef.current ?? point;
+      const sampledPoints = eraseAlongSegment(lastAppliedPoint, point);
+      eraserLastAppliedPointRef.current =
+        sampledPoints[sampledPoints.length - 1] ?? point;
+      emitEraserPreviewPoints(
+        sampledPoints.length > 0 ? sampledPoints : [point],
+        true
+      );
       commitEraserGesture();
       setErasing(false);
       erasedStrokeIdsRef.current.clear();
       eraserGestureIdRef.current = null;
+      eraserLastAppliedPointRef.current = null;
       eraserLastPreviewPointRef.current = null;
       clearEraserPreviewRuntime();
     } else if (strokePointsRef.current.length > 0) {
@@ -4311,6 +4374,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       eraserObjectCutsRef.current.clear();
       eraserTouchedObjectIdsRef.current.clear();
       eraserGestureIdRef.current = null;
+      eraserLastAppliedPointRef.current = null;
       eraserLastPreviewPointRef.current = null;
     }
   }, [tool]);
