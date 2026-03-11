@@ -1,9 +1,5 @@
 import crypto from "node:crypto";
 import os from "node:os";
-import path from "node:path";
-import { execFile as execFileCallback } from "node:child_process";
-import { promisify } from "node:util";
-import { promises as fsPromises } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import type { Connect, PreviewServer, ViteDevServer } from "vite";
@@ -36,8 +32,11 @@ import {
   mergeRuntimeWorkbookEventsIntoDb,
   type WorkbookRealtimeEnvelope,
 } from "./workbookEventService";
-
-const execFileAsync = promisify(execFileCallback);
+import {
+  decodeWorkbookPdfDataUrl,
+  renderWorkbookPdfPagesViaPoppler,
+  WORKBOOK_PDF_RENDER_MAX_BYTES,
+} from "./workbookPdfService";
 
 const WHITEBOARD_TEACHER_LOGIN = "teacher@axiom.demo";
 const WHITEBOARD_TEACHER_PASSWORD =
@@ -52,7 +51,6 @@ const ONLINE_TIMEOUT_MS = 3_500;
 const PRESENCE_PERSIST_INTERVAL_MS = 15_000;
 const INVITE_TTL_MS = 2 * 60 * 60 * 1000;
 const WORKBOOK_EVENT_LIMIT = 1_200;
-const WORKBOOK_PDF_RENDER_MAX_BYTES = 20 * 1024 * 1024;
 const CORS_ALLOWED_ORIGINS = String(process.env.CORS_ALLOWED_ORIGINS ?? "")
   .split(",")
   .map((value) => value.trim())
@@ -984,67 +982,6 @@ const maybePublishPresenceSync = (
     ],
   });
   return participants;
-};
-
-const decodePdfDataUrl = (value: unknown) => {
-  if (typeof value !== "string" || !value.startsWith("data:application/pdf;base64,")) {
-    return null;
-  }
-  const base64 = value.slice("data:application/pdf;base64,".length).trim();
-  if (!base64) return null;
-  try {
-    return Buffer.from(base64, "base64");
-  } catch {
-    return null;
-  }
-};
-
-const toDataUrl = (buffer: Buffer, mimeType: string) =>
-  `data:${mimeType};base64,${buffer.toString("base64")}`;
-
-const renderPdfPagesViaPoppler = async (params: {
-  pdfBuffer: Buffer;
-  dpi: number;
-  maxPages: number;
-}) => {
-  const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "workbook-pdf-"));
-  const inputPath = path.join(tempRoot, "input.pdf");
-  const outputPrefix = path.join(tempRoot, "page");
-  await fsPromises.writeFile(inputPath, params.pdfBuffer);
-
-  try {
-    await execFileAsync("pdftoppm", [
-      "-png",
-      "-r",
-      String(params.dpi),
-      "-f",
-      "1",
-      "-l",
-      String(params.maxPages),
-      inputPath,
-      outputPrefix,
-    ]);
-
-    const files = await fsPromises.readdir(tempRoot);
-    const pages = await Promise.all(
-      files
-        .filter((name) => /^page-\d+\.png$/i.test(name))
-        .map(async (name) => {
-          const page = Number(name.match(/(\d+)/)?.[1] ?? "0");
-          const fullPath = path.join(tempRoot, name);
-          const image = await fsPromises.readFile(fullPath);
-          return {
-            id: ensureId(),
-            page,
-            imageUrl: toDataUrl(image, "image/png"),
-          };
-        })
-    );
-
-    return pages.sort((a, b) => a.page - b.page);
-  } finally {
-    await fsPromises.rm(tempRoot, { recursive: true, force: true });
-  }
 };
 
 const normalizeGuestName = (value: unknown) => {
@@ -2657,7 +2594,7 @@ export function setupMockServer(host: MiddlewareHost) {
           maxPages?: number;
         } | null;
 
-        const pdfBuffer = decodePdfDataUrl(body?.dataUrl);
+        const pdfBuffer = decodeWorkbookPdfDataUrl(body?.dataUrl);
         if (!pdfBuffer) {
           badRequest(res, "Некорректный PDF payload.");
           return;
@@ -2679,10 +2616,11 @@ export function setupMockServer(host: MiddlewareHost) {
             : 8;
 
         try {
-          const pages = await renderPdfPagesViaPoppler({
+          const pages = await renderWorkbookPdfPagesViaPoppler({
             pdfBuffer,
             dpi,
             maxPages,
+            ensureId,
           });
           json(res, 200, {
             renderer: "poppler",
