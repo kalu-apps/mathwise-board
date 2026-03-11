@@ -3221,11 +3221,14 @@ export default function WorkbookSessionPage() {
     ]
   );
 
-  const loadSession = useCallback(async () => {
+  const loadSession = useCallback(async (options?: { background?: boolean }) => {
     if (!sessionId) return;
-    setLoading(true);
-    setError(null);
-    clearStrokePreviewRuntime();
+    const isBackground = options?.background === true;
+    if (!isBackground) {
+      setLoading(true);
+      setError(null);
+      clearStrokePreviewRuntime();
+    }
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
@@ -3331,7 +3334,9 @@ export default function WorkbookSessionPage() {
             // ignore chat history recovery errors
           }
         }
-        setLoading(false);
+        if (!isBackground) {
+          setLoading(false);
+        }
         return;
       } catch (error) {
         const recoverable =
@@ -3346,6 +3351,10 @@ export default function WorkbookSessionPage() {
         if (recoverable && attempt < maxAttempts) {
           await new Promise((resolve) => window.setTimeout(resolve, attempt * 250));
           continue;
+        }
+        if (isBackground) {
+          setError("Связь с доской нестабильна. Продолжаем работу и повторяем синхронизацию.");
+          return;
         }
         if (error instanceof ApiError) {
           if (error.status === 401) {
@@ -3366,7 +3375,9 @@ export default function WorkbookSessionPage() {
         return;
       }
     }
-    setLoading(false);
+    if (!isBackground) {
+      setLoading(false);
+    }
   }, [
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
@@ -3378,7 +3389,7 @@ export default function WorkbookSessionPage() {
   const triggerSessionResync = useCallback(() => {
     if (sessionResyncInFlightRef.current) return;
     sessionResyncInFlightRef.current = true;
-    void loadSession().finally(() => {
+    void loadSession({ background: true }).finally(() => {
       sessionResyncInFlightRef.current = false;
     });
   }, [loadSession]);
@@ -4771,9 +4782,21 @@ export default function WorkbookSessionPage() {
         ? ("annotations.stroke.delete" as const)
         : ("board.stroke.delete" as const);
     finalizeStrokePreview(strokeId);
+    let deletedStroke: WorkbookStroke | null = null;
+    applyLocalStrokeCollection(targetLayer, (current) => {
+      deletedStroke = current.find((item) => item.id === strokeId) ?? null;
+      return current.filter((item) => item.id !== strokeId);
+    });
     try {
       await appendEventsAndApply([{ type, payload: { strokeId } }]);
     } catch {
+      if (deletedStroke) {
+        applyLocalStrokeCollection(targetLayer, (current) =>
+          current.some((item) => item.id === strokeId)
+            ? current
+            : [...current, deletedStroke as WorkbookStroke]
+        );
+      }
       setError("Не удалось удалить штрих.");
     }
   };
