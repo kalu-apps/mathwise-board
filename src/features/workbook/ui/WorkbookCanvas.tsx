@@ -511,14 +511,14 @@ const getSectionVertexLabel = (index: number) => {
   if (index < alphabet.length) return alphabet[index];
   return `${alphabet[index % alphabet.length]}${Math.floor(index / alphabet.length)}`;
 };
-const MAX_OBJECT_ERASER_CUTS = 1400;
+const MAX_OBJECT_ERASER_CUTS = 2200;
 const ERASER_MASK_PADDING = 20;
 const ERASER_INTERSECTION_EPSILON = 1e-4;
 const OBJECT_ERASER_RATIO_MIN = 0.003;
 const OBJECT_ERASER_RATIO_MAX = 2.4;
 const OBJECT_ERASER_CUT_MERGE_RATIO = 0.38;
-const ERASER_SAMPLE_SPACING_MIN = 1.2;
-const ERASER_SAMPLE_SPACING_FACTOR = 0.32;
+const ERASER_SAMPLE_SPACING_MIN = 0.8;
+const ERASER_SAMPLE_SPACING_FACTOR = 0.18;
 
 const pointsAlmostEqual = (
   left: WorkbookPoint,
@@ -722,6 +722,88 @@ const getObjectCutDistance = (
   return Math.hypot((left.u - right.u) * widthRatio, (left.v - right.v) * heightRatio);
 };
 
+const resolveObjectEraserCutGeometry = (
+  object: WorkbookBoardObject,
+  cut: ObjectEraserCut
+): ResolvedObjectEraserCut => {
+  const rect = getObjectRect(object);
+  const safeWidth = Math.max(1, Math.abs(rect.width));
+  const safeHeight = Math.max(1, Math.abs(rect.height));
+  const safeScale = Math.max(1, Math.max(safeWidth, safeHeight));
+  return {
+    x: rect.x + cut.u * safeWidth,
+    y: rect.y + cut.v * safeHeight,
+    radius: Math.max(1, Math.min(320, cut.radiusRatio * safeScale)),
+  };
+};
+
+const mergeObjectEraserCutPair = (
+  object: WorkbookBoardObject,
+  left: ObjectEraserCut,
+  right: ObjectEraserCut
+): ObjectEraserCut => {
+  const leftGeometry = resolveObjectEraserCutGeometry(object, left);
+  const rightGeometry = resolveObjectEraserCutGeometry(object, right);
+  const dx = rightGeometry.x - leftGeometry.x;
+  const dy = rightGeometry.y - leftGeometry.y;
+  const distance = Math.hypot(dx, dy);
+
+  if (distance <= 1e-4) {
+    return normalizeObjectEraserCut(
+      object,
+      {
+        x: rightGeometry.radius >= leftGeometry.radius ? rightGeometry.x : leftGeometry.x,
+        y: rightGeometry.radius >= leftGeometry.radius ? rightGeometry.y : leftGeometry.y,
+      },
+      Math.max(leftGeometry.radius, rightGeometry.radius)
+    );
+  }
+
+  if (leftGeometry.radius >= distance + rightGeometry.radius) {
+    return left;
+  }
+  if (rightGeometry.radius >= distance + leftGeometry.radius) {
+    return right;
+  }
+
+  const mergedRadius = (distance + leftGeometry.radius + rightGeometry.radius) / 2;
+  const t = (mergedRadius - leftGeometry.radius) / distance;
+  return normalizeObjectEraserCut(
+    object,
+    {
+      x: leftGeometry.x + dx * t,
+      y: leftGeometry.y + dy * t,
+    },
+    mergedRadius
+  );
+};
+
+const compactObjectEraserCuts = (
+  object: WorkbookBoardObject,
+  cuts: ObjectEraserCut[],
+  maxCuts: number
+) => {
+  if (cuts.length <= maxCuts) return cuts;
+  const next = [...cuts];
+  while (next.length > maxCuts) {
+    let bestIndex = 0;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < next.length - 1; index += 1) {
+      const distance = getObjectCutDistance(object, next[index], next[index + 1]);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    }
+    next.splice(
+      bestIndex,
+      2,
+      mergeObjectEraserCutPair(object, next[bestIndex], next[bestIndex + 1])
+    );
+  }
+  return next;
+};
+
 const appendObjectEraserCut = (
   object: WorkbookBoardObject,
   cuts: ObjectEraserCut[],
@@ -734,17 +816,11 @@ const appendObjectEraserCut = (
   const mergeThreshold =
     Math.max(lastCut.radiusRatio, nextCut.radiusRatio) * OBJECT_ERASER_CUT_MERGE_RATIO;
   if (getObjectCutDistance(object, lastCut, nextCut) <= mergeThreshold) {
-    next[lastIndex] = clampObjectEraserCut({
-      u: nextCut.u,
-      v: nextCut.v,
-      radiusRatio: Math.max(lastCut.radiusRatio, nextCut.radiusRatio),
-    });
+    next[lastIndex] = mergeObjectEraserCutPair(object, lastCut, nextCut);
     return next;
   }
   next.push(nextCut);
-  return next.length > MAX_OBJECT_ERASER_CUTS
-    ? next.slice(next.length - MAX_OBJECT_ERASER_CUTS)
-    : next;
+  return compactObjectEraserCuts(object, next, MAX_OBJECT_ERASER_CUTS);
 };
 
 const sanitizeObjectEraserCuts = (object: WorkbookBoardObject): ObjectEraserCut[] => {
@@ -884,15 +960,7 @@ const resolveObjectEraserCutsForRender = (
   cuts: ObjectEraserCut[]
 ): ResolvedObjectEraserCut[] => {
   if (cuts.length === 0) return [];
-  const rect = getObjectRect(object);
-  const safeWidth = Math.max(1, Math.abs(rect.width));
-  const safeHeight = Math.max(1, Math.abs(rect.height));
-  const safeScale = Math.max(1, Math.max(safeWidth, safeHeight));
-  return cuts.map((cut) => ({
-    x: rect.x + cut.u * safeWidth,
-    y: rect.y + cut.v * safeHeight,
-    radius: Math.max(1, Math.min(320, cut.radiusRatio * safeScale)),
-  }));
+  return cuts.map((cut) => resolveObjectEraserCutGeometry(object, cut));
 };
 
 const distanceToSegment = (point: WorkbookPoint, a: WorkbookPoint, b: WorkbookPoint) => {
