@@ -36,6 +36,8 @@ type AmbientFigureColor = {
   fill: string;
   edge: string;
   emissive: string;
+  glow: string;
+  specular: string;
 };
 
 export type AuthAmbientPalette = {
@@ -55,7 +57,7 @@ const launchDesktop: AmbientFigureConfig[] = [
     screenX: -0.82,
     screenY: 0.48,
     depth: -2.1,
-    scale: 1.34,
+    scale: 1.07,
     velocityX: 0.16,
     velocityY: -0.1,
     rotationX: 0.06,
@@ -66,8 +68,8 @@ const launchDesktop: AmbientFigureConfig[] = [
     depthAmplitude: 0.28,
     depthFrequency: 0.8,
     phase: 0.6,
-    opacity: 0.14,
-    edgeOpacity: 0.52,
+    opacity: 0.22,
+    edgeOpacity: 0,
   },
   {
     presetId: "torus",
@@ -87,8 +89,8 @@ const launchDesktop: AmbientFigureConfig[] = [
     depthAmplitude: 0.2,
     depthFrequency: 0.62,
     phase: 1.7,
-    opacity: 0.13,
-    edgeOpacity: 0.56,
+    opacity: 0.16,
+    edgeOpacity: 0,
   },
   {
     presetId: "oblique_prism",
@@ -108,7 +110,7 @@ const launchDesktop: AmbientFigureConfig[] = [
     depthAmplitude: 0.24,
     depthFrequency: 0.9,
     phase: 2.4,
-    opacity: 0.15,
+    opacity: 0.18,
     edgeOpacity: 0.58,
   },
   {
@@ -129,7 +131,7 @@ const launchDesktop: AmbientFigureConfig[] = [
     depthAmplitude: 0.26,
     depthFrequency: 0.86,
     phase: 0.9,
-    opacity: 0.14,
+    opacity: 0.17,
     edgeOpacity: 0.56,
   },
   {
@@ -150,7 +152,7 @@ const launchDesktop: AmbientFigureConfig[] = [
     depthAmplitude: 0.18,
     depthFrequency: 0.58,
     phase: 2.9,
-    opacity: 0.12,
+    opacity: 0.16,
     edgeOpacity: 0.5,
   },
   {
@@ -171,7 +173,7 @@ const launchDesktop: AmbientFigureConfig[] = [
     depthAmplitude: 0.16,
     depthFrequency: 0.54,
     phase: 1.35,
-    opacity: 0.11,
+    opacity: 0.15,
     edgeOpacity: 0.46,
   },
 ];
@@ -188,7 +190,7 @@ const inviteDesktop: AmbientFigureConfig[] = [
     screenX: -0.86,
     screenY: 0.42,
     depth: -2.8,
-    scale: 1.12,
+    scale: 0.9,
     velocityX: 0.11,
     velocityY: -0.08,
     rotationX: 0.05,
@@ -199,8 +201,8 @@ const inviteDesktop: AmbientFigureConfig[] = [
     depthAmplitude: 0.16,
     depthFrequency: 0.54,
     phase: 0.3,
-    opacity: 0.12,
-    edgeOpacity: 0.46,
+    opacity: 0.19,
+    edgeOpacity: 0,
   },
   {
     presetId: "torus",
@@ -220,8 +222,8 @@ const inviteDesktop: AmbientFigureConfig[] = [
     depthAmplitude: 0.14,
     depthFrequency: 0.5,
     phase: 1.25,
-    opacity: 0.11,
-    edgeOpacity: 0.46,
+    opacity: 0.15,
+    edgeOpacity: 0,
   },
   {
     presetId: "oblique_prism",
@@ -241,7 +243,7 @@ const inviteDesktop: AmbientFigureConfig[] = [
     depthAmplitude: 0.16,
     depthFrequency: 0.62,
     phase: 2.05,
-    opacity: 0.12,
+    opacity: 0.16,
     edgeOpacity: 0.48,
   },
   {
@@ -262,7 +264,7 @@ const inviteDesktop: AmbientFigureConfig[] = [
     depthAmplitude: 0.14,
     depthFrequency: 0.46,
     phase: 2.7,
-    opacity: 0.1,
+    opacity: 0.14,
     edgeOpacity: 0.42,
   },
 ];
@@ -283,33 +285,105 @@ export const getAuthAmbientFigures = (
 
 export const AUTH_AMBIENT_PALETTES: Record<ThemeMode, AuthAmbientPalette> = {
   dark: {
-    fog: "#07101a",
-    hemiSky: "#bedfff",
-    hemiGround: "#081018",
-    keyLight: "#7fc7ff",
-    rimLight: "#88ffe2",
+    fog: "#050713",
+    hemiSky: "#ccf7ff",
+    hemiGround: "#090310",
+    keyLight: "#32d8ff",
+    rimLight: "#ff4fd8",
     figures: {
-      cyan: { fill: "#55d7ff", edge: "#d6f7ff", emissive: "#0d2938" },
-      cobalt: { fill: "#7b84ff", edge: "#e2e6ff", emissive: "#1e2148" },
-      mint: { fill: "#4ce2c8", edge: "#d8fff5", emissive: "#102d2a" },
-      violet: { fill: "#a792ff", edge: "#f0e9ff", emissive: "#291f46" },
-      glass: { fill: "#d8e8ff", edge: "#ffffff", emissive: "#17253b" },
-      ice: { fill: "#8fc4ff", edge: "#edf7ff", emissive: "#10243a" },
+      cyan: {
+        fill: "#1ae4ff",
+        edge: "#cbfdff",
+        emissive: "#082c46",
+        glow: "#00e5ff",
+        specular: "#f4ffff",
+      },
+      cobalt: {
+        fill: "#7762ff",
+        edge: "#ece6ff",
+        emissive: "#1d1248",
+        glow: "#9066ff",
+        specular: "#f8f2ff",
+      },
+      mint: {
+        fill: "#38ff97",
+        edge: "#deffef",
+        emissive: "#0a331f",
+        glow: "#22ff7d",
+        specular: "#f3fff7",
+      },
+      violet: {
+        fill: "#ff4fd8",
+        edge: "#ffe1fb",
+        emissive: "#42093e",
+        glow: "#ff3ad0",
+        specular: "#fff1fb",
+      },
+      glass: {
+        fill: "#7ec4ff",
+        edge: "#ffffff",
+        emissive: "#14254d",
+        glow: "#53b0ff",
+        specular: "#ffffff",
+      },
+      ice: {
+        fill: "#ffbf3f",
+        edge: "#fff0bc",
+        emissive: "#4a2b05",
+        glow: "#ff9d00",
+        specular: "#fff7e5",
+      },
     },
   },
   light: {
-    fog: "#eef5ff",
+    fog: "#f4f8ff",
     hemiSky: "#ffffff",
-    hemiGround: "#e7eef8",
-    keyLight: "#5f8dff",
-    rimLight: "#3ecdb2",
+    hemiGround: "#edf0ff",
+    keyLight: "#30bfff",
+    rimLight: "#ff65d4",
     figures: {
-      cyan: { fill: "#4da8df", edge: "#5e7ca6", emissive: "#eef7ff" },
-      cobalt: { fill: "#5669de", edge: "#6678aa", emissive: "#eef0ff" },
-      mint: { fill: "#2fbfa2", edge: "#5c8f88", emissive: "#ebfaf6" },
-      violet: { fill: "#7868d8", edge: "#7f7bb0", emissive: "#f4f0ff" },
-      glass: { fill: "#b8c8e8", edge: "#6a83ad", emissive: "#fafcff" },
-      ice: { fill: "#72addd", edge: "#6887b1", emissive: "#f0f8ff" },
+      cyan: {
+        fill: "#00b7eb",
+        edge: "#4672a5",
+        emissive: "#edfaff",
+        glow: "#5de6ff",
+        specular: "#ffffff",
+      },
+      cobalt: {
+        fill: "#6351ff",
+        edge: "#6772b8",
+        emissive: "#f1efff",
+        glow: "#8574ff",
+        specular: "#fff8ff",
+      },
+      mint: {
+        fill: "#00d89d",
+        edge: "#4d917d",
+        emissive: "#eefff7",
+        glow: "#4fffc5",
+        specular: "#f8fff9",
+      },
+      violet: {
+        fill: "#f24ccc",
+        edge: "#8f68ae",
+        emissive: "#fff0fb",
+        glow: "#ff84e6",
+        specular: "#fff4fd",
+      },
+      glass: {
+        fill: "#79a7ff",
+        edge: "#587eab",
+        emissive: "#f5f8ff",
+        glow: "#78beff",
+        specular: "#ffffff",
+      },
+      ice: {
+        fill: "#ffb429",
+        edge: "#9a7742",
+        emissive: "#fff7ea",
+        glow: "#ffd56d",
+        specular: "#fffaf0",
+      },
     },
   },
 };

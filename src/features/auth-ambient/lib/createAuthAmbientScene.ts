@@ -20,7 +20,8 @@ type FigureRuntime = {
   config: AmbientFigureConfig;
   group: THREE.Group;
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshPhongMaterial>;
-  edges: THREE.LineSegments<THREE.EdgesGeometry, THREE.LineBasicMaterial>;
+  glow: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+  edges: THREE.LineSegments<THREE.EdgesGeometry, THREE.LineBasicMaterial> | null;
   baseDepth: number;
   screenX: number;
   screenY: number;
@@ -30,6 +31,7 @@ type FigureRuntime = {
   spinKickY: number;
   spinKickZ: number;
   boundingRadius: number;
+  isRound: boolean;
 };
 
 export type AuthAmbientSceneController = {
@@ -78,11 +80,13 @@ export const createAuthAmbientScene = ({
   const interactionTarget = container.parentElement ?? container;
 
   const hemiLight = new THREE.HemisphereLight("#ffffff", "#000000", 0.84);
-  const keyLight = new THREE.DirectionalLight("#ffffff", 1.12);
+  const keyLight = new THREE.DirectionalLight("#ffffff", 1.28);
   keyLight.position.set(-2.4, 2.2, 5.4);
-  const rimLight = new THREE.DirectionalLight("#ffffff", 0.56);
+  const rimLight = new THREE.DirectionalLight("#ffffff", 0.82);
   rimLight.position.set(2.6, -1.8, 4.6);
-  scene.add(hemiLight, keyLight, rimLight);
+  const fillLight = new THREE.DirectionalLight("#ffffff", 0.38);
+  fillLight.position.set(0.1, 0.4, 5.2);
+  scene.add(hemiLight, keyLight, rimLight, fillLight);
 
   const compact = container.clientWidth < 820;
   const figureBlueprints = getAuthAmbientFigures(variant, compact);
@@ -129,9 +133,16 @@ export const createAuthAmbientScene = ({
       const figurePalette = palette.figures[figure.config.colorSlot];
       figure.mesh.material.color.set(figurePalette.fill);
       figure.mesh.material.emissive.set(figurePalette.emissive);
+      figure.mesh.material.specular.set(figurePalette.specular);
       figure.mesh.material.opacity = figure.config.opacity;
-      figure.edges.material.color.set(figurePalette.edge);
-      figure.edges.material.opacity = figure.config.edgeOpacity;
+      figure.glow.material.color.set(figurePalette.glow);
+      figure.glow.material.opacity = figure.isRound
+        ? figure.config.opacity * 0.55
+        : figure.config.opacity * 0.34;
+      if (figure.edges) {
+        figure.edges.material.color.set(figurePalette.edge);
+        figure.edges.material.opacity = figure.config.edgeOpacity;
+      }
     });
   };
 
@@ -147,42 +158,66 @@ export const createAuthAmbientScene = ({
   const createFigure = (config: AmbientFigureConfig) => {
     const geometry = getAmbientGeometry(config.presetId);
     if (!geometry) return;
+    const isRound = ROUND_PRESETS.has(config.presetId);
 
     const material = new THREE.MeshPhongMaterial({
       color: "#ffffff",
       transparent: true,
       opacity: config.opacity,
       emissive: "#111111",
-      emissiveIntensity: 0.22,
-      shininess: config.shading === "smooth" ? 56 : 22,
+      emissiveIntensity: isRound ? 0.12 : 0.18,
+      shininess: isRound ? 110 : config.shading === "smooth" ? 72 : 34,
       flatShading: config.shading === "flat",
       depthWrite: false,
-      side: THREE.DoubleSide,
+      side: THREE.FrontSide,
+      specular: new THREE.Color("#ffffff"),
     });
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.renderOrder = 1;
 
-    const edges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(geometry, EDGE_THRESHOLD_ANGLE),
-      new THREE.LineBasicMaterial({
+    const glow = new THREE.Mesh(
+      geometry,
+      new THREE.MeshBasicMaterial({
         color: "#ffffff",
         transparent: true,
-        opacity: config.edgeOpacity,
+        opacity: isRound ? config.opacity * 0.55 : config.opacity * 0.34,
+        blending: THREE.AdditiveBlending,
+        side: THREE.BackSide,
         depthWrite: false,
       })
     );
-    edges.renderOrder = 2;
+    glow.scale.setScalar(isRound ? 1.12 : 1.05);
+    glow.renderOrder = 0;
+
+    const edges = !isRound
+      ? new THREE.LineSegments(
+          new THREE.EdgesGeometry(geometry, EDGE_THRESHOLD_ANGLE),
+          new THREE.LineBasicMaterial({
+            color: "#ffffff",
+            transparent: true,
+            opacity: config.edgeOpacity,
+            depthWrite: false,
+          })
+        )
+      : null;
+    if (edges) {
+      edges.renderOrder = 2;
+    }
 
     const group = new THREE.Group();
     group.scale.setScalar(config.scale);
-    group.add(mesh, edges);
+    group.add(glow, mesh);
+    if (edges) {
+      group.add(edges);
+    }
     figureLayer.add(group);
 
     figures.push({
       config,
       group,
       mesh,
+      glow,
       edges,
       baseDepth: config.depth,
       screenX: config.screenX,
@@ -193,6 +228,7 @@ export const createAuthAmbientScene = ({
       spinKickY: 0,
       spinKickZ: 0,
       boundingRadius: geometry.boundingSphere?.radius ?? 1,
+      isRound,
     });
   };
 
@@ -289,6 +325,9 @@ export const createAuthAmbientScene = ({
         Math.sin(elapsed * 0.7 + figure.config.phase) *
           (variant === "launch" ? 0.026 : 0.016);
       figure.group.scale.setScalar(figure.config.scale * subtlePulse);
+      figure.glow.scale.setScalar(1.12 + Math.sin(elapsed * 1.15 + figure.config.phase) * 0.015);
+    } else {
+      figure.glow.scale.setScalar(1.05);
     }
 
     figure.spinKickX *= 0.93;
@@ -352,8 +391,9 @@ export const createAuthAmbientScene = ({
       figureLayer.clear();
       figures.forEach((figure) => {
         figure.mesh.material.dispose();
-        figure.edges.material.dispose();
-        figure.edges.geometry.dispose();
+        figure.glow.material.dispose();
+        figure.edges?.material.dispose();
+        figure.edges?.geometry.dispose();
       });
       renderer.dispose();
       renderer.domElement.remove();
