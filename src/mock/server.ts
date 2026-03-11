@@ -194,7 +194,6 @@ const WORKBOOK_URGENT_LIVE_EVENT_TYPES = new Set<string>([
   "board.object.delete",
   "board.undo",
   "board.redo",
-  "document.asset.add",
   "chat.message",
   "chat.clear",
 ]);

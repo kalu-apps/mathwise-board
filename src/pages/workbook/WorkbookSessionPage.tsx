@@ -201,8 +201,11 @@ const AUTOSAVE_INTERVAL_MS = 15_000;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
 const VOLATILE_SYNC_FLUSH_INTERVAL_MS = 16;
 const STROKE_PREVIEW_EXPIRY_MS = 3_000;
-const ERASER_PREVIEW_EXPIRY_MS = 220;
-const ERASER_PREVIEW_END_EXPIRY_MS = 120;
+const ERASER_PREVIEW_EXPIRY_MS = 600;
+const ERASER_PREVIEW_END_EXPIRY_MS = 900;
+const CONTEXTBAR_COMPACT_BASE_BOTTOM_OFFSET_PX = 10;
+const CONTEXTBAR_VIEWPORT_MARGIN_PX = 12;
+const PREVIEW_POINT_MERGE_MIN_DISTANCE_PX = 2.5;
 const VIEWPORT_SYNC_MIN_INTERVAL_MS = 18;
 const VIEWPORT_SYNC_EPSILON = 0.2;
 const MAX_INCOMING_PREVIEW_PATCHES_PER_OBJECT = 20;
@@ -275,6 +278,29 @@ const readFileExtension = (fileName: string) => {
   const dotIndex = safeName.lastIndexOf(".");
   if (dotIndex <= 0 || dotIndex >= safeName.length - 1) return "";
   return safeName.slice(dotIndex + 1);
+};
+
+const mergePreviewPathPoints = (
+  current: WorkbookPoint[],
+  incoming: WorkbookPoint[],
+  minDistance = PREVIEW_POINT_MERGE_MIN_DISTANCE_PX
+) => {
+  if (incoming.length === 0) return current;
+  const merged = current.length > 0 ? [...current] : [];
+  let lastPoint = merged[merged.length - 1] ?? null;
+  incoming.forEach((point) => {
+    if (
+      !lastPoint ||
+      Math.hypot(point.x - lastPoint.x, point.y - lastPoint.y) >= minDistance
+    ) {
+      merged.push(point);
+      lastPoint = point;
+      return;
+    }
+    merged[merged.length - 1] = point;
+    lastPoint = point;
+  });
+  return merged;
 };
 
 const isPdfUploadFile = (file: File) =>
@@ -1952,6 +1978,10 @@ export default function WorkbookSessionPage() {
   const [isSessionChatEmojiOpen, setIsSessionChatEmojiOpen] = useState(false);
   const [sessionChatPosition, setSessionChatPosition] = useState({ x: 24, y: 96 });
   const [contextbarPosition, setContextbarPosition] = useState({ x: 24, y: 18 });
+  const [contextbarDockHeight, setContextbarDockHeight] = useState(104);
+  const [contextbarCompactBottomOffset, setContextbarCompactBottomOffset] = useState(
+    CONTEXTBAR_COMPACT_BASE_BOTTOM_OFFSET_PX
+  );
   const [sessionChatReadAt, setSessionChatReadAt] = useState<string | null>(null);
   const [isClearSessionChatDialogOpen, setIsClearSessionChatDialogOpen] = useState(false);
   const [areaSelection, setAreaSelection] = useState<WorkbookAreaSelection | null>(null);
@@ -1993,6 +2023,7 @@ export default function WorkbookSessionPage() {
   const sessionChatListRef = useRef<HTMLDivElement | null>(null);
   const sessionChatRef = useRef<HTMLDivElement | null>(null);
   const contextbarRef = useRef<HTMLDivElement | null>(null);
+  const participantsPanelRef = useRef<HTMLDivElement | null>(null);
   const sessionChatShouldScrollToUnreadRef = useRef(false);
   const sessionChatDragStateRef = useRef<{
     pointerId: number;
@@ -2434,15 +2465,58 @@ export default function WorkbookSessionPage() {
       if (typeof window === "undefined") return position;
       const dockWidth = contextbarRef.current?.offsetWidth ?? 760;
       const dockHeight = contextbarRef.current?.offsetHeight ?? 104;
-      const maxX = Math.max(12, window.innerWidth - dockWidth - 12);
-      const maxY = Math.max(12, window.innerHeight - dockHeight - 12);
+      const maxX = Math.max(
+        CONTEXTBAR_VIEWPORT_MARGIN_PX,
+        window.innerWidth - dockWidth - CONTEXTBAR_VIEWPORT_MARGIN_PX
+      );
+      const maxY = Math.max(
+        CONTEXTBAR_VIEWPORT_MARGIN_PX,
+        window.innerHeight - dockHeight - CONTEXTBAR_VIEWPORT_MARGIN_PX
+      );
       return {
-        x: Math.min(maxX, Math.max(12, position.x)),
-        y: Math.min(maxY, Math.max(12, position.y)),
+        x: Math.min(maxX, Math.max(CONTEXTBAR_VIEWPORT_MARGIN_PX, position.x)),
+        y: Math.min(maxY, Math.max(CONTEXTBAR_VIEWPORT_MARGIN_PX, position.y)),
       };
     },
     []
   );
+
+  const updateContextbarViewportState = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (isCompactViewport) {
+      const dockHeight = contextbarRef.current?.offsetHeight ?? contextbarDockHeight;
+      const participantsRect = participantsPanelRef.current?.getBoundingClientRect() ?? null;
+      const dockTop =
+        window.innerHeight - dockHeight - CONTEXTBAR_COMPACT_BASE_BOTTOM_OFFSET_PX;
+      let nextBottomOffset = CONTEXTBAR_COMPACT_BASE_BOTTOM_OFFSET_PX;
+      if (
+        participantsRect &&
+        participantsRect.bottom > dockTop &&
+        participantsRect.top < window.innerHeight
+      ) {
+        const maxBottomOffset = Math.max(
+          CONTEXTBAR_COMPACT_BASE_BOTTOM_OFFSET_PX,
+          window.innerHeight - dockHeight - CONTEXTBAR_VIEWPORT_MARGIN_PX
+        );
+        nextBottomOffset = Math.min(
+          maxBottomOffset,
+          Math.max(
+            CONTEXTBAR_COMPACT_BASE_BOTTOM_OFFSET_PX,
+            window.innerHeight - participantsRect.top + CONTEXTBAR_COMPACT_BASE_BOTTOM_OFFSET_PX
+          )
+        );
+      }
+      setContextbarCompactBottomOffset((current) =>
+        Math.abs(current - nextBottomOffset) < 1 ? current : nextBottomOffset
+      );
+      return;
+    }
+    setContextbarCompactBottomOffset(CONTEXTBAR_COMPACT_BASE_BOTTOM_OFFSET_PX);
+    setContextbarPosition((current) => {
+      const next = clampContextbarPosition(current);
+      return next.x === current.x && next.y === current.y ? current : next;
+    });
+  }, [clampContextbarPosition, contextbarDockHeight, isCompactViewport]);
 
   const handleContextbarDragStart = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -2495,10 +2569,53 @@ export default function WorkbookSessionPage() {
   useEffect(() => {
     if (isCompactViewport) {
       contextbarDragStateRef.current = null;
-      return;
     }
-    setContextbarPosition((current) => clampContextbarPosition(current));
-  }, [clampContextbarPosition, isCompactViewport]);
+    updateContextbarViewportState();
+  }, [isCompactViewport, updateContextbarViewportState]);
+
+  useEffect(() => {
+    const dock = contextbarRef.current;
+    if (!dock) return;
+    const updateHeight = () => {
+      const nextHeight = dock.offsetHeight || 104;
+      setContextbarDockHeight((current) => (current === nextHeight ? current : nextHeight));
+    };
+    updateHeight();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      updateHeight();
+      updateContextbarViewportState();
+    });
+    observer.observe(dock);
+    return () => observer.disconnect();
+  }, [updateContextbarViewportState]);
+
+  useEffect(() => {
+    const participantsNode = participantsPanelRef.current;
+    if (!participantsNode || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      updateContextbarViewportState();
+    });
+    observer.observe(participantsNode);
+    return () => observer.disconnect();
+  }, [showSidebarParticipants, updateContextbarViewportState]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleViewportChange = () => {
+      updateContextbarViewportState();
+    };
+    handleViewportChange();
+    window.addEventListener("resize", handleViewportChange, { passive: true });
+    window.addEventListener("scroll", handleViewportChange, {
+      capture: true,
+      passive: true,
+    });
+    return () => {
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("scroll", handleViewportChange, true);
+    };
+  }, [updateContextbarViewportState]);
 
   useEffect(() => {
     if (isCompactViewport) return;
@@ -3294,10 +3411,7 @@ export default function WorkbookSessionPage() {
           const ended = Boolean(payload.ended);
           setIncomingEraserPreviews((current) => {
             const existing = current[previewId];
-            const nextPoints =
-              points.length > 0
-                ? [...(existing?.points ?? []), ...points].slice(-320)
-                : existing?.points ?? [];
+            const nextPoints = mergePreviewPathPoints(existing?.points ?? [], points);
             if (!existing && nextPoints.length === 0 && ended) {
               return current;
             }
@@ -4955,16 +5069,13 @@ export default function WorkbookSessionPage() {
     }) => {
       if (!payload.gestureId) return;
       const current = eraserPreviewQueuedByGestureRef.current.get(payload.gestureId);
-      const mergedPoints =
-        current && current.points.length > 0
-          ? [...current.points, ...payload.points]
-          : [...payload.points];
+      const mergedPoints = mergePreviewPathPoints(current?.points ?? [], payload.points);
       eraserPreviewQueuedByGestureRef.current.set(payload.gestureId, {
         gestureId: payload.gestureId,
         layer: payload.layer,
         page: payload.page,
         radius: payload.radius,
-        points: mergedPoints.slice(-64),
+        points: mergedPoints,
         ended: Boolean(current?.ended || payload.ended),
       });
       scheduleVolatileSyncFlush(payload.ended ? 0 : undefined);
@@ -8784,6 +8895,25 @@ export default function WorkbookSessionPage() {
     }
   };
 
+  const syncUploadedDocumentAsset = async (
+    assetId: string,
+    asset: WorkbookDocumentAsset
+  ) => {
+    await appendEventsAndApply([
+      {
+        type: "document.asset.add",
+        payload: { asset },
+      },
+      {
+        type: "document.state.update",
+        payload: {
+          activeAssetId: assetId,
+          page: 1,
+        },
+      },
+    ]);
+  };
+
   const handleDocsUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !canInsertImage) return;
@@ -8892,8 +9022,6 @@ export default function WorkbookSessionPage() {
               ]
             : undefined,
       };
-      const previousActiveAssetId = documentState.activeAssetId;
-      const previousDocumentPage = documentState.page;
       const object: WorkbookBoardObject = {
         id: generateId(),
         type: isImage || objectImageUrl ? "image" : "text",
@@ -8918,41 +9046,14 @@ export default function WorkbookSessionPage() {
         authorUserId: user?.id ?? "unknown",
         createdAt: new Date().toISOString(),
       };
-      setDocumentState((current) => ({
-        ...current,
-        assets: current.assets.some((item) => item.id === asset.id)
-          ? current.assets
-          : [...current.assets, asset],
-        activeAssetId: asset.id,
-        page: 1,
-      }));
-      const created = await commitObjectCreate(object, {
-        auxiliaryEvents: [
-          {
-            type: "document.asset.add",
-            payload: { asset: syncedAsset },
-          },
-          {
-            type: "document.state.update",
-            payload: {
-              activeAssetId: assetId,
-              page: 1,
-            },
-          },
-        ],
-      });
-      if (!created) {
-        setDocumentState((current) => ({
-          ...current,
-          assets: current.assets.filter((item) => item.id !== assetId),
-          activeAssetId:
-            current.activeAssetId === assetId
-              ? previousActiveAssetId ?? current.activeAssetId
-              : current.activeAssetId,
-          page:
-            current.activeAssetId === assetId ? previousDocumentPage : current.page,
-        }));
-        return;
+      const created = await commitObjectCreate(object);
+      if (!created) return;
+      try {
+        await syncUploadedDocumentAsset(assetId, syncedAsset);
+      } catch {
+        setError(
+          "Изображение добавлено на доску, но не удалось синхронизировать его в окне документов."
+        );
       }
       void upsertLibraryItem({
         id: generateId(),
@@ -11055,7 +11156,9 @@ export default function WorkbookSessionPage() {
             onPointerDown={handleContextbarDragStart}
             style={
               isCompactViewport
-                ? undefined
+                ? {
+                    bottom: `calc(${contextbarCompactBottomOffset}px + env(safe-area-inset-bottom))`,
+                  }
                 : {
                     left: contextbarPosition.x,
                     top: contextbarPosition.y,
@@ -11407,35 +11510,49 @@ export default function WorkbookSessionPage() {
 
         </div>
 
-        <aside className="workbook-session__sidebar">
+        <aside
+          className="workbook-session__sidebar"
+          style={
+            isCompactViewport
+              ? {
+                  paddingBottom:
+                    contextbarDockHeight +
+                    contextbarCompactBottomOffset +
+                    CONTEXTBAR_VIEWPORT_MARGIN_PX,
+                }
+              : undefined
+          }
+        >
           {showSidebarParticipants ? (
-            <Suspense
-              fallback={
-                <div className="workbook-session__card">
-                  <p className="workbook-session__hint">Загрузка участников...</p>
-                </div>
-              }
-            >
-              <WorkbookSessionParticipantsPanel
-                participantCards={participantCards}
-                currentUserId={user?.id}
-                currentUserRole={user?.role}
-                canUseSessionChat={canUseSessionChat}
-                canManageSession={canManageSession}
-                isSessionChatOpen={isSessionChatOpen}
-                sessionChatUnreadCount={sessionChatUnreadCount}
-                onToggleSessionChat={handleToggleSessionChat}
-                onCollapseParticipants={handleCollapseParticipants}
-                micEnabled={micEnabled}
-                onToggleMic={handleToggleOwnMic}
-                canUseMedia={canUseMedia}
-                isEnded={isEnded}
-                isParticipantBoardToolsEnabled={isParticipantBoardToolsEnabled}
-                onToggleParticipantBoardTools={handleToggleParticipantBoardTools}
-                onToggleParticipantChat={handleToggleParticipantChat}
-                onToggleParticipantMic={handleToggleParticipantMic}
-              />
-            </Suspense>
+            <div ref={participantsPanelRef}>
+              <Suspense
+                fallback={
+                  <div className="workbook-session__card">
+                    <p className="workbook-session__hint">Загрузка участников...</p>
+                  </div>
+                }
+              >
+                <WorkbookSessionParticipantsPanel
+                  participantCards={participantCards}
+                  currentUserId={user?.id}
+                  currentUserRole={user?.role}
+                  canUseSessionChat={canUseSessionChat}
+                  canManageSession={canManageSession}
+                  isSessionChatOpen={isSessionChatOpen}
+                  sessionChatUnreadCount={sessionChatUnreadCount}
+                  onToggleSessionChat={handleToggleSessionChat}
+                  onCollapseParticipants={handleCollapseParticipants}
+                  micEnabled={micEnabled}
+                  onToggleMic={handleToggleOwnMic}
+                  canUseMedia={canUseMedia}
+                  isEnded={isEnded}
+                  isParticipantBoardToolsEnabled={isParticipantBoardToolsEnabled}
+                  onToggleParticipantBoardTools={handleToggleParticipantBoardTools}
+                  onToggleParticipantChat={handleToggleParticipantChat}
+                  onToggleParticipantMic={handleToggleParticipantMic}
+                />
+              </Suspense>
+            </div>
           ) : null}
 
           {isUtilityPanelOpen ? (

@@ -375,6 +375,7 @@
   will-change: left, top;
   cursor: grab;
   user-select: none;
+  transition: bottom 0.18s ease;
 }
 
 .workbook-session__contextbar-dock:active {
