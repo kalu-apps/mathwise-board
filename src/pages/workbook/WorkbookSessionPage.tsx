@@ -103,6 +103,14 @@ import {
   withWorkbookClientEventIds,
 } from "@/features/workbook/model/runtime";
 import {
+  buildWorkbookDocumentAsset,
+  buildWorkbookDocumentBoardObject,
+  buildWorkbookSnapshotBoardObject,
+  buildWorkbookSyncedDocumentAsset,
+  resolvePrimaryDocumentRenderedPage,
+  resolveWorkbookBoardInsertPosition,
+} from "@/features/workbook/model/documentAssets";
+import {
   getObjectExportBounds,
   getStrokeExportBounds,
   mergeExportBounds,
@@ -154,7 +162,6 @@ import {
   normalizeObjectPayload,
   normalizeScenePayload,
   normalizeStrokePayload,
-  WORKBOOK_IMAGE_ASSET_META_KEY,
 } from "@/features/workbook/model/scene";
 import { WorkbookCanvas } from "@/features/workbook/ui/WorkbookCanvas";
 import {
@@ -7827,11 +7834,13 @@ export default function WorkbookSessionPage() {
         }
       }
       setUploadProgress(68);
-      const insertOffset = boardObjects.length % 6;
-      const renderedPage =
-        isPdf
-          ? renderedPages?.find((page) => page.page === 1) ?? renderedPages?.[0]
-          : null;
+      const insertPosition = resolveWorkbookBoardInsertPosition(
+        canvasViewport,
+        boardObjects.length
+      );
+      const renderedPage = isPdf
+        ? resolvePrimaryDocumentRenderedPage(renderedPages, 1)
+        : null;
       const objectImageUrl =
         isImage
           ? await optimizeImageDataUrl(documentAssetUrl, {
@@ -7853,55 +7862,33 @@ export default function WorkbookSessionPage() {
         return;
       }
       const assetId = generateId();
-      const asset: WorkbookDocumentAsset = {
-        id: assetId,
-        name: file.name,
+      const uploadedAt = new Date().toISOString();
+      const asset = buildWorkbookDocumentAsset({
+        assetId,
+        fileName: file.name,
         type: isPdf ? "pdf" : isImage ? "image" : "file",
         url: documentAssetUrl,
         uploadedBy: user?.id ?? "unknown",
-        uploadedAt: new Date().toISOString(),
+        uploadedAt,
         renderedPages,
-      };
-      const syncedAsset: WorkbookDocumentAsset = {
-        ...asset,
-        url: isImage ? documentAssetUrl : objectImageUrl || "data:,",
-        renderedPages:
-          renderedPage && objectImageUrl
-            ? [
-                {
-                  id: renderedPage.id,
-                  page: renderedPage.page,
-                  imageUrl: objectImageUrl,
-                  width: renderedPage.width,
-                  height: renderedPage.height,
-                },
-              ]
-            : undefined,
-      };
-      const object: WorkbookBoardObject = {
-        id: generateId(),
-        type: isImage || objectImageUrl ? "image" : "text",
-        layer: "board",
-        x: canvasViewport.x + 96 + insertOffset * 20,
-        y: canvasViewport.y + 92 + insertOffset * 16,
-        width: isImage || objectImageUrl ? 380 : 320,
-        height: isImage || objectImageUrl ? 260 : 120,
-        color: "#16213e",
-        fill: "transparent",
-        strokeWidth: 2,
-        opacity: 1,
+      });
+      const syncedAsset = buildWorkbookSyncedDocumentAsset({
+        asset,
+        syncedUrl: isImage ? documentAssetUrl : objectImageUrl || "data:,",
+        renderedPage,
         imageUrl: objectImageUrl,
-        imageName: file.name,
-        text: isImage || objectImageUrl ? undefined : `PDF: ${file.name}`,
-        fontSize: isImage || objectImageUrl ? undefined : 18,
-        meta: isImage
-          ? {
-              [WORKBOOK_IMAGE_ASSET_META_KEY]: assetId,
-            }
-          : undefined,
+      });
+      const object = buildWorkbookDocumentBoardObject({
+        objectId: generateId(),
+        assetId,
+        fileName: file.name,
         authorUserId: user?.id ?? "unknown",
-        createdAt: new Date().toISOString(),
-      };
+        createdAt: uploadedAt,
+        insertPosition,
+        imageUrl: objectImageUrl,
+        renderedPage,
+        type: isPdf ? "pdf" : isImage ? "image" : "file",
+      });
       const created = await commitObjectCreate(object);
       if (!created) return;
       try {
@@ -7954,11 +7941,13 @@ export default function WorkbookSessionPage() {
       (asset) => asset.id === documentState.activeAssetId
     );
     if (!active) return;
-    const insertOffset = boardObjects.length % 6;
+    const insertPosition = resolveWorkbookBoardInsertPosition(
+      canvasViewport,
+      boardObjects.length
+    );
     const renderedPage =
       active.type === "pdf"
-        ? active.renderedPages?.find((page) => page.page === documentState.page) ??
-          active.renderedPages?.[0]
+        ? resolvePrimaryDocumentRenderedPage(active.renderedPages, documentState.page)
         : null;
     const snapshotImageUrl =
       active.type === "image"
@@ -7974,36 +7963,15 @@ export default function WorkbookSessionPage() {
               maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
             })
           : undefined;
-    const object: WorkbookBoardObject = {
-      id: generateId(),
-      type: active.type === "image" || renderedPage ? "image" : "text",
-      layer: "board",
-      x: canvasViewport.x + 96 + insertOffset * 20,
-      y: canvasViewport.y + 92 + insertOffset * 16,
-      width: 320,
-      height: 220,
-      color: "#16213e",
-      fill: "transparent",
-      strokeWidth: 2,
-      opacity: 1,
-      imageUrl: snapshotImageUrl,
-      imageName: active.name,
-      meta:
-        active.type === "image"
-          ? {
-              [WORKBOOK_IMAGE_ASSET_META_KEY]: active.id,
-            }
-          : undefined,
-      text:
-        active.type === "pdf"
-          ? `PDF: ${active.name}`
-          : active.type === "file"
-            ? `Файл: ${active.name}`
-            : undefined,
-      fontSize: active.type === "pdf" || active.type === "file" ? 18 : undefined,
+    const object = buildWorkbookSnapshotBoardObject({
+      objectId: generateId(),
+      asset: active,
+      page: documentState.page,
       authorUserId: user?.id ?? "unknown",
       createdAt: new Date().toISOString(),
-    };
+      insertPosition,
+      imageUrl: snapshotImageUrl,
+    });
     await commitObjectCreate(object);
   };
 
