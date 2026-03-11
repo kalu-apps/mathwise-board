@@ -217,6 +217,25 @@
   --loader-ring-glow: color-mix(in srgb, var(--brand-soft) 34%, transparent);
   --loader-bar-bg: color-mix(in srgb, var(--surface-soft) 72%, transparent);
   --loader-bar-glow: color-mix(in srgb, var(--brand-soft) 24%, transparent);
+
+  --auth-shell-bg-start: #07111b;
+  --auth-shell-bg-end: #152744;
+  --auth-shell-orb-a: rgba(80, 212, 255, 0.18);
+  --auth-shell-orb-b: rgba(130, 127, 255, 0.16);
+  --auth-shell-orb-c: rgba(65, 228, 191, 0.16);
+  --auth-shell-veil: rgba(7, 14, 26, 0.2);
+  --auth-shell-card-bg: linear-gradient(
+      160deg,
+      rgba(20, 32, 58, 0.8) 0%,
+      rgba(24, 39, 70, 0.76) 54%,
+      rgba(16, 27, 51, 0.84) 100%
+    );
+  --auth-shell-card-border: rgba(179, 205, 255, 0.22);
+  --auth-shell-card-highlight: rgba(213, 238, 255, 0.18);
+  --auth-shell-card-shadow: 0 28px 68px rgba(4, 9, 22, 0.44);
+  --auth-shell-field-bg: rgba(17, 28, 54, 0.74);
+  --auth-shell-field-border: rgba(177, 197, 255, 0.18);
+  --auth-shell-modal-shadow: 0 34px 78px rgba(4, 9, 22, 0.42);
 }
 
 :root[data-theme="light"] {
@@ -369,6 +388,25 @@
   --loader-ring-glow: color-mix(in srgb, var(--brand-solid) 24%, transparent);
   --loader-bar-bg: color-mix(in srgb, var(--surface-soft) 76%, transparent);
   --loader-bar-glow: color-mix(in srgb, var(--brand-solid) 18%, transparent);
+
+  --auth-shell-bg-start: #f7fbff;
+  --auth-shell-bg-end: #e7eff9;
+  --auth-shell-orb-a: rgba(74, 173, 228, 0.16);
+  --auth-shell-orb-b: rgba(88, 108, 221, 0.12);
+  --auth-shell-orb-c: rgba(43, 187, 162, 0.13);
+  --auth-shell-veil: rgba(255, 255, 255, 0.18);
+  --auth-shell-card-bg: linear-gradient(
+      160deg,
+      rgba(255, 255, 255, 0.86) 0%,
+      rgba(246, 250, 255, 0.9) 54%,
+      rgba(236, 244, 255, 0.84) 100%
+    );
+  --auth-shell-card-border: rgba(95, 122, 181, 0.18);
+  --auth-shell-card-highlight: rgba(255, 255, 255, 0.78);
+  --auth-shell-card-shadow: 0 26px 60px rgba(56, 82, 132, 0.16);
+  --auth-shell-field-bg: rgba(249, 252, 255, 0.84);
+  --auth-shell-field-border: rgba(105, 130, 187, 0.18);
+  --auth-shell-modal-shadow: 0 30px 68px rgba(56, 82, 132, 0.18);
 }
 
 html,

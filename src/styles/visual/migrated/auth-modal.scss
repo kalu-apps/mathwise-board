@@ -1,16 +1,29 @@
 .auth-modal {
   .MuiDialog-paper {
-    width: min(92vw, 320px) !important;
-    max-width: min(92vw, 320px) !important;
+    width: min(92vw, 368px) !important;
+    max-width: min(92vw, 368px) !important;
   }
 
   .MuiPaper-root {
+    position: relative;
+    overflow: hidden;
     border-radius: 22px;
     padding-top: 8px;
-    background: var(--card-bg);
-    border: 1px solid var(--card-border);
-    box-shadow: var(--shadow-lg);
-    backdrop-filter: blur(14px);
+    background: var(--auth-shell-card-bg);
+    border: 1px solid var(--auth-shell-card-border);
+    box-shadow: var(--auth-shell-modal-shadow);
+    backdrop-filter: blur(18px) saturate(130%);
+
+    &::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 12% 12%, color-mix(in srgb, var(--auth-shell-orb-a) 70%, transparent), transparent 32%),
+        linear-gradient(180deg, color-mix(in srgb, var(--auth-shell-card-highlight) 90%, transparent), transparent 20%);
+      opacity: 0.7;
+      pointer-events: none;
+    }
   }
 
   &__title {
@@ -115,12 +128,12 @@
 
   /* TextField */
   .MuiTextField-root {
-    background: var(--input-bg);
+    background: var(--auth-shell-field-bg);
     border-radius: 14px;
 
     .MuiOutlinedInput-root {
       border-radius: 14px;
-      background: var(--input-bg);
+      background: var(--auth-shell-field-bg);
       transition: border-color 0.2s ease, box-shadow 0.2s ease;
 
       &.Mui-focused {
@@ -128,7 +141,7 @@
       }
 
       .MuiOutlinedInput-notchedOutline {
-        border-color: var(--input-border);
+        border-color: var(--auth-shell-field-border);
       }
     }
   }
@@ -147,7 +160,7 @@
 
   /* label — чтобы НЕ обрезался */
   .MuiInputLabel-root {
-    background: var(--input-bg);
+    background: var(--auth-shell-field-bg);
     padding: 0 6px;
     font-size: 14px;
   }
@@ -195,8 +208,8 @@
   .auth-modal {
     .MuiPaper-root {
       margin: 0 !important;
-      width: min(94vw, 300px) !important;
-      max-width: min(94vw, 300px) !important;
+      width: min(94vw, 320px) !important;
+      max-width: min(94vw, 320px) !important;
       border-radius: 18px;
       box-sizing: border-box;
     }

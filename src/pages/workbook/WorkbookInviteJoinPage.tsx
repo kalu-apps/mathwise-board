@@ -5,6 +5,7 @@ import "./workbookRouteStyles";
 import { joinWorkbookInvite, resolveWorkbookInvite } from "@/features/workbook/model/api";
 import { getAuthSession } from "@/features/auth/model/api";
 import { useAuth } from "@/features/auth/model/AuthContext";
+import { AuthAmbientScene } from "@/features/auth-ambient/ui/AuthAmbientScene";
 import { ApiError } from "@/shared/api/client";
 import { t } from "@/shared/i18n";
 
@@ -167,7 +168,8 @@ export default function WorkbookInviteJoinPage() {
   };
 
   return (
-    <section className="workbook-invite">
+    <section className="workbook-invite workbook-entry-shell workbook-entry-shell--invite">
+      <AuthAmbientScene variant="invite" />
       <article className="workbook-invite__card">
         <h1>{t("workbookInvite.title")}</h1>
         {state.loading ? (

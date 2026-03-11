@@ -3,6 +3,7 @@ import { Alert, Button, CircularProgress, Stack, Typography } from "@mui/materia
 import { useNavigate } from "react-router-dom";
 import "./workbookRouteStyles";
 import { useAuth } from "@/features/auth/model/AuthContext";
+import { AuthAmbientScene } from "@/features/auth-ambient/ui/AuthAmbientScene";
 import {
   createWorkbookSession,
   getWorkbookDrafts,
@@ -61,12 +62,17 @@ export default function WorkbookLaunchPage() {
   }, [isAuthReady, navigate, openAuthModal, user]);
 
   if (isAuthReady && !user) {
-    return <section className="workbook-launch workbook-launch--auth-only" />;
+    return (
+      <section className="workbook-launch workbook-entry-shell workbook-entry-shell--launch workbook-launch--auth-only">
+        <AuthAmbientScene variant="launch" />
+      </section>
+    );
   }
 
   if (isAuthReady && user?.role === "teacher" && (loading || !error)) {
     return (
-      <section className="workbook-launch">
+      <section className="workbook-launch workbook-entry-shell workbook-entry-shell--launch">
+        <AuthAmbientScene variant="launch" />
         <article className="workbook-launch__card">
           <Stack direction="row" spacing={1.5} alignItems="center">
             <CircularProgress size={22} />
@@ -78,7 +84,8 @@ export default function WorkbookLaunchPage() {
   }
 
   return (
-    <section className="workbook-launch">
+    <section className="workbook-launch workbook-entry-shell workbook-entry-shell--launch">
+      <AuthAmbientScene variant="launch" />
       <article className="workbook-launch__card">
         <Typography variant="h4">{t("whiteboardLaunch.title")}</Typography>
         <Typography variant="body1" color="text.secondary">

@@ -64,7 +64,7 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
     },
     optimizeDeps: {
-      include: ["react", "react-dom"],
+      include: ["react", "react-dom", "three"],
     },
     build: {
       chunkSizeWarningLimit: 700,
@@ -82,6 +82,9 @@ export default defineConfig(({ mode }) => {
               if (normalizedId.includes("/mathjs/")) {
                 return "vendor-mathjs";
               }
+              if (normalizedId.includes("/three/")) {
+                return "vendor-three";
+              }
               if (normalizedId.includes("/livekit-client/")) {
                 return "vendor-livekit";
               }
@@ -94,6 +97,9 @@ export default defineConfig(({ mode }) => {
             }
             if (normalizedId.includes("/src/features/workbook/model/solid3d")) {
               return "workbook-solid3d";
+            }
+            if (normalizedId.includes("/src/features/auth-ambient/")) {
+              return "auth-ambient";
             }
             if (normalizedId.includes("/src/features/workbook/model/functionGraph")) {
               return "workbook-graph";

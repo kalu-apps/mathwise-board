@@ -82,7 +82,7 @@ export function AuthModal({ open, onClose, initialEmail = "" }: AuthModalProps) 
       }}
       PaperProps={{
         sx: {
-          width: "min(92vw, 320px)",
+          width: "min(92vw, 368px)",
         },
       }}
       TransitionProps={{ onEnter: resetForm }}

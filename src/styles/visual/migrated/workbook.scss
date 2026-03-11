@@ -3331,6 +3331,7 @@
 .workbook-invite {
   min-height: calc(100vh - 160px);
   align-items: center;
+  padding: 22px 16px;
 }
 
 .workbook-invite__card {
@@ -3371,7 +3372,7 @@
 .workbook-launch {
   min-height: calc(100vh - 160px);
   align-items: center;
-  padding: 16px;
+  padding: 22px 16px;
 }
 
 .workbook-launch--auth-only {
@@ -3401,6 +3402,96 @@
 
 .workbook-launch__actions {
   margin-top: 4px;
+}
+
+.workbook-entry-shell {
+  width: 100%;
+  position: relative;
+  overflow: clip;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  border-radius: clamp(26px, 2vw, 38px);
+  background:
+    radial-gradient(circle at 16% 18%, var(--auth-shell-orb-a), transparent 30%),
+    radial-gradient(circle at 84% 14%, var(--auth-shell-orb-b), transparent 32%),
+    radial-gradient(circle at 54% 88%, var(--auth-shell-orb-c), transparent 36%),
+    linear-gradient(160deg, var(--auth-shell-bg-start) 0%, var(--auth-shell-bg-end) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--auth-shell-veil) 88%, transparent), transparent 28%),
+      radial-gradient(circle at center, transparent 26%, color-mix(in srgb, var(--auth-shell-veil) 72%, transparent) 100%);
+    pointer-events: none;
+    z-index: 1;
+  }
+}
+
+.workbook-entry-shell--launch {
+  min-height: max(540px, calc(100vh - 168px));
+}
+
+.workbook-entry-shell--invite {
+  min-height: max(500px, calc(100vh - 168px));
+}
+
+.auth-ambient {
+  position: absolute;
+  inset: -2%;
+  pointer-events: none;
+  z-index: 0;
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    opacity: 0.98;
+    filter: saturate(118%);
+  }
+}
+
+.workbook-launch__card,
+.workbook-invite__card {
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
+  border-radius: 24px;
+  border: 1px solid var(--auth-shell-card-border);
+  background: var(--auth-shell-card-bg);
+  box-shadow: var(--auth-shell-card-shadow);
+  backdrop-filter: blur(18px) saturate(130%);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--auth-shell-card-highlight) 82%, transparent), transparent 18%),
+      linear-gradient(90deg, transparent, color-mix(in srgb, var(--auth-shell-card-highlight) 38%, transparent), transparent);
+    pointer-events: none;
+    opacity: 0.66;
+  }
+
+  > * {
+    position: relative;
+    z-index: 1;
+  }
+}
+
+.workbook-launch__card {
+  width: min(720px, 100%);
+  padding: 22px;
+  gap: 14px;
+}
+
+.workbook-invite__card {
+  width: min(580px, 100%);
+  padding: 18px;
 }
 
 @media (max-width: 1024px) {
@@ -3433,6 +3524,15 @@
     gap: 6px;
     border-radius: 14px;
     scrollbar-width: none;
+  }
+
+  .workbook-entry-shell {
+    border-radius: 24px;
+  }
+
+  .workbook-entry-shell--launch,
+  .workbook-entry-shell--invite {
+    min-height: max(460px, calc(100vh - 144px));
   }
 
   .workbook-session__tools::-webkit-scrollbar {
