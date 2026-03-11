@@ -1716,10 +1716,25 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const strokePreviewTimerRef = useRef<number | null>(null);
   const eraserStrokeFragmentsRef = useRef<Map<string, WorkbookPoint[][]>>(new Map());
   const eraserPreviewFrameRef = useRef<number | null>(null);
+  const remoteEraserPreviewFrameRef = useRef<number | null>(null);
+  const remoteEraserStrokeFragmentsRef = useRef<Map<string, WorkbookPoint[][]>>(new Map());
+  const remoteEraserObjectCutsRef = useRef<Map<string, ObjectEraserCut[]>>(new Map());
+  const remoteEraserProcessedPointsByIdRef = useRef<Map<string, number>>(new Map());
+  const remoteEraserBaseStateRef = useRef<{
+    strokes: WorkbookStroke[];
+    objects: WorkbookBoardObject[];
+    page: number;
+  } | null>(null);
   const [eraserPreviewStrokeFragments, setEraserPreviewStrokeFragments] = useState<
     Record<string, WorkbookPoint[][]>
   >({});
   const [eraserPreviewObjectCuts, setEraserPreviewObjectCuts] = useState<
+    Record<string, ObjectEraserCut[]>
+  >({});
+  const [remoteEraserPreviewStrokeFragments, setRemoteEraserPreviewStrokeFragments] = useState<
+    Record<string, WorkbookPoint[][]>
+  >({});
+  const [remoteEraserPreviewObjectCuts, setRemoteEraserPreviewObjectCuts] = useState<
     Record<string, ObjectEraserCut[]>
   >({});
   const [shapeDraft, setShapeDraft] = useState<ShapeDraft | null>(null);
@@ -1815,6 +1830,19 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
     setEraserPreviewStrokeFragments({});
     setEraserPreviewObjectCuts({});
+  }, []);
+
+  const scheduleRemoteEraserPreviewRender = useCallback(() => {
+    if (remoteEraserPreviewFrameRef.current !== null) return;
+    remoteEraserPreviewFrameRef.current = window.requestAnimationFrame(() => {
+      remoteEraserPreviewFrameRef.current = null;
+      setRemoteEraserPreviewStrokeFragments(
+        Object.fromEntries(remoteEraserStrokeFragmentsRef.current.entries())
+      );
+      setRemoteEraserPreviewObjectCuts(
+        Object.fromEntries(remoteEraserObjectCutsRef.current.entries())
+      );
+    });
   }, []);
 
   const emitEraserPreviewPoints = useCallback(
@@ -2399,34 +2427,72 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     [isObjectHit]
   );
 
-  const remoteEraserPreview = useMemo(() => {
+  useEffect(() => {
+    const safePage = Math.max(1, currentPage);
     if (incomingEraserPreviews.length === 0) {
-      return {
-        strokeFragments: {} as Record<string, WorkbookPoint[][]>,
-        objectCuts: {} as Record<string, ObjectEraserCut[]>,
+      remoteEraserBaseStateRef.current = {
+        strokes: allStrokes,
+        objects: boardObjects,
+        page: safePage,
       };
+      remoteEraserStrokeFragmentsRef.current.clear();
+      remoteEraserObjectCutsRef.current.clear();
+      remoteEraserProcessedPointsByIdRef.current.clear();
+      scheduleRemoteEraserPreviewRender();
+      return;
     }
-    const strokeFragments = new Map<string, WorkbookPoint[][]>();
-    const objectCuts = new Map<string, ObjectEraserCut[]>();
+
+    const activeIds = new Set(incomingEraserPreviews.map((preview) => preview.id));
+    const previousBaseState = remoteEraserBaseStateRef.current;
+    const shouldRebuild =
+      previousBaseState?.strokes !== allStrokes ||
+      previousBaseState?.objects !== boardObjects ||
+      previousBaseState?.page !== safePage ||
+      remoteEraserProcessedPointsByIdRef.current.size !== activeIds.size ||
+      Array.from(remoteEraserProcessedPointsByIdRef.current.keys()).some((id) => !activeIds.has(id));
+
+    if (shouldRebuild) {
+      remoteEraserStrokeFragmentsRef.current = new Map();
+      remoteEraserObjectCutsRef.current = new Map();
+      remoteEraserProcessedPointsByIdRef.current = new Map();
+    }
+
+    let changed = shouldRebuild;
     incomingEraserPreviews.forEach((preview) => {
-      if (preview.page !== Math.max(1, currentPage)) return;
-      preview.points.forEach((point) => {
+      const processedPoints = shouldRebuild
+        ? 0
+        : remoteEraserProcessedPointsByIdRef.current.get(preview.id) ?? 0;
+      if (preview.points.length <= processedPoints) {
+        remoteEraserProcessedPointsByIdRef.current.set(preview.id, preview.points.length);
+        return;
+      }
+      const nextPoints = preview.points.slice(processedPoints);
+      nextPoints.forEach((point) => {
         applyEraserPointToCollections({
           center: point,
           radius: Math.max(4, preview.radius),
           strokes: allStrokes,
           objects: boardObjects,
-          strokeFragmentsMap: strokeFragments,
-          objectCutsMap: objectCuts,
+          strokeFragmentsMap: remoteEraserStrokeFragmentsRef.current,
+          objectCutsMap: remoteEraserObjectCutsRef.current,
           isStrokeErasedByCircle,
           isObjectErasedByCircle,
         });
       });
+      remoteEraserProcessedPointsByIdRef.current.set(preview.id, preview.points.length);
+      if (nextPoints.length > 0) {
+        changed = true;
+      }
     });
-    return {
-      strokeFragments: Object.fromEntries(strokeFragments.entries()),
-      objectCuts: Object.fromEntries(objectCuts.entries()),
+
+    remoteEraserBaseStateRef.current = {
+      strokes: allStrokes,
+      objects: boardObjects,
+      page: safePage,
     };
+
+    if (!changed) return;
+    scheduleRemoteEraserPreviewRender();
   }, [
     allStrokes,
     boardObjects,
@@ -2434,14 +2500,15 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     incomingEraserPreviews,
     isObjectErasedByCircle,
     isStrokeErasedByCircle,
+    scheduleRemoteEraserPreviewRender,
   ]);
 
   const activeEraserPreviewStrokeFragments = erasing
     ? eraserPreviewStrokeFragments
-    : remoteEraserPreview.strokeFragments;
+    : remoteEraserPreviewStrokeFragments;
   const activeEraserPreviewObjectCuts = erasing
     ? eraserPreviewObjectCuts
-    : remoteEraserPreview.objectCuts;
+    : remoteEraserPreviewObjectCuts;
   const eraserPreviewActive = erasing || incomingEraserPreviews.length > 0;
   const renderedStrokes = useMemo(() => {
     return allStrokes.flatMap((stroke) => {

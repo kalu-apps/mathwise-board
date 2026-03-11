@@ -206,6 +206,7 @@ const ERASER_PREVIEW_EXPIRY_MS = 600;
 const ERASER_PREVIEW_END_EXPIRY_MS = 900;
 const CONTEXTBAR_VIEWPORT_MARGIN_PX = 12;
 const PREVIEW_POINT_MERGE_MIN_DISTANCE_PX = 2.5;
+const ERASER_PREVIEW_POINT_MERGE_MIN_DISTANCE_PX = 1.2;
 const VIEWPORT_SYNC_MIN_INTERVAL_MS = 18;
 const VIEWPORT_SYNC_EPSILON = 0.2;
 const MAX_INCOMING_PREVIEW_PATCHES_PER_OBJECT = 20;
@@ -3400,7 +3401,11 @@ export default function WorkbookSessionPage() {
           const ended = Boolean(payload.ended);
           setIncomingEraserPreviews((current) => {
             const existing = current[previewId];
-            const nextPoints = mergePreviewPathPoints(existing?.points ?? [], points);
+            const nextPoints = mergePreviewPathPoints(
+              existing?.points ?? [],
+              points,
+              ERASER_PREVIEW_POINT_MERGE_MIN_DISTANCE_PX
+            );
             if (!existing && nextPoints.length === 0 && ended) {
               return current;
             }
@@ -5060,7 +5065,11 @@ export default function WorkbookSessionPage() {
     }) => {
       if (!payload.gestureId) return;
       const current = eraserPreviewQueuedByGestureRef.current.get(payload.gestureId);
-      const mergedPoints = mergePreviewPathPoints(current?.points ?? [], payload.points);
+      const mergedPoints = mergePreviewPathPoints(
+        current?.points ?? [],
+        payload.points,
+        ERASER_PREVIEW_POINT_MERGE_MIN_DISTANCE_PX
+      );
       eraserPreviewQueuedByGestureRef.current.set(payload.gestureId, {
         gestureId: payload.gestureId,
         layer: payload.layer,
