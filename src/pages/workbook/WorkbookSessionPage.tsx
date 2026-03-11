@@ -199,6 +199,7 @@ const POLL_INTERVAL_MS = 220;
 const POLL_INTERVAL_STREAM_CONNECTED_MS = 180;
 const PRESENCE_INTERVAL_MS = 1_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
+const CONTEXTBAR_DOCKED_VIEWPORT_MAX_WIDTH = 1024;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
 const VOLATILE_SYNC_FLUSH_INTERVAL_MS = 16;
 const STROKE_PREVIEW_EXPIRY_MS = 3_000;
@@ -1855,6 +1856,9 @@ export default function WorkbookSessionPage() {
   const [isCompactViewport, setIsCompactViewport] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth <= 760 : false
   );
+  const [isDockedContextbarViewport, setIsDockedContextbarViewport] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth <= CONTEXTBAR_DOCKED_VIEWPORT_MAX_WIDTH : false
+  );
   const [utilityTab, setUtilityTab] = useState<
     "settings" | "graph" | "transform" | "layers"
   >("settings");
@@ -2438,6 +2442,9 @@ export default function WorkbookSessionPage() {
     if (typeof window === "undefined") return;
     const handleResize = () => {
       setIsCompactViewport(window.innerWidth <= 760);
+      setIsDockedContextbarViewport(
+        window.innerWidth <= CONTEXTBAR_DOCKED_VIEWPORT_MAX_WIDTH
+      );
     };
     handleResize();
     window.addEventListener("resize", handleResize, { passive: true });
@@ -2515,7 +2522,7 @@ export default function WorkbookSessionPage() {
 
   const handleContextbarDragStart = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (isCompactViewport || event.button !== 0) return;
+      if (isDockedContextbarViewport || event.button !== 0) return;
       const target = event.target as HTMLElement | null;
       if (
         target?.closest(
@@ -2531,7 +2538,7 @@ export default function WorkbookSessionPage() {
         offsetY: event.clientY - contextbarPosition.y,
       };
     },
-    [contextbarPosition.x, contextbarPosition.y, isCompactViewport]
+    [contextbarPosition.x, contextbarPosition.y, isDockedContextbarViewport]
   );
 
   useEffect(() => {
@@ -2562,7 +2569,7 @@ export default function WorkbookSessionPage() {
   }, [contextbarPosition, contextbarStorageKey]);
 
   useEffect(() => {
-    if (isCompactViewport) {
+    if (isDockedContextbarViewport) {
       contextbarDragStateRef.current = null;
       return;
     }
@@ -2570,10 +2577,10 @@ export default function WorkbookSessionPage() {
       const next = clampContextbarPosition(current);
       return next.x === current.x && next.y === current.y ? current : next;
     });
-  }, [clampContextbarPosition, isCompactViewport]);
+  }, [clampContextbarPosition, isDockedContextbarViewport]);
 
   useEffect(() => {
-    if (isCompactViewport || typeof window === "undefined") return;
+    if (isDockedContextbarViewport || typeof window === "undefined") return;
     const handleResize = () => {
       setContextbarPosition((current) => {
         const next = clampContextbarPosition(current);
@@ -2583,10 +2590,10 @@ export default function WorkbookSessionPage() {
     handleResize();
     window.addEventListener("resize", handleResize, { passive: true });
     return () => window.removeEventListener("resize", handleResize);
-  }, [clampContextbarPosition, isCompactViewport]);
+  }, [clampContextbarPosition, isDockedContextbarViewport]);
 
   useEffect(() => {
-    if (isCompactViewport || typeof ResizeObserver === "undefined") return;
+    if (isDockedContextbarViewport || typeof ResizeObserver === "undefined") return;
     const dock = contextbarRef.current;
     if (!dock) return;
     const observer = new ResizeObserver(() => {
@@ -2597,10 +2604,10 @@ export default function WorkbookSessionPage() {
     });
     observer.observe(dock);
     return () => observer.disconnect();
-  }, [clampContextbarPosition, isCompactViewport]);
+  }, [clampContextbarPosition, isDockedContextbarViewport]);
 
   useEffect(() => {
-    if (isCompactViewport) return;
+    if (isDockedContextbarViewport) return;
     const onPointerMove = (event: PointerEvent) => {
       const dragState = contextbarDragStateRef.current;
       if (!dragState || dragState.pointerId !== event.pointerId) return;
@@ -2625,7 +2632,7 @@ export default function WorkbookSessionPage() {
       window.removeEventListener("pointercancel", onPointerUp);
       contextbarDragStateRef.current = null;
     };
-  }, [clampContextbarPosition, isCompactViewport]);
+  }, [clampContextbarPosition, isDockedContextbarViewport]);
 
   useEffect(() => {
     latestSeqRef.current = latestSeq;
@@ -11158,11 +11165,13 @@ export default function WorkbookSessionPage() {
           <div
             ref={contextbarRef}
             className={`workbook-session__contextbar-dock${
+              isDockedContextbarViewport ? " is-docked" : ""
+            }${
               isCompactViewport ? " is-compact" : ""
             }`}
             onPointerDown={handleContextbarDragStart}
             style={
-              isCompactViewport
+              isDockedContextbarViewport
                 ? undefined
                 : {
                     left: contextbarPosition.x,

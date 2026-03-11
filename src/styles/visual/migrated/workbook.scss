@@ -3545,8 +3545,51 @@
     border-radius: 10px;
   }
 
+  .workbook-session__contextbar-dock {
+    position: sticky;
+    left: auto !important;
+    right: auto;
+    top: 8px !important;
+    bottom: auto;
+    width: 100%;
+    max-width: 100%;
+    align-items: stretch;
+    z-index: 20;
+    cursor: default;
+    user-select: auto;
+  }
+
+  .workbook-session__contextbar {
+    width: 100%;
+    flex-direction: row;
+    align-items: stretch;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 6px;
+    padding: 6px;
+    border-radius: 14px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    box-shadow: 0 10px 24px color-mix(in srgb, #11214b 16%, transparent);
+  }
+
+  .workbook-session__contextbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .workbook-session__contextbar-inline {
+    width: max-content;
+    min-width: 0;
+    max-width: none;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+  }
+
   .workbook-session__contextbar-inline--column {
     min-width: min(280px, 100%);
+    width: max-content;
+    flex: 0 0 auto;
   }
 
   .workbook-session__sidebar {
@@ -3642,49 +3685,8 @@
     flex: 1 1 auto;
   }
 
-  .workbook-session__contextbar-dock {
-    position: sticky;
-    left: auto !important;
-    right: auto;
-    top: 8px !important;
-    bottom: auto;
-    width: 100%;
-    max-width: 100%;
-    align-items: stretch;
-    z-index: 20;
-  }
-
-  .workbook-session__contextbar {
-    width: 100%;
-    flex-direction: row;
-    align-items: stretch;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    gap: 6px;
-    padding: 6px;
-    border-radius: 14px;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    box-shadow: 0 10px 24px color-mix(in srgb, #11214b 16%, transparent);
-  }
-
-  .workbook-session__contextbar::-webkit-scrollbar {
-    display: none;
-  }
-
-  .workbook-session__contextbar-inline {
-    width: max-content;
-    min-width: 0;
-    max-width: none;
-    flex: 0 0 auto;
-    flex-wrap: nowrap;
-  }
-
   .workbook-session__contextbar-inline--column {
     min-width: 320px;
-    width: max-content;
-    flex: 0 0 auto;
   }
 
   .workbook-session__docs-window {
