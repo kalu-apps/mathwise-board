@@ -102,6 +102,26 @@ import {
   resolveNextLatestSeq,
   withWorkbookClientEventIds,
 } from "@/features/workbook/model/runtime";
+import {
+  getObjectExportBounds,
+  getStrokeExportBounds,
+  mergeExportBounds,
+  padExportBounds,
+  resolvePdfPagePlacement,
+  resolveWorkbookPdfExportPlan,
+  type WorkbookExportBounds,
+} from "@/features/workbook/model/export";
+import {
+  formatFileSizeMb,
+  isImageUploadFile,
+  isPdfUploadFile,
+  optimizeImageDataUrl,
+  readFileAsDataUrl,
+  WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
+  WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS,
+  WORKBOOK_IMAGE_IMPORT_MAX_BYTES,
+  WORKBOOK_PDF_IMPORT_MAX_BYTES,
+} from "@/features/workbook/model/media";
 import { applyWorkbookIncomingRealtimeEvent } from "@/features/workbook/model/incomingRealtime";
 import { applyWorkbookIncomingSessionMetaEvent } from "@/features/workbook/model/incomingSessionMeta";
 import type {
@@ -265,49 +285,6 @@ const WORKBOOK_CHAT_EMOJIS = [
   "🔍",
   "⏱️",
 ];
-
-const WORKBOOK_PDF_IMPORT_MAX_BYTES = 15 * 1024 * 1024;
-const WORKBOOK_IMAGE_IMPORT_MAX_BYTES = 20 * 1024 * 1024;
-const WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS = 46_000;
-const WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS = 72_000;
-const SUPPORTED_IMAGE_EXTENSIONS = new Set([
-  "png",
-  "jpg",
-  "jpeg",
-  "jpe",
-  "jfif",
-  "pjpeg",
-  "pjp",
-  "gif",
-  "bmp",
-  "webp",
-  "svg",
-  "avif",
-  "apng",
-  "tif",
-  "tiff",
-  "ico",
-  "heic",
-  "heif",
-]);
-
-const readFileExtension = (fileName: string) => {
-  const safeName = typeof fileName === "string" ? fileName.trim().toLowerCase() : "";
-  const dotIndex = safeName.lastIndexOf(".");
-  if (dotIndex <= 0 || dotIndex >= safeName.length - 1) return "";
-  return safeName.slice(dotIndex + 1);
-};
-
-const isPdfUploadFile = (file: File) =>
-  file.type.toLowerCase().includes("pdf") || readFileExtension(file.name) === "pdf";
-
-const isImageUploadFile = (file: File) => {
-  if (file.type.toLowerCase().startsWith("image/")) return true;
-  return SUPPORTED_IMAGE_EXTENSIONS.has(readFileExtension(file.name));
-};
-
-const formatFileSizeMb = (bytes: number) =>
-  `${(Math.max(0, bytes) / (1024 * 1024)).toFixed(1)} МБ`;
 
 const parseChatTimestamp = (value: string | null | undefined) => {
   if (!value) return 0;
@@ -783,160 +760,6 @@ const getPointsBounds = (points: WorkbookPoint[]) => {
   };
 };
 
-type WorkbookExportBounds = {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-  width: number;
-  height: number;
-};
-
-const EXPORT_PAGE_PORTRAIT_RATIO = 210 / 297;
-const EXPORT_PAGE_MIN_WIDTH = 960;
-const EXPORT_PAGE_MIN_HEIGHT = Math.round(EXPORT_PAGE_MIN_WIDTH / EXPORT_PAGE_PORTRAIT_RATIO);
-
-const padExportBounds = (bounds: WorkbookExportBounds, padding: number): WorkbookExportBounds => {
-  const safePadding = Math.max(0, padding);
-  const minX = bounds.minX - safePadding;
-  const minY = bounds.minY - safePadding;
-  const maxX = bounds.maxX + safePadding;
-  const maxY = bounds.maxY + safePadding;
-  return {
-    minX,
-    minY,
-    maxX,
-    maxY,
-    width: Math.max(1, maxX - minX),
-    height: Math.max(1, maxY - minY),
-  };
-};
-
-const getStrokeExportBounds = (stroke: WorkbookStroke): WorkbookExportBounds | null => {
-  if (!Array.isArray(stroke.points) || stroke.points.length === 0) return null;
-  const pointsBounds = getPointsBounds(stroke.points);
-  const width = Math.max(1, stroke.width ?? 1);
-  const halfWidth = width / 2;
-  const minX = pointsBounds.minX - halfWidth;
-  const minY = pointsBounds.minY - halfWidth;
-  const maxX = pointsBounds.maxX + halfWidth;
-  const maxY = pointsBounds.maxY + halfWidth;
-  return {
-    minX,
-    minY,
-    maxX,
-    maxY,
-    width: Math.max(1, maxX - minX),
-    height: Math.max(1, maxY - minY),
-  };
-};
-
-const rotatePointAroundCenter = (
-  point: WorkbookPoint,
-  center: WorkbookPoint,
-  angleDeg: number
-): WorkbookPoint => {
-  const angle = (angleDeg * Math.PI) / 180;
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  const dx = point.x - center.x;
-  const dy = point.y - center.y;
-  return {
-    x: center.x + dx * cos - dy * sin,
-    y: center.y + dx * sin + dy * cos,
-  };
-};
-
-const getObjectExportBounds = (object: WorkbookBoardObject): WorkbookExportBounds => {
-  const left = Math.min(object.x, object.x + object.width);
-  const right = Math.max(object.x, object.x + object.width);
-  const top = Math.min(object.y, object.y + object.height);
-  const bottom = Math.max(object.y, object.y + object.height);
-  const center = {
-    x: left + (right - left) / 2,
-    y: top + (bottom - top) / 2,
-  };
-  const basePoints: WorkbookPoint[] = [
-    { x: left, y: top },
-    { x: right, y: top },
-    { x: right, y: bottom },
-    { x: left, y: bottom },
-    ...(Array.isArray(object.points) ? object.points : []),
-  ];
-  const rotation =
-    typeof object.rotation === "number" && Number.isFinite(object.rotation)
-      ? object.rotation
-      : 0;
-  const boundsPoints =
-    Math.abs(rotation) > 1e-3
-      ? basePoints.map((point) => rotatePointAroundCenter(point, center, rotation))
-      : basePoints;
-  const baseBounds = getPointsBounds(boundsPoints);
-  const strokePadding = Math.max(1, (object.strokeWidth ?? 1) / 2);
-  return padExportBounds(baseBounds, strokePadding);
-};
-
-const mergeExportBounds = (
-  boundsList: Array<WorkbookExportBounds | null | undefined>
-): WorkbookExportBounds | null => {
-  const visibleBounds = boundsList.filter(
-    (bounds): bounds is WorkbookExportBounds => Boolean(bounds)
-  );
-  if (visibleBounds.length === 0) return null;
-  const minX = Math.min(...visibleBounds.map((bounds) => bounds.minX));
-  const minY = Math.min(...visibleBounds.map((bounds) => bounds.minY));
-  const maxX = Math.max(...visibleBounds.map((bounds) => bounds.maxX));
-  const maxY = Math.max(...visibleBounds.map((bounds) => bounds.maxY));
-  return {
-    minX,
-    minY,
-    maxX,
-    maxY,
-    width: Math.max(1, maxX - minX),
-    height: Math.max(1, maxY - minY),
-  };
-};
-
-const resolvePortraitExportSize = (width: number, height: number) => {
-  let nextWidth = Math.max(EXPORT_PAGE_MIN_WIDTH, Math.ceil(width));
-  let nextHeight = Math.max(EXPORT_PAGE_MIN_HEIGHT, Math.ceil(height));
-  const currentRatio = nextWidth / nextHeight;
-  if (currentRatio > EXPORT_PAGE_PORTRAIT_RATIO) {
-    nextHeight = Math.max(nextHeight, Math.ceil(nextWidth / EXPORT_PAGE_PORTRAIT_RATIO));
-  } else {
-    nextWidth = Math.max(nextWidth, Math.ceil(nextHeight * EXPORT_PAGE_PORTRAIT_RATIO));
-  }
-  return { width: nextWidth, height: nextHeight };
-};
-
-const fitExportBoundsToPageSize = (
-  bounds: WorkbookExportBounds | null,
-  size: { width: number; height: number }
-): WorkbookExportBounds => {
-  if (!bounds) {
-    return {
-      minX: 0,
-      minY: 0,
-      maxX: size.width,
-      maxY: size.height,
-      width: size.width,
-      height: size.height,
-    };
-  }
-  const centerX = bounds.minX + bounds.width / 2;
-  const centerY = bounds.minY + bounds.height / 2;
-  const halfWidth = size.width / 2;
-  const halfHeight = size.height / 2;
-  return {
-    minX: centerX - halfWidth,
-    minY: centerY - halfHeight,
-    maxX: centerX + halfWidth,
-    maxY: centerY + halfHeight,
-    width: size.width,
-    height: size.height,
-  };
-};
-
 type ConnectedFigureKind =
   | "segment"
   | "triangle"
@@ -1082,90 +905,6 @@ const normalizeSceneLayersForBoard = (
     sceneLayers: unique,
     activeSceneLayerId: resolvedActiveLayerId,
   };
-};
-
-const readFileAsDataUrl = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(new Error("read_failed"));
-    reader.readAsDataURL(file);
-  });
-
-const loadImageFromDataUrl = (dataUrl: string): Promise<HTMLImageElement> =>
-  new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("image_decode_failed"));
-    image.src = dataUrl;
-  });
-
-const optimizeImageDataUrl = async (
-  dataUrl: string,
-  options?: { maxEdge?: number; quality?: number; maxChars?: number }
-) => {
-  if (typeof document === "undefined") return dataUrl;
-  const image = await loadImageFromDataUrl(dataUrl);
-  const maxEdge = Math.max(720, options?.maxEdge ?? 1_920);
-  const quality = Math.max(0.5, Math.min(0.95, options?.quality ?? 0.84));
-  const maxChars = Math.max(18_000, Math.round(options?.maxChars ?? 420_000));
-  const sourceWidth = Math.max(1, image.naturalWidth || image.width);
-  const sourceHeight = Math.max(1, image.naturalHeight || image.height);
-  const ratio = Math.min(1, maxEdge / Math.max(sourceWidth, sourceHeight));
-  let targetWidth = Math.max(1, Math.round(sourceWidth * ratio));
-  let targetHeight = Math.max(1, Math.round(sourceHeight * ratio));
-  const canvas = document.createElement("canvas");
-  canvas.width = targetWidth;
-  canvas.height = targetHeight;
-  const context = canvas.getContext("2d");
-  if (!context) return dataUrl;
-  const renderCandidate = (width: number, height: number, outputQuality: number) => {
-    canvas.width = width;
-    canvas.height = height;
-    context.clearRect(0, 0, width, height);
-    context.drawImage(image, 0, 0, width, height);
-    return canvas.toDataURL("image/jpeg", outputQuality);
-  };
-  const original = typeof dataUrl === "string" ? dataUrl : "";
-  let best = renderCandidate(targetWidth, targetHeight, quality);
-  if (!best) best = original;
-  if (original && original.length < best.length) {
-    best = original;
-  }
-  if (best.length <= maxChars) return best;
-  let nextQuality = quality;
-  for (let attempt = 0; attempt < 32; attempt += 1) {
-    nextQuality = Math.max(0.28, nextQuality * 0.86);
-    if (attempt % 2 === 1 || best.length > maxChars * 1.6) {
-      targetWidth = Math.max(64, Math.round(targetWidth * 0.82));
-      targetHeight = Math.max(64, Math.round(targetHeight * 0.82));
-    }
-    const candidate = renderCandidate(targetWidth, targetHeight, nextQuality);
-    if (candidate && candidate.length < best.length) {
-      best = candidate;
-    }
-    if (best.length <= maxChars) break;
-  }
-  if (best.length > maxChars) {
-    let emergencyWidth = targetWidth;
-    let emergencyHeight = targetHeight;
-    let emergencyQuality = nextQuality;
-    while (
-      best.length > maxChars &&
-      (emergencyWidth > 64 || emergencyHeight > 64 || emergencyQuality > 0.18)
-    ) {
-      emergencyWidth = Math.max(64, Math.round(emergencyWidth * 0.76));
-      emergencyHeight = Math.max(64, Math.round(emergencyHeight * 0.76));
-      emergencyQuality = Math.max(0.18, emergencyQuality * 0.82);
-      const candidate = renderCandidate(emergencyWidth, emergencyHeight, emergencyQuality);
-      if (candidate && candidate.length < best.length) {
-        best = candidate;
-      } else {
-        break;
-      }
-    }
-  }
-  return best;
 };
 
 const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
@@ -8695,22 +8434,8 @@ export default function WorkbookSessionPage() {
         page: pageNumber,
         bounds: resolvePageExportBounds(pageNumber),
       }));
-      const canonicalSize = resolvePortraitExportSize(
-        Math.max(
-          EXPORT_PAGE_MIN_WIDTH,
-          ...rawPageBounds.map((entry) => entry.bounds?.width ?? EXPORT_PAGE_MIN_WIDTH)
-        ),
-        Math.max(
-          EXPORT_PAGE_MIN_HEIGHT,
-          ...rawPageBounds.map((entry) => entry.bounds?.height ?? EXPORT_PAGE_MIN_HEIGHT)
-        )
-      );
-      const fittedBoundsByPage = new Map<number, WorkbookExportBounds>(
-        rawPageBounds.map((entry) => [
-          entry.page,
-          fitExportBoundsToPageSize(entry.bounds, canonicalSize),
-        ])
-      );
+      const { canonicalSize, fittedBoundsByPage } =
+        resolveWorkbookPdfExportPlan(rawPageBounds);
       const renderedPages: Array<{ page: number; width: number; height: number; dataUrl: string }> =
         [];
       for (const pageNumber of exportPages) {
@@ -8747,16 +8472,13 @@ export default function WorkbookSessionPage() {
       });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const pageMargin = 30;
-      const contentWidth = Math.max(1, pageWidth - pageMargin * 2);
-      const contentHeight = Math.max(1, pageHeight - pageMargin * 2);
-      const canonicalWidth = canonicalSize.width;
-      const canonicalHeight = canonicalSize.height;
-      const fittedScale = Math.min(contentWidth / canonicalWidth, contentHeight / canonicalHeight);
-      const drawWidth = Math.max(1, canonicalWidth * fittedScale);
-      const drawHeight = Math.max(1, canonicalHeight * fittedScale);
-      const offsetX = (pageWidth - drawWidth) / 2;
-      const offsetY = (pageHeight - drawHeight) / 2;
+      const { offsetX, offsetY, drawWidth, drawHeight } = resolvePdfPagePlacement({
+        pageWidth,
+        pageHeight,
+        canonicalWidth: canonicalSize.width,
+        canonicalHeight: canonicalSize.height,
+        margin: 30,
+      });
       renderedPages.forEach((page, index) => {
         if (index > 0) {
           pdf.addPage("a4", "portrait");
