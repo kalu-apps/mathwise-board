@@ -151,8 +151,8 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
                     <Tooltip
                       title={
                         boardToolsEnabled
-                          ? "Отключить инструменты доски"
-                          : "Включить инструменты доски"
+                          ? "Отключить инструменты и личные настройки доски"
+                          : "Включить инструменты и личные настройки доски"
                       }
                       arrow
                     >

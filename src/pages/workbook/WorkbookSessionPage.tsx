@@ -154,6 +154,7 @@ import {
 } from "@/features/workbook/model/smartInk";
 import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
+import { readStorage, writeStorage } from "@/shared/lib/localDb";
 import { ApiError } from "@/shared/api/client";
 import { useWorkbookLivekit } from "./useWorkbookLivekit";
 import {
@@ -1479,6 +1480,61 @@ type ToolPaintSettings = {
   width: number;
 };
 
+type WorkbookPersonalBoardSettings = {
+  penToolSettings: ToolPaintSettings;
+  highlighterToolSettings: ToolPaintSettings;
+  eraserRadius: number;
+  smartInkOptions: SmartInkOptions;
+};
+
+const DEFAULT_PEN_TOOL_SETTINGS: ToolPaintSettings = {
+  color: defaultColorByLayer.board,
+  width: getDefaultToolWidth("pen"),
+};
+
+const DEFAULT_HIGHLIGHTER_TOOL_SETTINGS: ToolPaintSettings = {
+  color: "#ffd54f",
+  width: getDefaultToolWidth("highlighter"),
+};
+
+const normalizeToolPaintSettings = (
+  source: Partial<ToolPaintSettings> | null | undefined,
+  fallback: ToolPaintSettings,
+  minWidth: number,
+  maxWidth: number
+): ToolPaintSettings => ({
+  color:
+    typeof source?.color === "string" && source.color.trim().length > 0
+      ? source.color
+      : fallback.color,
+  width:
+    typeof source?.width === "number" && Number.isFinite(source.width)
+      ? Math.max(minWidth, Math.min(maxWidth, Math.round(source.width)))
+      : fallback.width,
+});
+
+const normalizeWorkbookPersonalBoardSettings = (
+  source: Partial<WorkbookPersonalBoardSettings> | null | undefined
+): WorkbookPersonalBoardSettings => ({
+  penToolSettings: normalizeToolPaintSettings(
+    source?.penToolSettings,
+    DEFAULT_PEN_TOOL_SETTINGS,
+    1,
+    18
+  ),
+  highlighterToolSettings: normalizeToolPaintSettings(
+    source?.highlighterToolSettings,
+    DEFAULT_HIGHLIGHTER_TOOL_SETTINGS,
+    6,
+    32
+  ),
+  eraserRadius:
+    typeof source?.eraserRadius === "number" && Number.isFinite(source.eraserRadius)
+      ? Math.max(ERASER_RADIUS_MIN, Math.min(ERASER_RADIUS_MAX, Math.round(source.eraserRadius)))
+      : getDefaultToolWidth("eraser"),
+  smartInkOptions: normalizeSmartInkOptions(source?.smartInkOptions),
+});
+
 export default function WorkbookSessionPage() {
   const { user, openAuthModal } = useAuth();
   const { sessionId = "" } = useParams();
@@ -1506,14 +1562,11 @@ export default function WorkbookSessionPage() {
   });
   const [tool, setTool] = useState<WorkbookTool>("select");
   const [layer] = useState<WorkbookLayer>("board");
-  const [penToolSettings, setPenToolSettings] = useState<ToolPaintSettings>({
-    color: defaultColorByLayer.board,
-    width: getDefaultToolWidth("pen"),
-  });
-  const [highlighterToolSettings, setHighlighterToolSettings] = useState<ToolPaintSettings>({
-    color: "#ffd54f",
-    width: getDefaultToolWidth("highlighter"),
-  });
+  const [penToolSettings, setPenToolSettings] =
+    useState<ToolPaintSettings>(DEFAULT_PEN_TOOL_SETTINGS);
+  const [highlighterToolSettings, setHighlighterToolSettings] = useState<ToolPaintSettings>(
+    DEFAULT_HIGHLIGHTER_TOOL_SETTINGS
+  );
   const [eraserRadius, setEraserRadius] = useState(getDefaultToolWidth("eraser"));
   const [strokeColor, setStrokeColor] = useState(defaultColorByLayer.board);
   const [strokeWidth, setStrokeWidth] = useState(getDefaultToolWidth("select"));
@@ -1733,6 +1786,11 @@ export default function WorkbookSessionPage() {
   const sessionResyncInFlightRef = useRef(false);
   const boardObjectsRef = useRef<WorkbookBoardObject[]>([]);
   const boardSettingsRef = useRef<WorkbookBoardSettings>(DEFAULT_BOARD_SETTINGS);
+  const queuedBoardSettingsCommitRef = useRef<WorkbookBoardSettings | null>(null);
+  const boardSettingsCommitTimerRef = useRef<number | null>(null);
+  const boardSettingsCommitInFlightRef = useRef(false);
+  const personalBoardSettingsReadyRef = useRef(false);
+  const skipNextPersonalBoardSettingsPersistRef = useRef(false);
   const objectUpdateQueuedPatchRef = useRef<
     Map<string, Partial<WorkbookBoardObject>>
   >(new Map());
@@ -1778,6 +1836,15 @@ export default function WorkbookSessionPage() {
   );
   const actorPermissions = actorParticipant?.permissions ?? FALLBACK_PERMISSIONS;
   const canManageSession = Boolean(actorPermissions.canManageSession);
+  const hasParticipantBoardToolsAccess = Boolean(
+    actorPermissions.canDraw &&
+      actorPermissions.canAnnotate &&
+      actorPermissions.canSelect &&
+      actorPermissions.canDelete &&
+      actorPermissions.canInsertImage &&
+      actorPermissions.canClear &&
+      actorPermissions.canUseLaser
+  );
   const canDraw = Boolean(actorPermissions.canDraw && !isEnded && !awaitingClearRequest);
   const canSelect = Boolean(actorPermissions.canSelect && !isEnded);
   const canInsertImage = Boolean(actorPermissions.canInsertImage && !isEnded);
@@ -1788,6 +1855,10 @@ export default function WorkbookSessionPage() {
   const canUseSessionChat = Boolean(actorPermissions.canUseChat);
   const canSendSessionChat = canUseSessionChat && !isEnded;
   const isClassSession = session?.kind === "CLASS";
+  const canAccessBoardSettingsPanel = Boolean(
+    !isClassSession || canManageSession || hasParticipantBoardToolsAccess
+  );
+  const canManageSharedBoardSettings = Boolean(!isClassSession || canManageSession);
   const showCollaborationPanels = Boolean(isClassSession);
   const { micEnabled, setMicEnabled } = useWorkbookLivekit({
     sessionId,
@@ -1944,11 +2015,35 @@ export default function WorkbookSessionPage() {
     boardSettingsRef.current = boardSettings;
   }, [boardSettings]);
 
+  useEffect(
+    () => () => {
+      if (boardSettingsCommitTimerRef.current !== null && typeof window !== "undefined") {
+        window.clearTimeout(boardSettingsCommitTimerRef.current);
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     if (!showCollaborationPanels) {
       setIsParticipantsCollapsed(false);
     }
   }, [showCollaborationPanels]);
+
+  useEffect(() => {
+    if (canAccessBoardSettingsPanel || utilityTab !== "settings") return;
+    setIsUtilityPanelOpen(false);
+  }, [canAccessBoardSettingsPanel, utilityTab]);
+
+  useEffect(() => {
+    if (canManageSharedBoardSettings) return;
+    queuedBoardSettingsCommitRef.current = null;
+    boardSettingsCommitInFlightRef.current = false;
+    if (boardSettingsCommitTimerRef.current !== null && typeof window !== "undefined") {
+      window.clearTimeout(boardSettingsCommitTimerRef.current);
+      boardSettingsCommitTimerRef.current = null;
+    }
+  }, [canManageSharedBoardSettings]);
 
   const areParticipantsEqual = useCallback(
     (left: WorkbookSessionParticipant[], right: WorkbookSessionParticipant[]) => {
@@ -2006,6 +2101,12 @@ export default function WorkbookSessionPage() {
     () => (sessionId && user?.id ? `workbook:chat-read:${sessionId}:${user.id}` : ""),
     [sessionId, user?.id]
   );
+  const personalBoardSettingsStorageKey = useMemo(() => {
+    const actorUserId = actorParticipant?.userId ?? user?.id ?? "";
+    return sessionId && actorUserId
+      ? `workbook:personal-board-settings:${sessionId}:${actorUserId}`
+      : "";
+  }, [actorParticipant?.userId, sessionId, user?.id]);
   const unreadSessionChatMessages = useMemo(() => {
     if (!user?.id) return [];
     let readIndex = sessionChatReadAt
@@ -3146,9 +3247,6 @@ export default function WorkbookSessionPage() {
                 }
               : current
           );
-          if (incomingSettings.smartInk) {
-            setSmartInkOptions(normalizeSmartInkOptions(incomingSettings.smartInk));
-          }
           return;
         }
         if (event.type === "permissions.update") {
@@ -3244,6 +3342,11 @@ export default function WorkbookSessionPage() {
             ? annotationSnapshotResult.value
             : null;
         setSession(sessionData);
+        queuedBoardSettingsCommitRef.current = null;
+        if (boardSettingsCommitTimerRef.current !== null && typeof window !== "undefined") {
+          window.clearTimeout(boardSettingsCommitTimerRef.current);
+          boardSettingsCommitTimerRef.current = null;
+        }
 
         const normalizedBoard = normalizeScenePayload(
           boardSnapshot?.payload ?? createEmptyScene()
@@ -3251,10 +3354,6 @@ export default function WorkbookSessionPage() {
         const normalizedAnnotations = normalizeScenePayload(
           annotationSnapshot?.payload ?? createEmptyScene()
         );
-        const restoredSmartInk = normalizeSmartInkOptions(
-          normalizedBoard.boardSettings.smartInk ?? sessionData.settings?.smartInk
-        );
-        setSmartInkOptions(restoredSmartInk);
 
         setBoardStrokes(normalizedBoard.strokes.filter((stroke) => stroke.layer === "board"));
         setBoardObjects(normalizedBoard.objects.filter((item) => item.layer === "board"));
@@ -3271,7 +3370,7 @@ export default function WorkbookSessionPage() {
             ...DEFAULT_BOARD_SETTINGS,
             ...normalizedBoard.boardSettings,
             ...normalizedLayers,
-            smartInk: restoredSmartInk,
+            smartInk: DEFAULT_SMART_INK_OPTIONS,
             title:
               normalizedBoard.boardSettings.title ||
               sessionData.title ||
@@ -3479,12 +3578,42 @@ export default function WorkbookSessionPage() {
   }, [applyIncomingEvents, filterUnseenWorkbookEvents, session, sessionId, triggerSessionResync]);
 
   useEffect(() => {
-    const normalized = normalizeSmartInkOptions(smartInkOptions);
-    setBoardSettings((current) => ({
-      ...current,
-      smartInk: normalized,
-    }));
-  }, [smartInkOptions]);
+    personalBoardSettingsReadyRef.current = false;
+    if (!personalBoardSettingsStorageKey) return;
+    const stored = readStorage<Partial<WorkbookPersonalBoardSettings> | null>(
+      personalBoardSettingsStorageKey,
+      null
+    );
+    if (stored) {
+      const normalized = normalizeWorkbookPersonalBoardSettings(stored);
+      skipNextPersonalBoardSettingsPersistRef.current = true;
+      setPenToolSettings(normalized.penToolSettings);
+      setHighlighterToolSettings(normalized.highlighterToolSettings);
+      setEraserRadius(normalized.eraserRadius);
+      setSmartInkOptions(normalized.smartInkOptions);
+    }
+    personalBoardSettingsReadyRef.current = true;
+  }, [personalBoardSettingsStorageKey]);
+
+  useEffect(() => {
+    if (!personalBoardSettingsStorageKey || !personalBoardSettingsReadyRef.current) return;
+    if (skipNextPersonalBoardSettingsPersistRef.current) {
+      skipNextPersonalBoardSettingsPersistRef.current = false;
+      return;
+    }
+    writeStorage(personalBoardSettingsStorageKey, {
+      penToolSettings,
+      highlighterToolSettings,
+      eraserRadius: clampedEraserRadius,
+      smartInkOptions: normalizeSmartInkOptions(smartInkOptions),
+    });
+  }, [
+    clampedEraserRadius,
+    highlighterToolSettings,
+    penToolSettings,
+    personalBoardSettingsStorageKey,
+    smartInkOptions,
+  ]);
 
   useEffect(() => {
     if (!sessionId || !session) return;
@@ -4202,31 +4331,80 @@ export default function WorkbookSessionPage() {
     [appendEventsAndApply]
   );
 
-  const commitBoardSettings = useCallback(
-    async (patch: Partial<WorkbookBoardSettings>) => {
-      if (session?.kind === "CLASS" && !canManageSession) return;
-      const mergedSettings = { ...boardSettings, ...patch };
-      const normalizedLayers = normalizeSceneLayersForBoard(
-        mergedSettings.sceneLayers,
-        mergedSettings.activeSceneLayerId
-      );
-      const nextSettings: WorkbookBoardSettings = {
-        ...mergedSettings,
-        sceneLayers: normalizedLayers.sceneLayers,
-        activeSceneLayerId: normalizedLayers.activeSceneLayerId,
-      };
-      try {
-        await appendEventsAndApply([
-          {
-            type: "board.settings.update",
-            payload: { boardSettings: nextSettings },
+  const flushQueuedBoardSettingsCommit = useCallback(async () => {
+    if (!canManageSharedBoardSettings || boardSettingsCommitInFlightRef.current) return;
+    const nextSettings = queuedBoardSettingsCommitRef.current;
+    if (!nextSettings) return;
+    queuedBoardSettingsCommitRef.current = null;
+    boardSettingsCommitInFlightRef.current = true;
+    try {
+      await appendEventsAndApply([
+        {
+          type: "board.settings.update",
+          payload: {
+            boardSettings: {
+              ...nextSettings,
+              smartInk: DEFAULT_SMART_INK_OPTIONS,
+            },
           },
-        ]);
-      } catch {
-        setError("Не удалось сохранить настройки доски.");
+        },
+      ]);
+    } catch {
+      setError("Не удалось сохранить настройки доски.");
+    } finally {
+      boardSettingsCommitInFlightRef.current = false;
+      if (queuedBoardSettingsCommitRef.current) {
+        void flushQueuedBoardSettingsCommit();
       }
+    }
+  }, [appendEventsAndApply, canManageSharedBoardSettings]);
+
+  const scheduleBoardSettingsCommit = useCallback(
+    (nextSettings: WorkbookBoardSettings) => {
+      if (!canManageSharedBoardSettings || typeof window === "undefined") return;
+      queuedBoardSettingsCommitRef.current = nextSettings;
+      if (boardSettingsCommitTimerRef.current !== null) {
+        window.clearTimeout(boardSettingsCommitTimerRef.current);
+      }
+      boardSettingsCommitTimerRef.current = window.setTimeout(() => {
+        boardSettingsCommitTimerRef.current = null;
+        void flushQueuedBoardSettingsCommit();
+      }, 220);
     },
-    [appendEventsAndApply, boardSettings, canManageSession, session?.kind]
+    [canManageSharedBoardSettings, flushQueuedBoardSettingsCommit]
+  );
+
+  const handleSharedBoardSettingsChange = useCallback(
+    (patch: Partial<WorkbookBoardSettings>) => {
+      if (!canManageSharedBoardSettings) return;
+      setBoardSettings((current) => {
+        const merged = { ...current, ...patch };
+        const normalizedLayers = normalizeSceneLayersForBoard(
+          merged.sceneLayers,
+          merged.activeSceneLayerId
+        );
+        const nextPagesCount = Math.max(1, Math.round(merged.pagesCount || 1));
+        const nextSettings: WorkbookBoardSettings = {
+          ...merged,
+          sceneLayers: normalizedLayers.sceneLayers,
+          activeSceneLayerId: normalizedLayers.activeSceneLayerId,
+          title: typeof merged.title === "string" ? merged.title : current.title,
+          gridSize: Math.max(8, Math.min(96, Math.round(merged.gridSize || current.gridSize))),
+          currentPage: Math.max(
+            1,
+            Math.min(nextPagesCount, Math.round(merged.currentPage || current.currentPage || 1))
+          ),
+          pagesCount: nextPagesCount,
+          dividerStep: Math.max(
+            320,
+            Math.min(2400, Math.round(merged.dividerStep || current.dividerStep || 320))
+          ),
+        };
+        scheduleBoardSettingsCommit(nextSettings);
+        return nextSettings;
+      });
+    },
+    [canManageSharedBoardSettings, scheduleBoardSettingsCommit]
   );
 
   const upsertLibraryItem = useCallback(
@@ -4331,6 +4509,9 @@ export default function WorkbookSessionPage() {
         toggle?: boolean;
       }
     ) => {
+      if (tab === "settings" && !canAccessBoardSettingsPanel) {
+        return;
+      }
       const selectedUtilityObject =
         boardObjects.find((item) => item.id === selectedObjectId) ?? null;
       const canOpenTransformPanel = supportsTransformUtilityPanel(selectedUtilityObject);
@@ -4380,6 +4561,7 @@ export default function WorkbookSessionPage() {
     },
     [
       boardObjects,
+      canAccessBoardSettingsPanel,
       isCompactViewport,
       isFullscreen,
       isUtilityPanelOpen,
@@ -9619,13 +9801,22 @@ export default function WorkbookSessionPage() {
                 </IconButton>
               </span>
             </Tooltip>
-            <Tooltip title="Настройки" placement="bottom" arrow>
+            <Tooltip
+              title={
+                canAccessBoardSettingsPanel
+                  ? "Настройки доски"
+                  : "Преподаватель еще не открыл доступ к настройкам доски"
+              }
+              placement="bottom"
+              arrow
+            >
               <span>
                 <IconButton
                   size="small"
                   className={`workbook-session__toolbar-icon ${
                     isUtilityPanelOpen && utilityTab === "settings" ? "is-active" : ""
                   }`}
+                  disabled={!canAccessBoardSettingsPanel}
                   onClick={() => openUtilityPanel("settings")}
                 >
                   <TuneRoundedIcon />
@@ -10070,8 +10261,8 @@ export default function WorkbookSessionPage() {
               }
             >
               <WorkbookSessionBoardSettingsPanel
-                boardSettings={boardSettings}
-                setBoardSettings={setBoardSettings}
+                sharedBoardSettings={boardSettings}
+                onSharedBoardSettingsChange={handleSharedBoardSettingsChange}
                 smartInkOptions={smartInkOptions}
                 setSmartInkOptions={setSmartInkOptions}
                 penToolSettings={penToolSettings}
@@ -10082,8 +10273,7 @@ export default function WorkbookSessionPage() {
                 onEraserRadiusChange={handleEraserRadiusChange}
                 eraserRadiusMin={ERASER_RADIUS_MIN}
                 eraserRadiusMax={ERASER_RADIUS_MAX}
-                canSave={session.kind !== "CLASS" || canManageSession}
-                onSave={commitBoardSettings}
+                canManageSharedBoardSettings={canManageSharedBoardSettings}
               />
             </Suspense>
           ) : null}
