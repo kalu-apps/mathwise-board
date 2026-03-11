@@ -1,3 +1,5 @@
+import type { WorkbookShapeAngleMarkStyle } from "./shapeAngleMarks";
+
 export type Solid3dProjection = "perspective" | "orthographic";
 
 export type Solid3dSectionKeepSide = "both" | "positive" | "negative";
@@ -54,6 +56,7 @@ export type Solid3dAngleMark = {
   faceIndex?: number;
   vertexIndex: number;
   label: string;
+  style: WorkbookShapeAngleMarkStyle;
   color: string;
   visible: boolean;
 };
@@ -248,6 +251,13 @@ const readAngleMark = (value: unknown): Solid3dAngleMark | null => {
     faceIndex,
     vertexIndex,
     label: toString(source.label, "").trim().slice(0, 64),
+    style:
+      source.style === "right_square" ||
+      source.style === "arc_single" ||
+      source.style === "arc_double" ||
+      source.style === "arc_triple"
+        ? source.style
+        : "arc_single",
     color: toString(source.color, "#ff8e3c"),
     visible: source.visible !== false,
   };
@@ -458,6 +468,13 @@ export const writeSolid3dState = (
                 : undefined,
             vertexIndex: Number(mark.vertexIndex),
             label: toString(mark.label, "").trim().slice(0, 64),
+            style:
+              mark.style === "right_square" ||
+              mark.style === "arc_single" ||
+              mark.style === "arc_double" ||
+              mark.style === "arc_triple"
+                ? mark.style
+                : "arc_single",
             color: toString(mark.color, "#ff8e3c"),
             visible: Boolean(mark.visible),
           }))

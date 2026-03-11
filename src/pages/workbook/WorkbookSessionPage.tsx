@@ -7442,7 +7442,7 @@ export default function WorkbookSessionPage() {
       return true;
     });
     if (nextFaceIndex < 0 || nextVertexIndex < 0) {
-      setError("Для этой фигуры уже добавлены все возможные пометки углов.");
+      setError("Для этой фигуры уже добавлены все доступные углы.");
       return;
     }
     await updateSelectedSolid3dState((state) => ({
@@ -7454,6 +7454,7 @@ export default function WorkbookSessionPage() {
           faceIndex: nextFaceIndex,
           vertexIndex: nextVertexIndex,
           label: "",
+          style: "arc_single",
           color: "#ff8e3c",
           visible: true,
         },
@@ -7467,6 +7468,7 @@ export default function WorkbookSessionPage() {
       faceIndex: number;
       vertexIndex: number;
       label: string;
+      style: WorkbookShapeAngleMarkStyle;
       color: string;
       visible: boolean;
     }>

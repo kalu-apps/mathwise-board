@@ -700,14 +700,6 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                                 const activeVertexLabel =
                                   selectedSolidVertexLabels[activeVertexValue] ||
                                   getSolidVertexLabel(activeVertexValue);
-                                const activeFaceLabel =
-                                  activeFace
-                                    .map(
-                                      (vertexIndex) =>
-                                        selectedSolidVertexLabels[vertexIndex] ||
-                                        getSolidVertexLabel(vertexIndex)
-                                    )
-                                    .join("-") || `Грань ${activeFaceIndex + 1}`;
                                 return (
                                   <>
                                     <div className="workbook-session__solid-angle-card-head">
@@ -715,9 +707,18 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                                         <span className="workbook-session__shape-angle-badge">
                                           ∠{activeVertexLabel}
                                         </span>
-                                        <span className="workbook-session__shape-angle-preview">
-                                          {activeFaceLabel}
-                                        </span>
+                                        <div className="workbook-session__solid-angle-visibility">
+                                          <span>Скрыть</span>
+                                          <Switch
+                                            size="small"
+                                            checked={mark.visible === false}
+                                            onChange={(event) =>
+                                              void onUpdateSolid3dAngleMark(mark.id, {
+                                                visible: !event.target.checked,
+                                              })
+                                            }
+                                          />
+                                        </div>
                                       </div>
                                       <div className="workbook-session__solid-angle-card-actions">
                                         <input
@@ -739,10 +740,11 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                                         </IconButton>
                                       </div>
                                     </div>
-                                    <div className="workbook-session__solid-angle-top">
+                                    <div className="workbook-session__solid-angle-grid">
                                       <Select
                                         native
                                         size="small"
+                                        className="workbook-session__solid-angle-field workbook-session__solid-angle-field--face"
                                         value={String(activeFaceIndex)}
                                         onChange={(event) => {
                                           const nextFaceIndex = Number(event.target.value);
@@ -754,6 +756,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                                               : (nextFace[0] ?? mark.vertexIndex),
                                           });
                                         }}
+                                        inputProps={{ "aria-label": "Грань угла" }}
                                       >
                                         {selectedSolidMesh.faces.map((face, faceIndex) => (
                                           <option
@@ -773,12 +776,14 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                                       <Select
                                         native
                                         size="small"
+                                        className="workbook-session__solid-angle-field workbook-session__solid-angle-field--vertex"
                                         value={String(activeVertexValue)}
                                         onChange={(event) =>
                                           void onUpdateSolid3dAngleMark(mark.id, {
                                             vertexIndex: Number(event.target.value),
                                           })
                                         }
+                                        inputProps={{ "aria-label": "Вершина угла" }}
                                       >
                                         {activeFace.map((vertexIndex) => (
                                           <option
@@ -790,11 +795,9 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                                           </option>
                                         ))}
                                       </Select>
-                                    </div>
-                                    <div className="workbook-session__solid-angle-bottom">
                                       <TextField
                                         size="small"
-                                        className="workbook-session__solid-input"
+                                        className="workbook-session__solid-input workbook-session__solid-angle-field workbook-session__solid-angle-field--value"
                                         label="Значение"
                                         value={mark.label}
                                         onChange={(event) =>
@@ -803,18 +806,26 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                                           })
                                         }
                                       />
-                                      <div className="workbook-session__solid-angle-visibility">
-                                        <span>Скрыть</span>
-                                        <Switch
-                                          size="small"
-                                          checked={mark.visible === false}
-                                          onChange={(event) =>
-                                            void onUpdateSolid3dAngleMark(mark.id, {
-                                              visible: !event.target.checked,
-                                            })
-                                          }
-                                        />
-                                      </div>
+                                      <TextField
+                                        select
+                                        size="small"
+                                        className="workbook-session__solid-input workbook-session__solid-angle-field workbook-session__solid-angle-field--style"
+                                        label="Обозначение"
+                                        value={mark.style ?? "arc_single"}
+                                        onChange={(event) =>
+                                          void onUpdateSolid3dAngleMark(mark.id, {
+                                            style: event.target.value as WorkbookShapeAngleMarkStyle,
+                                          })
+                                        }
+                                      >
+                                        {SHAPE_ANGLE_MARK_STYLE_OPTIONS.filter(
+                                          (option) => option.value !== "auto"
+                                        ).map((option) => (
+                                          <MenuItem key={option.value} value={option.value}>
+                                            {option.preview} {option.label}
+                                          </MenuItem>
+                                        ))}
+                                      </TextField>
                                     </div>
                                   </>
                                 );

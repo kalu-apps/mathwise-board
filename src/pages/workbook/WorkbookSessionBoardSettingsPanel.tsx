@@ -58,14 +58,6 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
   return (
     <div className="workbook-session__card workbook-session__board-settings">
       <div className="workbook-session__board-settings-head">
-        <div className="workbook-session__board-settings-head-meta">
-          <span className="workbook-session__board-settings-head-pill is-accent">
-            Автосохранение
-          </span>
-          <span className="workbook-session__board-settings-head-pill">
-            {canManageSharedBoardSettings ? "Личное + общее" : "Личное"}
-          </span>
-        </div>
         <h3>Настройки доски</h3>
         <p>
           {canManageSharedBoardSettings
@@ -82,7 +74,6 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                 <BrushRoundedIcon fontSize="small" />
                 Инструменты письма
               </h4>
-              <span className="workbook-session__board-settings-scope">Личное</span>
             </div>
             <p>Толщина и цвет ручки, маркера и ластика применяются только к вашим инструментам.</p>
           </div>
@@ -183,7 +174,6 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                 <AutoFixHighRoundedIcon fontSize="small" />
                 Smart Ink
               </h4>
-              <span className="workbook-session__board-settings-scope">Личное</span>
             </div>
             <p>Распознавание работает только для ваших новых штрихов и сохраняется автоматически.</p>
           </div>
@@ -314,7 +304,6 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                     <CropFreeRoundedIcon fontSize="small" />
                     Поле и сетка
                   </h4>
-                  <span className="workbook-session__board-settings-scope">Общее</span>
                 </div>
                 <p>Эти параметры автоматически синхронизируются у всех участников сессии.</p>
               </div>
@@ -424,7 +413,6 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                     <MenuRoundedIcon fontSize="small" />
                     Страницы и секции
                   </h4>
-                  <span className="workbook-session__board-settings-scope">Общее</span>
                 </div>
                 <p>Структура страниц синхронизируется автоматически и не требует отдельного сохранения.</p>
               </div>
@@ -514,7 +502,6 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                   <MenuRoundedIcon fontSize="small" />
                   Общие настройки
                 </h4>
-                <span className="workbook-session__board-settings-scope">Только преподаватель</span>
               </div>
               <p>
                 Сетка, страницы, фон доски и другие общие параметры меняются только в потоке преподавателя и сразу применяются ко всей сессии.

@@ -5544,14 +5544,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           const dirB = toUnit(center, second);
           if (!dirA || !dirB) return null;
           const radius = 11;
-          const start = {
-            x: center.x + dirA.x * radius,
-            y: center.y + dirA.y * radius,
-          };
-          const end = {
-            x: center.x + dirB.x * radius,
-            y: center.y + dirB.y * radius,
-          };
+          const dot = clampUnitDot(dirA.x * dirB.x + dirA.y * dirB.y);
+          const angleDeg = (Math.acos(dot) * 180) / Math.PI;
+          const renderedStyle = resolveRenderedShapeAngleMarkStyle(
+            mark.style ?? "arc_single",
+            angleDeg
+          );
           const sweep = dirA.x * dirB.y - dirA.y * dirB.x > 0 ? 1 : 0;
           const bisector = {
             x: dirA.x + dirB.x,
@@ -5565,21 +5563,48 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
                   y: bisector.y / bisectorLength,
                 }
               : { x: 0.7, y: -0.7 };
-          const label = mark.label?.trim() || "∠";
+          const label = mark.label?.trim() || "";
+          const arcCount =
+            renderedStyle === "arc_double"
+              ? 2
+              : renderedStyle === "arc_triple"
+                ? 3
+                : renderedStyle === "arc_single"
+                  ? 1
+                  : 0;
+          const rightSquareSize = Math.max(7, Math.min(15, radius * 0.72));
+          const markerDepth =
+            renderedStyle === "right_square"
+              ? rightSquareSize + 2
+              : radius + Math.max(0, arcCount - 1) * 4;
           return {
             id: mark.id,
             color: mark.color || "#ff8e3c",
-            path: `M ${start.x} ${start.y} A ${radius} ${radius} 0 0 ${sweep} ${end.x} ${end.y}`,
+            center,
+            dirA,
+            dirB,
+            sweep: sweep as 0 | 1,
+            arcCount,
+            radius,
+            renderedStyle,
+            rightSquareSize,
             label,
-            labelX: center.x + labelVector.x * (radius + 10),
-            labelY: center.y + labelVector.y * (radius + 10),
+            labelX: center.x + labelVector.x * (markerDepth + 10),
+            labelY: center.y + labelVector.y * (markerDepth + 10),
           };
         })
         .filter(
           (entry): entry is {
             id: string;
             color: string;
-            path: string;
+            center: ProjectedSolidVertex;
+            dirA: { x: number; y: number };
+            dirB: { x: number; y: number };
+            sweep: 0 | 1;
+            arcCount: number;
+            radius: number;
+            renderedStyle: "right_square" | "arc_single" | "arc_double" | "arc_triple";
+            rightSquareSize: number;
             label: string;
             labelX: number;
             labelY: number;
@@ -5981,38 +6006,65 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
               : null}
             {angleMarkRenderData.map((mark) => {
               const normalized = mark.label.replace("°", "").replace(",", ".").trim();
-              const isNumeric = /^-?\d+(\.\d+)?$/.test(normalized);
               const hasLabel = normalized.length > 0;
+              if (!hasLabel) return null;
+              const isNumeric = /^-?\d+(\.\d+)?$/.test(normalized);
               return (
                 <g key={`${object.id}-angle-mark-${mark.id}`}>
-                  <path
-                    d={mark.path}
-                    fill="none"
-                    stroke={mark.color}
-                    strokeWidth={1.8}
-                    strokeLinecap="round"
-                  />
-                  {hasLabel ? (
-                    <text
-                      x={mark.labelX}
-                      y={mark.labelY}
-                      fill={mark.color}
-                      fontSize={10}
-                      fontWeight={700}
-                      textAnchor="middle"
-                    >
-                      {isNumeric ? (
-                        <>
-                          <tspan>{normalized}</tspan>
-                          <tspan baselineShift="super" fontSize="8">
-                            °
-                          </tspan>
-                        </>
-                      ) : (
-                        mark.label
+                  {mark.renderedStyle === "right_square" ? (
+                    <path
+                      d={buildRightAngleMarkerPath(
+                        { x: mark.center.x, y: mark.center.y },
+                        mark.dirA,
+                        mark.dirB,
+                        mark.rightSquareSize
                       )}
-                    </text>
-                  ) : null}
+                      fill="none"
+                      stroke={mark.color}
+                      strokeWidth={1.8}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                    />
+                  ) : (
+                    Array.from({ length: mark.arcCount }, (_, arcIndex) => {
+                      const arcRadius = mark.radius + arcIndex * 4;
+                      return (
+                        <path
+                          key={`${object.id}-angle-mark-${mark.id}-${arcRadius}`}
+                          d={buildAngleArcPath(
+                            { x: mark.center.x, y: mark.center.y },
+                            mark.dirA,
+                            mark.dirB,
+                            arcRadius,
+                            mark.sweep
+                          )}
+                          fill="none"
+                          stroke={mark.color}
+                          strokeWidth={1.8}
+                          strokeLinecap="round"
+                        />
+                      );
+                    })
+                  )}
+                  <text
+                    x={mark.labelX}
+                    y={mark.labelY}
+                    fill={mark.color}
+                    fontSize={10}
+                    fontWeight={700}
+                    textAnchor="middle"
+                  >
+                    {isNumeric ? (
+                      <>
+                        <tspan>{normalized}</tspan>
+                        <tspan baselineShift="super" fontSize="8">
+                          °
+                        </tspan>
+                      </>
+                    ) : (
+                      mark.label
+                    )}
+                  </text>
                 </g>
               );
             })}
