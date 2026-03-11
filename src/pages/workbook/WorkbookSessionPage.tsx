@@ -875,6 +875,12 @@ type WorkbookExportBounds = {
   height: number;
 };
 
+type WorkbookExportPageEntry = {
+  page: number;
+  bandIndex: number;
+  bounds: WorkbookExportBounds;
+};
+
 const mergeExportBounds = (
   left: WorkbookExportBounds | null,
   right: WorkbookExportBounds | null
@@ -901,6 +907,43 @@ const padExportBounds = (bounds: WorkbookExportBounds, padding: number): Workboo
   const minY = bounds.minY - safePadding;
   const maxX = bounds.maxX + safePadding;
   const maxY = bounds.maxY + safePadding;
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+};
+
+const intersectExportBounds = (
+  bounds: WorkbookExportBounds,
+  clip: { minY: number; maxY: number }
+): WorkbookExportBounds | null => {
+  const minY = Math.max(bounds.minY, clip.minY);
+  const maxY = Math.min(bounds.maxY, clip.maxY);
+  if (maxY <= minY) return null;
+  return {
+    minX: bounds.minX,
+    minY,
+    maxX: bounds.maxX,
+    maxY,
+    width: Math.max(1, bounds.maxX - bounds.minX),
+    height: Math.max(1, maxY - minY),
+  };
+};
+
+const padExportBoundsWithinBand = (
+  bounds: WorkbookExportBounds,
+  padding: number,
+  band: { minY: number; maxY: number }
+): WorkbookExportBounds => {
+  const safePadding = Math.max(0, padding);
+  const minX = bounds.minX - safePadding;
+  const maxX = bounds.maxX + safePadding;
+  const minY = Math.max(band.minY, bounds.minY - safePadding);
+  const maxY = Math.min(band.maxY, bounds.maxY + safePadding);
   return {
     minX,
     minY,
@@ -8081,29 +8124,60 @@ export default function WorkbookSessionPage() {
     [waitForCanvasRender]
   );
 
-  const resolvePageExportBounds = useCallback(
-    (page: number): WorkbookExportBounds | null => {
-      const safePage = Math.max(1, Math.floor(page));
-      const objectBounds = boardObjects
-        .filter((object) => (object.page ?? 1) === safePage)
-        .map((object) => getObjectExportBounds(object))
-        .reduce<WorkbookExportBounds | null>(
-          (accumulator, bounds) => mergeExportBounds(accumulator, bounds),
-          null
-        );
-      const strokeBounds = boardStrokes
-        .filter((stroke) => (stroke.page ?? 1) === safePage)
-        .map((stroke) => getStrokeExportBounds(stroke))
-        .reduce<WorkbookExportBounds | null>(
-          (accumulator, bounds) => mergeExportBounds(accumulator, bounds),
-          null
-        );
-      const merged = mergeExportBounds(objectBounds, strokeBounds);
-      if (!merged) return null;
-      return padExportBounds(merged, EXPORT_BOUNDS_PADDING);
-    },
-    [boardObjects, boardStrokes]
-  );
+  const resolveExportPageEntries = useCallback((): WorkbookExportPageEntry[] => {
+    const bandHeight = Math.max(320, Math.round(boardSettings.dividerStep || 960));
+    const pageMap = new Map<number, WorkbookExportBounds[]>();
+
+    boardObjects.forEach((object) => {
+      const safePage = Math.max(1, object.page ?? 1);
+      const bucket = pageMap.get(safePage) ?? [];
+      bucket.push(getObjectExportBounds(object));
+      pageMap.set(safePage, bucket);
+    });
+
+    boardStrokes.forEach((stroke) => {
+      const bounds = getStrokeExportBounds(stroke);
+      if (!bounds) return;
+      const safePage = Math.max(1, stroke.page ?? 1);
+      const bucket = pageMap.get(safePage) ?? [];
+      bucket.push(bounds);
+      pageMap.set(safePage, bucket);
+    });
+
+    return Array.from(pageMap.entries())
+      .sort(([leftPage], [rightPage]) => leftPage - rightPage)
+      .flatMap(([page, boundsList]) => {
+        const bands = new Map<number, WorkbookExportBounds | null>();
+        boundsList.forEach((bounds) => {
+          const startBand = Math.floor(bounds.minY / bandHeight);
+          const endBand = Math.floor((Math.max(bounds.minY, bounds.maxY - 1)) / bandHeight);
+          for (let bandIndex = startBand; bandIndex <= endBand; bandIndex += 1) {
+            const band = {
+              minY: bandIndex * bandHeight,
+              maxY: (bandIndex + 1) * bandHeight,
+            };
+            const clipped = intersectExportBounds(bounds, band);
+            if (!clipped) continue;
+            const padded = padExportBoundsWithinBand(clipped, EXPORT_BOUNDS_PADDING, band);
+            bands.set(
+              bandIndex,
+              mergeExportBounds(bands.get(bandIndex) ?? null, padded)
+            );
+          }
+        });
+        return Array.from(bands.entries())
+          .filter(
+            (entry): entry is [number, WorkbookExportBounds] =>
+              Boolean(entry[1] && entry[1].width > 0 && entry[1].height > 0)
+          )
+          .sort(([leftBand], [rightBand]) => leftBand - rightBand)
+          .map(([bandIndex, bounds]) => ({
+            page,
+            bandIndex,
+            bounds,
+          }));
+      });
+  }, [boardObjects, boardSettings.dividerStep, boardStrokes]);
 
   const renderBoardToCanvas = async (
     scale = 2,
@@ -8123,13 +8197,19 @@ export default function WorkbookSessionPage() {
       );
       svgClone.setAttribute("width", `${Math.max(1, bounds.width)}`);
       svgClone.setAttribute("height", `${Math.max(1, bounds.height)}`);
-      const rootCanvasGroup = Array.from(svgClone.children).find((node) => {
-        if (node.tagName.toLowerCase() !== "g") return false;
-        const transform = node.getAttribute("transform");
-        return typeof transform === "string" && transform.startsWith("translate(");
-      });
-      if (rootCanvasGroup) {
-        rootCanvasGroup.setAttribute("transform", "translate(0 0)");
+      const scaleGroup = Array.from(svgClone.children).find(
+        (node) => node.tagName.toLowerCase() === "g"
+      );
+      if (scaleGroup) {
+        scaleGroup.setAttribute("transform", "scale(1)");
+        const translateGroup = Array.from(scaleGroup.children).find((node) => {
+          if (node.tagName.toLowerCase() !== "g") return false;
+          const transform = node.getAttribute("transform");
+          return typeof transform === "string" && transform.startsWith("translate(");
+        });
+        if (translateGroup) {
+          translateGroup.setAttribute("transform", "translate(0 0)");
+        }
       }
     }
     const serialized = new XMLSerializer().serializeToString(svgClone);
@@ -8204,7 +8284,7 @@ export default function WorkbookSessionPage() {
   }, [session?.title, sessionId]);
 
   const requestExportFileName = useCallback(
-    (extension: "png" | "pdf") => {
+    (extension: "pdf") => {
       const fallback = resolveExportFileBaseName();
       if (typeof window === "undefined") {
         return `${fallback}.${extension}`;
@@ -8226,22 +8306,6 @@ export default function WorkbookSessionPage() {
     [resolveExportFileBaseName]
   );
 
-  const exportBoardAsPng = async () => {
-    try {
-      const fileName = requestExportFileName("png");
-      if (!fileName) return;
-      const rendered = await renderBoardToCanvas(2.2);
-      if (!rendered) return;
-      const png = rendered.canvas.toDataURL("image/png");
-      const link = document.createElement("a");
-      link.href = png;
-      link.download = fileName;
-      link.click();
-    } catch {
-      setError("Не удалось экспортировать PNG.");
-    }
-  };
-
   const exportBoardAsPdf = async () => {
     if (exportingSections) return;
     setExportingSections(true);
@@ -8250,26 +8314,7 @@ export default function WorkbookSessionPage() {
     try {
       const fileName = requestExportFileName("pdf");
       if (!fileName) return;
-      const exportPages = Array.from(
-        new Set([
-          ...Array.from(
-            { length: Math.max(1, boardSettings.pagesCount || 1) },
-            (_, index) => index + 1
-          ),
-          ...boardObjects.map((object) => Math.max(1, object.page ?? 1)),
-          ...boardStrokes.map((stroke) => Math.max(1, stroke.page ?? 1)),
-          currentPage,
-        ])
-      )
-        .sort((left, right) => left - right)
-        .map((page) => ({
-          page,
-          bounds: resolvePageExportBounds(page),
-        }))
-        .filter(
-          (entry): entry is { page: number; bounds: WorkbookExportBounds } =>
-            Boolean(entry.bounds)
-        );
+      const exportPages = resolveExportPageEntries();
       if (exportPages.length === 0) {
         setError("Для экспорта нет объектов на доске.");
         return;
@@ -9764,14 +9809,6 @@ export default function WorkbookSessionPage() {
               open={Boolean(menuAnchor)}
               onClose={() => setMenuAnchor(null)}
             >
-              <MenuItem
-                onClick={() => {
-                  void exportBoardAsPng();
-                  setMenuAnchor(null);
-                }}
-              >
-                Экспорт PNG
-              </MenuItem>
               <MenuItem
                 onClick={() => {
                   void exportBoardAsPdf();
