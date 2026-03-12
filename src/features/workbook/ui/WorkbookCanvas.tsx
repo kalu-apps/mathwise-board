@@ -38,13 +38,11 @@ import {
 import type { ProjectedSolidVertex, SolidSurfacePick } from "../model/solid3dGeometry";
 import { resolveBoardObjectImageAssetId } from "../model/scene";
 import {
-  buildViewportSceneRect,
-  buildWorkbookObjectLookup,
-  buildWorkbookStrokeLookup,
-  expandSceneRect,
-  filterVisibleBoardObjects,
-  filterVisibleStrokes,
+  buildForcedVisibleObjectIdSet,
+  buildWorkbookSceneAccess,
   rectIntersects,
+  resolveTopVisibleBoardObject,
+  resolveTopVisibleStroke,
   type WorkbookSceneRect,
 } from "../model/sceneVisibility";
 import {
@@ -1573,32 +1571,18 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     () => [...boardStrokes, ...annotationStrokes],
     [boardStrokes, annotationStrokes]
   );
-  const objectById = useMemo(() => buildWorkbookObjectLookup(boardObjects), [boardObjects]);
-  const strokeByKey = useMemo(() => buildWorkbookStrokeLookup(allStrokes), [allStrokes]);
-  const viewportRect = useMemo<Rect>(
-    () =>
-      buildViewportSceneRect({
-        viewportOffset,
-        width: size.width,
-        height: size.height,
-        zoom: safeZoom,
-      }),
-    [safeZoom, size.height, size.width, viewportOffset.x, viewportOffset.y]
-  );
-  const renderViewportRect = useMemo(() => expandSceneRect(viewportRect, 360), [viewportRect]);
   const forcedVisibleObjectIds = useMemo(() => {
-    const ids = new Set<string>();
-    if (selectedObjectId) ids.add(selectedObjectId);
-    if (inlineTextEdit?.objectId) ids.add(inlineTextEdit.objectId);
-    if (solid3dSectionMarkers?.objectId) ids.add(solid3dSectionMarkers.objectId);
-    if (moving) {
-      moving.groupObjects.forEach((object) => ids.add(object.id));
-    }
-    if (resizing) ids.add(resizing.object.id);
-    if (graphPan) ids.add(graphPan.object.id);
-    if (solid3dResize) ids.add(solid3dResize.object.id);
-    if (solid3dGesture) ids.add(solid3dGesture.object.id);
-    return ids;
+    const movingIds = moving ? moving.groupObjects.map((object) => object.id) : [];
+    return buildForcedVisibleObjectIdSet([
+      selectedObjectId,
+      inlineTextEdit?.objectId,
+      solid3dSectionMarkers?.objectId,
+      resizing?.object.id,
+      graphPan?.object.id,
+      solid3dResize?.object.id,
+      solid3dGesture?.object.id,
+      ...movingIds,
+    ]);
   }, [
     graphPan,
     inlineTextEdit?.objectId,
@@ -1609,46 +1593,31 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     solid3dResize,
     solid3dSectionMarkers?.objectId,
   ]);
-  const visibleBoardObjects = useMemo(
+  const sceneAccess = useMemo(
     () =>
-      filterVisibleBoardObjects({
+      buildWorkbookSceneAccess({
         boardObjects,
-        viewportRect,
-        padding: 360,
+        strokes: allStrokes,
+        viewportOffset,
+        width: size.width,
+        height: size.height,
+        zoom: safeZoom,
+        renderPadding: 360,
+        hitPadding: 96,
         forcedVisibleObjectIds,
         getObjectRect,
       }),
-    [boardObjects, forcedVisibleObjectIds, viewportRect]
+    [allStrokes, boardObjects, forcedVisibleObjectIds, safeZoom, size.height, size.width, viewportOffset]
   );
-  const visibleHitObjects = useMemo(
-    () =>
-      filterVisibleBoardObjects({
-        boardObjects,
-        viewportRect,
-        padding: 96,
-        forcedVisibleObjectIds,
-        getObjectRect,
-      }),
-    [boardObjects, forcedVisibleObjectIds, viewportRect]
-  );
-  const visibleStrokes = useMemo(
-    () =>
-      filterVisibleStrokes({
-        strokes: allStrokes,
-        viewportRect,
-        padding: 360,
-      }),
-    [allStrokes, viewportRect]
-  );
-  const visibleHitStrokes = useMemo(
-    () =>
-      filterVisibleStrokes({
-        strokes: allStrokes,
-        viewportRect,
-        padding: 96,
-      }),
-    [allStrokes, viewportRect]
-  );
+  const {
+    objectById,
+    strokeByKey,
+    renderViewportRect,
+    visibleBoardObjects,
+    visibleHitObjects,
+    visibleStrokes,
+    visibleHitStrokes,
+  } = sceneAccess;
 
   const getObjectSceneLayerId = useCallback((object: WorkbookBoardObject) => {
     const layerId =
@@ -2017,23 +1986,15 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   const resolveTopObject = useCallback(
     (point: WorkbookPoint) => {
-      for (let index = visibleHitObjects.length - 1; index >= 0; index -= 1) {
-        const object = visibleHitObjects[index];
-        if (object.locked) continue;
-        if (isObjectHit(object, point)) {
-          return object;
-        }
-      }
-      return null;
+      return resolveTopVisibleBoardObject(visibleHitObjects, (object) => isObjectHit(object, point));
     },
     [isObjectHit, visibleHitObjects]
   );
 
   const resolveTopStroke = useCallback(
     (point: WorkbookPoint) => {
-      for (let index = visibleHitStrokes.length - 1; index >= 0; index -= 1) {
-        const stroke = visibleHitStrokes[index];
-        if (!stroke.points.length) continue;
+      return resolveTopVisibleStroke(visibleHitStrokes, (stroke) => {
+        if (!stroke.points.length) return false;
         const distance =
           stroke.points.length === 1
             ? Math.hypot(point.x - stroke.points[0].x, point.y - stroke.points[0].y)
@@ -2043,10 +2004,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           (stroke.width ?? 2) / 2 + (stroke.tool === "highlighter" ? 6 : 4)
         );
         if (distance <= threshold) {
-          return stroke;
+          return true;
         }
-      }
-      return null;
+        return false;
+      });
     },
     [visibleHitStrokes]
   );

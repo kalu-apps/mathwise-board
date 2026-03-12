@@ -51,6 +51,18 @@ export const buildWorkbookObjectLookup = (boardObjects: WorkbookBoardObject[]) =
 export const buildWorkbookStrokeLookup = (strokes: WorkbookStroke[]) =>
   new Map(strokes.map((stroke) => [`${stroke.layer}:${stroke.id}`, stroke]));
 
+export const buildForcedVisibleObjectIdSet = (
+  ids: Array<string | null | undefined>
+) => {
+  const result = new Set<string>();
+  ids.forEach((id) => {
+    if (typeof id === "string" && id.trim().length > 0) {
+      result.add(id);
+    }
+  });
+  return result;
+};
+
 export const filterVisibleBoardObjects = (params: {
   boardObjects: WorkbookBoardObject[];
   viewportRect: WorkbookSceneRect;
@@ -79,4 +91,94 @@ export const filterVisibleStrokes = (params: {
     }
     return stroke.points.some((point) => isPointInsideSceneRect(point, expandedViewport));
   });
+};
+
+export type WorkbookSceneAccess = {
+  objectById: Map<string, WorkbookBoardObject>;
+  strokeByKey: Map<string, WorkbookStroke>;
+  viewportRect: WorkbookSceneRect;
+  renderViewportRect: WorkbookSceneRect;
+  visibleBoardObjects: WorkbookBoardObject[];
+  visibleHitObjects: WorkbookBoardObject[];
+  visibleStrokes: WorkbookStroke[];
+  visibleHitStrokes: WorkbookStroke[];
+};
+
+export const buildWorkbookSceneAccess = (params: {
+  boardObjects: WorkbookBoardObject[];
+  strokes: WorkbookStroke[];
+  viewportOffset: WorkbookPoint;
+  width: number;
+  height: number;
+  zoom: number;
+  renderPadding?: number;
+  hitPadding?: number;
+  forcedVisibleObjectIds?: ReadonlySet<string>;
+  getObjectRect: (object: WorkbookBoardObject) => WorkbookSceneRect;
+}): WorkbookSceneAccess => {
+  const viewportRect = buildViewportSceneRect({
+    viewportOffset: params.viewportOffset,
+    width: params.width,
+    height: params.height,
+    zoom: params.zoom,
+  });
+  const renderPadding = params.renderPadding ?? 360;
+  const hitPadding = params.hitPadding ?? 96;
+  return {
+    objectById: buildWorkbookObjectLookup(params.boardObjects),
+    strokeByKey: buildWorkbookStrokeLookup(params.strokes),
+    viewportRect,
+    renderViewportRect: expandSceneRect(viewportRect, renderPadding),
+    visibleBoardObjects: filterVisibleBoardObjects({
+      boardObjects: params.boardObjects,
+      viewportRect,
+      padding: renderPadding,
+      forcedVisibleObjectIds: params.forcedVisibleObjectIds,
+      getObjectRect: params.getObjectRect,
+    }),
+    visibleHitObjects: filterVisibleBoardObjects({
+      boardObjects: params.boardObjects,
+      viewportRect,
+      padding: hitPadding,
+      forcedVisibleObjectIds: params.forcedVisibleObjectIds,
+      getObjectRect: params.getObjectRect,
+    }),
+    visibleStrokes: filterVisibleStrokes({
+      strokes: params.strokes,
+      viewportRect,
+      padding: renderPadding,
+    }),
+    visibleHitStrokes: filterVisibleStrokes({
+      strokes: params.strokes,
+      viewportRect,
+      padding: hitPadding,
+    }),
+  };
+};
+
+export const resolveTopVisibleBoardObject = (
+  boardObjects: WorkbookBoardObject[],
+  predicate: (object: WorkbookBoardObject) => boolean
+) => {
+  for (let index = boardObjects.length - 1; index >= 0; index -= 1) {
+    const object = boardObjects[index];
+    if (object.locked) continue;
+    if (predicate(object)) {
+      return object;
+    }
+  }
+  return null;
+};
+
+export const resolveTopVisibleStroke = (
+  strokes: WorkbookStroke[],
+  predicate: (stroke: WorkbookStroke) => boolean
+) => {
+  for (let index = strokes.length - 1; index >= 0; index -= 1) {
+    const stroke = strokes[index];
+    if (predicate(stroke)) {
+      return stroke;
+    }
+  }
+  return null;
 };
