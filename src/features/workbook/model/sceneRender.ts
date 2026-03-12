@@ -1,5 +1,11 @@
 import type { ReactNode } from "react";
 import {
+  buildFunctionGraphPlots,
+  getAutoGraphGridStep,
+  type FunctionGraphPlot,
+  type GraphFunctionDraft,
+} from "./functionGraph";
+import {
   resolveObjectEraserCutsForRender,
   resolveObjectEraserPathsForRender,
   sanitizeObjectEraserCuts,
@@ -20,6 +26,7 @@ import {
   type WorkbookAreaSelectionResizeMode,
 } from "./sceneSelection";
 import type { MovingState } from "./sceneRuntime";
+import type { GraphPanState } from "./sceneRuntime";
 import { rectIntersects } from "./sceneVisibility";
 import type {
   WorkbookBoardObject,
@@ -75,6 +82,15 @@ export type WorkbookConstraintRenderSegment = {
   source: WorkbookPoint;
   target: WorkbookPoint;
   label: string;
+};
+
+export type PreparedFunctionGraphRenderState = {
+  axisColor: string;
+  planeColor: string;
+  centerX: number;
+  centerY: number;
+  plots: FunctionGraphPlot[];
+  ghostPlots: FunctionGraphPlot[];
 };
 
 const ERASER_MASK_PADDING = 20;
@@ -327,3 +343,91 @@ export const buildConstraintRenderSegments = (params: {
     });
     return acc;
   }, []);
+
+export const prepareFunctionGraphRenderState = (params: {
+  object: WorkbookBoardObject;
+  normalized: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  gridSize: number;
+  graphPan: GraphPanState | null;
+}): PreparedFunctionGraphRenderState => {
+  const { object, normalized, gridSize, graphPan } = params;
+  const functions = Array.isArray(object.meta?.functions)
+    ? (object.meta.functions as GraphFunctionDraft[])
+    : [];
+  const graphPanPreviewActive = Boolean(graphPan && graphPan.object.id === object.id);
+  const activeGraphPan = graphPanPreviewActive ? graphPan : null;
+  const axisColorRaw = object.meta?.axisColor;
+  const axisColor =
+    typeof axisColorRaw === "string" && axisColorRaw.startsWith("#")
+      ? axisColorRaw
+      : "#ff8e3c";
+  const planeColorRaw = object.meta?.planeColor;
+  const planeColor =
+    typeof planeColorRaw === "string"
+      ? planeColorRaw === "transparent" || planeColorRaw.startsWith("#")
+        ? planeColorRaw
+        : "#8ea7ff"
+      : "#8ea7ff";
+  const autoStep = getAutoGraphGridStep({
+    width: normalized.width,
+    height: normalized.height,
+  });
+  const step = Math.max(
+    12,
+    Math.min(64, Math.round(Number.isFinite(gridSize) && gridSize > 0 ? gridSize : autoStep))
+  );
+  const viewport = {
+    x: normalized.x,
+    y: normalized.y,
+    width: normalized.width,
+    height: normalized.height,
+  };
+  return {
+    axisColor,
+    planeColor,
+    centerX: normalized.x + normalized.width / 2,
+    centerY: normalized.y + normalized.height / 2,
+    plots: buildFunctionGraphPlots(functions, viewport, step),
+    ghostPlots: activeGraphPan
+      ? buildFunctionGraphPlots(
+          activeGraphPan.initialFunctions.filter(
+            (entry) =>
+              !activeGraphPan.targetFunctionId || entry.id === activeGraphPan.targetFunctionId
+          ),
+          viewport,
+          step
+        )
+      : [],
+  };
+};
+
+export const buildFunctionGraphRenderStateMap = (params: {
+  visibleBoardObjects: WorkbookBoardObject[];
+  selectedPreviewObject: WorkbookBoardObject | null;
+  graphPan: GraphPanState | null;
+  gridSize: number;
+}) => {
+  const { visibleBoardObjects, selectedPreviewObject, graphPan, gridSize } = params;
+  const next = new Map<string, PreparedFunctionGraphRenderState>();
+  visibleBoardObjects.forEach((object) => {
+    if (object.type !== "function_graph") return;
+    const renderSource =
+      selectedPreviewObject?.id === object.id ? selectedPreviewObject : object;
+    const normalized = getObjectRect(renderSource);
+    next.set(
+      object.id,
+      prepareFunctionGraphRenderState({
+        object: renderSource,
+        normalized,
+        gridSize,
+        graphPan,
+      })
+    );
+  });
+  return next;
+};

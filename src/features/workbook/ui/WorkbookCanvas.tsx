@@ -45,9 +45,6 @@ import {
   resolveTopVisibleStroke,
 } from "../model/sceneVisibility";
 import {
-  buildFunctionGraphPlots,
-  getAutoGraphGridStep,
-  sanitizeFunctionGraphDrafts,
   type GraphFunctionDraft,
 } from "../model/functionGraph";
 import {
@@ -90,6 +87,7 @@ import {
   isWorkbookObjectHit,
   isWorkbookStrokeErasedByCircle,
   isWorkbookStrokeHit,
+  resolveFunctionGraphPlotHit,
   resolveWorkbook2dFigureVertexAtPoint,
   resolveWorkbookLineEndpointAtPoint,
 } from "../model/sceneHitTesting";
@@ -154,7 +152,6 @@ import {
   collectSegmentPreviewPoints,
   computeSolid3dResizePatch,
   filterPreviewPointsByDistance,
-  resolveFunctionGraphScale as resolveFunctionGraphScaleForObject,
   resolveRealtimePatchBaseObject,
   resolveSelectedPreviewObject,
   type GraphPanState,
@@ -165,6 +162,7 @@ import {
 import {
   buildMaskedObjectSceneEntry,
   buildConstraintRenderSegments,
+  buildFunctionGraphRenderStateMap,
   buildRenderedWorkbookStrokes,
   prepareWorkbookRenderObject,
   resolveAreaSelectionPreviewRects,
@@ -971,72 +969,39 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     };
   }, [moving]);
 
-  const resolveFunctionGraphScale = useCallback(
-    (object: WorkbookBoardObject) => resolveFunctionGraphScaleForObject(object, gridSize),
-    [gridSize]
+  const selectedObject = selectedObjectId ? objectById.get(selectedObjectId) ?? null : null;
+  const selectedPreviewObject = useMemo(
+    () =>
+      resolveSelectedPreviewObject({
+        selectedObject,
+        moving,
+        resizing,
+        graphPan,
+        solid3dResize,
+        solid3dPreviewMetaById,
+      }),
+    [graphPan, moving, resizing, selectedObject, solid3dPreviewMetaById, solid3dResize]
   );
 
-  const distancePointToSegment = useCallback(
-    (point: WorkbookPoint, start: WorkbookPoint, end: WorkbookPoint) => {
-      const vx = end.x - start.x;
-      const vy = end.y - start.y;
-      const lengthSq = vx * vx + vy * vy;
-      if (lengthSq <= 1e-6) {
-        return Math.hypot(point.x - start.x, point.y - start.y);
-      }
-      const px = point.x - start.x;
-      const py = point.y - start.y;
-      const rawT = (px * vx + py * vy) / lengthSq;
-      const t = Math.max(0, Math.min(1, rawT));
-      const closestX = start.x + vx * t;
-      const closestY = start.y + vy * t;
-      return Math.hypot(point.x - closestX, point.y - closestY);
-    },
-    []
+  const functionGraphRenderStateById = useMemo(
+    () =>
+      buildFunctionGraphRenderStateMap({
+        visibleBoardObjects,
+        selectedPreviewObject,
+        graphPan,
+        gridSize,
+      }),
+    [graphPan, gridSize, selectedPreviewObject, visibleBoardObjects]
   );
 
   const resolveGraphFunctionHit = useCallback(
     (object: WorkbookBoardObject, point: WorkbookPoint) => {
       if (object.type !== "function_graph") return null;
-      const rawFunctions = Array.isArray(object.meta?.functions)
-        ? (object.meta.functions as GraphFunctionDraft[])
-        : [];
-      const functions = sanitizeFunctionGraphDrafts(rawFunctions, {
-        ensureNonEmpty: false,
-      }).filter((entry) => entry.visible !== false);
-      if (functions.length === 0) return null;
-      const { pxPerUnit } = resolveFunctionGraphScale(object);
-      const plots = buildFunctionGraphPlots(
-        functions,
-        {
-          x: object.x,
-          y: object.y,
-          width: object.width,
-          height: object.height,
-        },
-        pxPerUnit
-      );
-      let bestMatch: { id: string; distance: number } | null = null;
-      plots.forEach((plot) => {
-        plot.segments.forEach((segment) => {
-          for (let index = 0; index < segment.length - 1; index += 1) {
-            const current = segment[index];
-            const next = segment[index + 1];
-            const distance = distancePointToSegment(point, current, next);
-            const threshold = Math.max(5.5, Math.min(9.5, plot.width * 2.2));
-            if (distance > threshold) continue;
-            if (!bestMatch || distance < bestMatch.distance) {
-              bestMatch = {
-                id: plot.id,
-                distance,
-              };
-            }
-          }
-        });
-      });
-      return (bestMatch as { id: string; distance: number } | null)?.id ?? null;
+      const renderState = functionGraphRenderStateById.get(object.id);
+      if (!renderState) return null;
+      return resolveFunctionGraphPlotHit(renderState.plots, point);
     },
-    [distancePointToSegment, resolveFunctionGraphScale]
+    [functionGraphRenderStateById]
   );
 
   const mapPointer = (
@@ -3327,33 +3292,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
 
     if (object.type === "function_graph") {
-      const functions = Array.isArray(object.meta?.functions)
-        ? (object.meta?.functions as GraphFunctionDraft[])
-        : [];
-      const graphPanPreviewActive = Boolean(graphPan && graphPan.object.id === object.id);
-      const activeGraphPan = graphPanPreviewActive ? graphPan : null;
-      const axisColorRaw = object.meta?.axisColor;
-      const axisColor =
-        typeof axisColorRaw === "string" && axisColorRaw.startsWith("#")
-          ? axisColorRaw
-          : "#ff8e3c";
-      const planeColorRaw = object.meta?.planeColor;
-      const planeColor =
-        typeof planeColorRaw === "string"
-          ? planeColorRaw === "transparent" || planeColorRaw.startsWith("#")
-            ? planeColorRaw
-            : "#8ea7ff"
-          : "#8ea7ff";
-      const autoStep = getAutoGraphGridStep({
-        width: normalized.width,
-        height: normalized.height,
-      });
-      const step = Math.max(
-        12,
-        Math.min(64, Math.round(Number.isFinite(gridSize) && gridSize > 0 ? gridSize : autoStep))
-      );
-      const centerX = normalized.x + normalized.width / 2;
-      const centerY = normalized.y + normalized.height / 2;
+      const renderState = functionGraphRenderStateById.get(object.id);
+      if (!renderState) return null;
+      const { axisColor, planeColor, centerX, centerY, ghostPlots, plots } = renderState;
       const lines: ReactNode[] = [];
       const labels: ReactNode[] = [];
 
@@ -3403,33 +3344,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           y
         </text>
       );
-
-      const plottedFunctions = buildFunctionGraphPlots(
-        functions,
-        {
-          x: normalized.x,
-          y: normalized.y,
-          width: normalized.width,
-          height: normalized.height,
-        },
-        step
-      );
-      const ghostPlots =
-        activeGraphPan
-          ? buildFunctionGraphPlots(
-              activeGraphPan.initialFunctions.filter(
-                (entry) =>
-                  !activeGraphPan.targetFunctionId || entry.id === activeGraphPan.targetFunctionId
-              ),
-              {
-                x: normalized.x,
-                y: normalized.y,
-                width: normalized.width,
-                height: normalized.height,
-              },
-              step
-            )
-          : [];
       return (
         <g transform={transform}>
           <defs>
@@ -3470,7 +3384,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
                 ) : null
               )
             )}
-            {plottedFunctions.flatMap((plot) =>
+            {plots.flatMap((plot) =>
               plot.segments.map((segment, segmentIndex) =>
                 segment.length > 1 ? (
                   <path
@@ -4929,19 +4843,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const renderObjectRef = useRef(renderObject);
   renderObjectRef.current = renderObject;
 
-  const selectedObject = selectedObjectId ? objectById.get(selectedObjectId) ?? null : null;
-  const selectedPreviewObject = useMemo(
-    () =>
-      resolveSelectedPreviewObject({
-        selectedObject,
-        moving,
-        resizing,
-        graphPan,
-        solid3dResize,
-        solid3dPreviewMetaById,
-      }),
-    [graphPan, moving, resizing, selectedObject, solid3dPreviewMetaById, solid3dResize]
-  );
   const imageAssetRevision = useMemo(
     () => Object.entries(imageAssetUrls).map(([id, url]) => `${id}:${url}`).join("|"),
     [imageAssetUrls]

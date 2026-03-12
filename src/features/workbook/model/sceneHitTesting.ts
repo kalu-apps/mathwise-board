@@ -1,3 +1,4 @@
+import type { FunctionGraphPlot } from "./functionGraph";
 import { resolveSolid3dPresetId } from "./solid3d";
 import {
   getSolid3dMesh,
@@ -218,6 +219,31 @@ export const isWorkbookStrokeErasedByCircle = (
   return false;
 };
 
+export const resolveFunctionGraphPlotHit = (
+  plots: FunctionGraphPlot[],
+  point: WorkbookPoint
+) => {
+  let bestMatch: { id: string; distance: number } | null = null;
+  plots.forEach((plot) => {
+    plot.segments.forEach((segment) => {
+      for (let index = 0; index < segment.length - 1; index += 1) {
+        const current = segment[index];
+        const next = segment[index + 1];
+        const distance = distanceToSegment(point, current, next);
+        const threshold = Math.max(5.5, Math.min(9.5, plot.width * 2.2));
+        if (distance > threshold) continue;
+        if (!bestMatch || distance < bestMatch.distance) {
+          bestMatch = {
+            id: plot.id,
+            distance,
+          };
+        }
+      }
+    });
+  });
+  return bestMatch?.id ?? null;
+};
+
 export const isWorkbookObjectErasedByCircle = (
   object: WorkbookBoardObject,
   center: WorkbookPoint,
@@ -246,4 +272,3 @@ export const isWorkbookObjectErasedByCircle = (
   }
   return false;
 };
-
