@@ -148,7 +148,10 @@ import {
 import {
   buildMoveCommitResult,
   buildResizeCommitPatch,
+  collectMappedInteractionPoints,
+  collectSegmentPreviewPoints,
   computeSolid3dResizePatch,
+  filterPreviewPointsByDistance,
   resolveFunctionGraphScale as resolveFunctionGraphScaleForObject,
   resolveRealtimePatchBaseObject,
   resolveSelectedPreviewObject,
@@ -2127,31 +2130,23 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         coalesced.length > 0
           ? coalesced
           : [{ clientX: event.clientX, clientY: event.clientY }];
-      let lastAppliedPoint = eraserLastAppliedPointRef.current ?? point;
-      const previewPoints: WorkbookPoint[] = [];
-      sourceEvents.forEach((sourceEvent) => {
-        const nextPoint = mapPointer(svg, sourceEvent.clientX, sourceEvent.clientY, false, false);
-        const sampledPoints = eraseAlongSegment(lastAppliedPoint, nextPoint);
-        if (sampledPoints.length > 0) {
-          previewPoints.push(...sampledPoints);
-          lastAppliedPoint = sampledPoints[sampledPoints.length - 1];
-        } else {
-          lastAppliedPoint = nextPoint;
-        }
+      const eraserSegmentResult = collectSegmentPreviewPoints({
+        sourceEvents,
+        mapPoint: (sourceEvent) =>
+          mapPointer(svg, sourceEvent.clientX, sourceEvent.clientY, false, false),
+        lastAppliedPoint: eraserLastAppliedPointRef.current ?? point,
+        sampleSegment: eraseAlongSegment,
       });
-      eraserLastAppliedPointRef.current = lastAppliedPoint;
-      const lastPreviewPoint = eraserLastPreviewPointRef.current;
-      const filteredPreviewPoints = previewPoints.filter((previewPoint) => {
-        if (!lastPreviewPoint) return true;
-        return (
-          Math.hypot(previewPoint.x - lastPreviewPoint.x, previewPoint.y - lastPreviewPoint.y) >=
-          Math.max(1.2, Math.max(4, width) * 0.22)
-        );
+      eraserLastAppliedPointRef.current = eraserSegmentResult.lastAppliedPoint;
+      const filteredPoints = filterPreviewPointsByDistance({
+        previewPoints: eraserSegmentResult.previewPoints,
+        lastPreviewPoint: eraserLastPreviewPointRef.current,
+        minDistance: Math.max(1.2, Math.max(4, width) * 0.22),
       });
-      if (filteredPreviewPoints.length > 0) {
+      if (filteredPoints.length > 0) {
         eraserLastPreviewPointRef.current =
-          filteredPreviewPoints[filteredPreviewPoints.length - 1];
-        emitEraserPreviewPoints(filteredPreviewPoints);
+          filteredPoints[filteredPoints.length - 1];
+        emitEraserPreviewPoints(filteredPoints);
       }
       return;
     }
@@ -2166,16 +2161,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         coalesced.length > 0
           ? coalesced
           : [nativeEvent as globalThis.PointerEvent];
-      const nextPoints: WorkbookPoint[] = [];
-      sourceEvents.forEach((pointerEvent) => {
-        const nextPoint = mapPointer(svg, pointerEvent.clientX, pointerEvent.clientY);
-        const last =
-          nextPoints.length > 0
-            ? nextPoints[nextPoints.length - 1]
-            : strokePointsRef.current[strokePointsRef.current.length - 1];
-        if (!last || Math.hypot(nextPoint.x - last.x, nextPoint.y - last.y) >= 0.18) {
-          nextPoints.push(nextPoint);
-        }
+      const nextPoints = collectMappedInteractionPoints({
+        sourceEvents,
+        mapPoint: (pointerEvent) => mapPointer(svg, pointerEvent.clientX, pointerEvent.clientY),
+        lastPoint: strokePointsRef.current[strokePointsRef.current.length - 1] ?? null,
+        minDistance: 0.18,
       });
       enqueueStrokePoints(nextPoints);
       return;

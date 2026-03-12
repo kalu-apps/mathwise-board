@@ -10,6 +10,11 @@ import {
 import type { WorkbookAreaSelection } from "./sceneSelection";
 import type { WorkbookBoardObject, WorkbookPoint } from "./types";
 
+type ClientPointLike = {
+  clientX: number;
+  clientY: number;
+};
+
 export type MovingState = {
   object: WorkbookBoardObject;
   groupObjects: WorkbookBoardObject[];
@@ -66,6 +71,69 @@ type Solid3dPreviewMetaById = Record<string, Record<string, unknown>>;
 
 const clampGraphOffsetValue = (value: number) =>
   Math.max(-999, Math.min(999, Number.isFinite(value) ? value : 0));
+
+export const collectMappedInteractionPoints = <T extends ClientPointLike>(params: {
+  sourceEvents: T[];
+  mapPoint: (sourceEvent: T) => WorkbookPoint;
+  lastPoint: WorkbookPoint | null;
+  minDistance: number;
+}) => {
+  const { sourceEvents, mapPoint, lastPoint, minDistance } = params;
+  const nextPoints: WorkbookPoint[] = [];
+  sourceEvents.forEach((sourceEvent) => {
+    const nextPoint = mapPoint(sourceEvent);
+    const previousPoint =
+      nextPoints.length > 0 ? nextPoints[nextPoints.length - 1] : lastPoint;
+    if (
+      !previousPoint ||
+      Math.hypot(nextPoint.x - previousPoint.x, nextPoint.y - previousPoint.y) >= minDistance
+    ) {
+      nextPoints.push(nextPoint);
+    }
+  });
+  return nextPoints;
+};
+
+export const collectSegmentPreviewPoints = <T extends ClientPointLike>(params: {
+  sourceEvents: T[];
+  mapPoint: (sourceEvent: T) => WorkbookPoint;
+  lastAppliedPoint: WorkbookPoint;
+  sampleSegment: (from: WorkbookPoint, to: WorkbookPoint) => WorkbookPoint[];
+}) => {
+  const { sourceEvents, mapPoint, lastAppliedPoint, sampleSegment } = params;
+  let nextLastAppliedPoint = lastAppliedPoint;
+  const previewPoints: WorkbookPoint[] = [];
+  sourceEvents.forEach((sourceEvent) => {
+    const nextPoint = mapPoint(sourceEvent);
+    const sampledPoints = sampleSegment(nextLastAppliedPoint, nextPoint);
+    if (sampledPoints.length > 0) {
+      previewPoints.push(...sampledPoints);
+      nextLastAppliedPoint = sampledPoints[sampledPoints.length - 1];
+    } else {
+      nextLastAppliedPoint = nextPoint;
+    }
+  });
+  return {
+    previewPoints,
+    lastAppliedPoint: nextLastAppliedPoint,
+  };
+};
+
+export const filterPreviewPointsByDistance = (params: {
+  previewPoints: WorkbookPoint[];
+  lastPreviewPoint: WorkbookPoint | null;
+  minDistance: number;
+}) => {
+  const { previewPoints, lastPreviewPoint, minDistance } = params;
+  if (!lastPreviewPoint) return previewPoints;
+  return previewPoints.filter(
+    (previewPoint) =>
+      Math.hypot(
+        previewPoint.x - lastPreviewPoint.x,
+        previewPoint.y - lastPreviewPoint.y
+      ) >= minDistance
+  );
+};
 
 export const applyGraphPanToFunctions = (
   functions: GraphFunctionDraft[],
