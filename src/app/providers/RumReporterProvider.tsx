@@ -10,12 +10,16 @@ import {
   type PerformanceMetricEventDetail,
 } from "@/shared/lib/performanceMonitoring";
 import {
+  APP_REALTIME_EVENT,
+  type RealtimeMetricEventDetail,
+} from "@/shared/lib/realtimeMonitoring";
+import {
   APP_ACTION_GUARD_EVENT,
   type ActionGuardEventDetail,
 } from "@/shared/lib/useActionGuard";
 
 type RumEvent = {
-  type: "performance" | "api_failure" | "api_success" | "action_guard";
+  type: "performance" | "api_failure" | "api_success" | "action_guard" | "realtime";
   at: string;
   route: string;
   payload: unknown;
@@ -149,6 +153,17 @@ const createRumReporterSession = () => {
     });
   };
 
+  const onRealtime = (event: Event) => {
+    const detail = (event as CustomEvent<RealtimeMetricEventDetail>).detail;
+    if (!detail) return;
+    pushEvent({
+      type: "realtime",
+      at: new Date().toISOString(),
+      route: getRouteSnapshot(),
+      payload: detail,
+    });
+  };
+
   const flushTimer = window.setInterval(() => {
     void flushBatch();
   }, RUM_FLUSH_INTERVAL_MS);
@@ -161,6 +176,7 @@ const createRumReporterSession = () => {
   window.addEventListener(APP_API_FAILURE_EVENT, onApiFailure as EventListener);
   window.addEventListener(APP_API_SUCCESS_EVENT, onApiSuccess as EventListener);
   window.addEventListener(APP_ACTION_GUARD_EVENT, onActionGuard as EventListener);
+  window.addEventListener(APP_REALTIME_EVENT, onRealtime as EventListener);
   window.addEventListener("online", onOnline);
   window.addEventListener("visibilitychange", flushOnHidden);
   window.addEventListener("pagehide", flushOnHidden);
@@ -171,6 +187,7 @@ const createRumReporterSession = () => {
     window.removeEventListener(APP_API_FAILURE_EVENT, onApiFailure as EventListener);
     window.removeEventListener(APP_API_SUCCESS_EVENT, onApiSuccess as EventListener);
     window.removeEventListener(APP_ACTION_GUARD_EVENT, onActionGuard as EventListener);
+    window.removeEventListener(APP_REALTIME_EVENT, onRealtime as EventListener);
     window.removeEventListener("online", onOnline);
     window.removeEventListener("visibilitychange", flushOnHidden);
     window.removeEventListener("pagehide", flushOnHidden);

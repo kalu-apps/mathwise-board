@@ -103,6 +103,13 @@ import {
   withWorkbookClientEventIds,
 } from "@/features/workbook/model/runtime";
 import {
+  observeWorkbookRealtimeApply,
+  observeWorkbookRealtimeGap,
+  observeWorkbookRealtimePersistAck,
+  observeWorkbookRealtimeReceive,
+  observeWorkbookRealtimeSend,
+} from "@/features/workbook/model/realtimeObservability";
+import {
   buildWorkbookDocumentAsset,
   buildWorkbookDocumentBoardObject,
   buildWorkbookSnapshotBoardObject,
@@ -3113,11 +3120,29 @@ export default function WorkbookSessionPage() {
         if (!active) return;
         const unseenEvents = filterUnseenWorkbookEvents(response.events);
         if (hasWorkbookEventGap(latestSeqRef.current, unseenEvents)) {
+          observeWorkbookRealtimeGap({
+            sessionId,
+            channel: "poll",
+            latestSeq: latestSeqRef.current,
+            nextSeq: unseenEvents[0]?.seq ?? response.latestSeq,
+          });
           triggerSessionResync();
           return;
         }
         if (unseenEvents.length > 0) {
+          observeWorkbookRealtimeReceive({
+            sessionId,
+            channel: "poll",
+            latestSeq: response.latestSeq,
+            events: unseenEvents,
+          });
           applyIncomingEvents(unseenEvents);
+          observeWorkbookRealtimeApply({
+            sessionId,
+            channel: "poll",
+            latestSeq: response.latestSeq,
+            events: unseenEvents,
+          });
         }
         const nextLatest = resolveNextLatestSeq(
           latestSeqRef.current,
@@ -3161,11 +3186,29 @@ export default function WorkbookSessionPage() {
         if (payload.sessionId !== sessionId) return;
         const unseenEvents = filterUnseenWorkbookEvents(payload.events);
         if (hasWorkbookEventGap(latestSeqRef.current, unseenEvents)) {
+          observeWorkbookRealtimeGap({
+            sessionId,
+            channel: "stream",
+            latestSeq: latestSeqRef.current,
+            nextSeq: unseenEvents[0]?.seq ?? payload.latestSeq,
+          });
           triggerSessionResync();
           return;
         }
         if (unseenEvents.length > 0) {
+          observeWorkbookRealtimeReceive({
+            sessionId,
+            channel: "stream",
+            latestSeq: payload.latestSeq,
+            events: unseenEvents,
+          });
           applyIncomingEvents(unseenEvents);
+          observeWorkbookRealtimeApply({
+            sessionId,
+            channel: "stream",
+            latestSeq: payload.latestSeq,
+            events: unseenEvents,
+          });
         }
         const nextLatest = resolveNextLatestSeq(
           latestSeqRef.current,
@@ -3198,11 +3241,29 @@ export default function WorkbookSessionPage() {
           allowLiveReplay: true,
         });
         if (hasWorkbookEventGap(latestSeqRef.current, unseenEvents)) {
+          observeWorkbookRealtimeGap({
+            sessionId,
+            channel: "live",
+            latestSeq: latestSeqRef.current,
+            nextSeq: unseenEvents[0]?.seq ?? payload.latestSeq,
+          });
           triggerSessionResync();
           return;
         }
         if (unseenEvents.length > 0) {
+          observeWorkbookRealtimeReceive({
+            sessionId,
+            channel: "live",
+            latestSeq: payload.latestSeq,
+            events: unseenEvents,
+          });
           applyIncomingEvents(unseenEvents);
+          observeWorkbookRealtimeApply({
+            sessionId,
+            channel: "live",
+            latestSeq: payload.latestSeq,
+            events: unseenEvents,
+          });
         }
         const nextLatest = resolveNextLatestSeq(
           latestSeqRef.current,
@@ -3699,6 +3760,11 @@ export default function WorkbookSessionPage() {
   const sendWorkbookLiveEvents = useCallback(
     (events: WorkbookClientEventInput[]) => {
       if (!sessionId || events.length === 0) return;
+      observeWorkbookRealtimeSend({
+        sessionId,
+        channel: "live",
+        events,
+      });
       const sent = workbookLiveSendRef.current?.(events) ?? false;
       if (sent) return;
       void appendWorkbookLiveEvents({ sessionId, events }).catch(() => {
@@ -3730,6 +3796,11 @@ export default function WorkbookSessionPage() {
             ? buildHistoryEntryFromEvents(events)
             : null;
       const preparedEvents = withWorkbookClientEventIds(events);
+      observeWorkbookRealtimeSend({
+        sessionId,
+        channel: "persist",
+        events: preparedEvents,
+      });
       const optimisticEventIds = preparedEvents
         .filter((event) => isOptimisticWorkbookEventType(event.type))
         .map((event) => event.clientEventId)
@@ -3745,9 +3816,20 @@ export default function WorkbookSessionPage() {
           sessionId,
           events: preparedEvents,
         });
+        observeWorkbookRealtimePersistAck({
+          sessionId,
+          latestSeq: response.latestSeq,
+          events: response.events,
+        });
         const unseenEvents = filterUnseenWorkbookEvents(response.events);
         if (unseenEvents.length > 0) {
           applyIncomingEvents(unseenEvents);
+          observeWorkbookRealtimeApply({
+            sessionId,
+            channel: "persist",
+            latestSeq: response.latestSeq,
+            events: unseenEvents,
+          });
         }
         const nextLatest = resolveNextLatestSeq(
           latestSeqRef.current,

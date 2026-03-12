@@ -35,6 +35,7 @@ import {
   mergeRuntimeWorkbookEventsIntoDb,
   type WorkbookRealtimeEnvelope,
 } from "./workbookEventService";
+import { ingestRumTelemetryEvents } from "./telemetryService";
 import {
   decodeWorkbookPdfDataUrl,
   renderWorkbookPdfPagesViaPoppler,
@@ -375,15 +376,21 @@ const getSessionRecord = (db: MockDb, token: string | undefined | null): AuthSes
   return session;
 };
 
-const resolveAuthUser = (req: IncomingMessage, db: MockDb): UserRecord | null => {
+const resolveAuthUser = (
+  req: IncomingMessage,
+  db: MockDb,
+  options?: { touchSession?: boolean }
+): UserRecord | null => {
   const cookies = parseCookies(req);
   const token = cookies[AUTH_COOKIE_NAME];
   const session = getSessionRecord(db, token);
   if (!session) return null;
   const user = db.users.find((item) => item.id === session.userId) ?? null;
   if (!user) return null;
-  session.lastSeenAt = nowIso();
-  saveDb();
+  if (options?.touchSession !== false) {
+    session.lastSeenAt = nowIso();
+    saveDb();
+  }
   return user;
 };
 
@@ -1481,6 +1488,22 @@ export function setupMockServer(host: MiddlewareHost) {
       if (pathname === "/api/auth/session" && method === "GET") {
         const user = resolveAuthUser(req, db);
         json(res, 200, user ? safeUser(user) : null);
+        return;
+      }
+
+      if (pathname === "/api/telemetry/rum" && method === "POST") {
+        const actor = resolveAuthUser(req, db, { touchSession: false });
+        const body = (await readBody(req)) as { events?: unknown[]; sessionId?: unknown } | null;
+        const events = Array.isArray(body?.events) ? body.events : [];
+        const sessionId =
+          typeof body?.sessionId === "string" && body.sessionId.trim().length > 0
+            ? body.sessionId.trim()
+            : null;
+        const result = ingestRumTelemetryEvents(events, {
+          userId: actor?.id ?? null,
+          sessionId,
+        });
+        json(res, 202, { ok: true, accepted: result.accepted });
         return;
       }
 
