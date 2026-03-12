@@ -229,6 +229,8 @@ const resolveStoragePreference = (): "auto" | "file" | "postgres" => {
   return "auto";
 };
 
+const isPostgresRequired = () => resolveStoragePreference() === "postgres";
+
 const shouldUsePostgres = () => {
   const preference = resolveStoragePreference();
   if (preference === "file") return false;
@@ -537,7 +539,7 @@ const persistNow = () => {
   void attempt()
     .catch(async (error) => {
       storageError = normalizeError(error);
-      if (storageDriver === "postgres") {
+      if (storageDriver === "postgres" && !isPostgresRequired()) {
         storageDriver = "file";
         await writeDbToFile(payload);
       }
@@ -592,6 +594,9 @@ export const initializeDb = async () => {
         storageDriver = "postgres";
       } catch (error) {
         storageError = normalizeError(error);
+        if (isPostgresRequired()) {
+          throw error;
+        }
         storageDriver = "file";
       }
     }
@@ -603,6 +608,9 @@ export const initializeDb = async () => {
           await writeDbToPostgres(JSON.stringify(loaded, null, 2));
         } catch (error) {
           storageError = normalizeError(error);
+          if (isPostgresRequired()) {
+            throw error;
+          }
           storageDriver = "file";
         }
       }
@@ -618,6 +626,9 @@ export const initializeDb = async () => {
         }
       } catch (error) {
         storageError = normalizeError(error);
+        if (isPostgresRequired()) {
+          throw error;
+        }
       }
     }
 
@@ -1244,6 +1255,8 @@ export const deleteWorkbookSessionArtifacts = async (sessionId: string) => {
 
 export const getStorageDiagnostics = () => ({
   driver: storageDriver,
+  preferredDriver: resolveStoragePreference(),
+  required: isPostgresRequired(),
   ready: dbInitialized,
   databaseUrlConfigured: DATABASE_URL.length > 0,
   lastError: storageError,

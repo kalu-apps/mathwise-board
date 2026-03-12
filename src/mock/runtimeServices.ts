@@ -1,6 +1,13 @@
 type RedisClient = ReturnType<typeof import("redis").createClient>;
 
 const REDIS_URL = String(process.env.REDIS_URL ?? "").trim();
+const REDIS_REQUIRED =
+  String(process.env.BOARD_RUNTIME_REDIS_REQUIRED ?? process.env.REDIS_REQUIRED ?? "")
+    .trim()
+    .toLowerCase() === "1" ||
+  String(process.env.BOARD_RUNTIME_REDIS_REQUIRED ?? process.env.REDIS_REQUIRED ?? "")
+    .trim()
+    .toLowerCase() === "true";
 const WORKBOOK_EVENT_CHANNEL_PREFIX = "mw:workbook:events:";
 const WORKBOOK_EVENT_SEQ_KEY_PREFIX = "mw:workbook:seq:";
 
@@ -122,7 +129,12 @@ const maybeUnsubscribeWorkbookChannel = async (sessionId: string) => {
 };
 
 export const initializeRuntimeServices = async () => {
-  if (!REDIS_URL) return;
+  if (!REDIS_URL) {
+    if (REDIS_REQUIRED) {
+      throw new Error("REDIS_URL is required when BOARD_RUNTIME_REDIS_REQUIRED is enabled");
+    }
+    return;
+  }
   if (redisClient && redisSubscriberClient) return;
   if (redisInitPromise) return redisInitPromise;
   redisInitPromise = (async () => {
@@ -143,6 +155,9 @@ export const initializeRuntimeServices = async () => {
       markRedisError(error);
       redisStatus.connected = false;
       redisStatus.pubsubConnected = false;
+      if (REDIS_REQUIRED) {
+        throw error;
+      }
     }
   })().finally(() => {
     redisInitPromise = null;
@@ -250,6 +265,7 @@ export const subscribeWorkbookRealtimePayload = async (
 export const getRuntimeServicesStatus = () => ({
   redis: {
     enabled: redisStatus.enabled,
+    required: REDIS_REQUIRED,
     connected: redisStatus.connected,
     pubsubConnected: redisStatus.pubsubConnected,
     lastError: redisStatus.lastError,

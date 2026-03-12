@@ -188,14 +188,41 @@ app.use(staticMiddleware);
 
 const start = async () => {
   try {
-    await initializeDb();
-    await initializeRuntimeServices();
+    try {
+      await initializeDb();
+    } catch (error) {
+      const storageDiagnostics = getStorageDiagnostics();
+      if (storageDiagnostics.required) {
+        throw error;
+      }
+      console.warn(
+        `[backend] storage init warning: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+
+    try {
+      await initializeRuntimeServices();
+    } catch (error) {
+      const runtimeDiagnostics = getRuntimeServicesStatus();
+      if (runtimeDiagnostics.redis.required) {
+        throw error;
+      }
+      console.warn(
+        `[backend] runtime init warning: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   } catch (error) {
-    console.warn(
-      `[backend] runtime init warning: ${
+    console.error(
+      `[backend] critical runtime init failure: ${
         error instanceof Error ? error.message : String(error)
       }`
     );
+    process.exit(1);
+    return;
   }
 
   try {
