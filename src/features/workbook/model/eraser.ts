@@ -72,6 +72,22 @@ export const buildEraserSegmentPoints = (
   );
 };
 
+export const finalizeEraserSegmentPreview = (params: {
+  point: WorkbookPoint;
+  lastAppliedPoint: WorkbookPoint;
+  eraseAlongSegment: (from: WorkbookPoint, to: WorkbookPoint) => WorkbookPoint[];
+}) => {
+  const sampledPoints = params.eraseAlongSegment(
+    params.lastAppliedPoint,
+    params.point
+  );
+  return {
+    sampledPoints,
+    nextLastAppliedPoint:
+      sampledPoints[sampledPoints.length - 1] ?? params.point,
+  };
+};
+
 const resolveSegmentCircleIntersections = (
   from: WorkbookPoint,
   to: WorkbookPoint,

@@ -87,8 +87,6 @@ import {
 import {
   buildAreaSelectionProxyObject,
   collectAreaSelectionObjects,
-  getAreaSelectionDraftRect,
-  resizeAreaSelectionRect,
   resolveAreaSelectionResizeMode,
   type WorkbookAreaSelection,
 } from "../model/sceneSelection";
@@ -107,8 +105,8 @@ import {
   buildSolid3dResizeState,
   buildSolid3dGesturePreviewMeta,
   buildSolid3dGestureState,
-  finalizeAreaSelectionDraft,
-  finalizeAreaSelectionResize,
+  finalizeAreaSelectionDraftWithQueries,
+  finalizeAreaSelectionResizeWithQueries,
   resolveObjectResizeMode,
   shouldKeepObjectSelectedInsideArea,
   type PanState,
@@ -127,6 +125,7 @@ import {
   applyEraserPointToCollections,
   buildEraserSegmentPoints,
   convertObjectEraserCutToStoredPath,
+  finalizeEraserSegmentPreview,
   normalizeObjectEraserPreviewPath,
   type ObjectEraserCut,
   type ObjectEraserPreviewPath,
@@ -1979,12 +1978,16 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     const latestSolid3dPreviewMetaById = flushSolid3dPreviewMetaById();
     if (finishMode === "erasing") {
       const point = mapPointer(svg, event.clientX, event.clientY, false, false);
-      const lastAppliedPoint = eraserLastAppliedPointRef.current ?? point;
-      const sampledPoints = eraseAlongSegment(lastAppliedPoint, point);
-      eraserLastAppliedPointRef.current =
-        sampledPoints[sampledPoints.length - 1] ?? point;
+      const eraserFinish = finalizeEraserSegmentPreview({
+        point,
+        lastAppliedPoint: eraserLastAppliedPointRef.current ?? point,
+        eraseAlongSegment,
+      });
+      eraserLastAppliedPointRef.current = eraserFinish.nextLastAppliedPoint;
       emitEraserPreviewPoints(
-        sampledPoints.length > 0 ? sampledPoints : [point],
+        eraserFinish.sampledPoints.length > 0
+          ? eraserFinish.sampledPoints
+          : [point],
         true
       );
       commitEraserGesture();
@@ -1999,26 +2002,20 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     } else if (finishMode === "shape" && latestShapeDraft) {
       finishShape(latestShapeDraft);
     } else if (finishMode === "area_selection_resize" && latestAreaSelectionResize) {
-      const selectionRect = resizeAreaSelectionRect(
-        latestAreaSelectionResize.initialRect,
-        latestAreaSelectionResize.mode,
-        latestAreaSelectionResize.current
-      );
       onAreaSelectionChange?.(
-        finalizeAreaSelectionResize({
+        finalizeAreaSelectionResizeWithQueries({
           resize: latestAreaSelectionResize,
-          boardObjects: boardObjectCandidatesInRect(selectionRect),
-          strokes: strokeCandidatesInRect(selectionRect),
+          boardObjectCandidatesInRect,
+          strokeCandidatesInRect,
         })
       );
       setAreaSelectionResize(null);
     } else if (finishMode === "area_selection_draft" && latestAreaSelectionDraft) {
-      const selectionRect = getAreaSelectionDraftRect(latestAreaSelectionDraft);
       onAreaSelectionChange?.(
-        finalizeAreaSelectionDraft({
+        finalizeAreaSelectionDraftWithQueries({
           draft: latestAreaSelectionDraft,
-          boardObjects: boardObjectCandidatesInRect(selectionRect),
-          strokes: strokeCandidatesInRect(selectionRect),
+          boardObjectCandidatesInRect,
+          strokeCandidatesInRect,
         })
       );
       setAreaSelectionDraft(null);

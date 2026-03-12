@@ -310,6 +310,22 @@ export const finalizeAreaSelectionDraft = (params: {
   return buildAreaSelection(nextRect, params.boardObjects, params.strokes);
 };
 
+export const finalizeAreaSelectionDraftWithQueries = (params: {
+  draft: WorkbookAreaSelectionDraft;
+  boardObjectCandidatesInRect: (rect: WorkbookAreaSelection["rect"]) => WorkbookBoardObject[];
+  strokeCandidatesInRect: (rect: WorkbookAreaSelection["rect"]) => WorkbookStroke[];
+}): WorkbookAreaSelection | null => {
+  const nextRect = getAreaSelectionDraftRect(params.draft);
+  if (!hasMeaningfulAreaSelectionRect(nextRect)) {
+    return null;
+  }
+  return buildAreaSelection(
+    nextRect,
+    params.boardObjectCandidatesInRect(nextRect),
+    params.strokeCandidatesInRect(nextRect)
+  );
+};
+
 export const finalizeAreaSelectionResize = (params: {
   resize: WorkbookAreaSelectionResizeState;
   boardObjects: WorkbookBoardObject[];
@@ -324,6 +340,26 @@ export const finalizeAreaSelectionResize = (params: {
     return null;
   }
   return buildAreaSelection(nextRect, params.boardObjects, params.strokes);
+};
+
+export const finalizeAreaSelectionResizeWithQueries = (params: {
+  resize: WorkbookAreaSelectionResizeState;
+  boardObjectCandidatesInRect: (rect: WorkbookAreaSelection["rect"]) => WorkbookBoardObject[];
+  strokeCandidatesInRect: (rect: WorkbookAreaSelection["rect"]) => WorkbookStroke[];
+}): WorkbookAreaSelection | null => {
+  const nextRect = resizeAreaSelectionRect(
+    params.resize.initialRect,
+    params.resize.mode,
+    params.resize.current
+  );
+  if (!hasMeaningfulAreaSelectionRect(nextRect)) {
+    return null;
+  }
+  return buildAreaSelection(
+    nextRect,
+    params.boardObjectCandidatesInRect(nextRect),
+    params.strokeCandidatesInRect(nextRect)
+  );
 };
 
 export const buildGraphPanCommitPatch = (
