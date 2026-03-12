@@ -61,7 +61,7 @@ const FRAME_INTERVAL_MS = 1000 / 30;
 const CAMERA_Z = 8.2;
 const EDGE_THRESHOLD_ANGLE = 18;
 const ROUND_PRESETS = new Set(["sphere", "torus"]);
-const DRAFT_SEGMENTS = 72;
+const DRAFT_SEGMENTS = 48;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
@@ -86,12 +86,11 @@ const createLineMaterial = (
       color: "#ffffff",
       transparent: true,
       opacity,
-      dashSize: 0.34,
-      gapSize: 0.18,
+      dashSize: 0.5,
+      gapSize: 0.24,
       depthWrite: false,
       depthTest: false,
-      blending:
-        role === "accent" ? THREE.AdditiveBlending : THREE.NormalBlending,
+      blending: THREE.NormalBlending,
       toneMapped: false,
     });
   }
@@ -102,8 +101,7 @@ const createLineMaterial = (
     opacity,
     depthWrite: false,
     depthTest: false,
-    blending:
-      role === "accent" ? THREE.AdditiveBlending : THREE.NormalBlending,
+    blending: THREE.NormalBlending,
     toneMapped: false,
   });
 };
@@ -233,65 +231,16 @@ const addSphereBlueprint = (target: DraftTarget, radius: number) => {
     radiusX: radius * 0.94,
     radiusY: radius * 0.94,
     role: "edge",
-    opacity: 0.92,
-  });
-  addEllipseLoop({
-    target,
-    radiusX: radius * 0.94,
-    radiusY: radius * 0.94,
-    role: "construction",
-    opacity: 0.5,
-    rotation: [Math.PI / 2, 0, 0],
-  });
-  addEllipseLoop({
-    target,
-    radiusX: radius * 0.94,
-    radiusY: radius * 0.94,
-    role: "construction",
-    opacity: 0.44,
-    rotation: [0, Math.PI / 2, 0],
-  });
-
-  const latitudeOffset = radius * 0.34;
-  const latitudeRadius = Math.sqrt(radius * radius - latitudeOffset * latitudeOffset);
-
-  addEllipseLoop({
-    target,
-    radiusX: latitudeRadius * 0.92,
-    radiusY: latitudeRadius * 0.92,
-    role: "hidden",
-    opacity: 0.32,
-    rotation: [Math.PI / 2, 0, 0],
-    position: [0, latitudeOffset, 0],
-    dashed: true,
-  });
-  addEllipseLoop({
-    target,
-    radiusX: latitudeRadius * 0.92,
-    radiusY: latitudeRadius * 0.92,
-    role: "hidden",
-    opacity: 0.22,
-    rotation: [Math.PI / 2, 0, 0],
-    position: [0, -latitudeOffset, 0],
-    dashed: true,
-  });
-  addEllipseLoop({
-    target,
-    radiusX: radius * 0.8,
-    radiusY: radius * 0.6,
-    role: "accent",
     opacity: 0.58,
-    rotation: [0.72, 0.36, 0.28],
   });
-  addAxisGuide(target, radius * 1.12, radius * 0.07, "accent", 0.62);
-  addAxisGuide(
+  addEllipseLoop({
     target,
-    radius * 1.06,
-    radius * 0.06,
-    "construction",
-    0.4,
-    [0, 0, Math.PI / 2]
-  );
+    radiusX: radius * 0.9,
+    radiusY: radius * 0.62,
+    role: "construction",
+    opacity: 0.1,
+    rotation: [Math.PI / 2, 0, 0],
+  });
 };
 
 const addTorusBlueprint = (target: DraftTarget, radius: number) => {
@@ -300,14 +249,14 @@ const addTorusBlueprint = (target: DraftTarget, radius: number) => {
     radiusX: radius * 0.84,
     radiusY: radius * 0.78,
     role: "edge",
-    opacity: 0.86,
+    opacity: 0.54,
   });
   addEllipseLoop({
     target,
     radiusX: radius * 0.84,
     radiusY: radius * 0.78,
     role: "construction",
-    opacity: 0.42,
+    opacity: 0.12,
     rotation: [Math.PI / 2, 0, 0],
   });
   addEllipseLoop({
@@ -315,26 +264,9 @@ const addTorusBlueprint = (target: DraftTarget, radius: number) => {
     radiusX: radius * 0.48,
     radiusY: radius * 0.44,
     role: "hidden",
-    opacity: 0.3,
+    opacity: 0.08,
     dashed: true,
   });
-  addEllipseLoop({
-    target,
-    radiusX: radius * 0.62,
-    radiusY: radius * 0.58,
-    role: "accent",
-    opacity: 0.56,
-    rotation: [Math.PI / 2, Math.PI / 7, 0],
-  });
-  addAxisGuide(target, radius * 1.06, radius * 0.06, "accent", 0.56);
-  addAxisGuide(
-    target,
-    radius * 0.9,
-    radius * 0.05,
-    "construction",
-    0.34,
-    [0, 0, Math.PI / 2]
-  );
 };
 
 const addPolyhedronBlueprint = (
@@ -343,67 +275,19 @@ const addPolyhedronBlueprint = (
   radius: number,
   edgeOpacity: number
 ) => {
-  const edgeMaterial = createLineMaterial("edge", edgeOpacity);
+  const resolvedEdgeOpacity = clamp(edgeOpacity, 0.28, 0.42);
+  const edgeMaterial = createLineMaterial("edge", resolvedEdgeOpacity);
   const edgeObject = new THREE.LineSegments(
     new THREE.EdgesGeometry(geometry, EDGE_THRESHOLD_ANGLE),
     edgeMaterial
   );
-  registerLineObject(target, edgeObject, edgeMaterial, "edge", edgeOpacity);
+  registerLineObject(target, edgeObject, edgeMaterial, "edge", resolvedEdgeOpacity);
 
-  const wireMaterial = createLineMaterial(
-    "construction",
-    clamp(edgeOpacity * 0.45, 0.18, 0.38)
-  );
-  const wireframe = new THREE.LineSegments(
-    new THREE.WireframeGeometry(geometry),
-    wireMaterial
-  );
-  registerLineObject(
-    target,
-    wireframe,
-    wireMaterial,
-    "construction",
-    clamp(edgeOpacity * 0.45, 0.18, 0.38)
-  );
-
-  addEllipseLoop({
-    target,
-    radiusX: radius * 0.92,
-    radiusY: radius * 0.62,
-    role: "construction",
-    opacity: 0.28,
-    rotation: [Math.PI / 2, 0, Math.PI / 7],
-  });
-  addEllipseLoop({
-    target,
-    radiusX: radius * 0.74,
-    radiusY: radius * 0.46,
-    role: "hidden",
-    opacity: 0.22,
-    rotation: [0.64, 0.2, 0.44],
-    dashed: true,
-  });
-  addAxisGuide(target, radius * 1.12, radius * 0.07, "accent", 0.54);
-  addAxisGuide(
-    target,
-    radius * 0.92,
-    radius * 0.055,
-    "construction",
-    0.32,
-    [0, 0, Math.PI / 2]
-  );
-  addSegmentSet({
-    target,
-    role: "accent",
-    opacity: 0.34,
-    rotation: [0.56, 0.2, 0.18],
-    points: [
-      new THREE.Vector3(-radius * 0.36, -radius * 0.12, 0),
-      new THREE.Vector3(radius * 0.42, radius * 0.2, 0),
-      new THREE.Vector3(-radius * 0.1, -radius * 0.38, 0),
-      new THREE.Vector3(radius * 0.18, radius * 0.44, 0),
-    ],
-  });
+  addAxisGuide(target, radius * 0.88, radius * 0.05, "construction", 0.08, [
+    0,
+    0,
+    Math.PI / 2,
+  ]);
 };
 
 const applyBlueprintLayers = (
