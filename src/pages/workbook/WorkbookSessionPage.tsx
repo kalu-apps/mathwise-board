@@ -5166,14 +5166,18 @@ export default function WorkbookSessionPage() {
         );
         return false;
       }
-      setBoardObjects((current) =>
-        current.some((item) => item.id === objectWithPage.id)
-          ? current
-          : [...current, objectWithPage]
-      );
+      const normalizedObjectWithPage =
+        normalizeObjectPayload(objectWithPage) ?? objectWithPage;
+      const optimisticBoardObjects = boardObjectsRef.current.some(
+        (item) => item.id === normalizedObjectWithPage.id
+      )
+        ? boardObjectsRef.current
+        : [...boardObjectsRef.current, normalizedObjectWithPage];
+      boardObjectsRef.current = optimisticBoardObjects;
+      setBoardObjects(optimisticBoardObjects);
       const createEvent: WorkbookClientEventInput = {
         type: "board.object.create",
-        payload: { object: objectWithPage },
+        payload: { object: normalizedObjectWithPage },
         clientEventId: generateId(),
       };
       try {
@@ -5182,14 +5186,14 @@ export default function WorkbookSessionPage() {
           ...(options?.auxiliaryEvents ?? []),
           createEvent,
         ]);
-        if (objectWithPage.type === "image" && objectWithPage.imageUrl) {
+        if (normalizedObjectWithPage.type === "image" && normalizedObjectWithPage.imageUrl) {
           const now = new Date().toISOString();
           void upsertLibraryItem({
             id: generateId(),
-            name: objectWithPage.imageName || "Изображение с доски",
+            name: normalizedObjectWithPage.imageName || "Изображение с доски",
             type: "image",
             ownerUserId: user?.id ?? "unknown",
-            sourceUrl: objectWithPage.imageUrl,
+            sourceUrl: normalizedObjectWithPage.imageUrl,
             createdAt: now,
             updatedAt: now,
             folderId: null,
@@ -5197,11 +5201,13 @@ export default function WorkbookSessionPage() {
         }
         return true;
       } catch {
-        setBoardObjects((current) =>
-          current.filter((item) => item.id !== objectWithPage.id)
+        const rolledBackBoardObjects = boardObjectsRef.current.filter(
+          (item) => item.id !== normalizedObjectWithPage.id
         );
+        boardObjectsRef.current = rolledBackBoardObjects;
+        setBoardObjects(rolledBackBoardObjects);
         setSelectedObjectId((current) =>
-          current === objectWithPage.id ? null : current
+          current === normalizedObjectWithPage.id ? null : current
         );
         setError("Не удалось создать объект.");
         return false;
@@ -5317,26 +5323,48 @@ export default function WorkbookSessionPage() {
       objectUpdateTimersRef.current.delete(objectId);
     }
     objectUpdateInFlightRef.current.delete(objectId);
-    const targetObject = boardObjects.find((item) => item.id === objectId);
+    const currentBoardObjects = boardObjectsRef.current;
+    const currentConstraints = constraintsRef.current;
+    const currentBoardSettings = boardSettingsRef.current;
+    const currentSelectedObjectId = selectedObjectId;
+    const currentSelectedConstraintId = selectedConstraintId;
+    const targetObject = currentBoardObjects.find((item) => item.id === objectId);
     const targetLayerId = targetObject ? getObjectSceneLayerId(targetObject) : MAIN_SCENE_LAYER_ID;
     const shouldPruneLayer =
       targetLayerId !== MAIN_SCENE_LAYER_ID &&
-      boardObjects.filter(
+      currentBoardObjects.filter(
         (object) =>
           object.id !== objectId && getObjectSceneLayerId(object) === targetLayerId
       ).length === 0;
     const nextSettings: WorkbookBoardSettings | null = shouldPruneLayer
       ? {
-          ...boardSettings,
-          sceneLayers: normalizedSceneLayers.sceneLayers.filter(
+          ...currentBoardSettings,
+          sceneLayers: currentBoardSettings.sceneLayers.filter(
             (entry) => entry.id !== targetLayerId
           ),
           activeSceneLayerId:
-            boardSettings.activeSceneLayerId === targetLayerId
+            currentBoardSettings.activeSceneLayerId === targetLayerId
               ? MAIN_SCENE_LAYER_ID
-              : boardSettings.activeSceneLayerId,
+              : currentBoardSettings.activeSceneLayerId,
         }
       : null;
+    const optimisticBoardObjects = currentBoardObjects.filter(
+      (item) => item.id !== objectId
+    );
+    const optimisticConstraints = currentConstraints.filter(
+      (constraint) =>
+        constraint.sourceObjectId !== objectId &&
+        constraint.targetObjectId !== objectId
+    );
+    boardObjectsRef.current = optimisticBoardObjects;
+    constraintsRef.current = optimisticConstraints;
+    setBoardObjects(optimisticBoardObjects);
+    setConstraints(optimisticConstraints);
+    setSelectedObjectId((current) => (current === objectId ? null : current));
+    if (nextSettings) {
+      boardSettingsRef.current = nextSettings;
+      setBoardSettings(nextSettings);
+    }
     const events: Array<{ type: WorkbookEvent["type"]; payload: unknown }> = [
       {
         type: "board.object.delete",
@@ -5355,14 +5383,6 @@ export default function WorkbookSessionPage() {
         return;
       } catch (error) {
         if (error instanceof ApiError && error.code === "not_found") {
-          setBoardObjects((current) => current.filter((item) => item.id !== objectId));
-          setConstraints((current) =>
-            current.filter(
-              (constraint) =>
-                constraint.sourceObjectId !== objectId &&
-                constraint.targetObjectId !== objectId
-            )
-          );
           return;
         }
         const transient =
@@ -5375,6 +5395,16 @@ export default function WorkbookSessionPage() {
           await new Promise((resolve) => window.setTimeout(resolve, 140));
           continue;
         }
+        boardObjectsRef.current = currentBoardObjects;
+        constraintsRef.current = currentConstraints;
+        setBoardObjects(currentBoardObjects);
+        setConstraints(currentConstraints);
+        if (nextSettings) {
+          boardSettingsRef.current = currentBoardSettings;
+          setBoardSettings(currentBoardSettings);
+        }
+        setSelectedObjectId(currentSelectedObjectId);
+        setSelectedConstraintId(currentSelectedConstraintId);
         setError("Не удалось удалить объект.");
         return;
       }
@@ -9005,7 +9035,7 @@ export default function WorkbookSessionPage() {
         suppressAutoPanelSelectionRef.current = null;
         return;
       }
-      const target = boardObjects.find((item) => item.id === nextObjectId) ?? null;
+      const target = boardObjectsRef.current.find((item) => item.id === nextObjectId) ?? null;
       if (supportsGraphUtilityPanel(target)) {
         openUtilityPanel("graph", {
           toggle: false,
@@ -9020,7 +9050,7 @@ export default function WorkbookSessionPage() {
         });
       }
     },
-    [boardObjects, openUtilityPanel]
+    [openUtilityPanel]
   );
 
   const handleCanvasObjectCreate = useCallback(
