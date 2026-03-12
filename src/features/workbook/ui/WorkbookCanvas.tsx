@@ -60,6 +60,44 @@ import {
   resolveRenderedShapeAngleMarkStyle,
 } from "../model/shapeAngleMarks";
 import {
+  buildAngleArcPath,
+  buildRightAngleMarkerPath,
+  clampUnitDot,
+  clipPolygonByHalfPlane,
+  createPolygonPath,
+  distanceToSegment,
+  getFigureVertexLabel,
+  getLineBasis,
+  getLineControlPoints,
+  getLinePathD,
+  getObjectCenter,
+  getObjectRect,
+  getPointsBoundsFromPoints,
+  getPointsCentroid,
+  getPointObjectCenter,
+  is2dFigureClosed,
+  isInsideRect,
+  mapConstraintLabel,
+  normalizeRect,
+  projectPointToLineCurve,
+  readLineCurveMeta,
+  resolve2dFigureVertexLabels,
+  resolve2dFigureVertices,
+  resolveOutsideVertexLabelPlacement,
+  resolvePolygonFigureKind,
+  rotatePointAround,
+  get2dFigureSegments,
+  pointInPolygon,
+} from "../model/sceneGeometry";
+import {
+  isWorkbookObjectErasedByCircle,
+  isWorkbookObjectHit,
+  isWorkbookStrokeErasedByCircle,
+  isWorkbookStrokeHit,
+  resolveWorkbook2dFigureVertexAtPoint,
+  resolveWorkbookLineEndpointAtPoint,
+} from "../model/sceneHitTesting";
+import {
   buildStrokePreviewPoints,
   getStrokeRect,
   toPath,
@@ -351,13 +389,6 @@ type AreaSelectionResizeState = {
 
 const STROKE_PREVIEW_SEND_INTERVAL_MS = 32;
 
-const normalizeRect = (a: WorkbookPoint, b: WorkbookPoint): Rect => ({
-  x: Math.min(a.x, b.x),
-  y: Math.min(a.y, b.y),
-  width: Math.max(1, Math.abs(a.x - b.x)),
-  height: Math.max(1, Math.abs(a.y - b.y)),
-});
-
 const getAreaSelectionHandlePoints = (rect: Rect) => {
   const left = rect.x;
   const right = rect.x + rect.width;
@@ -416,12 +447,6 @@ const resizeAreaSelectionRect = (
   );
 };
 
-const circleIntersectsRect = (center: WorkbookPoint, radius: number, rect: Rect) => {
-  const nearestX = Math.max(rect.x, Math.min(center.x, rect.x + rect.width));
-  const nearestY = Math.max(rect.y, Math.min(center.y, rect.y + rect.height));
-  return Math.hypot(center.x - nearestX, center.y - nearestY) <= radius;
-};
-
 const ROUND_SOLID_PRESETS = new Set([
   "cylinder",
   "cone",
@@ -475,561 +500,6 @@ const getSectionVertexLabel = (index: number) => {
   return `${alphabet[index % alphabet.length]}${Math.floor(index / alphabet.length)}`;
 };
 const ERASER_MASK_PADDING = 20;
-
-const distanceToSegment = (point: WorkbookPoint, a: WorkbookPoint, b: WorkbookPoint) => {
-  const abX = b.x - a.x;
-  const abY = b.y - a.y;
-  const apX = point.x - a.x;
-  const apY = point.y - a.y;
-  const denominator = abX * abX + abY * abY;
-  if (denominator <= 1e-8) {
-    return Math.hypot(point.x - a.x, point.y - a.y);
-  }
-  const t = Math.max(0, Math.min(1, (apX * abX + apY * abY) / denominator));
-  const closest = { x: a.x + abX * t, y: a.y + abY * t };
-  return Math.hypot(point.x - closest.x, point.y - closest.y);
-};
-
-const pointInPolygon = (point: WorkbookPoint, polygon: WorkbookPoint[]) => {
-  let inside = false;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
-    const pi = polygon[i];
-    const pj = polygon[j];
-    const intersects =
-      pi.y > point.y !== pj.y > point.y &&
-      point.x <
-        ((pj.x - pi.x) * (point.y - pi.y)) / (pj.y - pi.y + Number.EPSILON) + pi.x;
-    if (intersects) inside = !inside;
-  }
-  return inside;
-};
-
-type LineCurveMeta = {
-  c1t: number;
-  c1n: number;
-  c2t: number;
-  c2n: number;
-};
-
-const DEFAULT_LINE_CURVE: LineCurveMeta = {
-  c1t: 1 / 3,
-  c1n: 0,
-  c2t: 2 / 3,
-  c2n: 0,
-};
-
-const getLineEndpoints = (object: WorkbookBoardObject) => ({
-  start: { x: object.x, y: object.y },
-  end: { x: object.x + object.width, y: object.y + object.height },
-});
-
-const getLineBasis = (object: WorkbookBoardObject) => {
-  const { start, end } = getLineEndpoints(object);
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const length = Math.hypot(dx, dy);
-  if (length <= 0.0001) {
-    return {
-      start,
-      end,
-      length: 0,
-      tangent: { x: 1, y: 0 },
-      normal: { x: 0, y: -1 },
-    };
-  }
-  return {
-    start,
-    end,
-    length,
-    tangent: { x: dx / length, y: dy / length },
-    normal: { x: -dy / length, y: dx / length },
-  };
-};
-
-const readLineCurveMeta = (object: WorkbookBoardObject): LineCurveMeta => {
-  const curve = object.meta?.curve;
-  if (curve && typeof curve === "object" && !Array.isArray(curve)) {
-    const record = curve as Record<string, unknown>;
-    const c1t = typeof record.c1t === "number" && Number.isFinite(record.c1t) ? record.c1t : DEFAULT_LINE_CURVE.c1t;
-    const c1n = typeof record.c1n === "number" && Number.isFinite(record.c1n) ? record.c1n : DEFAULT_LINE_CURVE.c1n;
-    const c2t = typeof record.c2t === "number" && Number.isFinite(record.c2t) ? record.c2t : DEFAULT_LINE_CURVE.c2t;
-    const c2n = typeof record.c2n === "number" && Number.isFinite(record.c2n) ? record.c2n : DEFAULT_LINE_CURVE.c2n;
-    return { c1t, c1n, c2t, c2n };
-  }
-  const legacyOffset = object.meta?.curveOffset;
-  if (typeof legacyOffset === "number" && Number.isFinite(legacyOffset)) {
-    return {
-      c1t: DEFAULT_LINE_CURVE.c1t,
-      c1n: legacyOffset,
-      c2t: DEFAULT_LINE_CURVE.c2t,
-      c2n: legacyOffset,
-    };
-  }
-  return { ...DEFAULT_LINE_CURVE };
-};
-
-const getLineControlPoints = (object: WorkbookBoardObject) => {
-  const basis = getLineBasis(object);
-  const curve = readLineCurveMeta(object);
-  const project = (t: number, n: number) => ({
-    x: basis.start.x + basis.tangent.x * basis.length * t + basis.normal.x * n,
-    y: basis.start.y + basis.tangent.y * basis.length * t + basis.normal.y * n,
-  });
-  return {
-    start: basis.start,
-    end: basis.end,
-    c1: project(curve.c1t, curve.c1n),
-    c2: project(curve.c2t, curve.c2n),
-    curve,
-    basis,
-  };
-};
-
-const projectPointToLineCurve = (
-  object: WorkbookBoardObject,
-  point: WorkbookPoint
-) => {
-  const basis = getLineBasis(object);
-  if (basis.length <= 0.0001) {
-    return { t: DEFAULT_LINE_CURVE.c1t, n: 0 };
-  }
-  const dx = point.x - basis.start.x;
-  const dy = point.y - basis.start.y;
-  return {
-    t: (dx * basis.tangent.x + dy * basis.tangent.y) / basis.length,
-    n: dx * basis.normal.x + dy * basis.normal.y,
-  };
-};
-
-const getLinePathD = (object: WorkbookBoardObject) => {
-  const controls = getLineControlPoints(object);
-  return `M ${controls.start.x} ${controls.start.y} C ${controls.c1.x} ${controls.c1.y} ${controls.c2.x} ${controls.c2.y} ${controls.end.x} ${controls.end.y}`;
-};
-
-const getObjectRect = (object: WorkbookBoardObject): Rect => {
-  if (object.type === "line" || object.type === "arrow") {
-    const controls = getLineControlPoints(object);
-    const minX = Math.min(controls.start.x, controls.end.x, controls.c1.x, controls.c2.x);
-    const maxX = Math.max(controls.start.x, controls.end.x, controls.c1.x, controls.c2.x);
-    const minY = Math.min(controls.start.y, controls.end.y, controls.c1.y, controls.c2.y);
-    const maxY = Math.max(controls.start.y, controls.end.y, controls.c1.y, controls.c2.y);
-    return {
-      x: minX - 8,
-      y: minY - 8,
-      width: Math.max(1, maxX - minX) + 16,
-      height: Math.max(1, maxY - minY) + 16,
-    };
-  }
-  if (Array.isArray(object.points) && object.points.length > 0) {
-    let minX = object.points[0].x;
-    let minY = object.points[0].y;
-    let maxX = object.points[0].x;
-    let maxY = object.points[0].y;
-    object.points.forEach((point) => {
-      minX = Math.min(minX, point.x);
-      minY = Math.min(minY, point.y);
-      maxX = Math.max(maxX, point.x);
-      maxY = Math.max(maxY, point.y);
-    });
-    return {
-      x: minX,
-      y: minY,
-      width: Math.max(1, maxX - minX),
-      height: Math.max(1, maxY - minY),
-    };
-  }
-  const width = Math.max(1, Math.abs(object.width));
-  const height = Math.max(1, Math.abs(object.height));
-  return {
-    x: Math.min(object.x, object.x + object.width),
-    y: Math.min(object.y, object.y + object.height),
-    width,
-    height,
-  };
-};
-
-const getObjectCenter = (object: WorkbookBoardObject): WorkbookPoint => {
-  const rect = getObjectRect(object);
-  return {
-    x: rect.x + rect.width / 2,
-    y: rect.y + rect.height / 2,
-  };
-};
-
-const rotatePointAround = (
-  point: WorkbookPoint,
-  center: WorkbookPoint,
-  angleDeg: number
-): WorkbookPoint => {
-  const angle = (angleDeg * Math.PI) / 180;
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  const dx = point.x - center.x;
-  const dy = point.y - center.y;
-  return {
-    x: center.x + dx * cos - dy * sin,
-    y: center.y + dx * sin + dy * cos,
-  };
-};
-
-const isInsideRect = (point: WorkbookPoint, rect: Rect) =>
-  point.x >= rect.x &&
-  point.x <= rect.x + rect.width &&
-  point.y >= rect.y &&
-  point.y <= rect.y + rect.height;
-
-const createPolygonPath = (
-  rect: Rect,
-  sides: number,
-  preset: WorkbookPolygonPreset = "regular"
-) => {
-  const points = getWorkbookPolygonPoints(rect, sides, preset);
-  return `${toPath(points)} Z`;
-};
-
-const resolvePolygonFigureKind = (
-  sides: number,
-  preset: WorkbookPolygonPreset
-): string | undefined => {
-  if (preset === "rhombus") return "rhombus";
-  if (preset === "trapezoid") return "trapezoid_isosceles";
-  if (preset === "trapezoid_right") return "trapezoid_right";
-  if (preset === "trapezoid_scalene") return "trapezoid_scalene";
-  if (sides === 3) return "triangle";
-  if (sides === 5) return "pentagon";
-  if (sides === 6) return "hexagon";
-  return undefined;
-};
-
-const getFigureVertexLabel = (index: number) => {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  if (index < alphabet.length) return alphabet[index];
-  return `${alphabet[index % alphabet.length]}${Math.floor(index / alphabet.length)}`;
-};
-
-const resolve2dFigureVertices = (object: WorkbookBoardObject, normalized: Rect) => {
-  if (object.type === "rectangle") {
-    return [
-      { x: normalized.x, y: normalized.y },
-      { x: normalized.x + normalized.width, y: normalized.y },
-      { x: normalized.x + normalized.width, y: normalized.y + normalized.height },
-      { x: normalized.x, y: normalized.y + normalized.height },
-    ];
-  }
-  if (object.type === "triangle") {
-    return [
-      { x: normalized.x + normalized.width / 2, y: normalized.y },
-      { x: normalized.x, y: normalized.y + normalized.height },
-      { x: normalized.x + normalized.width, y: normalized.y + normalized.height },
-    ];
-  }
-  if (object.type === "polygon") {
-    if (Array.isArray(object.points) && object.points.length >= 2) {
-      return object.points;
-    }
-    const objectPreset =
-      object.meta?.polygonPreset === "trapezoid" ||
-      object.meta?.polygonPreset === "trapezoid_right" ||
-      object.meta?.polygonPreset === "trapezoid_scalene" ||
-      object.meta?.polygonPreset === "rhombus"
-        ? object.meta.polygonPreset
-        : "regular";
-    return getWorkbookPolygonPoints(normalized, object.sides ?? 5, objectPreset);
-  }
-  return [] as WorkbookPoint[];
-};
-
-const is2dFigureClosed = (object: WorkbookBoardObject) => {
-  if (object.type !== "polygon") return true;
-  if (!Array.isArray(object.points) || object.points.length < 2) return true;
-  return object.meta?.closed !== false;
-};
-
-const get2dFigureSegments = (vertices: WorkbookPoint[], closed: boolean) => {
-  if (vertices.length < 2) return [] as { start: WorkbookPoint; end: WorkbookPoint }[];
-  const segmentCount = closed ? vertices.length : Math.max(0, vertices.length - 1);
-  return Array.from({ length: segmentCount }, (_, index) => ({
-    start: vertices[index],
-    end: vertices[(index + 1) % vertices.length],
-  }));
-};
-
-const resolve2dFigureVertexLabels = (object: WorkbookBoardObject, verticesCount: number) => {
-  const source = Array.isArray(object.meta?.vertexLabels) ? object.meta.vertexLabels : [];
-  return Array.from({ length: verticesCount }, (_, index) => {
-    const raw = typeof source[index] === "string" ? source[index].trim() : "";
-    return raw || getFigureVertexLabel(index);
-  });
-};
-
-const sampleCubicBezier = (
-  p0: WorkbookPoint,
-  p1: WorkbookPoint,
-  p2: WorkbookPoint,
-  p3: WorkbookPoint,
-  t: number
-) => {
-  const mt = 1 - t;
-  const mt2 = mt * mt;
-  const t2 = t * t;
-  const x =
-    mt2 * mt * p0.x +
-    3 * mt2 * t * p1.x +
-    3 * mt * t2 * p2.x +
-    t2 * t * p3.x;
-  const y =
-    mt2 * mt * p0.y +
-    3 * mt2 * t * p1.y +
-    3 * mt * t2 * p2.y +
-    t2 * t * p3.y;
-  return { x, y };
-};
-
-const distanceToCubicBezier = (
-  point: WorkbookPoint,
-  p0: WorkbookPoint,
-  p1: WorkbookPoint,
-  p2: WorkbookPoint,
-  p3: WorkbookPoint
-) => {
-  const samples = 30;
-  let nearest = Number.POSITIVE_INFINITY;
-  let previous = p0;
-  for (let index = 1; index <= samples; index += 1) {
-    const current = sampleCubicBezier(p0, p1, p2, p3, index / samples);
-    nearest = Math.min(nearest, distanceToSegment(point, previous, current));
-    previous = current;
-  }
-  return nearest;
-};
-
-const distanceToPolyline = (
-  point: WorkbookPoint,
-  vertices: WorkbookPoint[],
-  closed: boolean
-) => {
-  if (vertices.length < 2) return Number.POSITIVE_INFINITY;
-  let nearest = Number.POSITIVE_INFINITY;
-  const segments = closed ? vertices.length : vertices.length - 1;
-  for (let index = 0; index < segments; index += 1) {
-    const start = vertices[index];
-    const end = vertices[(index + 1) % vertices.length];
-    nearest = Math.min(nearest, distanceToSegment(point, start, end));
-  }
-  return nearest;
-};
-
-type CanvasPoint = {
-  x: number;
-  y: number;
-};
-
-const dot2 = (a: CanvasPoint, b: CanvasPoint) => a.x * b.x + a.y * b.y;
-
-const clipPolygonByHalfPlane = (
-  polygon: CanvasPoint[],
-  origin: CanvasPoint,
-  normal: CanvasPoint,
-  keepPositive: boolean
-) => {
-  if (polygon.length === 0) return polygon;
-  const sign = keepPositive ? 1 : -1;
-  const inside = (point: CanvasPoint) =>
-    sign * dot2({ x: point.x - origin.x, y: point.y - origin.y }, normal) >= 0;
-
-  const intersect = (a: CanvasPoint, b: CanvasPoint) => {
-    const ab = { x: b.x - a.x, y: b.y - a.y };
-    const numerator = dot2({ x: origin.x - a.x, y: origin.y - a.y }, normal);
-    const denominator = dot2(ab, normal);
-    if (Math.abs(denominator) < 1e-6) return b;
-    const t = numerator / denominator;
-    return {
-      x: a.x + ab.x * t,
-      y: a.y + ab.y * t,
-    };
-  };
-
-  const output: CanvasPoint[] = [];
-  for (let index = 0; index < polygon.length; index += 1) {
-    const current = polygon[index];
-    const previous = polygon[(index + polygon.length - 1) % polygon.length];
-    const currentInside = inside(current);
-    const previousInside = inside(previous);
-    if (currentInside) {
-      if (!previousInside) {
-        output.push(intersect(previous, current));
-      }
-      output.push(current);
-    } else if (previousInside) {
-      output.push(intersect(previous, current));
-    }
-  }
-  return output;
-};
-
-const getPointsBoundsFromPoints = (points: WorkbookPoint[]) => {
-  if (points.length === 0) {
-    return { minX: 0, minY: 0, maxX: 0, maxY: 0, width: 1, height: 1 };
-  }
-  let minX = points[0].x;
-  let minY = points[0].y;
-  let maxX = points[0].x;
-  let maxY = points[0].y;
-  points.forEach((point) => {
-    minX = Math.min(minX, point.x);
-    minY = Math.min(minY, point.y);
-    maxX = Math.max(maxX, point.x);
-    maxY = Math.max(maxY, point.y);
-  });
-  return {
-    minX,
-    minY,
-    maxX,
-    maxY,
-    width: Math.max(1, maxX - minX),
-    height: Math.max(1, maxY - minY),
-  };
-};
-
-const getPointsCentroid = (points: WorkbookPoint[]) => {
-  if (points.length === 0) {
-    return { x: 0, y: 0 };
-  }
-  if (points.length < 3) {
-    return {
-      x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
-      y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
-    };
-  }
-  let signedArea = 0;
-  let centroidX = 0;
-  let centroidY = 0;
-  for (let index = 0; index < points.length; index += 1) {
-    const current = points[index];
-    const next = points[(index + 1) % points.length];
-    const cross = current.x * next.y - next.x * current.y;
-    signedArea += cross;
-    centroidX += (current.x + next.x) * cross;
-    centroidY += (current.y + next.y) * cross;
-  }
-  if (Math.abs(signedArea) < 1e-6) {
-    return {
-      x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
-      y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
-    };
-  }
-  return {
-    x: centroidX / (3 * signedArea),
-    y: centroidY / (3 * signedArea),
-  };
-};
-
-const resolveOutsideVertexLabelPlacement = (params: {
-  vertex: WorkbookPoint;
-  center?: WorkbookPoint | null;
-  polygon?: WorkbookPoint[];
-  baseOffset?: number;
-}) => {
-  const { vertex, center = null, polygon = [], baseOffset = 14 } = params;
-  const polygonCenter =
-    polygon.length >= 2 ? getPointsCentroid(polygon) : center ?? { x: vertex.x, y: vertex.y };
-  let dx = vertex.x - polygonCenter.x;
-  let dy = vertex.y - polygonCenter.y;
-  let length = Math.hypot(dx, dy);
-  if (length < 1e-6 && polygon.length >= 2) {
-    const bounds = getPointsBoundsFromPoints(polygon);
-    dx = vertex.x - (bounds.minX + bounds.width / 2);
-    dy = vertex.y - (bounds.minY + bounds.height / 2);
-    length = Math.hypot(dx, dy);
-  }
-  if (length < 1e-6 && center) {
-    dx = vertex.x - center.x;
-    dy = vertex.y - center.y;
-    length = Math.hypot(dx, dy);
-  }
-  if (length < 1e-6) {
-    dx = 0.82;
-    dy = -0.58;
-    length = 1;
-  }
-  const direction = {
-    x: dx / length,
-    y: dy / length,
-  };
-  const offsets = [baseOffset, baseOffset + 6, baseOffset + 12];
-  let target = {
-    x: vertex.x + direction.x * offsets[0],
-    y: vertex.y + direction.y * offsets[0],
-  };
-  for (const offset of offsets) {
-    const candidate = {
-      x: vertex.x + direction.x * offset,
-      y: vertex.y + direction.y * offset,
-    };
-    if (polygon.length < 3 || !pointInPolygon(candidate, polygon)) {
-      target = candidate;
-      break;
-    }
-    target = candidate;
-  }
-  return {
-    x: target.x,
-    y: target.y,
-    textAnchor:
-      direction.x > 0.35 ? "start" : direction.x < -0.35 ? "end" : "middle",
-  } as const;
-};
-
-const clampUnitDot = (value: number) => Math.max(-1, Math.min(1, value));
-
-const buildAngleArcPath = (
-  vertex: WorkbookPoint,
-  unitA: WorkbookPoint,
-  unitB: WorkbookPoint,
-  radius: number,
-  sweep: 0 | 1
-) => {
-  const start = {
-    x: vertex.x + unitA.x * radius,
-    y: vertex.y + unitA.y * radius,
-  };
-  const end = {
-    x: vertex.x + unitB.x * radius,
-    y: vertex.y + unitB.y * radius,
-  };
-  return `M ${start.x} ${start.y} A ${radius} ${radius} 0 0 ${sweep} ${end.x} ${end.y}`;
-};
-
-const buildRightAngleMarkerPath = (
-  vertex: WorkbookPoint,
-  unitA: WorkbookPoint,
-  unitB: WorkbookPoint,
-  size: number
-) => {
-  const first = {
-    x: vertex.x + unitA.x * size,
-    y: vertex.y + unitA.y * size,
-  };
-  const corner = {
-    x: first.x + unitB.x * size,
-    y: first.y + unitB.y * size,
-  };
-  const second = {
-    x: vertex.x + unitB.x * size,
-    y: vertex.y + unitB.y * size,
-  };
-  return `M ${first.x} ${first.y} L ${corner.x} ${corner.y} L ${second.x} ${second.y}`;
-};
-
-const mapConstraintLabel = (type: WorkbookConstraint["type"]) => {
-  if (type === "parallel") return "∥";
-  if (type === "perpendicular") return "⊥";
-  if (type === "equal_length") return "L=";
-  if (type === "equal_angle") return "∠=";
-  if (type === "point_on_line") return "•—";
-  if (type === "point_on_circle") return "•○";
-  return "Связь";
-};
 
 const clampGraphOffsetValue = (value: number) =>
   Math.max(-999, Math.min(999, Number.isFinite(value) ? value : 0));
@@ -1115,11 +585,6 @@ const buildRealtimeObjectPatch = (
   }
   return Object.keys(patch).length > 0 ? patch : null;
 };
-
-const getPointObjectCenter = (object: WorkbookBoardObject) => ({
-  x: object.x + object.width / 2,
-  y: object.y + object.height / 2,
-});
 
 const useElementSize = (element: HTMLDivElement | null) => {
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -1835,230 +1300,45 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   };
 
   const resolve2dFigureVertexAtPointer = useCallback(
-    (object: WorkbookBoardObject, point: WorkbookPoint) => {
-      if (object.type !== "rectangle" && object.type !== "triangle" && object.type !== "polygon") {
-        return null;
-      }
-      const rect = normalizeRect(
-        { x: object.x, y: object.y },
-        { x: object.x + object.width, y: object.y + object.height }
-      );
-      const vertices = resolve2dFigureVertices(object, rect);
-      if (vertices.length === 0) return null;
-      const nearest = vertices.reduce(
-        (acc, vertex, index) => {
-          const distance = Math.hypot(vertex.x - point.x, vertex.y - point.y);
-          if (distance < acc.distance) {
-            return { index, distance };
-          }
-          return acc;
-        },
-        { index: -1, distance: Number.POSITIVE_INFINITY }
-      );
-      return nearest.index >= 0 && nearest.distance <= 11 ? nearest.index : null;
-    },
+    (object: WorkbookBoardObject, point: WorkbookPoint) =>
+      resolveWorkbook2dFigureVertexAtPoint(object, point),
     []
   );
 
   const resolveLineEndpointAtPointer = useCallback(
-    (object: WorkbookBoardObject, point: WorkbookPoint) => {
-      if (object.type !== "line" && object.type !== "arrow") return null;
-      if (object.meta?.lineKind !== "segment") return null;
-      const start = { x: object.x, y: object.y };
-      const end = { x: object.x + object.width, y: object.y + object.height };
-      const startDistance = Math.hypot(point.x - start.x, point.y - start.y);
-      const endDistance = Math.hypot(point.x - end.x, point.y - end.y);
-      if (startDistance <= 10 || endDistance <= 10) {
-        return startDistance <= endDistance ? "start" : "end";
-      }
-      return null;
-    },
+    (object: WorkbookBoardObject, point: WorkbookPoint) =>
+      resolveWorkbookLineEndpointAtPoint(object, point),
     []
   );
 
-  const isObjectHit = useCallback((object: WorkbookBoardObject, point: WorkbookPoint) => {
-    if (object.type === "point") {
-      const center = getPointObjectCenter(object);
-      const radius = Math.max(6, Math.min(14, Math.abs(object.width) * 0.8));
-      return Math.hypot(center.x - point.x, center.y - point.y) <= radius;
-    }
-    if (object.type === "solid3d") {
-      const rect = normalizeRect(
-        { x: object.x, y: object.y },
-        { x: object.x + object.width, y: object.y + object.height }
-      );
-      const center = {
-        x: rect.x + rect.width / 2,
-        y: rect.y + rect.height / 2,
-      };
-      const localPoint =
-        object.rotation && Number.isFinite(object.rotation)
-          ? rotatePointAround(point, center, -(object.rotation ?? 0))
-          : point;
-      const presetIdRaw =
-        typeof object.meta?.presetId === "string" ? object.meta.presetId : "cube";
-      const presetId = resolveSolid3dPresetId(presetIdRaw);
-      const mesh = getSolid3dMesh(
-        presetId,
-        Math.max(1, Math.abs(object.width)),
-        Math.max(1, Math.abs(object.height))
-      );
-      if (!mesh) {
-        return isInsideRect(localPoint, rect);
-      }
-      const solidState = readSolid3dState(object.meta);
-      const projected = projectSolidVerticesForObject({
-        mesh,
-        view: solidState.view,
-        objectRect: rect,
-      });
-      if (!projected.length) {
-        return isInsideRect(localPoint, rect);
-      }
-      const projectedPoints = projected.map((vertex) => ({ x: vertex.x, y: vertex.y }));
-      const projectedBounds = getPointsBoundsFromPoints(projectedPoints);
-      const expandedBounds: Rect = {
-        x: projectedBounds.minX - 8,
-        y: projectedBounds.minY - 8,
-        width: projectedBounds.width + 16,
-        height: projectedBounds.height + 16,
-      };
-      if (!isInsideRect(localPoint, expandedBounds)) {
-        return false;
-      }
-      const edgeThreshold = Math.max(6, (object.strokeWidth ?? 2) + 4);
-      for (const face of mesh.faces) {
-        const polygon = face
-          .map((vertexIndex) => projected[vertexIndex])
-          .filter(Boolean)
-          .map((vertex) => ({ x: vertex.x, y: vertex.y }));
-        if (polygon.length < 2) continue;
-        if (polygon.length >= 3 && pointInPolygon(localPoint, polygon)) return true;
-        if (distanceToPolyline(localPoint, polygon, true) <= edgeThreshold) return true;
-      }
-      return isInsideRect(localPoint, rect);
-    }
-    if (object.type === "section_divider") {
-      const y = object.y + object.height / 2;
-      const left = Math.min(object.x, object.x + object.width);
-      const right = Math.max(object.x, object.x + object.width);
-      const threshold = Math.max(6, (object.strokeWidth ?? 2) + 4);
-      return point.x >= left - 8 && point.x <= right + 8 && Math.abs(point.y - y) <= threshold;
-    }
-    if (object.type === "line" || object.type === "arrow") {
-      const controls = getLineControlPoints(object);
-      const threshold = Math.max(7, (object.strokeWidth ?? 2) + 5);
-      const distance = distanceToCubicBezier(
-        point,
-        controls.start,
-        controls.c1,
-        controls.c2,
-        controls.end
-      );
-      return distance <= threshold;
-    }
-    if (object.type === "rectangle" || object.type === "triangle" || object.type === "polygon") {
-      const rect = normalizeRect(
-        { x: object.x, y: object.y },
-        { x: object.x + object.width, y: object.y + object.height }
-      );
-      const vertices = resolve2dFigureVertices(object, rect);
-      if (vertices.length < 2) return isInsideRect(point, rect);
-      const closed = is2dFigureClosed(object);
-      const edgeDistance = distanceToPolyline(point, vertices, closed);
-      if (edgeDistance <= Math.max(6, (object.strokeWidth ?? 2) + 4)) {
-        return true;
-      }
-      if (closed && pointInPolygon(point, vertices)) return true;
-      return false;
-    }
-    const rect = getObjectRect(object);
-    if (object.rotation && Number.isFinite(object.rotation)) {
-      const center = {
-        x: rect.x + rect.width / 2,
-        y: rect.y + rect.height / 2,
-      };
-      const localPoint = rotatePointAround(point, center, -(object.rotation ?? 0));
-      return isInsideRect(localPoint, rect);
-    }
-    return isInsideRect(point, rect);
-  }, []);
-
   const resolveTopObject = useCallback(
     (point: WorkbookPoint) => {
-      return resolveTopVisibleBoardObject(visibleHitObjects, (object) => isObjectHit(object, point));
+      return resolveTopVisibleBoardObject(visibleHitObjects, (object) =>
+        isWorkbookObjectHit(object, point)
+      );
     },
-    [isObjectHit, visibleHitObjects]
+    [visibleHitObjects]
   );
 
   const resolveTopStroke = useCallback(
     (point: WorkbookPoint) => {
-      return resolveTopVisibleStroke(visibleHitStrokes, (stroke) => {
-        if (!stroke.points.length) return false;
-        const distance =
-          stroke.points.length === 1
-            ? Math.hypot(point.x - stroke.points[0].x, point.y - stroke.points[0].y)
-            : distanceToPolyline(point, stroke.points, false);
-        const threshold = Math.max(
-          6,
-          (stroke.width ?? 2) / 2 + (stroke.tool === "highlighter" ? 6 : 4)
-        );
-        if (distance <= threshold) {
-          return true;
-        }
-        return false;
-      });
+      return resolveTopVisibleStroke(visibleHitStrokes, (stroke) =>
+        isWorkbookStrokeHit(stroke, point)
+      );
     },
     [visibleHitStrokes]
   );
 
   const isStrokeErasedByCircle = useCallback(
-    (stroke: WorkbookStroke, center: WorkbookPoint, radius: number) => {
-      if (!stroke.points.length) return false;
-      const strokeRect = getStrokeRect(stroke);
-      if (strokeRect && !circleIntersectsRect(center, radius, strokeRect)) {
-        return false;
-      }
-      const threshold = Math.max(2, radius + (stroke.width ?? 2) / 2);
-      if (stroke.points.length === 1) {
-        return Math.hypot(center.x - stroke.points[0].x, center.y - stroke.points[0].y) <= threshold;
-      }
-      for (let index = 0; index < stroke.points.length - 1; index += 1) {
-        if (distanceToSegment(center, stroke.points[index], stroke.points[index + 1]) <= threshold) {
-          return true;
-        }
-      }
-      return false;
-    },
+    (stroke: WorkbookStroke, center: WorkbookPoint, radius: number) =>
+      isWorkbookStrokeErasedByCircle(stroke, center, radius),
     []
   );
 
   const isObjectErasedByCircle = useCallback(
-    (object: WorkbookBoardObject, center: WorkbookPoint, radius: number) => {
-      const isNonErasableSolidDomain =
-        object.type === "solid3d" ||
-        object.type === "section3d" ||
-        object.type === "net3d" ||
-        (typeof object.meta?.parentSolidId === "string" && object.meta.parentSolidId.trim().length > 0);
-      if (isNonErasableSolidDomain) return false;
-      if (object.pinned || object.locked) return false;
-      const objectRect = getObjectRect(object);
-      if (!circleIntersectsRect(center, radius, objectRect)) return false;
-      if (isObjectHit(object, center)) return true;
-      const sampleCount = 16;
-      for (let index = 0; index < sampleCount; index += 1) {
-        const angle = (Math.PI * 2 * index) / sampleCount;
-        const perimeterPoint = {
-          x: center.x + Math.cos(angle) * radius,
-          y: center.y + Math.sin(angle) * radius,
-        };
-        if (isObjectHit(object, perimeterPoint)) {
-          return true;
-        }
-      }
-      return false;
-    },
-    [isObjectHit]
+    (object: WorkbookBoardObject, center: WorkbookPoint, radius: number) =>
+      isWorkbookObjectErasedByCircle(object, center, radius),
+    []
   );
 
   useEffect(() => {
