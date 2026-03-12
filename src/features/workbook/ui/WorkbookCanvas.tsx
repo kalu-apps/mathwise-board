@@ -414,6 +414,13 @@ const rectIntersects = (a: Rect, b: Rect) =>
   a.y <= b.y + b.height &&
   a.y + a.height >= b.y;
 
+const expandRect = (rect: Rect, padding: number): Rect => ({
+  x: rect.x - padding,
+  y: rect.y - padding,
+  width: rect.width + padding * 2,
+  height: rect.height + padding * 2,
+});
+
 const circleIntersectsRect = (center: WorkbookPoint, radius: number, rect: Rect) => {
   const nearestX = Math.max(rect.x, Math.min(center.x, rect.x + rect.width));
   const nearestY = Math.max(rect.y, Math.min(center.y, rect.y + rect.height));
@@ -1569,6 +1576,88 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     () => [...boardStrokes, ...annotationStrokes],
     [boardStrokes, annotationStrokes]
   );
+  const objectById = useMemo(
+    () => new Map(boardObjects.map((object) => [object.id, object])),
+    [boardObjects]
+  );
+  const strokeByKey = useMemo(
+    () => new Map(allStrokes.map((stroke) => [`${stroke.layer}:${stroke.id}`, stroke])),
+    [allStrokes]
+  );
+  const viewportRect = useMemo<Rect>(
+    () => ({
+      x: Math.max(0, viewportOffset.x),
+      y: Math.max(0, viewportOffset.y),
+      width: Math.max(1, size.width / safeZoom),
+      height: Math.max(1, size.height / safeZoom),
+    }),
+    [safeZoom, size.height, size.width, viewportOffset.x, viewportOffset.y]
+  );
+  const renderViewportRect = useMemo(() => expandRect(viewportRect, 360), [viewportRect]);
+  const hitViewportRect = useMemo(() => expandRect(viewportRect, 96), [viewportRect]);
+  const forcedVisibleObjectIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (selectedObjectId) ids.add(selectedObjectId);
+    if (inlineTextEdit?.objectId) ids.add(inlineTextEdit.objectId);
+    if (solid3dSectionMarkers?.objectId) ids.add(solid3dSectionMarkers.objectId);
+    if (moving) {
+      moving.groupObjects.forEach((object) => ids.add(object.id));
+    }
+    if (resizing) ids.add(resizing.object.id);
+    if (graphPan) ids.add(graphPan.object.id);
+    if (solid3dResize) ids.add(solid3dResize.object.id);
+    if (solid3dGesture) ids.add(solid3dGesture.object.id);
+    return ids;
+  }, [
+    graphPan,
+    inlineTextEdit?.objectId,
+    moving,
+    resizing,
+    selectedObjectId,
+    solid3dGesture,
+    solid3dResize,
+    solid3dSectionMarkers?.objectId,
+  ]);
+  const visibleBoardObjects = useMemo(
+    () =>
+      boardObjects.filter(
+        (object) =>
+          forcedVisibleObjectIds.has(object.id) ||
+          rectIntersects(getObjectRect(object), renderViewportRect)
+      ),
+    [boardObjects, forcedVisibleObjectIds, renderViewportRect]
+  );
+  const visibleHitObjects = useMemo(
+    () =>
+      boardObjects.filter(
+        (object) =>
+          forcedVisibleObjectIds.has(object.id) ||
+          rectIntersects(getObjectRect(object), hitViewportRect)
+      ),
+    [boardObjects, forcedVisibleObjectIds, hitViewportRect]
+  );
+  const visibleStrokes = useMemo(
+    () =>
+      allStrokes.filter((stroke) => {
+        const strokeRect = getStrokeRect(stroke);
+        if (strokeRect) {
+          return rectIntersects(strokeRect, renderViewportRect);
+        }
+        return stroke.points.some((point) => isInsideRect(point, renderViewportRect));
+      }),
+    [allStrokes, renderViewportRect]
+  );
+  const visibleHitStrokes = useMemo(
+    () =>
+      allStrokes.filter((stroke) => {
+        const strokeRect = getStrokeRect(stroke);
+        if (strokeRect) {
+          return rectIntersects(strokeRect, hitViewportRect);
+        }
+        return stroke.points.some((point) => isInsideRect(point, hitViewportRect));
+      }),
+    [allStrokes, hitViewportRect]
+  );
 
   const getObjectSceneLayerId = useCallback((object: WorkbookBoardObject) => {
     const layerId =
@@ -1580,11 +1669,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   const startInlineTextEdit = useCallback(
     (objectId: string) => {
-      const target = boardObjects.find(
-        (item): item is WorkbookBoardObject & { type: "text" } =>
-          item.id === objectId && item.type === "text"
-      );
-      if (!target) return;
+      const target = objectById.get(objectId);
+      if (!target || target.type !== "text") return;
       onSelectedConstraintChange(null);
       onSelectedObjectChange(objectId);
       setInlineTextEdit({
@@ -1592,12 +1678,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         value: typeof target.text === "string" ? target.text : "",
       });
     },
-    [boardObjects, onSelectedConstraintChange, onSelectedObjectChange]
+    [objectById, onSelectedConstraintChange, onSelectedObjectChange]
   );
 
   const commitInlineTextEdit = useCallback(() => {
     if (!inlineTextEdit) return;
-    const target = boardObjects.find((item) => item.id === inlineTextEdit.objectId);
+    const target = objectById.get(inlineTextEdit.objectId);
     if (!target || target.type !== "text") {
       setInlineTextEdit(null);
       return;
@@ -1610,7 +1696,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       });
     }
     setInlineTextEdit(null);
-  }, [boardObjects, inlineTextEdit, onObjectUpdate]);
+  }, [inlineTextEdit, objectById, onObjectUpdate]);
 
   const cancelInlineTextEdit = useCallback(() => {
     setInlineTextEdit(null);
@@ -1940,8 +2026,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   const resolveTopObject = useCallback(
     (point: WorkbookPoint) => {
-      for (let index = boardObjects.length - 1; index >= 0; index -= 1) {
-        const object = boardObjects[index];
+      for (let index = visibleHitObjects.length - 1; index >= 0; index -= 1) {
+        const object = visibleHitObjects[index];
         if (object.locked) continue;
         if (isObjectHit(object, point)) {
           return object;
@@ -1949,13 +2035,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       }
       return null;
     },
-    [boardObjects, isObjectHit]
+    [isObjectHit, visibleHitObjects]
   );
 
   const resolveTopStroke = useCallback(
     (point: WorkbookPoint) => {
-      for (let index = allStrokes.length - 1; index >= 0; index -= 1) {
-        const stroke = allStrokes[index];
+      for (let index = visibleHitStrokes.length - 1; index >= 0; index -= 1) {
+        const stroke = visibleHitStrokes[index];
         if (!stroke.points.length) continue;
         const distance =
           stroke.points.length === 1
@@ -1971,7 +2057,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       }
       return null;
     },
-    [allStrokes]
+    [visibleHitStrokes]
   );
 
   const isStrokeErasedByCircle = useCallback(
@@ -2112,7 +2198,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     : remoteEraserPreviewObjectPaths;
   const eraserPreviewActive = erasing || incomingEraserPreviews.length > 0;
   const renderedStrokes = useMemo(() => {
-    return allStrokes.flatMap((stroke) => {
+    return visibleStrokes.flatMap((stroke) => {
       const key = `${stroke.layer}:${stroke.id}`;
       const previewFragments = eraserPreviewActive
         ? activeEraserPreviewStrokeFragments[key]
@@ -2124,7 +2210,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         points,
       }));
     });
-  }, [activeEraserPreviewStrokeFragments, allStrokes, eraserPreviewActive]);
+  }, [activeEraserPreviewStrokeFragments, eraserPreviewActive, visibleStrokes]);
 
   const eraseAtPoint = useCallback(
     (center: WorkbookPoint) => {
@@ -2171,8 +2257,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     erasedStrokeIdsRef.current.forEach((key) => {
       const [targetLayer, strokeId] = key.split(":");
       if (!strokeId) return;
-      const sourceStroke =
-        allStrokes.find((stroke) => `${stroke.layer}:${stroke.id}` === key) ?? null;
+      const sourceStroke = strokeByKey.get(key) ?? null;
       if (!sourceStroke) return;
       const fragments = eraserStrokeFragmentsRef.current.get(key) ?? [];
       if (fragments.length === 0) {
@@ -2190,7 +2275,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     if (eraserTouchedObjectIdsRef.current.size === 0) return;
     const touchedIds = Array.from(eraserTouchedObjectIdsRef.current);
     touchedIds.forEach((objectId) => {
-      const sourceObject = boardObjects.find((object) => object.id === objectId) ?? null;
+      const sourceObject = objectById.get(objectId) ?? null;
       const cuts = eraserObjectCutsRef.current.get(objectId);
       if (!cuts || cuts.length === 0) return;
       const nextStoredPaths = (
@@ -2230,7 +2315,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         }
       );
     });
-  }, [allStrokes, boardObjects, onObjectUpdate, onStrokeDelete, onStrokeReplace]);
+  }, [objectById, onObjectUpdate, onStrokeDelete, onStrokeReplace, strokeByKey]);
 
   const resolveSolid3dPointAtPointer = useCallback(
     (object: WorkbookBoardObject, point: WorkbookPoint): SolidSurfacePick | null => {
@@ -3023,9 +3108,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
 
     if (tool === "select") {
-      const selected = selectedObjectId
-        ? boardObjects.find((object) => object.id === selectedObjectId) ?? null
-        : null;
+      const selected = selectedObjectId ? objectById.get(selectedObjectId) ?? null : null;
       if (tool === "select" && selected && !selected.pinned) {
         if (selected.type === "solid3d") {
           const handles = resolveSolid3dResizeHandles(selected);
@@ -4102,7 +4185,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       );
       if (isTypingTarget) return;
       if (disabled) return;
-      const selected = boardObjects.find((item) => item.id === selectedObjectId);
+      const selected = objectById.get(selectedObjectId);
       if (selected?.pinned) return;
       event.preventDefault();
       const layerId = selected ? getObjectSceneLayerId(selected) : "main";
@@ -4117,14 +4200,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     };
     window.addEventListener("keydown", onDelete);
     return () => window.removeEventListener("keydown", onDelete);
-  }, [
-    boardObjects,
-    disabled,
-    getObjectSceneLayerId,
-    onObjectDelete,
-    onSelectedObjectChange,
-    selectedObjectId,
-  ]);
+  }, [boardObjects, disabled, getObjectSceneLayerId, objectById, onObjectDelete, onSelectedObjectChange, selectedObjectId]);
 
   useEffect(() => {
     if (tool !== "pen" && tool !== "highlighter") {
@@ -6447,9 +6523,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const renderObjectRef = useRef(renderObject);
   renderObjectRef.current = renderObject;
 
-  const selectedObject = selectedObjectId
-    ? boardObjects.find((object) => object.id === selectedObjectId) ?? null
-    : null;
+  const selectedObject = selectedObjectId ? objectById.get(selectedObjectId) ?? null : null;
   const selectedPreviewObject = (() => {
     if (!selectedObject) return null;
     const interactionSource =
@@ -6748,7 +6822,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     () => {
       const revisionKey = `${imageAssetRevision}::${inlineTextEditRevision}`;
       void revisionKey;
-      return boardObjects.map((object) => {
+      return visibleBoardObjects.map((object) => {
         const renderSource =
           selectedPreviewObject?.id === object.id ? selectedPreviewObject : object;
         const renderedObject = renderObjectRef.current(renderSource);
@@ -6816,11 +6890,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     [
       activeEraserPreviewObjectCuts,
       activeEraserPreviewObjectPaths,
-      boardObjects,
       eraserPreviewActive,
       imageAssetRevision,
       inlineTextEditRevision,
       selectedPreviewObject,
+      visibleBoardObjects,
     ]
   );
 
@@ -6925,17 +6999,22 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     () =>
       constraints
         .map((constraint) => {
-          const source = boardObjects.find(
-            (object) => object.id === constraint.sourceObjectId
-          );
-          const target = boardObjects.find(
-            (object) => object.id === constraint.targetObjectId
-          );
+          const source = objectById.get(constraint.sourceObjectId);
+          const target = objectById.get(constraint.targetObjectId);
           if (!source || !target) return null;
+          const sourceCenter = getObjectCenter(source);
+          const targetCenter = getObjectCenter(target);
+          const segmentBounds = expandRect(normalizeRect(sourceCenter, targetCenter), 32);
+          if (
+            constraint.id !== selectedConstraintId &&
+            !rectIntersects(segmentBounds, renderViewportRect)
+          ) {
+            return null;
+          }
           return {
             constraint,
-            source: getObjectCenter(source),
-            target: getObjectCenter(target),
+            source: sourceCenter,
+            target: targetCenter,
           };
         })
         .filter(
@@ -6947,7 +7026,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
             target: WorkbookPoint;
           } => Boolean(segment)
         ),
-    [boardObjects, constraints]
+    [constraints, objectById, renderViewportRect, selectedConstraintId]
   );
   const handleSelectConstraint = useCallback(
     (constraintId: string) => {
@@ -6973,11 +7052,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     const sourceObject =
       selectedPreviewObject?.id === markerSource.objectId
         ? selectedPreviewObject
-        : boardObjects.find((item) => item.id === markerSource.objectId);
+        : objectById.get(markerSource.objectId);
     if (!sourceObject) return [] as Array<{ index: number; x: number; y: number; label: string }>;
     return resolveSolid3dPickMarkersForObject(sourceObject, markerSource.selectedPoints);
   }, [
-    boardObjects,
+    objectById,
     resolveSolid3dPickMarkersForObject,
     selectedPreviewObject,
     solid3dSectionMarkers,
@@ -6990,7 +7069,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       const markerObject =
         selectedPreviewObject?.id === markerObjectId
           ? selectedPreviewObject
-          : boardObjects.find((item) => item.id === markerObjectId);
+          : objectById.get(markerObjectId);
       const showMarkerLabels = markerObject?.meta?.showLabels !== false;
       const markerCenter = markerObject ? getObjectCenter(markerObject) : marker;
       const markerPlacement = resolveOutsideVertexLabelPlacement({
@@ -7024,7 +7103,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         </g>
       );
     });
-  }, [boardObjects, selectedPreviewObject, solid3dPickMarkers, solid3dSectionMarkers]);
+  }, [objectById, selectedPreviewObject, solid3dPickMarkers, solid3dSectionMarkers]);
 
   const draftOverlayNodes = useMemo(() => {
     if (
@@ -7578,7 +7657,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     if (disabled) return;
     if (!event.ctrlKey && !event.metaKey) return;
     if (!selectedObjectId) return;
-    const selectedObject = boardObjects.find((object) => object.id === selectedObjectId);
+    const selectedObject = objectById.get(selectedObjectId);
     if (!selectedObject || selectedObject.type !== "solid3d") return;
     const svg = event.currentTarget ?? null;
     if (!svg) return;
