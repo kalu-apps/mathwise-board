@@ -40,6 +40,7 @@ import { resolveBoardObjectImageAssetId } from "../model/scene";
 import {
   buildForcedVisibleObjectIdSet,
   buildWorkbookSceneAccess,
+  resolveWorkbookObjectSceneLayerId,
   resolveTopVisibleBoardObject,
   resolveTopVisibleStroke,
 } from "../model/sceneVisibility";
@@ -886,6 +887,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const {
     objectById,
     strokeByKey,
+    unpinnedSceneLayerObjectsById,
     renderViewportRect,
     visibleBoardObjects,
     visibleHitObjectCandidatesAtPoint,
@@ -895,13 +897,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     visibleHitStrokeCandidatesInRect,
   } = sceneAccess;
 
-  const getObjectSceneLayerId = useCallback((object: WorkbookBoardObject) => {
-    const layerId =
-      object.meta && typeof object.meta === "object" && typeof object.meta.sceneLayerId === "string"
-        ? object.meta.sceneLayerId
-        : "";
-    return layerId.trim() || "main";
-  }, []);
+  const getObjectSceneLayerId = resolveWorkbookObjectSceneLayerId;
 
   const startInlineTextEdit = useCallback(
     (objectId: string) => {
@@ -948,12 +944,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     (object: WorkbookBoardObject) => {
       const layerId = getObjectSceneLayerId(object);
       if (layerId === "main") return [object];
-      const group = boardObjects.filter(
-        (item) => !item.pinned && getObjectSceneLayerId(item) === layerId
-      );
+      const group = unpinnedSceneLayerObjectsById.get(layerId) ?? [];
       return group.length > 0 ? group : [object];
     },
-    [boardObjects, getObjectSceneLayerId]
+    [getObjectSceneLayerId, unpinnedSceneLayerObjectsById]
   );
 
   const activeMoveRect = useMemo(() => {
@@ -1827,9 +1821,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         onSelectedConstraintChange(null);
         const layerId = getObjectSceneLayerId(target);
         if (layerId !== "main") {
-          boardObjects
-            .filter((item) => !item.pinned && getObjectSceneLayerId(item) === layerId)
-            .forEach((item) => onObjectDelete(item.id));
+          (unpinnedSceneLayerObjectsById.get(layerId) ?? []).forEach((item) =>
+            onObjectDelete(item.id)
+          );
         } else {
           onObjectDelete(target.id);
         }
@@ -1957,8 +1951,15 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         }
       }
       if (shouldKeepObjectSelectedInsideArea(point, areaSelection)) {
-        const groupedTargets = boardObjects.filter((object) =>
-          areaSelection.objectIds.includes(object.id)
+        const groupedTargets = areaSelection.objectIds.reduce<WorkbookBoardObject[]>(
+          (acc, objectId) => {
+            const object = objectById.get(objectId);
+            if (object) {
+              acc.push(object);
+            }
+            return acc;
+          },
+          []
         );
         if (groupedTargets.length > 0) {
           const proxyObject: WorkbookBoardObject = {
@@ -2641,9 +2642,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       event.preventDefault();
       const layerId = selected ? getObjectSceneLayerId(selected) : "main";
       if (layerId !== "main") {
-        boardObjects
-          .filter((item) => getObjectSceneLayerId(item) === layerId && !item.pinned)
-          .forEach((item) => onObjectDelete(item.id));
+        (unpinnedSceneLayerObjectsById.get(layerId) ?? []).forEach((item) =>
+          onObjectDelete(item.id)
+        );
       } else {
         onObjectDelete(selectedObjectId);
       }
@@ -2651,7 +2652,15 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     };
     window.addEventListener("keydown", onDelete);
     return () => window.removeEventListener("keydown", onDelete);
-  }, [boardObjects, disabled, getObjectSceneLayerId, objectById, onObjectDelete, onSelectedObjectChange, selectedObjectId]);
+  }, [
+    disabled,
+    getObjectSceneLayerId,
+    objectById,
+    onObjectDelete,
+    onSelectedObjectChange,
+    selectedObjectId,
+    unpinnedSceneLayerObjectsById,
+  ]);
 
   useEffect(() => {
     if (tool !== "pen" && tool !== "highlighter") {

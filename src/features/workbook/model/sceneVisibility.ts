@@ -63,6 +63,31 @@ export const buildForcedVisibleObjectIdSet = (
   return result;
 };
 
+export const resolveWorkbookObjectSceneLayerId = (object: WorkbookBoardObject) => {
+  const layerId =
+    object.meta && typeof object.meta === "object" && typeof object.meta.sceneLayerId === "string"
+      ? object.meta.sceneLayerId
+      : "";
+  return layerId.trim() || "main";
+};
+
+export const buildWorkbookSceneLayerObjectGroups = (
+  boardObjects: WorkbookBoardObject[]
+) => {
+  const result = new Map<string, WorkbookBoardObject[]>();
+  boardObjects.forEach((object) => {
+    if (object.pinned) return;
+    const layerId = resolveWorkbookObjectSceneLayerId(object);
+    const existing = result.get(layerId);
+    if (existing) {
+      existing.push(object);
+    } else {
+      result.set(layerId, [object]);
+    }
+  });
+  return result;
+};
+
 export const filterVisibleBoardObjects = (params: {
   boardObjects: WorkbookBoardObject[];
   viewportRect: WorkbookSceneRect;
@@ -219,6 +244,7 @@ const queryWorkbookSceneRectIndexByRect = <T>(
 export type WorkbookSceneAccess = {
   objectById: Map<string, WorkbookBoardObject>;
   strokeByKey: Map<string, WorkbookStroke>;
+  unpinnedSceneLayerObjectsById: Map<string, WorkbookBoardObject[]>;
   viewportRect: WorkbookSceneRect;
   renderViewportRect: WorkbookSceneRect;
   visibleBoardObjects: WorkbookBoardObject[];
@@ -278,6 +304,7 @@ export const buildWorkbookSceneAccess = (params: {
   return {
     objectById: buildWorkbookObjectLookup(params.boardObjects),
     strokeByKey: buildWorkbookStrokeLookup(params.strokes),
+    unpinnedSceneLayerObjectsById: buildWorkbookSceneLayerObjectGroups(params.boardObjects),
     viewportRect,
     renderViewportRect: expandSceneRect(viewportRect, renderPadding),
     visibleBoardObjects: filterVisibleBoardObjects({
