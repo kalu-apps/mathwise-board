@@ -1,0 +1,282 @@
+import { resolveSolid3dPresetId } from "./solid3d";
+import {
+  computeSectionPolygon,
+  getSolid3dMesh,
+  pickSolidPointOnSurface,
+  projectSolidPointForObject,
+  projectSolidVerticesForObject,
+  resolveSectionPointForMesh,
+  type SolidSurfacePick,
+} from "./solid3dGeometry";
+import type { Solid3dSectionPoint } from "./solid3dState";
+import { readSolid3dState } from "./solid3dState";
+import {
+  distanceToSegment,
+  getPointsBoundsFromPoints,
+  normalizeRect,
+  pointInPolygon,
+  rotatePointAround,
+} from "./sceneGeometry";
+import type { WorkbookBoardObject, WorkbookPoint } from "./types";
+
+export type Solid3dResizeHandle = {
+  mode: "n" | "s" | "w" | "e" | "nw" | "ne" | "sw" | "se";
+  x: number;
+  y: number;
+};
+
+type Solid3dPreviewMetaById = Record<string, Record<string, unknown>>;
+
+const resolveSolid3dRenderSource = (
+  sourceObject: WorkbookBoardObject,
+  previewMetaById: Solid3dPreviewMetaById
+) =>
+  previewMetaById[sourceObject.id] && sourceObject.type === "solid3d"
+    ? { ...sourceObject, meta: previewMetaById[sourceObject.id] }
+    : sourceObject;
+
+const resolveSolid3dMeshAndRect = (object: WorkbookBoardObject) => {
+  const presetIdRaw =
+    typeof object.meta?.presetId === "string" ? object.meta.presetId : "cube";
+  const presetId = resolveSolid3dPresetId(presetIdRaw);
+  const mesh = getSolid3dMesh(
+    presetId,
+    Math.max(1, Math.abs(object.width)),
+    Math.max(1, Math.abs(object.height))
+  );
+  const rect = normalizeRect(
+    { x: object.x, y: object.y },
+    { x: object.x + object.width, y: object.y + object.height }
+  );
+  return {
+    presetId,
+    mesh,
+    rect,
+  };
+};
+
+export const resolveSolid3dPointAtPointer = (
+  object: WorkbookBoardObject,
+  point: WorkbookPoint
+): SolidSurfacePick | null => {
+  if (object.type !== "solid3d") return null;
+  const { mesh, rect } = resolveSolid3dMeshAndRect(object);
+  if (!mesh) return null;
+  const solidState = readSolid3dState(object.meta);
+  const localPoint =
+    object.rotation && Number.isFinite(object.rotation)
+      ? rotatePointAround(
+          point,
+          { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
+          -(object.rotation ?? 0)
+        )
+      : point;
+
+  const projectedVertices = projectSolidVerticesForObject({
+    mesh,
+    view: solidState.view,
+    objectRect: rect,
+  });
+  const nearestVertex = projectedVertices.reduce(
+    (acc, vertex) => {
+      const distance = Math.hypot(vertex.x - localPoint.x, vertex.y - localPoint.y);
+      if (distance < acc.distance) {
+        return { index: vertex.index, distance };
+      }
+      return acc;
+    },
+    { index: -1, distance: Number.POSITIVE_INFINITY }
+  );
+  if (nearestVertex.index >= 0 && nearestVertex.distance <= 20) {
+    const faceIndex = mesh.faces.findIndex((face) => face.includes(nearestVertex.index));
+    return {
+      point: mesh.vertices[nearestVertex.index],
+      faceIndex: faceIndex >= 0 ? faceIndex : 0,
+      depth: projectedVertices[nearestVertex.index]?.depth ?? 0,
+      triangleVertexIndices: [
+        nearestVertex.index,
+        nearestVertex.index,
+        nearestVertex.index,
+      ],
+      barycentric: [1, 0, 0],
+    };
+  }
+
+  return pickSolidPointOnSurface({
+    mesh,
+    view: solidState.view,
+    objectRect: rect,
+    point: localPoint,
+  });
+};
+
+export const resolveSolid3dResizeHandles = (
+  object: WorkbookBoardObject
+): Solid3dResizeHandle[] => {
+  if (object.type !== "solid3d") return [];
+  const { mesh, rect } = resolveSolid3dMeshAndRect(object);
+  if (!mesh) return [];
+  const solidState = readSolid3dState(object.meta);
+  const projected = projectSolidVerticesForObject({
+    mesh,
+    view: solidState.view,
+    objectRect: rect,
+  }).map((vertex) => ({ x: vertex.x, y: vertex.y }));
+  if (!projected.length) return [];
+  const bounds = getPointsBoundsFromPoints(projected);
+  const left = bounds.minX;
+  const right = bounds.maxX;
+  const top = bounds.minY;
+  const bottom = bounds.maxY;
+  const padding = 12;
+  return [
+    { mode: "nw", x: left - padding, y: top - padding },
+    { mode: "ne", x: right + padding, y: top - padding },
+    { mode: "se", x: right + padding, y: bottom + padding },
+    { mode: "sw", x: left - padding, y: bottom + padding },
+  ];
+};
+
+export const resolveSolid3dPickMarkersForObject = (
+  sourceObject: WorkbookBoardObject,
+  selectedPoints: Solid3dSectionPoint[],
+  previewMetaById: Solid3dPreviewMetaById
+) => {
+  if (sourceObject.type !== "solid3d") {
+    return [] as Array<{ index: number; x: number; y: number; label: string }>;
+  }
+  const object = resolveSolid3dRenderSource(sourceObject, previewMetaById);
+  const { mesh, rect } = resolveSolid3dMeshAndRect(object);
+  const solidState = readSolid3dState(object.meta);
+  return selectedPoints.map((point3d, index) => {
+    const worldPoint =
+      mesh && point3d
+        ? resolveSectionPointForMesh(point3d, mesh)
+        : { x: point3d.x, y: point3d.y, z: point3d.z };
+    const projected = projectSolidPointForObject({
+      point: worldPoint,
+      view: solidState.view,
+      objectRect: rect,
+    });
+    return {
+      index,
+      x: projected.x,
+      y: projected.y,
+      label: point3d.label || `P${index + 1}`,
+    };
+  });
+};
+
+export const resolveSolid3dVertexAtPointer = (
+  sourceObject: WorkbookBoardObject,
+  point: WorkbookPoint,
+  previewMetaById: Solid3dPreviewMetaById
+) => {
+  if (sourceObject.type !== "solid3d") return null;
+  const object = resolveSolid3dRenderSource(sourceObject, previewMetaById);
+  const { mesh, rect } = resolveSolid3dMeshAndRect(object);
+  if (!mesh) return null;
+  const solidState = readSolid3dState(object.meta);
+  const projected = projectSolidVerticesForObject({
+    mesh,
+    view: solidState.view,
+    objectRect: rect,
+  });
+  const nearest = projected.reduce(
+    (acc, vertex) => {
+      const distance = Math.hypot(vertex.x - point.x, vertex.y - point.y);
+      if (distance < acc.distance) {
+        return { index: vertex.index, distance };
+      }
+      return acc;
+    },
+    { index: -1, distance: Number.POSITIVE_INFINITY }
+  );
+  if (nearest.index < 0 || nearest.distance > 12) return null;
+  return nearest.index;
+};
+
+export const resolveSolid3dSectionVertexAtPointer = (
+  sourceObject: WorkbookBoardObject,
+  point: WorkbookPoint,
+  previewMetaById: Solid3dPreviewMetaById,
+  roundSolidPresets: Set<string>
+) => {
+  if (sourceObject.type !== "solid3d") return null;
+  const object = resolveSolid3dRenderSource(sourceObject, previewMetaById);
+  const { presetId, mesh, rect } = resolveSolid3dMeshAndRect(object);
+  if (roundSolidPresets.has(presetId) || !mesh) return null;
+  const solidState = readSolid3dState(object.meta);
+  const view = solidState.view;
+  let bestMatch: { sectionId: string; vertexIndex: number; distance: number } | null = null;
+  for (const section of solidState.sections) {
+    if (!section.visible) continue;
+    const polygon3d = computeSectionPolygon(mesh, section).polygon;
+    if (polygon3d.length < 3) continue;
+    for (let vertexIndex = 0; vertexIndex < polygon3d.length; vertexIndex += 1) {
+      const vertex = polygon3d[vertexIndex];
+      const projected = projectSolidPointForObject({
+        point: vertex,
+        view,
+        objectRect: rect,
+      });
+      const distance = Math.hypot(projected.x - point.x, projected.y - point.y);
+      if (distance > 11) continue;
+      if (!bestMatch || distance < bestMatch.distance) {
+        bestMatch = {
+          sectionId: section.id,
+          vertexIndex,
+          distance,
+        };
+      }
+    }
+  }
+  return bestMatch
+    ? {
+        sectionId: bestMatch.sectionId,
+        vertexIndex: bestMatch.vertexIndex,
+      }
+    : null;
+};
+
+export const resolveSolid3dSectionAtPointer = (
+  sourceObject: WorkbookBoardObject,
+  point: WorkbookPoint,
+  previewMetaById: Solid3dPreviewMetaById
+) => {
+  if (sourceObject.type !== "solid3d") return null;
+  const object = resolveSolid3dRenderSource(sourceObject, previewMetaById);
+  const { mesh, rect } = resolveSolid3dMeshAndRect(object);
+  if (!mesh) return null;
+  const solidState = readSolid3dState(object.meta);
+  const view = solidState.view;
+  let bestSectionId: string | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  solidState.sections.forEach((section) => {
+    if (!section.visible) return;
+    const polygon3d = computeSectionPolygon(mesh, section).polygon;
+    if (polygon3d.length < 2) return;
+    const polygon2d = polygon3d.map((p3d) =>
+      projectSolidPointForObject({
+        point: p3d,
+        view,
+        objectRect: rect,
+      })
+    );
+    let distance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < polygon2d.length; index += 1) {
+      const a = polygon2d[index];
+      const b = polygon2d[(index + 1) % polygon2d.length];
+      const edgeDistance = distanceToSegment(point, a, b);
+      if (edgeDistance < distance) distance = edgeDistance;
+    }
+    if (polygon2d.length >= 3 && pointInPolygon(point, polygon2d)) {
+      distance = 0;
+    }
+    if (distance <= 12 && distance < bestDistance) {
+      bestDistance = distance;
+      bestSectionId = section.id;
+    }
+  });
+  return bestSectionId;
+};
