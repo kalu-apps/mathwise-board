@@ -245,6 +245,8 @@ export type WorkbookSceneAccess = {
   objectById: Map<string, WorkbookBoardObject>;
   strokeByKey: Map<string, WorkbookStroke>;
   unpinnedSceneLayerObjectsById: Map<string, WorkbookBoardObject[]>;
+  boardObjectCandidatesInRect: (rect: WorkbookSceneRect) => WorkbookBoardObject[];
+  strokeCandidatesInRect: (rect: WorkbookSceneRect) => WorkbookStroke[];
   viewportRect: WorkbookSceneRect;
   renderViewportRect: WorkbookSceneRect;
   visibleBoardObjects: WorkbookBoardObject[];
@@ -277,6 +279,16 @@ export const buildWorkbookSceneAccess = (params: {
   });
   const renderPadding = params.renderPadding ?? 360;
   const hitPadding = params.hitPadding ?? 96;
+  const allObjectIndex = buildWorkbookSceneRectIndex({
+    items: params.boardObjects,
+    getKey: (object) => object.id,
+    getRect: params.getObjectRect,
+  });
+  const allStrokeIndex = buildWorkbookSceneRectIndex({
+    items: params.strokes,
+    getKey: (stroke) => `${stroke.layer}:${stroke.id}`,
+    getRect: (stroke) => getStrokeRect(stroke),
+  });
   const visibleHitObjects = filterVisibleBoardObjects({
     boardObjects: params.boardObjects,
     viewportRect,
@@ -305,6 +317,10 @@ export const buildWorkbookSceneAccess = (params: {
     objectById: buildWorkbookObjectLookup(params.boardObjects),
     strokeByKey: buildWorkbookStrokeLookup(params.strokes),
     unpinnedSceneLayerObjectsById: buildWorkbookSceneLayerObjectGroups(params.boardObjects),
+    boardObjectCandidatesInRect: (rect) =>
+      queryWorkbookSceneRectIndexByRect(allObjectIndex, rect),
+    strokeCandidatesInRect: (rect) =>
+      queryWorkbookSceneRectIndexByRect(allStrokeIndex, rect),
     viewportRect,
     renderViewportRect: expandSceneRect(viewportRect, renderPadding),
     visibleBoardObjects: filterVisibleBoardObjects({

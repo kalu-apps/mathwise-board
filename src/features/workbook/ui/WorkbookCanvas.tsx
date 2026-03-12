@@ -94,6 +94,8 @@ import {
   resolveWorkbookLineEndpointAtPoint,
 } from "../model/sceneHitTesting";
 import {
+  getAreaSelectionDraftRect,
+  resizeAreaSelectionRect,
   resolveAreaSelectionResizeMode,
   type WorkbookAreaSelection,
 } from "../model/sceneSelection";
@@ -888,8 +890,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     [allStrokes, boardObjects, forcedVisibleObjectIds, safeZoom, size.height, size.width, viewportOffset]
   );
   const {
+    boardObjectCandidatesInRect,
     objectById,
     strokeByKey,
+    strokeCandidatesInRect,
     unpinnedSceneLayerObjectsById,
     renderViewportRect,
     visibleBoardObjects,
@@ -2564,20 +2568,26 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     } else if (latestShapeDraft) {
       finishShape(latestShapeDraft);
     } else if (latestAreaSelectionResize) {
+      const selectionRect = resizeAreaSelectionRect(
+        latestAreaSelectionResize.initialRect,
+        latestAreaSelectionResize.mode,
+        latestAreaSelectionResize.current
+      );
       onAreaSelectionChange?.(
         finalizeAreaSelectionResize({
           resize: latestAreaSelectionResize,
-          boardObjects,
-          strokes: allStrokes,
+          boardObjects: boardObjectCandidatesInRect(selectionRect),
+          strokes: strokeCandidatesInRect(selectionRect),
         })
       );
       setAreaSelectionResize(null);
     } else if (latestAreaSelectionDraft) {
+      const selectionRect = getAreaSelectionDraftRect(latestAreaSelectionDraft);
       onAreaSelectionChange?.(
         finalizeAreaSelectionDraft({
           draft: latestAreaSelectionDraft,
-          boardObjects,
-          strokes: allStrokes,
+          boardObjects: boardObjectCandidatesInRect(selectionRect),
+          strokes: strokeCandidatesInRect(selectionRect),
         })
       );
       setAreaSelectionDraft(null);
