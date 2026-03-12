@@ -171,6 +171,14 @@ import {
   resolveSolid3dSectionAtPointer,
   type Solid3dResizeHandle,
 } from "../model/sceneSolid3d";
+import {
+  isWorkbookPolygonPointTool,
+  isWorkbookShapeCreationTool,
+  isWorkbookStrokeDrawingTool,
+  resolveWorkbookCanvasModeFlags,
+  resolveWorkbookStrokeVisual,
+  shouldSnapWorkbookPointerForTool,
+} from "../model/sceneTools";
 import { useAnimationFrameState } from "@/shared/lib/useAnimationFrameState";
 import {
   WorkbookAutoDividerLayer,
@@ -1228,7 +1236,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     pointerIdRef.current = event.pointerId;
     const start = mapPointer(svg, event.clientX, event.clientY);
     const createdAt = new Date().toISOString();
-    const strokeTool = tool === "eraser" ? "pen" : tool;
+    const strokeVisual = resolveWorkbookStrokeVisual(tool, color, width);
     if (strokeFlushFrameRef.current !== null) {
       window.cancelAnimationFrame(strokeFlushFrameRef.current);
       strokeFlushFrameRef.current = null;
@@ -1240,9 +1248,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     activeStrokeRef.current = {
       id: generateId(),
       layer,
-      color: tool === "eraser" ? "var(--surface-soft)" : color,
-      width: tool === "eraser" ? Math.max(8, width * 1.6) : width,
-      tool: strokeTool,
+      color: strokeVisual.color,
+      width: strokeVisual.width,
+      tool: strokeVisual.committedTool,
       page: currentPage,
       authorUserId,
       createdAt,
@@ -1371,23 +1379,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       }
       return;
     }
-    const shouldSnapPoint =
-      Boolean(solid3dInsertPreset) ||
-      tool === "line" ||
-      tool === "arrow" ||
-      tool === "point" ||
-      tool === "rectangle" ||
-      tool === "ellipse" ||
-      tool === "triangle" ||
-      tool === "polygon" ||
-      tool === "text" ||
-      tool === "compass" ||
-      tool === "formula" ||
-      tool === "function_graph" ||
-      tool === "frame" ||
-      tool === "divider" ||
-      tool === "sticker" ||
-      tool === "comment";
+    const shouldSnapPoint = shouldSnapWorkbookPointerForTool(tool, {
+      polygonMode,
+      includeSolid3dInsertPreset: Boolean(solid3dInsertPreset),
+    });
     const point = mapPointer(svg, event.clientX, event.clientY, shouldSnapPoint);
     if (solid3dInsertPreset) {
       onSelectedConstraintChange(null);
@@ -1445,7 +1440,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       return;
     }
 
-    if (tool === "polygon" && polygonMode === "points") {
+    if (isWorkbookPolygonPointTool(tool, polygonMode)) {
       onSelectedConstraintChange(null);
       if (event.detail >= 2) {
         commitPolygonByPoints(polygonPointDraft);
@@ -1661,27 +1656,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       return;
     }
 
-    if (tool === "pen" || tool === "highlighter") {
+    if (isWorkbookStrokeDrawingTool(tool)) {
       startStroke(event, svg);
       return;
     }
 
-    if (
-      tool === "line" ||
-      tool === "arrow" ||
-      tool === "rectangle" ||
-      tool === "ellipse" ||
-      tool === "triangle" ||
-      (tool === "polygon" && polygonMode === "regular") ||
-      tool === "text" ||
-      tool === "compass" ||
-      tool === "formula" ||
-      tool === "function_graph" ||
-      tool === "frame" ||
-      tool === "divider" ||
-      tool === "sticker" ||
-      tool === "comment"
-    ) {
+    if (isWorkbookShapeCreationTool(tool, polygonMode)) {
       const target = resolveTopObject(point);
       if (target && target.id !== selectedObjectId) {
         onSelectedConstraintChange(null);
@@ -1709,7 +1689,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       scheduleEraserCursorPoint(hoverPoint);
     }
 
-    if (tool === "polygon" && polygonMode === "points" && !panning && !forcePanMode) {
+    if (isWorkbookPolygonPointTool(tool, polygonMode) && !panning && !forcePanMode) {
       schedulePolygonHoverPoint(mapPointer(svg, event.clientX, event.clientY, true));
       return;
     }
@@ -1884,12 +1864,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         previewVersion: activeStroke.previewVersion,
       });
     }
+    const strokeVisual = resolveWorkbookStrokeVisual(tool, color, width);
     const committedStroke: WorkbookStroke = {
       id: activeStroke?.id ?? generateId(),
       layer: activeStroke?.layer ?? layer,
-      color: activeStroke?.color ?? (tool === "eraser" ? "var(--surface-soft)" : color),
-      width: activeStroke?.width ?? (tool === "eraser" ? Math.max(8, width * 1.6) : width),
-      tool: activeStroke?.tool ?? (tool === "eraser" ? "pen" : tool),
+      color: activeStroke?.color ?? strokeVisual.color,
+      width: activeStroke?.width ?? strokeVisual.width,
+      tool: activeStroke?.tool ?? strokeVisual.committedTool,
       points: finalPoints,
       page: activeStroke?.page ?? currentPage,
       authorUserId: activeStroke?.authorUserId ?? authorUserId,
@@ -2119,7 +2100,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       eraserLastAppliedPointRef.current = null;
       eraserLastPreviewPointRef.current = null;
     }
-    if (tool !== "polygon" || polygonMode !== "points") {
+    if (!isWorkbookPolygonPointTool(tool, polygonMode)) {
       clearPolygonHoverPointPending();
       setPolygonHoverPoint(null);
     }
@@ -2133,7 +2114,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   ]);
 
   useEffect(() => {
-    if (tool !== "polygon" || polygonMode !== "points") return;
+    if (!isWorkbookPolygonPointTool(tool, polygonMode)) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -4566,9 +4547,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     startInlineTextEdit(target.id);
   };
 
-  const panModeEnabled = tool === "pan" || forcePanMode;
-  const graphModeEnabled = tool === "function_graph";
-  const eraserModeEnabled = tool === "eraser";
+  const { panModeEnabled, graphModeEnabled, eraserModeEnabled } =
+    resolveWorkbookCanvasModeFlags(tool, forcePanMode);
+  const strokeVisual = resolveWorkbookStrokeVisual(tool, color, width);
 
   return (
     <div
@@ -4739,7 +4720,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           });
         }}
         onPointerLeave={() => {
-          if (tool === "polygon" && polygonMode === "points") {
+          if (isWorkbookPolygonPointTool(tool, polygonMode)) {
             setPolygonHoverPoint(null);
           }
           if (tool === "eraser") {
@@ -4807,12 +4788,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
         <path
           ref={draftStrokePathRef}
-          stroke={tool === "eraser" ? "var(--surface-soft)" : color}
-          strokeWidth={tool === "eraser" ? Math.max(8, width * 1.6) : width}
+          stroke={strokeVisual.color}
+          strokeWidth={strokeVisual.width}
           strokeLinecap="round"
           strokeLinejoin="round"
           fill="none"
-          opacity={tool === "highlighter" ? 0.5 : 1}
+          opacity={strokeVisual.opacity}
           pointerEvents="none"
         />
         <WorkbookSelectionOverlayLayer
