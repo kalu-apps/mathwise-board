@@ -144,6 +144,7 @@ import {
   prepareWorkbookRenderObject,
   resolveAreaSelectionPreviewRects,
   resolveSelectedObjectRect,
+  type WorkbookFunctionGraphRenderStateCacheRecord,
   type WorkbookObjectSceneEntryCacheRecord,
   type WorkbookMaskedObjectSceneEntry,
   type WorkbookConstraintRenderSegment,
@@ -961,18 +962,25 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         graphPan,
         solid3dResize,
         solid3dPreviewMetaById,
-      }),
+    }),
     [graphPan, moving, resizing, selectedObject, solid3dPreviewMetaById, solid3dResize]
   );
 
+  const functionGraphRenderStateCacheRef = useRef<
+    Map<string, WorkbookFunctionGraphRenderStateCacheRecord>
+  >(new Map());
   const functionGraphRenderStateById = useMemo(
-    () =>
-      buildFunctionGraphRenderStateMap({
+    () => {
+      const { map, cache } = buildFunctionGraphRenderStateMap({
         visibleBoardObjects,
         selectedPreviewObject,
         graphPan,
         gridSize,
-      }),
+        previousCache: functionGraphRenderStateCacheRef.current,
+      });
+      functionGraphRenderStateCacheRef.current = cache;
+      return map;
+    },
     [graphPan, gridSize, selectedPreviewObject, visibleBoardObjects]
   );
 

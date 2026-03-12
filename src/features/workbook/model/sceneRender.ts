@@ -104,6 +104,14 @@ export type PreparedFunctionGraphRenderState = {
   ghostPlots: FunctionGraphPlot[];
 };
 
+export type WorkbookFunctionGraphRenderStateCacheRecord = {
+  objectRef: WorkbookBoardObject;
+  renderSourceRef: WorkbookBoardObject;
+  gridSize: number;
+  graphPanRef: GraphPanState | null;
+  state: PreparedFunctionGraphRenderState;
+};
+
 const ERASER_MASK_PADDING = 20;
 
 const expandRectByPadding = (
@@ -483,23 +491,45 @@ export const buildFunctionGraphRenderStateMap = (params: {
   selectedPreviewObject: WorkbookBoardObject | null;
   graphPan: GraphPanState | null;
   gridSize: number;
+  previousCache?: Map<string, WorkbookFunctionGraphRenderStateCacheRecord>;
 }) => {
   const { visibleBoardObjects, selectedPreviewObject, graphPan, gridSize } = params;
   const next = new Map<string, PreparedFunctionGraphRenderState>();
+  const nextCache = new Map<string, WorkbookFunctionGraphRenderStateCacheRecord>();
   visibleBoardObjects.forEach((object) => {
     if (object.type !== "function_graph") return;
     const renderSource =
       selectedPreviewObject?.id === object.id ? selectedPreviewObject : object;
+    const previousEntry = params.previousCache?.get(object.id);
+    if (
+      previousEntry &&
+      previousEntry.objectRef === object &&
+      previousEntry.renderSourceRef === renderSource &&
+      previousEntry.gridSize === gridSize &&
+      previousEntry.graphPanRef === graphPan
+    ) {
+      next.set(object.id, previousEntry.state);
+      nextCache.set(object.id, previousEntry);
+      return;
+    }
     const normalized = getObjectRect(renderSource);
-    next.set(
-      object.id,
-      prepareFunctionGraphRenderState({
-        object: renderSource,
-        normalized,
-        gridSize,
-        graphPan,
-      })
-    );
+    const state = prepareFunctionGraphRenderState({
+      object: renderSource,
+      normalized,
+      gridSize,
+      graphPan,
+    });
+    next.set(object.id, state);
+    nextCache.set(object.id, {
+      objectRef: object,
+      renderSourceRef: renderSource,
+      gridSize,
+      graphPanRef: graphPan,
+      state,
+    });
   });
-  return next;
+  return {
+    map: next,
+    cache: nextCache,
+  };
 };
