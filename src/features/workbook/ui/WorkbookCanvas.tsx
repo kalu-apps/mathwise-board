@@ -109,6 +109,7 @@ import {
   applyEraserPointToCollections,
   buildEraserSegmentPoints,
   convertObjectEraserCutToStoredPath,
+  isPointInsideObjectEraserMask,
   normalizeObjectEraserPreviewPath,
   type ObjectEraserCut,
   type ObjectEraserPreviewPath,
@@ -1075,8 +1076,31 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   );
 
   const isObjectErasedByCircle = useCallback(
-    (object: WorkbookBoardObject, center: WorkbookPoint, radius: number) =>
-      isWorkbookObjectErasedByCircle(object, center, radius),
+    (object: WorkbookBoardObject, center: WorkbookPoint, radius: number) => {
+      if (!isWorkbookObjectErasedByCircle(object, center, radius)) return false;
+      const previewCuts = eraserObjectCutsRef.current.get(object.id) ?? null;
+      const previewPaths = eraserObjectPreviewPathsRef.current.get(object.id) ?? null;
+      const sampleCount = 16;
+      const samplePoints = [center];
+      for (let index = 0; index < sampleCount; index += 1) {
+        const angle = (Math.PI * 2 * index) / sampleCount;
+        samplePoints.push({
+          x: center.x + Math.cos(angle) * radius,
+          y: center.y + Math.sin(angle) * radius,
+        });
+      }
+      return samplePoints.some(
+        (point) =>
+          isWorkbookObjectHit(object, point) &&
+          !isPointInsideObjectEraserMask({
+            object,
+            point,
+            getObjectRect,
+            previewCuts,
+            previewPaths,
+          })
+      );
+    },
     []
   );
 

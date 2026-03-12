@@ -1,3 +1,4 @@
+import { distanceToSegment } from "./sceneGeometry";
 import type { WorkbookBoardObject, WorkbookPoint, WorkbookStroke } from "./types";
 
 type RectLike = {
@@ -697,4 +698,56 @@ export const resolveObjectEraserPathsForRender = (
     });
     return acc;
   }, []);
+};
+
+const isPointInsideResolvedObjectEraserCut = (
+  point: WorkbookPoint,
+  cut: ResolvedObjectEraserCut
+) => Math.hypot(point.x - cut.x, point.y - cut.y) <= cut.radius;
+
+const isPointInsideObjectEraserPreviewPath = (
+  point: WorkbookPoint,
+  path: ObjectEraserPreviewPath
+) => {
+  if (!Array.isArray(path.points) || path.points.length === 0) return false;
+  if (path.points.length === 1) {
+    return Math.hypot(point.x - path.points[0].x, point.y - path.points[0].y) <= path.radius;
+  }
+  for (let index = 0; index < path.points.length - 1; index += 1) {
+    if (distanceToSegment(point, path.points[index], path.points[index + 1]) <= path.radius) {
+      return true;
+    }
+  }
+  return false;
+};
+
+export const isPointInsideObjectEraserMask = (params: {
+  object: WorkbookBoardObject;
+  point: WorkbookPoint;
+  getObjectRect: GetObjectRect;
+  previewCuts?: ObjectEraserCut[] | null;
+  previewPaths?: ObjectEraserPreviewPath[] | null;
+}) => {
+  const {
+    object,
+    point,
+    getObjectRect,
+    previewCuts = null,
+    previewPaths = null,
+  } = params;
+  const resolvedCuts = resolveObjectEraserCutsForRender(
+    object,
+    previewCuts ?? sanitizeObjectEraserCuts(object, getObjectRect),
+    getObjectRect
+  );
+  if (resolvedCuts.some((cut) => isPointInsideResolvedObjectEraserCut(point, cut))) {
+    return true;
+  }
+  const committedPaths = resolveObjectEraserPathsForRender(
+    object,
+    sanitizeObjectEraserPaths(object, getObjectRect),
+    getObjectRect
+  );
+  const activePaths = previewPaths ? [...committedPaths, ...previewPaths] : committedPaths;
+  return activePaths.some((path) => isPointInsideObjectEraserPreviewPath(point, path));
 };
