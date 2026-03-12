@@ -53,6 +53,50 @@ curl -s https://api.your-domain.tld/healthz | python3 -m json.tool
 - `runtime.redis.required=true`
 - `runtime.redis.connected=true`
 
+## 2.1) PostgreSQL на Timeweb DBaaS
+Нужно, чтобы backend реально работал не в file-mode, а в production `PostgreSQL`.
+
+Если база и пользователь ещё не созданы, выполни из SQL-консоли Timeweb или через `psql` под админом:
+
+```sql
+CREATE ROLE board_app WITH LOGIN PASSWORD '<strong-password>';
+CREATE DATABASE board_prod OWNER board_app;
+GRANT ALL PRIVILEGES ON DATABASE board_prod TO board_app;
+```
+
+Проверка подключения с `mw-app-01`:
+```bash
+PGPASSWORD='<strong-password>' psql \
+  "host=10.20.0.4 port=5432 dbname=board_prod user=board_app sslmode=require" \
+  -c "select current_database(), current_user, now();"
+```
+
+После первого запуска backend сам создаст таблицы:
+- `app_state`
+- `workbook_events`
+- `workbook_session_seq`
+- `workbook_snapshots`
+
+Проверка после старта приложения:
+```bash
+PGPASSWORD='<strong-password>' psql \
+  "host=10.20.0.4 port=5432 dbname=board_prod user=board_app sslmode=require" \
+  -c "\\dt"
+```
+
+## 2.2) Redis на Timeweb DBaaS
+Redis нужен как обязательный runtime-контур для multi-node realtime fanout.
+
+Проверка подключения с `mw-app-01`:
+```bash
+redis-cli -u "redis://default:<url-encoded-password>@10.20.0.5:6379/0" ping
+```
+
+Ожидаемый ответ:
+```text
+PONG
+```
+
 ## 3) Nginx + SSL на `mw-app-01`
 - Nginx проксирует `board` и `api.board` на `127.0.0.1:4173`.
 - SSL выпускается certbot для обоих доменов.
@@ -62,6 +106,23 @@ curl -s https://api.your-domain.tld/healthz | python3 -m json.tool
 curl -I https://board.your-domain.tld
 curl -s https://api.your-domain.tld/healthz | python3 -m json.tool
 ```
+
+Дополнительно проверить auth-protected runtime telemetry:
+```bash
+curl -si -c /tmp/board.cookies \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"teacher@axiom.demo","password":"<strong-password>"}' \
+  https://api.your-domain.tld/api/auth/password/login
+
+curl -s -b /tmp/board.cookies \
+  'https://api.your-domain.tld/api/telemetry/runtime?limit=20' | python3 -m json.tool
+```
+
+В ответе должны быть:
+- `diagnostics.rumBuffered`
+- `diagnostics.workbookServerTracesBuffered`
+- `workbookServerTraces`
+- `rumEvents`
 
 ## 4) coturn на `mw-media-01`
 Ключевые параметры `/etc/turnserver.conf`:
@@ -91,3 +152,4 @@ curl -s https://api.your-domain.tld/healthz | python3 -m json.tool
    - синхронность объектов;
    - чат realtime;
    - аудио в обе стороны (через TURN).
+   - в `GET /api/telemetry/runtime?limit=20` появляются `append/publish_runtime/deliver_local/runtime_bridge` traces.
