@@ -43,7 +43,6 @@ import {
   rectIntersects,
   resolveTopVisibleBoardObject,
   resolveTopVisibleStroke,
-  type WorkbookSceneRect,
 } from "../model/sceneVisibility";
 import {
   buildFunctionGraphPlots,
@@ -96,18 +95,32 @@ import {
   resolveWorkbookLineEndpointAtPoint,
 } from "../model/sceneHitTesting";
 import {
-  buildAreaSelection,
   getAreaSelectionDraftRect,
   getAreaSelectionHandlePoints,
-  hasMeaningfulAreaSelectionRect,
   resolveAreaSelectionResizeMode,
   resizeAreaSelectionRect,
   type WorkbookAreaSelection,
 } from "../model/sceneSelection";
 import type {
   WorkbookAreaSelectionDraft,
-  WorkbookAreaSelectionResizeMode,
 } from "../model/sceneSelection";
+import {
+  buildAreaSelectionDraftState,
+  buildAreaSelectionResizeState,
+  buildGraphPanCommitPatch,
+  buildGraphPanState,
+  buildMovingState,
+  buildPanState,
+  buildResizeState,
+  buildSolid3dGestureState,
+  finalizeAreaSelectionDraft,
+  finalizeAreaSelectionResize,
+  resolveObjectResizeMode,
+  shouldKeepObjectSelectedInsideArea,
+  type PanState,
+  type Solid3dGestureState,
+  type WorkbookAreaSelectionResizeState,
+} from "../model/sceneInteraction";
 import {
   buildStrokePreviewPoints,
   toPath,
@@ -138,7 +151,6 @@ import {
   type RemoteEraserPreviewState,
 } from "../model/remoteEraserPreview";
 import {
-  applyGraphPanToFunctions,
   buildMoveCommitResult,
   buildResizeCommitPatch,
   computeSolid3dResizePatch,
@@ -290,8 +302,6 @@ type WorkbookCanvasProps = {
   onSolid3dInsertConsumed?: () => void;
 };
 
-type Rect = WorkbookSceneRect;
-
 type WorkbookCanvasAreaSelection = WorkbookAreaSelection;
 
 type ShapeDraft = {
@@ -329,35 +339,14 @@ type PendingCommittedStrokeBridge = {
   path: string;
 };
 
-type Solid3dGestureState = {
-  object: WorkbookBoardObject;
-  mode: "rotate" | "pan";
-  start: WorkbookPoint;
-  baseRotationX: number;
-  baseRotationY: number;
-  basePanX: number;
-  basePanY: number;
-};
-
 type Solid3dResizeHandle = {
   mode: "n" | "s" | "w" | "e" | "nw" | "ne" | "sw" | "se";
   x: number;
   y: number;
 };
 
-type PanState = {
-  start: WorkbookPoint;
-  baseOffset: WorkbookPoint;
-};
-
 type AreaSelectionDraft = WorkbookAreaSelectionDraft;
-type AreaSelectionResizeMode = WorkbookAreaSelectionResizeMode;
-
-type AreaSelectionResizeState = {
-  initialRect: Rect;
-  mode: AreaSelectionResizeMode;
-  current: WorkbookPoint;
-};
+type AreaSelectionResizeState = WorkbookAreaSelectionResizeState;
 
 const STROKE_PREVIEW_SEND_INTERVAL_MS = 32;
 
@@ -1625,102 +1614,16 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     pointerIdRef.current = event.pointerId;
     const start = mapPointer(svg, event.clientX, event.clientY, false, false);
     const groupObjects = groupOverride ?? resolveMovingGroup(object);
-    setMoving({
-      object,
-      groupObjects,
-      start,
-      current: start,
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-    });
-    svg.setPointerCapture(event.pointerId);
-  };
-
-  const resolveResizeMode = (object: WorkbookBoardObject, point: WorkbookPoint) => {
-    if (object.type === "section_divider") {
-      return null;
-    }
-    if (object.type === "point") {
-      return null;
-    }
-    if (object.type === "line" || object.type === "arrow") {
-      const rect = getObjectRect(object);
-      const startDistance = Math.hypot(point.x - object.x, point.y - object.y);
-      if (startDistance <= 8) return "line-start" as const;
-      const endDistance = Math.hypot(
-        point.x - (object.x + object.width),
-        point.y - (object.y + object.height)
-      );
-      if (endDistance <= 8) return "line-end" as const;
-      const corners = [
-        { mode: "nw" as const, x: rect.x, y: rect.y },
-        { mode: "ne" as const, x: rect.x + rect.width, y: rect.y },
-        { mode: "se" as const, x: rect.x + rect.width, y: rect.y + rect.height },
-        { mode: "sw" as const, x: rect.x, y: rect.y + rect.height },
-      ];
-      const corner = corners.find((item) => Math.hypot(point.x - item.x, point.y - item.y) <= 8);
-      if (corner) return corner.mode;
-      const rotateX = rect.x + rect.width / 2;
-      const rotateY = rect.y - 18;
-      if (Math.hypot(point.x - rotateX, point.y - rotateY) <= 8) {
-        return "rotate" as const;
-      }
-      const controls = getLineControlPoints(object);
-      if (Math.hypot(point.x - controls.c1.x, point.y - controls.c1.y) <= 8) {
-        return "line-curve-c1" as const;
-      }
-      if (Math.hypot(point.x - controls.c2.x, point.y - controls.c2.y) <= 8) {
-        return "line-curve-c2" as const;
-      }
-      return null;
-    }
-    const rect = normalizeRect(
-      { x: object.x, y: object.y },
-      { x: object.x + object.width, y: object.y + object.height }
+    setMoving(
+      buildMovingState({
+        object,
+        groupObjects,
+        start,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+      })
     );
-    const center = {
-      x: rect.x + rect.width / 2,
-      y: rect.y + rect.height / 2,
-    };
-    const localPoint =
-      object.rotation && Number.isFinite(object.rotation)
-        ? rotatePointAround(point, center, -(object.rotation ?? 0))
-        : point;
-    const left = rect.x;
-    const right = rect.x + rect.width;
-    const top = rect.y;
-    const bottom = rect.y + rect.height;
-    const cx = left + rect.width / 2;
-    const hit = 8;
-    const rotateHandle = { x: cx, y: top - 18 };
-    if (Math.hypot(localPoint.x - rotateHandle.x, localPoint.y - rotateHandle.y) <= hit) {
-      return "rotate" as const;
-    }
-    if (Math.abs(localPoint.x - left) <= hit && Math.abs(localPoint.y - top) <= hit) {
-      return "nw" as const;
-    }
-    if (Math.abs(localPoint.x - right) <= hit && Math.abs(localPoint.y - top) <= hit) {
-      return "ne" as const;
-    }
-    if (Math.abs(localPoint.x - right) <= hit && Math.abs(localPoint.y - bottom) <= hit) {
-      return "se" as const;
-    }
-    if (Math.abs(localPoint.x - left) <= hit && Math.abs(localPoint.y - bottom) <= hit) {
-      return "sw" as const;
-    }
-    if (Math.abs(localPoint.x - cx) <= hit && Math.abs(localPoint.y - top) <= hit) {
-      return "n" as const;
-    }
-    if (Math.abs(localPoint.x - right) <= hit && Math.abs(localPoint.y - (top + bottom) / 2) <= hit) {
-      return "e" as const;
-    }
-    if (Math.abs(localPoint.x - cx) <= hit && Math.abs(localPoint.y - bottom) <= hit) {
-      return "s" as const;
-    }
-    if (Math.abs(localPoint.x - left) <= hit && Math.abs(localPoint.y - (top + bottom) / 2) <= hit) {
-      return "w" as const;
-    }
-    return null;
+    svg.setPointerCapture(event.pointerId);
   };
 
   const startResizing = (
@@ -1731,12 +1634,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   ) => {
     pointerIdRef.current = event.pointerId;
     const start = mapPointer(svg, event.clientX, event.clientY);
-    setResizing({
-      object,
-      mode,
-      start,
-      current: start,
-    });
+    setResizing(buildResizeState(object, mode, start));
     svg.setPointerCapture(event.pointerId);
   };
 
@@ -1748,16 +1646,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   ) => {
     pointerIdRef.current = event.pointerId;
     const start = mapPointer(svg, event.clientX, event.clientY);
-    const state = readSolid3dState(object.meta);
-    setSolid3dGesture({
-      object,
-      mode,
-      start,
-      baseRotationX: state.view.rotationX,
-      baseRotationY: state.view.rotationY,
-      basePanX: state.view.panX,
-      basePanY: state.view.panY,
-    });
+    setSolid3dGesture(buildSolid3dGestureState(object, mode, start));
     svg.setPointerCapture(event.pointerId);
   };
 
@@ -1768,23 +1657,15 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     event: PointerEvent<SVGSVGElement>,
     svg: SVGSVGElement
   ) => {
-    if (object.type !== "function_graph") return;
     pointerIdRef.current = event.pointerId;
-    const rawFunctions = Array.isArray(object.meta?.functions)
-      ? (object.meta.functions as GraphFunctionDraft[])
-      : [];
-    const initialFunctions = sanitizeFunctionGraphDrafts(rawFunctions, {
-      ensureNonEmpty: false,
-    });
-    const { pxPerUnit } = resolveFunctionGraphScale(object);
-    setGraphPan({
+    const nextState = buildGraphPanState({
       object,
       targetFunctionId,
       start,
-      current: start,
-      initialFunctions,
-      pxPerUnit,
+      gridSize,
     });
+    if (!nextState) return;
+    setGraphPan(nextState);
     svg.setPointerCapture(event.pointerId);
   };
 
@@ -1856,10 +1737,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
     if (forcePanMode) {
       pointerIdRef.current = event.pointerId;
-      setPanning({
-        start: { x: event.clientX, y: event.clientY },
-        baseOffset: viewportOffset,
-      });
+      setPanning(
+        buildPanState(
+          { x: event.clientX, y: event.clientY },
+          viewportOffset
+        )
+      );
       svg.setPointerCapture(event.pointerId);
       return;
     }
@@ -1892,10 +1775,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       onSelectedConstraintChange(null);
       onSelectedObjectChange(null);
       pointerIdRef.current = event.pointerId;
-      setPanning({
-        start: { x: event.clientX, y: event.clientY },
-        baseOffset: viewportOffset,
-      });
+      setPanning(
+        buildPanState(
+          { x: event.clientX, y: event.clientY },
+          viewportOffset
+        )
+      );
       svg.setPointerCapture(event.pointerId);
       return;
     }
@@ -1958,11 +1843,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           pointerIdRef.current = event.pointerId;
           onSelectedConstraintChange(null);
           onSelectedObjectChange(null);
-          setAreaSelectionResize({
-            initialRect: areaSelection.rect,
-            mode: resizeMode,
-            current: point,
-          });
+          setAreaSelectionResize(
+            buildAreaSelectionResizeState(areaSelection.rect, resizeMode, point)
+          );
           svg.setPointerCapture(event.pointerId);
           return;
         }
@@ -1970,10 +1853,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       pointerIdRef.current = event.pointerId;
       onSelectedConstraintChange(null);
       onSelectedObjectChange(null);
-      setAreaSelectionDraft({
-        start: point,
-        current: point,
-      });
+      setAreaSelectionDraft(buildAreaSelectionDraftState(point));
       svg.setPointerCapture(event.pointerId);
       return;
     }
@@ -2061,7 +1941,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           }
         }
         if (selected.type !== "solid3d") {
-          const resizeMode = resolveResizeMode(selected, point);
+          const resizeMode = resolveObjectResizeMode(selected, point);
           if (resizeMode) {
             onAreaSelectionChange?.(null);
             startResizing(selected, resizeMode, event, svg);
@@ -2069,11 +1949,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           }
         }
       }
-      if (
-        areaSelection &&
-        (areaSelection.objectIds.length > 0 || areaSelection.strokeIds.length > 0) &&
-        isInsideRect(point, areaSelection.rect)
-      ) {
+      if (shouldKeepObjectSelectedInsideArea(point, areaSelection)) {
         const groupedTargets = boardObjects.filter((object) =>
           areaSelection.objectIds.includes(object.id)
         );
@@ -2108,10 +1984,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         onSelectedObjectChange(null);
         onAreaSelectionChange?.(null);
         pointerIdRef.current = event.pointerId;
-        setAreaSelectionDraft({
-          start: point,
-          current: point,
-        });
+        setAreaSelectionDraft(buildAreaSelectionDraftState(point));
         svg.setPointerCapture(event.pointerId);
       }
       return;
@@ -2709,47 +2582,30 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     } else if (latestShapeDraft) {
       finishShape(latestShapeDraft);
     } else if (latestAreaSelectionResize) {
-      const nextRect = resizeAreaSelectionRect(
-        latestAreaSelectionResize.initialRect,
-        latestAreaSelectionResize.mode,
-        latestAreaSelectionResize.current
+      onAreaSelectionChange?.(
+        finalizeAreaSelectionResize({
+          resize: latestAreaSelectionResize,
+          boardObjects,
+          strokes: allStrokes,
+        })
       );
-      if (!hasMeaningfulAreaSelectionRect(nextRect)) {
-        onAreaSelectionChange?.(null);
-      } else {
-        onAreaSelectionChange?.(
-          buildAreaSelection(nextRect, boardObjects, allStrokes)
-        );
-      }
       setAreaSelectionResize(null);
     } else if (latestAreaSelectionDraft) {
-      const nextRect = getAreaSelectionDraftRect(latestAreaSelectionDraft);
-      if (!hasMeaningfulAreaSelectionRect(nextRect)) {
-        onAreaSelectionChange?.(null);
-      } else {
-        onAreaSelectionChange?.(
-          buildAreaSelection(nextRect, boardObjects, allStrokes)
-        );
-      }
+      onAreaSelectionChange?.(
+        finalizeAreaSelectionDraft({
+          draft: latestAreaSelectionDraft,
+          boardObjects,
+          strokes: allStrokes,
+        })
+      );
       setAreaSelectionDraft(null);
     } else if (panning) {
       setPanning(null);
     } else if (latestGraphPan) {
-      const deltaX = latestGraphPan.current.x - latestGraphPan.start.x;
-      const deltaY = latestGraphPan.current.y - latestGraphPan.start.y;
-      const shiftedFunctions = applyGraphPanToFunctions(
-        latestGraphPan.initialFunctions,
-        deltaX,
-        deltaY,
-        latestGraphPan.pxPerUnit,
-        latestGraphPan.targetFunctionId
+      onObjectUpdate(
+        latestGraphPan.object.id,
+        buildGraphPanCommitPatch(latestGraphPan)
       );
-      onObjectUpdate(latestGraphPan.object.id, {
-        meta: {
-          ...(latestGraphPan.object.meta ?? {}),
-          functions: shiftedFunctions,
-        },
-      });
       setGraphPan(null);
     } else if (solid3dGesture) {
       const previewMeta = latestSolid3dPreviewMetaById[solid3dGesture.object.id];
