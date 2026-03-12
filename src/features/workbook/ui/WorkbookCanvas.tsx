@@ -98,7 +98,6 @@ import type {
 import {
   buildAreaSelectionDraftState,
   buildAreaSelectionResizeState,
-  buildGraphPanCommitPatch,
   buildGraphPanState,
   buildMovingState,
   buildMovingCurrentPoint,
@@ -150,7 +149,6 @@ import {
   buildResizeCommitPatch,
   collectMappedInteractionPoints,
   collectSegmentPreviewPoints,
-  computeSolid3dResizePatch,
   filterPreviewPointsByDistance,
   resolveRealtimePatchBaseObject,
   resolveSelectedPreviewObject,
@@ -170,6 +168,11 @@ import {
   type WorkbookMaskedObjectSceneEntry,
   type WorkbookConstraintRenderSegment,
 } from "../model/sceneRender";
+import {
+  buildGraphPanCommitUpdate,
+  buildSolid3dGestureCommitUpdate,
+  buildSolid3dResizeCommitUpdate,
+} from "../model/sceneCommit";
 import {
   resolveSolid3dPointAtPointer,
   resolveSolid3dResizeHandles,
@@ -2022,15 +2025,16 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     } else if (finishMode === "panning" && panning) {
       setPanning(null);
     } else if (finishMode === "graph_pan" && latestGraphPan) {
-      onObjectUpdate(
-        latestGraphPan.object.id,
-        buildGraphPanCommitPatch(latestGraphPan)
-      );
+      const update = buildGraphPanCommitUpdate(latestGraphPan);
+      onObjectUpdate(update.id, update.patch);
       setGraphPan(null);
     } else if (finishMode === "solid3d_gesture" && solid3dGesture) {
-      const previewMeta = latestSolid3dPreviewMetaById[solid3dGesture.object.id];
-      if (previewMeta) {
-        onObjectUpdate(solid3dGesture.object.id, { meta: previewMeta });
+      const update = buildSolid3dGestureCommitUpdate(
+        solid3dGesture,
+        latestSolid3dPreviewMetaById
+      );
+      if (update) {
+        onObjectUpdate(update.id, update.patch);
       }
       setSolid3dGesture(null);
       setSolid3dPreviewMetaById((current) => {
@@ -2039,8 +2043,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         return next;
       });
     } else if (finishMode === "solid3d_resize" && latestSolid3dResize) {
-      const patch = computeSolid3dResizePatch(latestSolid3dResize);
-      onObjectUpdate(latestSolid3dResize.object.id, patch);
+      const update = buildSolid3dResizeCommitUpdate(latestSolid3dResize);
+      onObjectUpdate(update.id, update.patch);
       setSolid3dResize(null);
     } else if (finishMode === "resizing" && latestResizing) {
       finishResizing(latestResizing);
