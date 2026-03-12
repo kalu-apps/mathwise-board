@@ -184,6 +184,12 @@ import {
   resolveWorkbookStrokeVisual,
   shouldSnapWorkbookPointerForTool,
 } from "../model/sceneTools";
+import {
+  resolveWorkbookContinueInteractionMode,
+  resolveWorkbookFinishInteractionMode,
+  shouldPreventWorkbookPointerDefault,
+  shouldTrackWorkbookEraserHover,
+} from "../model/scenePointer";
 import { useAnimationFrameState } from "@/shared/lib/useAnimationFrameState";
 import {
   WorkbookAutoDividerLayer,
@@ -1351,7 +1357,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     if (disabled) return;
     const svg = event.currentTarget ?? null;
     if (!svg) return;
-    if (event.pointerType !== "mouse") {
+    if (shouldPreventWorkbookPointerDefault(event.pointerType)) {
       event.preventDefault();
     }
     if (event.button !== 0) {
@@ -1665,20 +1671,38 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     const svg = event.currentTarget ?? null;
     if (!svg) return;
 
-    if (tool === "eraser") {
+    if (shouldTrackWorkbookEraserHover(tool)) {
       const hoverPoint = mapPointer(svg, event.clientX, event.clientY, false, false);
       scheduleEraserCursorPoint(hoverPoint);
     }
 
-    if (isWorkbookPolygonPointTool(tool, polygonMode) && !panning && !forcePanMode) {
+    const continueMode = resolveWorkbookContinueInteractionMode({
+      pointerIdMatches: pointerIdRef.current === event.pointerId,
+      polygonPointMode: isWorkbookPolygonPointTool(tool, polygonMode),
+      panning: Boolean(panning),
+      forcePanMode,
+      graphPan: Boolean(graphPan),
+      solid3dGesture: Boolean(solid3dGesture),
+      solid3dResize: Boolean(solid3dResize),
+      areaSelectionResize: Boolean(areaSelectionResize),
+      areaSelectionDraft: Boolean(areaSelectionDraft),
+      erasing,
+      eraserMode: tool === "eraser",
+      hasStrokePoints: strokePointsRef.current.length > 0,
+      shapeDraft: Boolean(shapeDraft),
+      resizing: Boolean(resizing),
+      moving: Boolean(moving),
+    });
+
+    if (continueMode === "polygon_hover") {
       schedulePolygonHoverPoint(mapPointer(svg, event.clientX, event.clientY, true));
       return;
     }
-    if (pointerIdRef.current !== event.pointerId) return;
-    if (event.pointerType !== "mouse") {
+    if (continueMode === "ignore") return;
+    if (shouldPreventWorkbookPointerDefault(event.pointerType)) {
       event.preventDefault();
     }
-    if (panning) {
+    if (continueMode === "panning" && panning) {
       const nextOffset = buildPanningOffset(
         panning,
         event.clientX,
@@ -1688,7 +1712,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       onViewportOffsetChange?.(nextOffset);
       return;
     }
-    if (graphPan) {
+    if (continueMode === "graph_pan" && graphPan) {
       const point = mapPointer(svg, event.clientX, event.clientY, false, false);
       scheduleGraphPan((prev) => (prev ? { ...prev, current: point } : prev));
       return;
@@ -1702,7 +1726,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       !requiresUnclampedPointer
     );
 
-    if (solid3dGesture) {
+    if (continueMode === "solid3d_gesture" && solid3dGesture) {
       const nextMeta = buildSolid3dGesturePreviewMeta(solid3dGesture, point);
       scheduleSolid3dPreviewMetaById((current) => ({
         ...current,
@@ -1711,22 +1735,22 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       return;
     }
 
-    if (solid3dResize) {
+    if (continueMode === "solid3d_resize" && solid3dResize) {
       scheduleSolid3dResize((prev) => (prev ? { ...prev, current: point } : prev));
       return;
     }
 
-    if (areaSelectionResize) {
+    if (continueMode === "area_selection_resize" && areaSelectionResize) {
       scheduleAreaSelectionResize((prev) => (prev ? { ...prev, current: point } : prev));
       return;
     }
 
-    if (areaSelectionDraft) {
+    if (continueMode === "area_selection_draft" && areaSelectionDraft) {
       scheduleAreaSelectionDraft((prev) => (prev ? { ...prev, current: point } : prev));
       return;
     }
 
-    if (erasing && tool === "eraser") {
+    if (continueMode === "eraser") {
       const nativeEvent = event.nativeEvent;
       const coalesced =
         typeof nativeEvent.getCoalescedEvents === "function"
@@ -1757,7 +1781,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       return;
     }
 
-    if (strokePointsRef.current.length > 0) {
+    if (continueMode === "stroke") {
       const nativeEvent = event.nativeEvent;
       const coalesced =
         typeof nativeEvent.getCoalescedEvents === "function"
@@ -1777,17 +1801,17 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       return;
     }
 
-    if (shapeDraft) {
+    if (continueMode === "shape") {
       scheduleShapeDraft((prev) => (prev ? { ...prev, current: point } : prev));
       return;
     }
 
-    if (resizing) {
+    if (continueMode === "resizing") {
       scheduleResizing((prev) => (prev ? { ...prev, current: point } : prev));
       return;
     }
 
-    if (moving) {
+    if (continueMode === "moving" && moving) {
       const nextCurrent = buildMovingCurrentPoint(
         moving,
         event.clientX,
@@ -1923,13 +1947,27 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   };
 
   const finishInteraction = (event: PointerEvent<SVGSVGElement>) => {
-    if (pointerIdRef.current !== event.pointerId) return;
     const svg = event.currentTarget ?? null;
-    if (!svg) {
+    const finishMode = resolveWorkbookFinishInteractionMode({
+      pointerIdMatches: pointerIdRef.current === event.pointerId,
+      svgPresent: Boolean(svg),
+      erasing,
+      hasStrokePoints: strokePointsRef.current.length > 0,
+      hasShapeDraft: Boolean(shapeDraftState.ref.current),
+      hasAreaSelectionResize: Boolean(areaSelectionResizeState.ref.current),
+      hasAreaSelectionDraft: Boolean(areaSelectionDraftState.ref.current),
+      panning: Boolean(panning),
+      hasGraphPan: Boolean(graphPanState.ref.current),
+      hasSolid3dGesture: Boolean(solid3dGesture),
+      hasSolid3dResize: Boolean(solid3dResizeState.ref.current),
+      hasResizing: Boolean(resizingState.ref.current),
+      hasMoving: Boolean(movingState.ref.current),
+    });
+    if (finishMode === "ignore") {
       pointerIdRef.current = null;
       return;
     }
-    if (event.pointerType !== "mouse") {
+    if (shouldPreventWorkbookPointerDefault(event.pointerType)) {
       event.preventDefault();
     }
     const latestShapeDraft = flushShapeDraft();
@@ -1940,7 +1978,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     const latestAreaSelectionDraft = flushAreaSelectionDraft();
     const latestAreaSelectionResize = flushAreaSelectionResize();
     const latestSolid3dPreviewMetaById = flushSolid3dPreviewMetaById();
-    if (erasing) {
+    if (finishMode === "erasing") {
       const point = mapPointer(svg, event.clientX, event.clientY, false, false);
       const lastAppliedPoint = eraserLastAppliedPointRef.current ?? point;
       const sampledPoints = eraseAlongSegment(lastAppliedPoint, point);
@@ -1957,11 +1995,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       eraserLastAppliedPointRef.current = null;
       eraserLastPreviewPointRef.current = null;
       clearEraserPreviewRuntime();
-    } else if (strokePointsRef.current.length > 0) {
+    } else if (finishMode === "stroke") {
       finishStroke(event, svg);
-    } else if (latestShapeDraft) {
+    } else if (finishMode === "shape" && latestShapeDraft) {
       finishShape(latestShapeDraft);
-    } else if (latestAreaSelectionResize) {
+    } else if (finishMode === "area_selection_resize" && latestAreaSelectionResize) {
       const selectionRect = resizeAreaSelectionRect(
         latestAreaSelectionResize.initialRect,
         latestAreaSelectionResize.mode,
@@ -1975,7 +2013,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         })
       );
       setAreaSelectionResize(null);
-    } else if (latestAreaSelectionDraft) {
+    } else if (finishMode === "area_selection_draft" && latestAreaSelectionDraft) {
       const selectionRect = getAreaSelectionDraftRect(latestAreaSelectionDraft);
       onAreaSelectionChange?.(
         finalizeAreaSelectionDraft({
@@ -1985,15 +2023,15 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         })
       );
       setAreaSelectionDraft(null);
-    } else if (panning) {
+    } else if (finishMode === "panning" && panning) {
       setPanning(null);
-    } else if (latestGraphPan) {
+    } else if (finishMode === "graph_pan" && latestGraphPan) {
       onObjectUpdate(
         latestGraphPan.object.id,
         buildGraphPanCommitPatch(latestGraphPan)
       );
       setGraphPan(null);
-    } else if (solid3dGesture) {
+    } else if (finishMode === "solid3d_gesture" && solid3dGesture) {
       const previewMeta = latestSolid3dPreviewMetaById[solid3dGesture.object.id];
       if (previewMeta) {
         onObjectUpdate(solid3dGesture.object.id, { meta: previewMeta });
@@ -2004,13 +2042,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         delete next[solid3dGesture.object.id];
         return next;
       });
-    } else if (latestSolid3dResize) {
+    } else if (finishMode === "solid3d_resize" && latestSolid3dResize) {
       const patch = computeSolid3dResizePatch(latestSolid3dResize);
       onObjectUpdate(latestSolid3dResize.object.id, patch);
       setSolid3dResize(null);
-    } else if (latestResizing) {
+    } else if (finishMode === "resizing" && latestResizing) {
       finishResizing(latestResizing);
-    } else if (latestMoving) {
+    } else if (finishMode === "moving" && latestMoving) {
       finishMoving(latestMoving);
     }
     pointerIdRef.current = null;
