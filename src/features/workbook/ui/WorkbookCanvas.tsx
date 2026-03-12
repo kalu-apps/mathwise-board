@@ -38,6 +38,16 @@ import {
 import type { ProjectedSolidVertex, SolidSurfacePick } from "../model/solid3dGeometry";
 import { resolveBoardObjectImageAssetId } from "../model/scene";
 import {
+  buildViewportSceneRect,
+  buildWorkbookObjectLookup,
+  buildWorkbookStrokeLookup,
+  expandSceneRect,
+  filterVisibleBoardObjects,
+  filterVisibleStrokes,
+  rectIntersects,
+  type WorkbookSceneRect,
+} from "../model/sceneVisibility";
+import {
   buildFunctionGraphPlots,
   getAutoGraphGridStep,
   sanitizeFunctionGraphDrafts,
@@ -217,7 +227,7 @@ type WorkbookCanvasProps = {
   onSolid3dInsertConsumed?: () => void;
 };
 
-type Rect = { x: number; y: number; width: number; height: number };
+type Rect = WorkbookSceneRect;
 
 type WorkbookCanvasAreaSelection = {
   objectIds: string[];
@@ -407,19 +417,6 @@ const resizeAreaSelectionRect = (
     { x: nextRight, y: nextBottom }
   );
 };
-
-const rectIntersects = (a: Rect, b: Rect) =>
-  a.x <= b.x + b.width &&
-  a.x + a.width >= b.x &&
-  a.y <= b.y + b.height &&
-  a.y + a.height >= b.y;
-
-const expandRect = (rect: Rect, padding: number): Rect => ({
-  x: rect.x - padding,
-  y: rect.y - padding,
-  width: rect.width + padding * 2,
-  height: rect.height + padding * 2,
-});
 
 const circleIntersectsRect = (center: WorkbookPoint, radius: number, rect: Rect) => {
   const nearestX = Math.max(rect.x, Math.min(center.x, rect.x + rect.width));
@@ -1576,25 +1573,19 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     () => [...boardStrokes, ...annotationStrokes],
     [boardStrokes, annotationStrokes]
   );
-  const objectById = useMemo(
-    () => new Map(boardObjects.map((object) => [object.id, object])),
-    [boardObjects]
-  );
-  const strokeByKey = useMemo(
-    () => new Map(allStrokes.map((stroke) => [`${stroke.layer}:${stroke.id}`, stroke])),
-    [allStrokes]
-  );
+  const objectById = useMemo(() => buildWorkbookObjectLookup(boardObjects), [boardObjects]);
+  const strokeByKey = useMemo(() => buildWorkbookStrokeLookup(allStrokes), [allStrokes]);
   const viewportRect = useMemo<Rect>(
-    () => ({
-      x: Math.max(0, viewportOffset.x),
-      y: Math.max(0, viewportOffset.y),
-      width: Math.max(1, size.width / safeZoom),
-      height: Math.max(1, size.height / safeZoom),
-    }),
+    () =>
+      buildViewportSceneRect({
+        viewportOffset,
+        width: size.width,
+        height: size.height,
+        zoom: safeZoom,
+      }),
     [safeZoom, size.height, size.width, viewportOffset.x, viewportOffset.y]
   );
-  const renderViewportRect = useMemo(() => expandRect(viewportRect, 360), [viewportRect]);
-  const hitViewportRect = useMemo(() => expandRect(viewportRect, 96), [viewportRect]);
+  const renderViewportRect = useMemo(() => expandSceneRect(viewportRect, 360), [viewportRect]);
   const forcedVisibleObjectIds = useMemo(() => {
     const ids = new Set<string>();
     if (selectedObjectId) ids.add(selectedObjectId);
@@ -1620,43 +1611,43 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   ]);
   const visibleBoardObjects = useMemo(
     () =>
-      boardObjects.filter(
-        (object) =>
-          forcedVisibleObjectIds.has(object.id) ||
-          rectIntersects(getObjectRect(object), renderViewportRect)
-      ),
-    [boardObjects, forcedVisibleObjectIds, renderViewportRect]
+      filterVisibleBoardObjects({
+        boardObjects,
+        viewportRect,
+        padding: 360,
+        forcedVisibleObjectIds,
+        getObjectRect,
+      }),
+    [boardObjects, forcedVisibleObjectIds, viewportRect]
   );
   const visibleHitObjects = useMemo(
     () =>
-      boardObjects.filter(
-        (object) =>
-          forcedVisibleObjectIds.has(object.id) ||
-          rectIntersects(getObjectRect(object), hitViewportRect)
-      ),
-    [boardObjects, forcedVisibleObjectIds, hitViewportRect]
+      filterVisibleBoardObjects({
+        boardObjects,
+        viewportRect,
+        padding: 96,
+        forcedVisibleObjectIds,
+        getObjectRect,
+      }),
+    [boardObjects, forcedVisibleObjectIds, viewportRect]
   );
   const visibleStrokes = useMemo(
     () =>
-      allStrokes.filter((stroke) => {
-        const strokeRect = getStrokeRect(stroke);
-        if (strokeRect) {
-          return rectIntersects(strokeRect, renderViewportRect);
-        }
-        return stroke.points.some((point) => isInsideRect(point, renderViewportRect));
+      filterVisibleStrokes({
+        strokes: allStrokes,
+        viewportRect,
+        padding: 360,
       }),
-    [allStrokes, renderViewportRect]
+    [allStrokes, viewportRect]
   );
   const visibleHitStrokes = useMemo(
     () =>
-      allStrokes.filter((stroke) => {
-        const strokeRect = getStrokeRect(stroke);
-        if (strokeRect) {
-          return rectIntersects(strokeRect, hitViewportRect);
-        }
-        return stroke.points.some((point) => isInsideRect(point, hitViewportRect));
+      filterVisibleStrokes({
+        strokes: allStrokes,
+        viewportRect,
+        padding: 96,
       }),
-    [allStrokes, hitViewportRect]
+    [allStrokes, viewportRect]
   );
 
   const getObjectSceneLayerId = useCallback((object: WorkbookBoardObject) => {
