@@ -20,6 +20,7 @@ import {
   buildAreaSelectionDraftState,
   buildAreaSelectionResizeState,
   buildPanState,
+  buildPanningOffset,
   buildMovingCurrentPoint,
   buildSolid3dGesturePreviewMeta,
   buildSolid3dResizeState,
