@@ -109,6 +109,7 @@ import {
   observeWorkbookRealtimeReceive,
   observeWorkbookRealtimeSend,
 } from "@/features/workbook/model/realtimeObservability";
+import { startWorkbookPerformanceSession } from "@/features/workbook/model/workbookPerformance";
 import {
   buildWorkbookDocumentAsset,
   buildWorkbookDocumentBoardObject,
@@ -1306,6 +1307,11 @@ export default function WorkbookSessionPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
+  useEffect(() => {
+    if (!sessionId.trim()) return;
+    return startWorkbookPerformanceSession(sessionId);
+  }, [sessionId]);
+
   const [session, setSession] = useState<WorkbookSession | null>(null);
   const [boardStrokes, setBoardStrokes] = useState<WorkbookStroke[]>([]);
   const [boardObjects, setBoardObjects] = useState<WorkbookBoardObject[]>([]);
@@ -2411,35 +2417,30 @@ export default function WorkbookSessionPage() {
     incomingPreviewFrameRef.current = null;
     const queue = incomingPreviewQueuedPatchRef.current;
     if (queue.size === 0) return;
-    const patches = new Map<string, Partial<WorkbookBoardObject>>();
+    const patches = new Map<string, Partial<WorkbookBoardObject>[]>();
     queue.forEach((pendingQueue, objectId) => {
-      const nextPatch = pendingQueue.shift();
-      if (nextPatch) {
-        patches.set(objectId, nextPatch);
-      }
       if (pendingQueue.length === 0) {
         queue.delete(objectId);
-      } else {
-        queue.set(objectId, pendingQueue);
+        return;
       }
+      patches.set(objectId, pendingQueue.slice());
+      queue.delete(objectId);
     });
     if (patches.size === 0) return;
     setBoardObjects((current) => {
       if (current.length === 0) return current;
       let changed = false;
       const next = current.map((item) => {
-        const patch = patches.get(item.id);
-        if (!patch) return item;
+        const pendingPatches = patches.get(item.id);
+        if (!pendingPatches || pendingPatches.length === 0) return item;
         changed = true;
-        return mergeBoardObjectWithPatch(item, patch);
+        return pendingPatches.reduce(
+          (previewObject, patch) => mergeBoardObjectWithPatch(previewObject, patch),
+          item
+        );
       });
       return changed ? next : current;
     });
-    if (queue.size > 0 && typeof window !== "undefined") {
-      incomingPreviewFrameRef.current = window.requestAnimationFrame(() => {
-        flushIncomingPreviewQueue();
-      });
-    }
   }, []);
 
   const queueIncomingPreviewPatch = useCallback(

@@ -88,6 +88,13 @@ const toMetricDetail = (
   details,
 });
 
+export const reportLongTaskMetric = (
+  value: number,
+  details?: PerformanceMetricEventDetail["details"]
+) => {
+  emitMetric(toMetricDetail("LONG_TASK", value, details));
+};
+
 const observe = (
   type: string,
   callback: PerformanceObserverCallback,

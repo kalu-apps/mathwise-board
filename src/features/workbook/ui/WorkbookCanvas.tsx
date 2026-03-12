@@ -70,6 +70,7 @@ import {
   type ObjectEraserPreviewPath,
   type ObjectEraserStoredPath,
 } from "../model/eraser";
+import { useAnimationFrameState } from "@/shared/lib/useAnimationFrameState";
 
 type WorkbookCanvasProps = {
   boardStrokes: WorkbookStroke[];
@@ -1249,20 +1250,55 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const [remoteEraserPreviewObjectPaths, setRemoteEraserPreviewObjectPaths] = useState<
     Record<string, ObjectEraserPreviewPath[]>
   >({});
-  const [shapeDraft, setShapeDraft] = useState<ShapeDraft | null>(null);
+  const shapeDraftState = useAnimationFrameState<ShapeDraft | null>(null);
+  const shapeDraft = shapeDraftState.value;
+  const setShapeDraft = shapeDraftState.setImmediate;
+  const scheduleShapeDraft = shapeDraftState.schedule;
+  const flushShapeDraft = shapeDraftState.flush;
   const [polygonPointDraft, setPolygonPointDraft] = useState<WorkbookPoint[]>([]);
-  const [polygonHoverPoint, setPolygonHoverPoint] = useState<WorkbookPoint | null>(null);
-  const [moving, setMoving] = useState<MovingState | null>(null);
-  const [resizing, setResizing] = useState<ResizeState | null>(null);
+  const polygonHoverPointState = useAnimationFrameState<WorkbookPoint | null>(null);
+  const polygonHoverPoint = polygonHoverPointState.value;
+  const setPolygonHoverPoint = polygonHoverPointState.setImmediate;
+  const schedulePolygonHoverPoint = polygonHoverPointState.schedule;
+  const clearPolygonHoverPointPending = polygonHoverPointState.clearPending;
+  const movingState = useAnimationFrameState<MovingState | null>(null);
+  const moving = movingState.value;
+  const setMoving = movingState.setImmediate;
+  const scheduleMoving = movingState.schedule;
+  const flushMoving = movingState.flush;
+  const resizingState = useAnimationFrameState<ResizeState | null>(null);
+  const resizing = resizingState.value;
+  const setResizing = resizingState.setImmediate;
+  const scheduleResizing = resizingState.schedule;
+  const flushResizing = resizingState.flush;
   const [panning, setPanning] = useState<PanState | null>(null);
-  const [graphPan, setGraphPan] = useState<GraphPanState | null>(null);
+  const graphPanState = useAnimationFrameState<GraphPanState | null>(null);
+  const graphPan = graphPanState.value;
+  const setGraphPan = graphPanState.setImmediate;
+  const scheduleGraphPan = graphPanState.schedule;
+  const flushGraphPan = graphPanState.flush;
   const [solid3dGesture, setSolid3dGesture] = useState<Solid3dGestureState | null>(null);
-  const [solid3dResize, setSolid3dResize] = useState<Solid3dResizeState | null>(null);
-  const [areaSelectionDraft, setAreaSelectionDraft] = useState<AreaSelectionDraft | null>(null);
-  const [areaSelectionResize, setAreaSelectionResize] =
-    useState<AreaSelectionResizeState | null>(null);
+  const solid3dResizeState = useAnimationFrameState<Solid3dResizeState | null>(null);
+  const solid3dResize = solid3dResizeState.value;
+  const setSolid3dResize = solid3dResizeState.setImmediate;
+  const scheduleSolid3dResize = solid3dResizeState.schedule;
+  const flushSolid3dResize = solid3dResizeState.flush;
+  const areaSelectionDraftState = useAnimationFrameState<AreaSelectionDraft | null>(null);
+  const areaSelectionDraft = areaSelectionDraftState.value;
+  const setAreaSelectionDraft = areaSelectionDraftState.setImmediate;
+  const scheduleAreaSelectionDraft = areaSelectionDraftState.schedule;
+  const flushAreaSelectionDraft = areaSelectionDraftState.flush;
+  const areaSelectionResizeState = useAnimationFrameState<AreaSelectionResizeState | null>(null);
+  const areaSelectionResize = areaSelectionResizeState.value;
+  const setAreaSelectionResize = areaSelectionResizeState.setImmediate;
+  const scheduleAreaSelectionResize = areaSelectionResizeState.schedule;
+  const flushAreaSelectionResize = areaSelectionResizeState.flush;
   const [erasing, setErasing] = useState(false);
-  const [eraserCursorPoint, setEraserCursorPoint] = useState<WorkbookPoint | null>(null);
+  const eraserCursorPointState = useAnimationFrameState<WorkbookPoint | null>(null);
+  const eraserCursorPoint = eraserCursorPointState.value;
+  const setEraserCursorPoint = eraserCursorPointState.setImmediate;
+  const scheduleEraserCursorPoint = eraserCursorPointState.schedule;
+  const clearEraserCursorPointPending = eraserCursorPointState.clearPending;
   const erasedStrokeIdsRef = useRef<Set<string>>(new Set());
   const eraserObjectCutsRef = useRef<Map<string, ObjectEraserCut[]>>(new Map());
   const eraserTouchedObjectIdsRef = useRef<Set<string>>(new Set());
@@ -1274,9 +1310,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     value: string;
   } | null>(null);
   const inlineTextEditInputRef = useRef<HTMLTextAreaElement | null>(null);
-  const [solid3dPreviewMetaById, setSolid3dPreviewMetaById] = useState<
+  const solid3dPreviewMetaByIdState = useAnimationFrameState<
     Record<string, Record<string, unknown>>
   >({});
+  const solid3dPreviewMetaById = solid3dPreviewMetaByIdState.value;
+  const setSolid3dPreviewMetaById = solid3dPreviewMetaByIdState.setImmediate;
+  const scheduleSolid3dPreviewMetaById = solid3dPreviewMetaByIdState.schedule;
+  const flushSolid3dPreviewMetaById = solid3dPreviewMetaByIdState.flush;
   const size = useElementSize(containerNode);
   const safeZoom = Math.max(
     0.3,
@@ -3092,11 +3132,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
     if (tool === "eraser") {
       const hoverPoint = mapPointer(svg, event.clientX, event.clientY, false, false);
-      setEraserCursorPoint(hoverPoint);
+      scheduleEraserCursorPoint(hoverPoint);
     }
 
     if (tool === "polygon" && polygonMode === "points" && !panning && !forcePanMode) {
-      setPolygonHoverPoint(mapPointer(svg, event.clientX, event.clientY, true));
+      schedulePolygonHoverPoint(mapPointer(svg, event.clientX, event.clientY, true));
       return;
     }
     if (pointerIdRef.current !== event.pointerId) return;
@@ -3115,7 +3155,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
     if (graphPan) {
       const point = mapPointer(svg, event.clientX, event.clientY, false, false);
-      setGraphPan((prev) => (prev ? { ...prev, current: point } : prev));
+      scheduleGraphPan((prev) => (prev ? { ...prev, current: point } : prev));
       return;
     }
     const requiresUnclampedPointer = Boolean(solid3dGesture || solid3dResize || moving);
@@ -3143,7 +3183,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
               panX: solid3dGesture.basePanX + deltaX / 240,
               panY: solid3dGesture.basePanY + deltaY / 240,
             };
-      setSolid3dPreviewMetaById((current) => ({
+      scheduleSolid3dPreviewMetaById((current) => ({
         ...current,
         [solid3dGesture.object.id]: writeSolid3dState(
           { ...currentState, view: nextView },
@@ -3154,17 +3194,17 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
 
     if (solid3dResize) {
-      setSolid3dResize((prev) => (prev ? { ...prev, current: point } : prev));
+      scheduleSolid3dResize((prev) => (prev ? { ...prev, current: point } : prev));
       return;
     }
 
     if (areaSelectionResize) {
-      setAreaSelectionResize((prev) => (prev ? { ...prev, current: point } : prev));
+      scheduleAreaSelectionResize((prev) => (prev ? { ...prev, current: point } : prev));
       return;
     }
 
     if (areaSelectionDraft) {
-      setAreaSelectionDraft((prev) => (prev ? { ...prev, current: point } : prev));
+      scheduleAreaSelectionDraft((prev) => (prev ? { ...prev, current: point } : prev));
       return;
     }
 
@@ -3233,19 +3273,19 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
 
     if (shapeDraft) {
-      setShapeDraft((prev) => (prev ? { ...prev, current: point } : prev));
+      scheduleShapeDraft((prev) => (prev ? { ...prev, current: point } : prev));
       return;
     }
 
     if (resizing) {
-      setResizing((prev) => (prev ? { ...prev, current: point } : prev));
+      scheduleResizing((prev) => (prev ? { ...prev, current: point } : prev));
       return;
     }
 
     if (moving) {
       const deltaX = (event.clientX - moving.startClientX) / safeZoom;
       const deltaY = (event.clientY - moving.startClientY) / safeZoom;
-      setMoving((prev) =>
+      scheduleMoving((prev) =>
         prev
           ? {
               ...prev,
@@ -3317,52 +3357,52 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     draftStrokePathRef.current?.setAttribute("d", "");
   };
 
-  const finishShape = () => {
-    if (!shapeDraft) return;
-    const rect = normalizeRect(shapeDraft.start, shapeDraft.current);
+  const finishShape = (draft = shapeDraftState.ref.current) => {
+    if (!draft) return;
+    const rect = normalizeRect(draft.start, draft.current);
     const fromCenterRadius = Math.max(
       1,
-      Math.hypot(shapeDraft.current.x - shapeDraft.start.x, shapeDraft.current.y - shapeDraft.start.y)
+      Math.hypot(draft.current.x - draft.start.x, draft.current.y - draft.start.y)
     );
     const compassRect =
-      shapeDraft.tool === "compass"
+      draft.tool === "compass"
         ? {
-            x: shapeDraft.start.x - fromCenterRadius,
-            y: shapeDraft.start.y - fromCenterRadius,
+            x: draft.start.x - fromCenterRadius,
+            y: draft.start.y - fromCenterRadius,
             width: fromCenterRadius * 2,
             height: fromCenterRadius * 2,
           }
         : rect;
     const objectType =
-      shapeDraft.tool === "text"
+      draft.tool === "text"
         ? "text"
-        : shapeDraft.tool === "formula"
+        : draft.tool === "formula"
           ? "formula"
-          : shapeDraft.tool === "function_graph"
+          : draft.tool === "function_graph"
           ? "function_graph"
-          : shapeDraft.tool === "solid3d"
+          : draft.tool === "solid3d"
             ? "solid3d"
-            : shapeDraft.tool === "frame"
+            : draft.tool === "frame"
               ? "frame"
-              : shapeDraft.tool === "divider"
+              : draft.tool === "divider"
                 ? "section_divider"
-              : shapeDraft.tool === "sticker"
+              : draft.tool === "sticker"
                 ? "sticker"
-                : shapeDraft.tool === "comment"
+                : draft.tool === "comment"
                   ? "comment"
-                  : shapeDraft.tool === "compass"
+                  : draft.tool === "compass"
                     ? "ellipse"
-                    : shapeDraft.tool;
+                    : draft.tool;
     const polygonPoints =
-      shapeDraft.tool === "polygon" && polygonMode === "regular"
+      draft.tool === "polygon" && polygonMode === "regular"
         ? getWorkbookPolygonPoints(compassRect, polygonSides, polygonPreset)
         : undefined;
     const figureVertices =
-      shapeDraft.tool === "rectangle"
+      draft.tool === "rectangle"
         ? 4
-        : shapeDraft.tool === "triangle"
+        : draft.tool === "triangle"
           ? 3
-          : shapeDraft.tool === "polygon"
+          : draft.tool === "polygon"
             ? polygonPoints?.length ?? Math.max(3, Math.floor(polygonSides))
             : 0;
     const defaultFigureMeta =
@@ -3379,9 +3419,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
             })),
           }
         : undefined;
-    const isLineTool = shapeDraft.tool === "line" || shapeDraft.tool === "arrow";
-    const lineDeltaX = shapeDraft.current.x - shapeDraft.start.x;
-    const lineDeltaY = shapeDraft.current.y - shapeDraft.start.y;
+    const isLineTool = draft.tool === "line" || draft.tool === "arrow";
+    const lineDeltaX = draft.current.x - draft.start.x;
+    const lineDeltaY = draft.current.y - draft.start.y;
     const hasLineLength = Math.hypot(lineDeltaX, lineDeltaY) > 0.25;
     const solid3dPresetId = resolveSolid3dPresetId(solid3dInsertPreset?.presetId ?? "cube");
     const solid3dPresetTitle =
@@ -3392,11 +3432,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     const solid3dWidth = Math.max(140, compassRect.width);
     const solid3dHeight = Math.max(120, compassRect.height);
     const solid3dMesh =
-      shapeDraft.tool === "solid3d"
+      draft.tool === "solid3d"
         ? getSolid3dMesh(solid3dPresetId, solid3dWidth, solid3dHeight)
         : null;
     const initialSolid3dState =
-      shapeDraft.tool === "solid3d"
+      draft.tool === "solid3d"
         ? {
             ...DEFAULT_SOLID3D_STATE,
             vertexLabels: ROUND_SOLID_PRESETS.has(solid3dPresetId)
@@ -3415,50 +3455,50 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       type: objectType,
       layer,
       x:
-        shapeDraft.tool === "divider"
+        draft.tool === "divider"
           ? 0
           : isLineTool
-            ? shapeDraft.start.x
+            ? draft.start.x
             : compassRect.x,
       y:
-        shapeDraft.tool === "divider"
-          ? Math.min(shapeDraft.start.y, shapeDraft.current.y)
+        draft.tool === "divider"
+          ? Math.min(draft.start.y, draft.current.y)
           : isLineTool
-            ? shapeDraft.start.y
+            ? draft.start.y
             : compassRect.y,
       width:
-        shapeDraft.tool === "divider"
+        draft.tool === "divider"
           ? 10_000
           : isLineTool
             ? hasLineLength
               ? lineDeltaX
               : 1
-            : shapeDraft.tool === "solid3d"
+            : draft.tool === "solid3d"
               ? solid3dWidth
-            : shapeDraft.tool === "text"
+            : draft.tool === "text"
               ? Math.max(140, compassRect.width)
               : compassRect.width,
       height:
-        shapeDraft.tool === "divider"
+        draft.tool === "divider"
           ? 2
           : isLineTool
             ? hasLineLength
               ? lineDeltaY
               : 0
-            : shapeDraft.tool === "solid3d"
+            : draft.tool === "solid3d"
               ? solid3dHeight
-            : shapeDraft.tool === "text"
+            : draft.tool === "text"
               ? Math.max(48, compassRect.height)
               : compassRect.height,
       color,
       fill:
-        shapeDraft.tool === "sticker"
+        draft.tool === "sticker"
           ? "rgba(255, 244, 163, 0.92)"
-          : shapeDraft.tool === "comment"
+          : draft.tool === "comment"
             ? "rgba(226, 240, 255, 0.95)"
-            : shapeDraft.tool === "frame"
+            : draft.tool === "frame"
               ? "rgba(77, 105, 255, 0.05)"
-              : shapeDraft.tool === "divider"
+              : draft.tool === "divider"
                 ? "transparent"
               : "transparent",
       strokeWidth: width,
@@ -3466,20 +3506,20 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       authorUserId,
       createdAt: new Date().toISOString(),
       text:
-        shapeDraft.tool === "text"
+        draft.tool === "text"
           ? (textPreset.trim() || "Текст")
-          : shapeDraft.tool === "formula"
+          : draft.tool === "formula"
             ? (formulaLatex.trim() || formulaMathMl.trim() || "f(x)=...")
-            : shapeDraft.tool === "sticker"
+            : draft.tool === "sticker"
               ? (stickerText.trim() || "Стикер")
-              : shapeDraft.tool === "comment"
+              : draft.tool === "comment"
                 ? (commentText.trim() || "Комментарий")
           : undefined,
-      fontSize: shapeDraft.tool === "text" ? Math.max(14, width * 5) : undefined,
-      sides: shapeDraft.tool === "polygon" ? polygonSides : undefined,
+      fontSize: draft.tool === "text" ? Math.max(14, width * 5) : undefined,
+      sides: draft.tool === "polygon" ? polygonSides : undefined,
       points: polygonPoints,
       meta:
-        shapeDraft.tool === "text"
+        draft.tool === "text"
           ? {
               textColor: color,
               textBackground: "transparent",
@@ -3489,22 +3529,22 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
               textAlign: "left",
               textFontFamily: "\"Fira Sans\", \"Segoe UI\", sans-serif",
             }
-          : shapeDraft.tool === "formula"
+          : draft.tool === "formula"
           ? {
               latex: formulaLatex.trim(),
               mathml: formulaMathMl.trim(),
             }
-          : shapeDraft.tool === "function_graph"
+          : draft.tool === "function_graph"
             ? {
                 functions: graphFunctions,
                 axisColor: "#ff8e3c",
                 planeColor: "transparent",
               }
-            : shapeDraft.tool === "line" || shapeDraft.tool === "arrow"
+            : draft.tool === "line" || draft.tool === "arrow"
               ? {
                   lineKind: "line",
                   lineStyle,
-                  arrowEnd: shapeDraft.tool === "arrow",
+                  arrowEnd: draft.tool === "arrow",
                   curve: {
                     c1t: 1 / 3,
                     c1n: 0,
@@ -3514,7 +3554,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
                   startLabel: "",
                   endLabel: "",
                 }
-                : shapeDraft.tool === "polygon"
+                : draft.tool === "polygon"
                   ? {
                       polygonMode,
                       polygonPreset,
@@ -3528,13 +3568,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
                         : {}),
                       ...(defaultFigureMeta ?? {}),
                     }
-                : shapeDraft.tool === "rectangle" || shapeDraft.tool === "triangle"
+                : draft.tool === "rectangle" || draft.tool === "triangle"
                   ? defaultFigureMeta
-                : shapeDraft.tool === "frame"
+                : draft.tool === "frame"
                   ? {
                       title: textPreset.trim() || "Фрейм",
                     }
-                : shapeDraft.tool === "solid3d"
+                : draft.tool === "solid3d"
                   ? {
                       presetId: solid3dPresetId,
                       presetTitle: solid3dPresetTitle,
@@ -3543,31 +3583,32 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
                         undefined
                       ),
                     }
-                : shapeDraft.tool === "divider"
+                : draft.tool === "divider"
                     ? { dividerType: "manual", lineStyle: "dashed" }
                 : undefined,
     };
     onObjectCreate(created);
     onSelectedObjectChange(created.id);
-    if (shapeDraft.tool === "text") {
+    if (draft.tool === "text") {
       setInlineTextEdit({
         objectId: created.id,
         value: typeof created.text === "string" ? created.text : "",
       });
     }
-    if (shapeDraft.tool === "solid3d") {
+    if (draft.tool === "solid3d") {
       onSolid3dInsertConsumed?.();
       onRequestSelectTool?.();
     }
     setShapeDraft(null);
   };
 
-  const finishMoving = () => {
-    if (!moving) return;
-    const deltaX = moving.current.x - moving.start.x;
-    const deltaY = moving.current.y - moving.start.y;
+  const finishMoving = (nextMoving = movingState.ref.current) => {
+    if (!nextMoving) return;
+    const deltaX = nextMoving.current.x - nextMoving.start.x;
+    const deltaY = nextMoving.current.y - nextMoving.start.y;
     if (Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5) {
-      const targets = moving.groupObjects.length > 0 ? moving.groupObjects : [moving.object];
+      const targets =
+        nextMoving.groupObjects.length > 0 ? nextMoving.groupObjects : [nextMoving.object];
       targets.forEach((target) => {
         const patch: Partial<WorkbookBoardObject> = {
           x: target.type === "section_divider" ? target.x : target.x + deltaX,
@@ -3581,7 +3622,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         }
         onObjectUpdate(target.id, patch);
       });
-      if (moving.object.id === "__area-selection__" && areaSelection) {
+      if (nextMoving.object.id === "__area-selection__" && areaSelection) {
         onAreaSelectionChange?.({
           objectIds: targets.map((target) => target.id),
           strokeIds: areaSelection.strokeIds,
@@ -3597,12 +3638,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     setMoving(null);
   };
 
-  const finishResizing = () => {
-    if (!resizing) return;
-    const object = resizing.object;
-    const deltaX = resizing.current.x - resizing.start.x;
-    const deltaY = resizing.current.y - resizing.start.y;
-    if (resizing.mode === "line-start") {
+  const finishResizing = (nextResizing = resizingState.ref.current) => {
+    if (!nextResizing) return;
+    const object = nextResizing.object;
+    const deltaX = nextResizing.current.x - nextResizing.start.x;
+    const deltaY = nextResizing.current.y - nextResizing.start.y;
+    if (nextResizing.mode === "line-start") {
       const nextX = object.x + deltaX;
       const nextY = object.y + deltaY;
       const nextWidth = object.width - deltaX;
@@ -3620,7 +3661,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       setResizing(null);
       return;
     }
-    if (resizing.mode === "line-end") {
+    if (nextResizing.mode === "line-end") {
       const widthValue = object.width + deltaX;
       const heightValue = object.height + deltaY;
       if (Math.hypot(widthValue, heightValue) < 1) {
@@ -3631,11 +3672,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       setResizing(null);
       return;
     }
-    if (resizing.mode === "line-curve-c1" || resizing.mode === "line-curve-c2") {
-      const projected = projectPointToLineCurve(object, resizing.current);
+    if (nextResizing.mode === "line-curve-c1" || nextResizing.mode === "line-curve-c2") {
+      const projected = projectPointToLineCurve(object, nextResizing.current);
       const currentCurve = readLineCurveMeta(object);
       const nextCurve =
-        resizing.mode === "line-curve-c1"
+        nextResizing.mode === "line-curve-c1"
           ? {
               ...currentCurve,
               c1t: Math.max(-1, Math.min(2, projected.t)),
@@ -3655,7 +3696,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       setResizing(null);
       return;
     }
-    if (resizing.mode === "rotate") {
+    if (nextResizing.mode === "rotate") {
       const rect = getObjectRect(object);
       const centerX = rect.x + rect.width / 2;
       const centerY = rect.y + rect.height / 2;
@@ -3663,7 +3704,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         const length = Math.hypot(object.width, object.height) || 1;
         // Use absolute handle angle around the center to support full 360 rotation smoothly.
         const angle =
-          Math.atan2(resizing.current.y - centerY, resizing.current.x - centerX) +
+          Math.atan2(nextResizing.current.y - centerY, nextResizing.current.x - centerX) +
           Math.PI / 2;
         const dirX = Math.cos(angle);
         const dirY = Math.sin(angle);
@@ -3679,8 +3720,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           height: dirY * length,
         });
       } else {
-        const startAngle = Math.atan2(resizing.start.y - centerY, resizing.start.x - centerX);
-        const nextAngle = Math.atan2(resizing.current.y - centerY, resizing.current.x - centerX);
+        const startAngle = Math.atan2(nextResizing.start.y - centerY, nextResizing.start.x - centerX);
+        const nextAngle = Math.atan2(nextResizing.current.y - centerY, nextResizing.current.x - centerX);
         const deltaDeg = ((nextAngle - startAngle) * 180) / Math.PI;
         onObjectUpdate(object.id, {
           rotation: (object.rotation ?? 0) + deltaDeg,
@@ -3690,10 +3731,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       return;
     }
     if (
-      (resizing.mode === "nw" ||
-        resizing.mode === "ne" ||
-        resizing.mode === "se" ||
-        resizing.mode === "sw") &&
+      (nextResizing.mode === "nw" ||
+        nextResizing.mode === "ne" ||
+        nextResizing.mode === "se" ||
+        nextResizing.mode === "sw") &&
       (object.type === "line" || object.type === "arrow")
     ) {
       const rect = getObjectRect(object);
@@ -3702,12 +3743,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         y: rect.y + rect.height / 2,
       };
       const startVector = {
-        x: resizing.start.x - center.x,
-        y: resizing.start.y - center.y,
+        x: nextResizing.start.x - center.x,
+        y: nextResizing.start.y - center.y,
       };
       const currentVector = {
-        x: resizing.current.x - center.x,
-        y: resizing.current.y - center.y,
+        x: nextResizing.current.x - center.x,
+        y: nextResizing.current.y - center.y,
       };
       const startDistance = Math.hypot(startVector.x, startVector.y);
       const currentDistance = Math.hypot(currentVector.x, currentVector.y);
@@ -3752,30 +3793,30 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     };
     const localStart =
       object.rotation && Number.isFinite(object.rotation)
-        ? rotatePointAround(resizing.start, center, -(object.rotation ?? 0))
-        : resizing.start;
+        ? rotatePointAround(nextResizing.start, center, -(object.rotation ?? 0))
+        : nextResizing.start;
     const localCurrent =
       object.rotation && Number.isFinite(object.rotation)
-        ? rotatePointAround(resizing.current, center, -(object.rotation ?? 0))
-        : resizing.current;
+        ? rotatePointAround(nextResizing.current, center, -(object.rotation ?? 0))
+        : nextResizing.current;
     if (
-      resizing.mode === "n" ||
-      resizing.mode === "s" ||
-      resizing.mode === "e" ||
-      resizing.mode === "w"
+      nextResizing.mode === "n" ||
+      nextResizing.mode === "s" ||
+      nextResizing.mode === "e" ||
+      nextResizing.mode === "w"
     ) {
       let nextLeft = rect.x;
       let nextRight = rect.x + rect.width;
       let nextTop = rect.y;
       let nextBottom = rect.y + rect.height;
 
-      if (resizing.mode === "n") {
+      if (nextResizing.mode === "n") {
         nextTop = Math.min(localCurrent.y, nextBottom - 1);
-      } else if (resizing.mode === "s") {
+      } else if (nextResizing.mode === "s") {
         nextBottom = Math.max(localCurrent.y, nextTop + 1);
-      } else if (resizing.mode === "e") {
+      } else if (nextResizing.mode === "e") {
         nextRight = Math.max(localCurrent.x, nextLeft + 1);
-      } else if (resizing.mode === "w") {
+      } else if (nextResizing.mode === "w") {
         nextLeft = Math.min(localCurrent.x, nextRight - 1);
       }
 
@@ -3883,6 +3924,14 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     if (event.pointerType !== "mouse") {
       event.preventDefault();
     }
+    const latestShapeDraft = flushShapeDraft();
+    const latestMoving = flushMoving();
+    const latestResizing = flushResizing();
+    const latestGraphPan = flushGraphPan();
+    const latestSolid3dResize = flushSolid3dResize();
+    const latestAreaSelectionDraft = flushAreaSelectionDraft();
+    const latestAreaSelectionResize = flushAreaSelectionResize();
+    const latestSolid3dPreviewMetaById = flushSolid3dPreviewMetaById();
     if (erasing) {
       const point = mapPointer(svg, event.clientX, event.clientY, false, false);
       const lastAppliedPoint = eraserLastAppliedPointRef.current ?? point;
@@ -3902,13 +3951,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       clearEraserPreviewRuntime();
     } else if (strokePointsRef.current.length > 0) {
       finishStroke(event, svg);
-    } else if (shapeDraft) {
-      finishShape();
-    } else if (areaSelectionResize) {
+    } else if (latestShapeDraft) {
+      finishShape(latestShapeDraft);
+    } else if (latestAreaSelectionResize) {
       const nextRect = resizeAreaSelectionRect(
-        areaSelectionResize.initialRect,
-        areaSelectionResize.mode,
-        areaSelectionResize.current
+        latestAreaSelectionResize.initialRect,
+        latestAreaSelectionResize.mode,
+        latestAreaSelectionResize.current
       );
       const hasMeaningfulArea = nextRect.width > 8 || nextRect.height > 8;
       if (!hasMeaningfulArea) {
@@ -3934,8 +3983,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         );
       }
       setAreaSelectionResize(null);
-    } else if (areaSelectionDraft) {
-      const nextRect = normalizeRect(areaSelectionDraft.start, areaSelectionDraft.current);
+    } else if (latestAreaSelectionDraft) {
+      const nextRect = normalizeRect(latestAreaSelectionDraft.start, latestAreaSelectionDraft.current);
       const hasMeaningfulArea = nextRect.width > 8 || nextRect.height > 8;
       if (!hasMeaningfulArea) {
         onAreaSelectionChange?.(null);
@@ -3962,25 +4011,25 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       setAreaSelectionDraft(null);
     } else if (panning) {
       setPanning(null);
-    } else if (graphPan) {
-      const deltaX = graphPan.current.x - graphPan.start.x;
-      const deltaY = graphPan.current.y - graphPan.start.y;
+    } else if (latestGraphPan) {
+      const deltaX = latestGraphPan.current.x - latestGraphPan.start.x;
+      const deltaY = latestGraphPan.current.y - latestGraphPan.start.y;
       const shiftedFunctions = applyGraphPanToFunctions(
-        graphPan.initialFunctions,
+        latestGraphPan.initialFunctions,
         deltaX,
         deltaY,
-        graphPan.pxPerUnit,
-        graphPan.targetFunctionId
+        latestGraphPan.pxPerUnit,
+        latestGraphPan.targetFunctionId
       );
-      onObjectUpdate(graphPan.object.id, {
+      onObjectUpdate(latestGraphPan.object.id, {
         meta: {
-          ...(graphPan.object.meta ?? {}),
+          ...(latestGraphPan.object.meta ?? {}),
           functions: shiftedFunctions,
         },
       });
       setGraphPan(null);
     } else if (solid3dGesture) {
-      const previewMeta = solid3dPreviewMetaById[solid3dGesture.object.id];
+      const previewMeta = latestSolid3dPreviewMetaById[solid3dGesture.object.id];
       if (previewMeta) {
         onObjectUpdate(solid3dGesture.object.id, { meta: previewMeta });
       }
@@ -3990,14 +4039,14 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         delete next[solid3dGesture.object.id];
         return next;
       });
-    } else if (solid3dResize) {
-      const patch = computeSolid3dResizePatch(solid3dResize);
-      onObjectUpdate(solid3dResize.object.id, patch);
+    } else if (latestSolid3dResize) {
+      const patch = computeSolid3dResizePatch(latestSolid3dResize);
+      onObjectUpdate(latestSolid3dResize.object.id, patch);
       setSolid3dResize(null);
-    } else if (resizing) {
-      finishResizing();
-    } else if (moving) {
-      finishMoving();
+    } else if (latestResizing) {
+      finishResizing(latestResizing);
+    } else if (latestMoving) {
+      finishMoving(latestMoving);
     }
     pointerIdRef.current = null;
     releasePointerCapture(svg, event.pointerId);
@@ -4056,6 +4105,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       draftStrokePathRef.current?.setAttribute("d", "");
     }
     if (tool !== "eraser") {
+      clearEraserCursorPointPending();
+      setEraserCursorPoint(null);
       erasedStrokeIdsRef.current.clear();
       eraserStrokeFragmentsRef.current.clear();
       eraserObjectCutsRef.current.clear();
@@ -4065,7 +4116,18 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       eraserLastAppliedPointRef.current = null;
       eraserLastPreviewPointRef.current = null;
     }
-  }, [tool]);
+    if (tool !== "polygon" || polygonMode !== "points") {
+      clearPolygonHoverPointPending();
+      setPolygonHoverPoint(null);
+    }
+  }, [
+    clearEraserCursorPointPending,
+    clearPolygonHoverPointPending,
+    polygonMode,
+    setEraserCursorPoint,
+    setPolygonHoverPoint,
+    tool,
+  ]);
 
   useEffect(() => {
     if (tool !== "polygon" || polygonMode !== "points") return;
@@ -4085,7 +4147,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [commitPolygonByPoints, polygonMode, polygonPointDraft, tool]);
+  }, [commitPolygonByPoints, polygonMode, polygonPointDraft, setPolygonHoverPoint, tool]);
 
   const renderObject = (objectSource: WorkbookBoardObject) => {
     const previewMeta = solid3dPreviewMetaById[objectSource.id];
@@ -6782,6 +6844,150 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     solid3dSectionMarkers,
   ]);
 
+  const autoDividerNodes = useMemo(() => {
+    if (!autoDividersEnabled) return null;
+    return Array.from(
+      {
+        length: Math.ceil((size.height / safeZoom) / Math.max(320, autoDividerStep)) + 2,
+      },
+      (_, index) => {
+        const step = Math.max(320, autoDividerStep);
+        const startY = Math.floor(viewportOffset.y / step) * step;
+        const y = startY + index * step;
+        return (
+          <line
+            key={`auto-divider-${y}`}
+            x1={viewportOffset.x - 1200}
+            y1={y}
+            x2={viewportOffset.x + size.width / safeZoom + 1200}
+            y2={y}
+            stroke="#a1a9c8"
+            strokeWidth={1}
+            strokeDasharray="5 5"
+            opacity={0.7}
+          />
+        );
+      }
+    );
+  }, [autoDividerStep, autoDividersEnabled, safeZoom, size.height, size.width, viewportOffset.x, viewportOffset.y]);
+
+  const solid3dMarkerNodes = useMemo(() => {
+    if (!solid3dSectionMarkers?.objectId) return null;
+    return solid3dPickMarkers.map((marker) => {
+      const markerObjectId = solid3dSectionMarkers.objectId;
+      const markerObject =
+        selectedPreviewObject?.id === markerObjectId
+          ? selectedPreviewObject
+          : boardObjects.find((item) => item.id === markerObjectId);
+      const showMarkerLabels = markerObject?.meta?.showLabels !== false;
+      const markerCenter = markerObject ? getObjectCenter(markerObject) : marker;
+      const markerPlacement = resolveOutsideVertexLabelPlacement({
+        vertex: marker,
+        center: markerCenter,
+        baseOffset: 13,
+      });
+      return (
+        <g key={`solid3d-pick-${markerObjectId}-${marker.index}`}>
+          <circle
+            cx={marker.x}
+            cy={marker.y}
+            r={2.8}
+            fill="#ff8e3c"
+            stroke="#ffffff"
+            strokeWidth={1}
+          />
+          {showMarkerLabels ? (
+            <text
+              x={markerPlacement.x}
+              y={markerPlacement.y}
+              fill="#ff8e3c"
+              fontSize={8.5}
+              fontWeight={700}
+              textAnchor={markerPlacement.textAnchor}
+              dominantBaseline="central"
+            >
+              {marker.label}
+            </text>
+          ) : null}
+        </g>
+      );
+    });
+  }, [boardObjects, selectedPreviewObject, solid3dPickMarkers, solid3dSectionMarkers]);
+
+  const constraintNodes = useMemo(
+    () =>
+      constraintSegments.map((segment) => {
+        const isActive = segment.constraint.id === selectedConstraintId;
+        const midX = (segment.source.x + segment.target.x) / 2;
+        const midY = (segment.source.y + segment.target.y) / 2;
+        return (
+          <g
+            key={`constraint-${segment.constraint.id}`}
+            className={`workbook-session__constraint-line ${isActive ? "is-active" : ""}`}
+            onPointerDown={(event) => {
+              if (tool !== "select") return;
+              event.stopPropagation();
+              onSelectedObjectChange(null);
+              onSelectedConstraintChange(segment.constraint.id);
+            }}
+            style={{ pointerEvents: tool === "select" ? "all" : "none" }}
+          >
+            <line
+              x1={segment.source.x}
+              y1={segment.source.y}
+              x2={segment.target.x}
+              y2={segment.target.y}
+            />
+            <text x={midX} y={midY}>
+              {mapConstraintLabel(segment.constraint.type)}
+            </text>
+          </g>
+        );
+      }),
+    [
+      constraintSegments,
+      onSelectedConstraintChange,
+      onSelectedObjectChange,
+      selectedConstraintId,
+      tool,
+    ]
+  );
+
+  const renderedStrokeNodes = useMemo(
+    () =>
+      renderedStrokes.map((stroke) => (
+        <path
+          key={stroke.id}
+          d={toPath(stroke.points)}
+          stroke={stroke.color}
+          strokeWidth={stroke.width}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+          opacity={stroke.tool === "highlighter" ? 0.5 : 1}
+        />
+      )),
+    [renderedStrokes]
+  );
+
+  const previewStrokeNodes = useMemo(
+    () =>
+      previewStrokes.map((stroke) => (
+        <path
+          key={`preview-${stroke.id}`}
+          d={toPath(stroke.points)}
+          stroke={stroke.color}
+          strokeWidth={stroke.width}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+          opacity={stroke.tool === "highlighter" ? 0.5 : 0.94}
+          pointerEvents="none"
+        />
+      )),
+    [previewStrokes]
+  );
+
   const canvasStyle: CSSProperties = {
     "--workbook-grid-size": `${Math.max(8, Math.min(96, Math.floor(gridSize || 22)))}px`,
     "--workbook-grid-color": showGrid ? gridColor : "transparent",
@@ -7022,31 +7228,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
         <g transform={`scale(${safeZoom})`}>
         <g transform={`translate(${-viewportOffset.x} ${-viewportOffset.y})`}>
-        {autoDividersEnabled
-          ? Array.from(
-              {
-                length: Math.ceil((size.height / safeZoom) / Math.max(320, autoDividerStep)) + 2,
-              },
-              (_, index) => {
-                const step = Math.max(320, autoDividerStep);
-                const startY = Math.floor(viewportOffset.y / step) * step;
-                const y = startY + index * step;
-                return (
-                  <line
-                    key={`auto-divider-${y}`}
-                    x1={viewportOffset.x - 1200}
-                    y1={y}
-                    x2={viewportOffset.x + size.width / safeZoom + 1200}
-                    y2={y}
-                    stroke="#a1a9c8"
-                    strokeWidth={1}
-                    strokeDasharray="5 5"
-                    opacity={0.7}
-                  />
-                );
-              }
-            )
-          : null}
+        {autoDividerNodes}
         {boardObjects.map((object) => {
           const renderSource =
             selectedPreviewObject?.id === object.id ? selectedPreviewObject : object;
@@ -7142,103 +7324,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
             </g>
           );
         })}
-        {solid3dSectionMarkers?.objectId
-          ? solid3dPickMarkers.map((marker) => {
-              const markerObjectId = solid3dSectionMarkers.objectId;
-              const markerObject =
-                selectedPreviewObject?.id === markerObjectId
-                  ? selectedPreviewObject
-                  : boardObjects.find((item) => item.id === markerObjectId);
-              const showMarkerLabels = markerObject?.meta?.showLabels !== false;
-              const markerCenter = markerObject ? getObjectCenter(markerObject) : marker;
-              const markerPlacement = resolveOutsideVertexLabelPlacement({
-                vertex: marker,
-                center: markerCenter,
-                baseOffset: 13,
-              });
-              return (
-                <g key={`solid3d-pick-${markerObjectId}-${marker.index}`}>
-                  <circle
-                    cx={marker.x}
-                    cy={marker.y}
-                    r={2.8}
-                    fill="#ff8e3c"
-                    stroke="#ffffff"
-                    strokeWidth={1}
-                  />
-                  {showMarkerLabels ? (
-                    <text
-                      x={markerPlacement.x}
-                      y={markerPlacement.y}
-                      fill="#ff8e3c"
-                      fontSize={8.5}
-                      fontWeight={700}
-                      textAnchor={markerPlacement.textAnchor}
-                      dominantBaseline="central"
-                    >
-                      {marker.label}
-                    </text>
-                  ) : null}
-                </g>
-              );
-            })
-          : null}
-
-        {constraintSegments.map((segment) => {
-          const isActive = segment.constraint.id === selectedConstraintId;
-          const midX = (segment.source.x + segment.target.x) / 2;
-          const midY = (segment.source.y + segment.target.y) / 2;
-          return (
-            <g
-              key={`constraint-${segment.constraint.id}`}
-              className={`workbook-session__constraint-line ${isActive ? "is-active" : ""}`}
-              onPointerDown={(event) => {
-                if (tool !== "select") return;
-                event.stopPropagation();
-                onSelectedObjectChange(null);
-                onSelectedConstraintChange(segment.constraint.id);
-              }}
-              style={{ pointerEvents: tool === "select" ? "all" : "none" }}
-            >
-              <line
-                x1={segment.source.x}
-                y1={segment.source.y}
-                x2={segment.target.x}
-                y2={segment.target.y}
-              />
-              <text x={midX} y={midY}>
-                {mapConstraintLabel(segment.constraint.type)}
-              </text>
-            </g>
-          );
-        })}
-
-        {renderedStrokes.map((stroke) => (
-          <path
-            key={stroke.id}
-            d={toPath(stroke.points)}
-            stroke={stroke.color}
-            strokeWidth={stroke.width}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            fill="none"
-            opacity={stroke.tool === "highlighter" ? 0.5 : 1}
-          />
-        ))}
-
-        {previewStrokes.map((stroke) => (
-          <path
-            key={`preview-${stroke.id}`}
-            d={toPath(stroke.points)}
-            stroke={stroke.color}
-            strokeWidth={stroke.width}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            fill="none"
-            opacity={stroke.tool === "highlighter" ? 0.5 : 0.94}
-            pointerEvents="none"
-          />
-        ))}
+        {solid3dMarkerNodes}
+        {constraintNodes}
+        {renderedStrokeNodes}
+        {previewStrokeNodes}
 
         {shapeDraft ? (
           <g className="workbook-session__draft-shape">
