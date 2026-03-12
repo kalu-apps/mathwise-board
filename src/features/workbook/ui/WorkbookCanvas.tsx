@@ -132,6 +132,13 @@ import {
   toStableSignature,
   REALTIME_PREVIEW_REPEAT_GUARD_MS,
 } from "../model/realtimePreview";
+import {
+  createRemoteEraserPreviewState,
+  snapshotRemoteEraserPreviewState,
+  syncRemoteEraserPreviewState,
+  type WorkbookIncomingEraserPreview,
+  type RemoteEraserPreviewState,
+} from "../model/remoteEraserPreview";
 import { useAnimationFrameState } from "@/shared/lib/useAnimationFrameState";
 import {
   WorkbookAutoDividerLayer,
@@ -171,15 +178,7 @@ type WorkbookCanvasProps = {
   gridColor?: string;
   backgroundColor?: string;
   imageAssetUrls?: Record<string, string>;
-  incomingEraserPreviews?: Array<{
-    id: string;
-    authorUserId: string;
-    gestureId: string;
-    layer: WorkbookLayer;
-    page: number;
-    radius: number;
-    points: WorkbookPoint[];
-  }>;
+  incomingEraserPreviews?: WorkbookIncomingEraserPreview[];
   showPageNumbers?: boolean;
   currentPage?: number;
   disabled?: boolean;
@@ -565,17 +564,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const eraserObjectPreviewPathsRef = useRef<Map<string, ObjectEraserPreviewPath[]>>(new Map());
   const eraserPreviewFrameRef = useRef<number | null>(null);
   const remoteEraserPreviewFrameRef = useRef<number | null>(null);
-  const remoteEraserStrokeFragmentsRef = useRef<Map<string, WorkbookPoint[][]>>(new Map());
-  const remoteEraserObjectCutsRef = useRef<Map<string, ObjectEraserCut[]>>(new Map());
-  const remoteEraserObjectPreviewPathsRef = useRef<Map<string, ObjectEraserPreviewPath[]>>(
-    new Map()
+  const remoteEraserPreviewStateRef = useRef<RemoteEraserPreviewState>(
+    createRemoteEraserPreviewState([], [], 1)
   );
-  const remoteEraserProcessedPointsByIdRef = useRef<Map<string, number>>(new Map());
-  const remoteEraserBaseStateRef = useRef<{
-    strokes: WorkbookStroke[];
-    objects: WorkbookBoardObject[];
-    page: number;
-  } | null>(null);
   const [eraserPreviewStrokeFragments, setEraserPreviewStrokeFragments] = useState<
     Record<string, WorkbookPoint[][]>
   >({});
@@ -765,15 +756,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     if (remoteEraserPreviewFrameRef.current !== null) return;
     remoteEraserPreviewFrameRef.current = window.requestAnimationFrame(() => {
       remoteEraserPreviewFrameRef.current = null;
-      setRemoteEraserPreviewStrokeFragments(
-        Object.fromEntries(remoteEraserStrokeFragmentsRef.current.entries())
+      const snapshot = snapshotRemoteEraserPreviewState(
+        remoteEraserPreviewStateRef.current
       );
-      setRemoteEraserPreviewObjectCuts(
-        Object.fromEntries(remoteEraserObjectCutsRef.current.entries())
-      );
-      setRemoteEraserPreviewObjectPaths(
-        Object.fromEntries(remoteEraserObjectPreviewPathsRef.current.entries())
-      );
+      setRemoteEraserPreviewStrokeFragments(snapshot.strokeFragments);
+      setRemoteEraserPreviewObjectCuts(snapshot.objectCuts);
+      setRemoteEraserPreviewObjectPaths(snapshot.objectPaths);
     });
   }, []);
 
@@ -1212,72 +1200,18 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   useEffect(() => {
     const safePage = Math.max(1, currentPage);
-    if (incomingEraserPreviews.length === 0) {
-      remoteEraserBaseStateRef.current = {
-        strokes: allStrokes,
-        objects: boardObjects,
-        page: safePage,
-      };
-      remoteEraserStrokeFragmentsRef.current.clear();
-      remoteEraserObjectCutsRef.current.clear();
-      remoteEraserObjectPreviewPathsRef.current.clear();
-      remoteEraserProcessedPointsByIdRef.current.clear();
-      scheduleRemoteEraserPreviewRender();
-      return;
-    }
-
-    const activeIds = new Set(incomingEraserPreviews.map((preview) => preview.id));
-    const previousBaseState = remoteEraserBaseStateRef.current;
-    const shouldRebuild =
-      previousBaseState?.strokes !== allStrokes ||
-      previousBaseState?.objects !== boardObjects ||
-      previousBaseState?.page !== safePage ||
-      remoteEraserProcessedPointsByIdRef.current.size !== activeIds.size ||
-      Array.from(remoteEraserProcessedPointsByIdRef.current.keys()).some((id) => !activeIds.has(id));
-
-    if (shouldRebuild) {
-      remoteEraserStrokeFragmentsRef.current = new Map();
-      remoteEraserObjectCutsRef.current = new Map();
-      remoteEraserObjectPreviewPathsRef.current = new Map();
-      remoteEraserProcessedPointsByIdRef.current = new Map();
-    }
-
-    let changed = shouldRebuild;
-    incomingEraserPreviews.forEach((preview) => {
-      const processedPoints = shouldRebuild
-        ? 0
-        : remoteEraserProcessedPointsByIdRef.current.get(preview.id) ?? 0;
-      if (preview.points.length <= processedPoints) {
-        remoteEraserProcessedPointsByIdRef.current.set(preview.id, preview.points.length);
-        return;
-      }
-      const nextPoints = preview.points.slice(processedPoints);
-      nextPoints.forEach((point) => {
-      applyEraserPointToCollections({
-        center: point,
-        radius: Math.max(4, preview.radius),
-        strokes: allStrokes,
-        objects: boardObjects,
-        strokeFragmentsMap: remoteEraserStrokeFragmentsRef.current,
-        objectCutsMap: remoteEraserObjectCutsRef.current,
-        objectPreviewPathsMap: remoteEraserObjectPreviewPathsRef.current,
-        getObjectRect,
-        isStrokeErasedByCircle,
-        isObjectErasedByCircle,
-      });
-      });
-      remoteEraserProcessedPointsByIdRef.current.set(preview.id, preview.points.length);
-      if (nextPoints.length > 0) {
-        changed = true;
-      }
-    });
-
-    remoteEraserBaseStateRef.current = {
+    const nextRemoteState = syncRemoteEraserPreviewState({
+      state: remoteEraserPreviewStateRef.current,
+      previews: incomingEraserPreviews,
       strokes: allStrokes,
       objects: boardObjects,
       page: safePage,
-    };
-
+      getObjectRect,
+      isStrokeErasedByCircle,
+      isObjectErasedByCircle,
+    });
+    remoteEraserPreviewStateRef.current = nextRemoteState.state;
+    const { changed } = nextRemoteState;
     if (!changed) return;
     scheduleRemoteEraserPreviewRender();
   }, [
