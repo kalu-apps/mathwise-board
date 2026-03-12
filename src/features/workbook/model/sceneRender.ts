@@ -77,6 +77,17 @@ export type WorkbookMaskedObjectSceneEntry = {
   maskBounds: { x: number; y: number; width: number; height: number } | null;
 };
 
+export type WorkbookObjectSceneEntryCacheRecord = {
+  objectRef: WorkbookBoardObject;
+  renderSourceRef: WorkbookBoardObject;
+  renderRevision: string;
+  functionGraphRenderStateRef: unknown;
+  previewCutsRef: ObjectEraserCut[] | undefined;
+  previewPathsRef: ObjectEraserPreviewPath[] | undefined;
+  eraserPreviewActive: boolean;
+  entry: WorkbookMaskedObjectSceneEntry;
+};
+
 export type WorkbookConstraintRenderSegment = {
   constraint: WorkbookConstraint;
   source: WorkbookPoint;
@@ -295,6 +306,67 @@ export const buildMaskedObjectSceneEntry = (params: {
       width: Math.max(1, maxX - minX),
       height: Math.max(1, maxY - minY),
     },
+  };
+};
+
+export const buildWorkbookObjectSceneEntries = (params: {
+  visibleBoardObjects: WorkbookBoardObject[];
+  selectedPreviewObject: WorkbookBoardObject | null;
+  eraserPreviewActive: boolean;
+  previewObjectCuts: Record<string, ObjectEraserCut[]>;
+  previewObjectPaths: Record<string, ObjectEraserPreviewPath[]>;
+  renderRevision: string;
+  functionGraphRenderStateById?: Map<string, unknown>;
+  renderObject: (object: WorkbookBoardObject) => ReactNode;
+  previousCache?: Map<string, WorkbookObjectSceneEntryCacheRecord>;
+}) => {
+  const nextCache = new Map<string, WorkbookObjectSceneEntryCacheRecord>();
+  const entries = params.visibleBoardObjects.map((object) => {
+    const renderSource =
+      params.selectedPreviewObject?.id === object.id ? params.selectedPreviewObject : object;
+    const previewCuts = params.previewObjectCuts[renderSource.id];
+    const previewPaths = params.previewObjectPaths[renderSource.id];
+    const functionGraphRenderStateRef =
+      renderSource.type === "function_graph"
+        ? params.functionGraphRenderStateById?.get(renderSource.id) ?? null
+        : null;
+    const previousEntry = params.previousCache?.get(object.id);
+    if (
+      previousEntry &&
+      previousEntry.objectRef === object &&
+      previousEntry.renderSourceRef === renderSource &&
+      previousEntry.renderRevision === params.renderRevision &&
+      previousEntry.functionGraphRenderStateRef === functionGraphRenderStateRef &&
+      previousEntry.previewCutsRef === previewCuts &&
+      previousEntry.previewPathsRef === previewPaths &&
+      previousEntry.eraserPreviewActive === params.eraserPreviewActive
+    ) {
+      nextCache.set(object.id, previousEntry);
+      return previousEntry.entry;
+    }
+    const entry = buildMaskedObjectSceneEntry({
+      object,
+      renderSource,
+      renderedObject: params.renderObject(renderSource),
+      eraserPreviewActive: params.eraserPreviewActive,
+      previewObjectCuts: params.previewObjectCuts,
+      previewObjectPaths: params.previewObjectPaths,
+    });
+    nextCache.set(object.id, {
+      objectRef: object,
+      renderSourceRef: renderSource,
+      renderRevision: params.renderRevision,
+      functionGraphRenderStateRef,
+      previewCutsRef: previewCuts,
+      previewPathsRef: previewPaths,
+      eraserPreviewActive: params.eraserPreviewActive,
+      entry,
+    });
+    return entry;
+  });
+  return {
+    entries,
+    cache: nextCache,
   };
 };
 

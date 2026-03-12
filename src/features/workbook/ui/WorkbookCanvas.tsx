@@ -137,13 +137,14 @@ import {
   type Solid3dResizeState,
 } from "../model/sceneRuntime";
 import {
-  buildMaskedObjectSceneEntry,
+  buildWorkbookObjectSceneEntries,
   buildConstraintRenderSegments,
   buildFunctionGraphRenderStateMap,
   buildRenderedWorkbookStrokes,
   prepareWorkbookRenderObject,
   resolveAreaSelectionPreviewRects,
   resolveSelectedObjectRect,
+  type WorkbookObjectSceneEntryCacheRecord,
   type WorkbookMaskedObjectSceneEntry,
   type WorkbookConstraintRenderSegment,
 } from "../model/sceneRender";
@@ -3832,28 +3833,28 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const inlineTextEditRevision = inlineTextEdit
     ? `${inlineTextEdit.objectId}:${inlineTextEdit.value}`
     : "";
+  const objectSceneEntryCacheRef = useRef<Map<string, WorkbookObjectSceneEntryCacheRecord>>(new Map());
   const objectSceneEntries = useMemo<WorkbookMaskedObjectSceneEntry[]>(
     () => {
-      const revisionKey = `${imageAssetRevision}::${inlineTextEditRevision}`;
-      void revisionKey;
-      return visibleBoardObjects.map((object) => {
-        const renderSource =
-          selectedPreviewObject?.id === object.id ? selectedPreviewObject : object;
-        const renderedObject = renderObjectRef.current(renderSource);
-        return buildMaskedObjectSceneEntry({
-          object,
-          renderSource,
-          renderedObject,
-          eraserPreviewActive,
-          previewObjectCuts: activeEraserPreviewObjectCuts,
-          previewObjectPaths: activeEraserPreviewObjectPaths,
-        });
+      const { entries, cache } = buildWorkbookObjectSceneEntries({
+        visibleBoardObjects,
+        selectedPreviewObject,
+        eraserPreviewActive,
+        previewObjectCuts: activeEraserPreviewObjectCuts,
+        previewObjectPaths: activeEraserPreviewObjectPaths,
+        renderRevision: `${imageAssetRevision}::${inlineTextEditRevision}`,
+        functionGraphRenderStateById,
+        renderObject: (object) => renderObjectRef.current(object),
+        previousCache: objectSceneEntryCacheRef.current,
       });
+      objectSceneEntryCacheRef.current = cache;
+      return entries;
     },
     [
       activeEraserPreviewObjectCuts,
       activeEraserPreviewObjectPaths,
       eraserPreviewActive,
+      functionGraphRenderStateById,
       imageAssetRevision,
       inlineTextEditRevision,
       selectedPreviewObject,
