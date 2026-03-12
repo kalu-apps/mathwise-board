@@ -570,6 +570,45 @@ export const sanitizeObjectEraserPaths = (
   }, []);
 };
 
+export const areObjectEraserCutsEquivalent = (
+  left: ObjectEraserCut[],
+  right: ObjectEraserCut[],
+  epsilon = 1e-4
+) => {
+  if (left.length !== right.length) return false;
+  return left.every((cut, index) => {
+    const target = right[index];
+    if (!target) return false;
+    return (
+      Math.abs(cut.u - target.u) <= epsilon &&
+      Math.abs(cut.v - target.v) <= epsilon &&
+      Math.abs(cut.radiusRatio - target.radiusRatio) <= epsilon
+    );
+  });
+};
+
+export const areObjectEraserStoredPathsEquivalent = (
+  left: ObjectEraserStoredPath[],
+  right: ObjectEraserStoredPath[],
+  epsilon = 1e-4
+) => {
+  if (left.length !== right.length) return false;
+  return left.every((path, index) => {
+    const target = right[index];
+    if (!target) return false;
+    if (Math.abs(path.radiusRatio - target.radiusRatio) > epsilon) return false;
+    if (path.points.length !== target.points.length) return false;
+    return path.points.every((point, pointIndex) => {
+      const targetPoint = target.points[pointIndex];
+      if (!targetPoint) return false;
+      return (
+        Math.abs(point.u - targetPoint.u) <= epsilon &&
+        Math.abs(point.v - targetPoint.v) <= epsilon
+      );
+    });
+  });
+};
+
 export const applyEraserPointToCollections = (
   params: {
     center: WorkbookPoint;

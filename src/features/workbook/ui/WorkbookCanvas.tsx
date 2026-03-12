@@ -107,6 +107,8 @@ import {
 } from "../model/sceneStroke";
 import {
   applyEraserPointToCollections,
+  areObjectEraserCutsEquivalent,
+  areObjectEraserStoredPathsEquivalent,
   buildEraserSegmentPoints,
   convertObjectEraserCutToStoredPath,
   isPointInsideObjectEraserMask,
@@ -249,6 +251,7 @@ type WorkbookCanvasProps = {
     fragments: WorkbookPoint[][];
   }) => void;
   onObjectCreate: (object: WorkbookBoardObject) => void;
+  getLatestBoardObject?: (objectId: string) => WorkbookBoardObject | null;
   onObjectUpdate: (
     objectId: string,
     patch: Partial<WorkbookBoardObject>,
@@ -470,6 +473,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   onStrokeDelete,
   onStrokeReplace,
   onObjectCreate,
+  getLatestBoardObject,
   onObjectUpdate,
   onObjectDelete,
   onObjectContextMenu,
@@ -1077,9 +1081,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   const isObjectErasedByCircle = useCallback(
     (object: WorkbookBoardObject, center: WorkbookPoint, radius: number) => {
-      if (!isWorkbookObjectErasedByCircle(object, center, radius)) return false;
-      const previewCuts = eraserObjectCutsRef.current.get(object.id) ?? null;
-      const previewPaths = eraserObjectPreviewPathsRef.current.get(object.id) ?? null;
+      const sourceObject = getLatestBoardObject?.(object.id) ?? object;
+      if (!isWorkbookObjectErasedByCircle(sourceObject, center, radius)) return false;
+      const previewCuts = eraserObjectCutsRef.current.get(sourceObject.id) ?? null;
+      const previewPaths = eraserObjectPreviewPathsRef.current.get(sourceObject.id) ?? null;
       const sampleCount = 16;
       const samplePoints = [center];
       for (let index = 0; index < sampleCount; index += 1) {
@@ -1091,9 +1096,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       }
       return samplePoints.some(
         (point) =>
-          isWorkbookObjectHit(object, point) &&
+          isWorkbookObjectHit(sourceObject, point) &&
           !isPointInsideObjectEraserMask({
-            object,
+            object: sourceObject,
             point,
             getObjectRect,
             previewCuts,
@@ -1101,7 +1106,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           })
       );
     },
-    []
+    [getLatestBoardObject]
   );
 
   useEffect(() => {
@@ -1223,7 +1228,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     if (eraserTouchedObjectIdsRef.current.size === 0) return;
     const touchedIds = Array.from(eraserTouchedObjectIdsRef.current);
     touchedIds.forEach((objectId) => {
-      const sourceObject = objectById.get(objectId) ?? null;
+      const sourceObject =
+        getLatestBoardObject?.(objectId) ??
+        objectById.get(objectId) ??
+        null;
       const cuts = eraserObjectCutsRef.current.get(objectId);
       if (!cuts || cuts.length === 0) return;
       const nextStoredPaths = (
@@ -1249,6 +1257,15 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
               )
             : [];
       const persistedPaths = [...fallbackStoredPaths, ...nextStoredPaths];
+      const currentCuts = sourceObject
+        ? sanitizeObjectEraserCuts(sourceObject, getObjectRect)
+        : [];
+      if (
+        areObjectEraserCutsEquivalent(currentCuts, cuts) &&
+        areObjectEraserStoredPathsEquivalent(existingStoredPaths, persistedPaths)
+      ) {
+        return;
+      }
       onObjectUpdate(
         objectId,
         {
@@ -1263,7 +1280,14 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         }
       );
     });
-  }, [objectById, onObjectUpdate, onStrokeDelete, onStrokeReplace, strokeByKey]);
+  }, [
+    getLatestBoardObject,
+    objectById,
+    onObjectUpdate,
+    onStrokeDelete,
+    onStrokeReplace,
+    strokeByKey,
+  ]);
 
   const startStroke = (event: PointerEvent<SVGSVGElement>, svg: SVGSVGElement) => {
     pointerIdRef.current = event.pointerId;

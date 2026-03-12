@@ -9078,6 +9078,12 @@ export default function WorkbookSessionPage() {
     [commitObjectCreate]
   );
 
+  const getLatestCanvasObject = useCallback(
+    (objectId: string) =>
+      boardObjectsRef.current.find((item) => item.id === objectId) ?? null,
+    []
+  );
+
   useEffect(() => {
     if (tool === "area_select") return;
     setAreaSelection(null);
@@ -10384,6 +10390,7 @@ export default function WorkbookSessionPage() {
               onStrokeDelete={handleCanvasStrokeDelete}
               onStrokeReplace={handleCanvasStrokeReplace}
               onObjectCreate={handleCanvasObjectCreate}
+              getLatestBoardObject={getLatestCanvasObject}
               onObjectUpdate={handleCanvasObjectUpdate}
               onObjectDelete={handleCanvasObjectDelete}
               onObjectContextMenu={handleObjectContextMenu}
