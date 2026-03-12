@@ -1,11 +1,13 @@
 import { memo } from "react";
 import type {
-  WorkbookConstraint,
   WorkbookPoint,
   WorkbookStroke,
   WorkbookTool,
 } from "../model/types";
-import type { WorkbookMaskedObjectSceneEntry } from "../model/sceneRender";
+import type {
+  WorkbookConstraintRenderSegment,
+  WorkbookMaskedObjectSceneEntry,
+} from "../model/sceneRender";
 import { toPath, toSmoothPath } from "../model/stroke";
 
 export type WorkbookCanvasDividerLine = {
@@ -175,13 +177,6 @@ export const WorkbookObjectSceneLayer = memo(function WorkbookObjectSceneLayer({
     </>
   );
 });
-
-export type WorkbookConstraintRenderSegment = {
-  constraint: WorkbookConstraint;
-  source: WorkbookPoint;
-  target: WorkbookPoint;
-  label: string;
-};
 
 export const WorkbookConstraintLayer = memo(function WorkbookConstraintLayer({
   segments,

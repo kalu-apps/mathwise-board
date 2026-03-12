@@ -40,7 +40,6 @@ import { resolveBoardObjectImageAssetId } from "../model/scene";
 import {
   buildForcedVisibleObjectIdSet,
   buildWorkbookSceneAccess,
-  rectIntersects,
   resolveTopVisibleBoardObject,
   resolveTopVisibleStroke,
 } from "../model/sceneVisibility";
@@ -76,7 +75,6 @@ import {
   getPointObjectCenter,
   is2dFigureClosed,
   isInsideRect,
-  mapConstraintLabel,
   normalizeRect,
   resolve2dFigureVertexLabels,
   resolve2dFigureVertices,
@@ -161,10 +159,13 @@ import {
 } from "../model/sceneRuntime";
 import {
   buildMaskedObjectSceneEntry,
+  buildConstraintRenderSegments,
+  buildRenderedWorkbookStrokes,
   prepareWorkbookRenderObject,
   resolveAreaSelectionPreviewRects,
   resolveSelectedObjectRect,
   type WorkbookMaskedObjectSceneEntry,
+  type WorkbookConstraintRenderSegment,
 } from "../model/sceneRender";
 import { useAnimationFrameState } from "@/shared/lib/useAnimationFrameState";
 import {
@@ -173,7 +174,6 @@ import {
   WorkbookObjectSceneLayer,
   WorkbookPresenceLayer,
   WorkbookStrokeLayer,
-  type WorkbookConstraintRenderSegment,
 } from "./WorkbookCanvasLayers";
 
 type WorkbookCanvasProps = {
@@ -1145,17 +1145,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     : remoteEraserPreviewObjectPaths;
   const eraserPreviewActive = erasing || incomingEraserPreviews.length > 0;
   const renderedStrokes = useMemo(() => {
-    return visibleStrokes.flatMap((stroke) => {
-      const key = `${stroke.layer}:${stroke.id}`;
-      const previewFragments = eraserPreviewActive
-        ? activeEraserPreviewStrokeFragments[key]
-        : undefined;
-      if (!previewFragments) return [stroke];
-      return previewFragments.map((points, index) => ({
-        ...stroke,
-        id: `${stroke.id}::preview-${index}`,
-        points,
-      }));
+    return buildRenderedWorkbookStrokes({
+      visibleStrokes,
+      eraserPreviewActive,
+      previewStrokeFragments: activeEraserPreviewStrokeFragments,
     });
   }, [activeEraserPreviewStrokeFragments, eraserPreviewActive, visibleStrokes]);
 
@@ -5041,37 +5034,14 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     return resolveSolid3dResizeHandles(selectedPreviewObject);
   }, [resolveSolid3dResizeHandles, selectedPreviewObject]);
 
-  const constraintSegments = useMemo(
+  const constraintRenderSegments = useMemo<WorkbookConstraintRenderSegment[]>(
     () =>
-      constraints
-        .map((constraint) => {
-          const source = objectById.get(constraint.sourceObjectId);
-          const target = objectById.get(constraint.targetObjectId);
-          if (!source || !target) return null;
-          const sourceCenter = getObjectCenter(source);
-          const targetCenter = getObjectCenter(target);
-          const segmentBounds = expandRect(normalizeRect(sourceCenter, targetCenter), 32);
-          if (
-            constraint.id !== selectedConstraintId &&
-            !rectIntersects(segmentBounds, renderViewportRect)
-          ) {
-            return null;
-          }
-          return {
-            constraint,
-            source: sourceCenter,
-            target: targetCenter,
-          };
-        })
-        .filter(
-          (
-            segment
-          ): segment is {
-            constraint: WorkbookConstraint;
-            source: WorkbookPoint;
-            target: WorkbookPoint;
-          } => Boolean(segment)
-        ),
+      buildConstraintRenderSegments({
+        constraints,
+        objectById,
+        selectedConstraintId,
+        renderViewportRect,
+      }),
     [constraints, objectById, renderViewportRect, selectedConstraintId]
   );
   const handleSelectConstraint = useCallback(
@@ -5080,14 +5050,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       onSelectedConstraintChange(constraintId);
     },
     [onSelectedConstraintChange, onSelectedObjectChange]
-  );
-  const constraintRenderSegments = useMemo<WorkbookConstraintRenderSegment[]>(
-    () =>
-      constraintSegments.map((segment) => ({
-        ...segment,
-        label: mapConstraintLabel(segment.constraint.type),
-      })),
-    [constraintSegments]
   );
 
   const solid3dPickMarkers = useMemo(() => {

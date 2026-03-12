@@ -7,7 +7,12 @@ import {
   type ObjectEraserCut,
   type ObjectEraserPreviewPath,
 } from "./eraser";
-import { getObjectRect, normalizeRect } from "./sceneGeometry";
+import {
+  getObjectCenter,
+  getObjectRect,
+  mapConstraintLabel,
+  normalizeRect,
+} from "./sceneGeometry";
 import {
   getAreaSelectionDraftRect,
   resizeAreaSelectionRect,
@@ -15,7 +20,13 @@ import {
   type WorkbookAreaSelectionResizeMode,
 } from "./sceneSelection";
 import type { MovingState } from "./sceneRuntime";
-import type { WorkbookBoardObject, WorkbookPoint } from "./types";
+import { rectIntersects } from "./sceneVisibility";
+import type {
+  WorkbookBoardObject,
+  WorkbookConstraint,
+  WorkbookPoint,
+  WorkbookStroke,
+} from "./types";
 
 export type Solid3dPreviewMetaById = Record<string, Record<string, unknown>>;
 
@@ -59,7 +70,24 @@ export type WorkbookMaskedObjectSceneEntry = {
   maskBounds: { x: number; y: number; width: number; height: number } | null;
 };
 
+export type WorkbookConstraintRenderSegment = {
+  constraint: WorkbookConstraint;
+  source: WorkbookPoint;
+  target: WorkbookPoint;
+  label: string;
+};
+
 const ERASER_MASK_PADDING = 20;
+
+const expandRectByPadding = (
+  rect: { x: number; y: number; width: number; height: number },
+  padding: number
+) => ({
+  x: rect.x - padding,
+  y: rect.y - padding,
+  width: rect.width + padding * 2,
+  height: rect.height + padding * 2,
+});
 
 export const prepareWorkbookRenderObject = (params: {
   objectSource: WorkbookBoardObject;
@@ -253,3 +281,49 @@ export const buildMaskedObjectSceneEntry = (params: {
     },
   };
 };
+
+export const buildRenderedWorkbookStrokes = (params: {
+  visibleStrokes: WorkbookStroke[];
+  eraserPreviewActive: boolean;
+  previewStrokeFragments: Record<string, WorkbookPoint[][]>;
+}) =>
+  params.visibleStrokes.flatMap((stroke) => {
+    const key = `${stroke.layer}:${stroke.id}`;
+    const previewFragments = params.eraserPreviewActive
+      ? params.previewStrokeFragments[key]
+      : undefined;
+    if (!previewFragments) return [stroke];
+    return previewFragments.map((points, index) => ({
+      ...stroke,
+      id: `${stroke.id}::preview-${index}`,
+      points,
+    }));
+  });
+
+export const buildConstraintRenderSegments = (params: {
+  constraints: WorkbookConstraint[];
+  objectById: Map<string, WorkbookBoardObject>;
+  selectedConstraintId: string | null;
+  renderViewportRect: { x: number; y: number; width: number; height: number };
+}) =>
+  params.constraints.reduce<WorkbookConstraintRenderSegment[]>((acc, constraint) => {
+    const source = params.objectById.get(constraint.sourceObjectId);
+    const target = params.objectById.get(constraint.targetObjectId);
+    if (!source || !target) return acc;
+    const sourceCenter = getObjectCenter(source);
+    const targetCenter = getObjectCenter(target);
+    const segmentBounds = expandRectByPadding(normalizeRect(sourceCenter, targetCenter), 32);
+    if (
+      constraint.id !== params.selectedConstraintId &&
+      !rectIntersects(segmentBounds, params.renderViewportRect)
+    ) {
+      return acc;
+    }
+    acc.push({
+      constraint,
+      source: sourceCenter,
+      target: targetCenter,
+      label: mapConstraintLabel(constraint.type),
+    });
+    return acc;
+  }, []);
