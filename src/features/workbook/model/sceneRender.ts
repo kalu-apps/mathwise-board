@@ -95,6 +95,13 @@ export type WorkbookConstraintRenderSegment = {
   label: string;
 };
 
+export type WorkbookRenderedStrokeCacheRecord = {
+  strokeRef: WorkbookStroke;
+  previewFragmentsRef: WorkbookPoint[][] | undefined;
+  eraserPreviewActive: boolean;
+  rendered: WorkbookStroke[];
+};
+
 export type PreparedFunctionGraphRenderState = {
   axisColor: string;
   planeColor: string;
@@ -382,19 +389,44 @@ export const buildRenderedWorkbookStrokes = (params: {
   visibleStrokes: WorkbookStroke[];
   eraserPreviewActive: boolean;
   previewStrokeFragments: Record<string, WorkbookPoint[][]>;
-}) =>
-  params.visibleStrokes.flatMap((stroke) => {
+  previousCache?: Map<string, WorkbookRenderedStrokeCacheRecord>;
+}) => {
+  const nextCache = new Map<string, WorkbookRenderedStrokeCacheRecord>();
+  const rendered = params.visibleStrokes.flatMap((stroke) => {
     const key = `${stroke.layer}:${stroke.id}`;
     const previewFragments = params.eraserPreviewActive
       ? params.previewStrokeFragments[key]
       : undefined;
-    if (!previewFragments) return [stroke];
-    return previewFragments.map((points, index) => ({
+    const previousEntry = params.previousCache?.get(key);
+    if (
+      previousEntry &&
+      previousEntry.strokeRef === stroke &&
+      previousEntry.previewFragmentsRef === previewFragments &&
+      previousEntry.eraserPreviewActive === params.eraserPreviewActive
+    ) {
+      nextCache.set(key, previousEntry);
+      return previousEntry.rendered;
+    }
+    const nextRendered = !previewFragments
+      ? [stroke]
+      : previewFragments.map((points, index) => ({
       ...stroke,
       id: `${stroke.id}::preview-${index}`,
       points,
     }));
+    nextCache.set(key, {
+      strokeRef: stroke,
+      previewFragmentsRef: previewFragments,
+      eraserPreviewActive: params.eraserPreviewActive,
+      rendered: nextRendered,
+    });
+    return nextRendered;
   });
+  return {
+    rendered,
+    cache: nextCache,
+  };
+};
 
 export const buildConstraintRenderSegments = (params: {
   constraints: WorkbookConstraint[];

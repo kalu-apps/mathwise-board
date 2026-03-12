@@ -148,6 +148,7 @@ import {
   type WorkbookObjectSceneEntryCacheRecord,
   type WorkbookMaskedObjectSceneEntry,
   type WorkbookConstraintRenderSegment,
+  type WorkbookRenderedStrokeCacheRecord,
 } from "../model/sceneRender";
 import {
 } from "../model/sceneCommit";
@@ -1113,12 +1114,16 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     ? eraserPreviewObjectPaths
     : remoteEraserPreviewObjectPaths;
   const eraserPreviewActive = erasing || incomingEraserPreviews.length > 0;
+  const renderedStrokeCacheRef = useRef<Map<string, WorkbookRenderedStrokeCacheRecord>>(new Map());
   const renderedStrokes = useMemo(() => {
-    return buildRenderedWorkbookStrokes({
+    const { rendered, cache } = buildRenderedWorkbookStrokes({
       visibleStrokes,
       eraserPreviewActive,
       previewStrokeFragments: activeEraserPreviewStrokeFragments,
+      previousCache: renderedStrokeCacheRef.current,
     });
+    renderedStrokeCacheRef.current = cache;
+    return rendered;
   }, [activeEraserPreviewStrokeFragments, eraserPreviewActive, visibleStrokes]);
 
   const eraseAtPoint = useCallback(
