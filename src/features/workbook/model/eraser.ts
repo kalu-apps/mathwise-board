@@ -702,6 +702,16 @@ export const resolveObjectEraserCutsForRender = (
   return cuts.map((cut) => resolveObjectEraserCutGeometry(object, cut, getObjectRect));
 };
 
+export const resolveObjectEraserCutPathsForRender = (
+  object: WorkbookBoardObject,
+  cuts: ObjectEraserCut[],
+  getObjectRect: GetObjectRect
+): ObjectEraserPreviewPath[] =>
+  resolveObjectEraserCutsForRender(object, cuts, getObjectRect).map((cut) => ({
+    points: [{ x: cut.x, y: cut.y }],
+    radius: cut.radius,
+  }));
+
 export const resolveObjectEraserPathsForRender = (
   object: WorkbookBoardObject,
   paths: ObjectEraserStoredPath[],
@@ -739,10 +749,46 @@ export const resolveObjectEraserPathsForRender = (
   }, []);
 };
 
-const isPointInsideResolvedObjectEraserCut = (
-  point: WorkbookPoint,
-  cut: ResolvedObjectEraserCut
-) => Math.hypot(point.x - cut.x, point.y - cut.y) <= cut.radius;
+export const resolveObjectEraserMaskPathsForRender = (params: {
+  object: WorkbookBoardObject;
+  getObjectRect: GetObjectRect;
+  cuts?: ObjectEraserCut[] | null;
+  storedPaths?: ObjectEraserStoredPath[] | null;
+  previewPaths?: ObjectEraserPreviewPath[] | null;
+}): ObjectEraserPreviewPath[] => {
+  const {
+    object,
+    getObjectRect,
+    cuts = null,
+    storedPaths = null,
+    previewPaths = null,
+  } = params;
+  const committedStoredPaths =
+    storedPaths ?? sanitizeObjectEraserPaths(object, getObjectRect);
+  const basePaths =
+    committedStoredPaths.length > 0
+      ? resolveObjectEraserPathsForRender(object, committedStoredPaths, getObjectRect)
+      : resolveObjectEraserCutPathsForRender(
+          object,
+          cuts ?? sanitizeObjectEraserCuts(object, getObjectRect),
+          getObjectRect
+        );
+  return previewPaths && previewPaths.length > 0 ? [...basePaths, ...previewPaths] : basePaths;
+};
+
+export const buildCommittedObjectEraserStoredPaths = (params: {
+  object: WorkbookBoardObject;
+  getObjectRect: GetObjectRect;
+  nextStoredPaths?: ObjectEraserStoredPath[];
+}) => {
+  const { object, getObjectRect, nextStoredPaths = [] } = params;
+  const committedStoredPaths = sanitizeObjectEraserPaths(object, getObjectRect);
+  const fallbackStoredPaths =
+    committedStoredPaths.length > 0
+      ? committedStoredPaths
+      : sanitizeObjectEraserCuts(object, getObjectRect).map(convertObjectEraserCutToStoredPath);
+  return [...fallbackStoredPaths, ...nextStoredPaths];
+};
 
 const isPointInsideObjectEraserPreviewPath = (
   point: WorkbookPoint,
@@ -774,19 +820,11 @@ export const isPointInsideObjectEraserMask = (params: {
     previewCuts = null,
     previewPaths = null,
   } = params;
-  const resolvedCuts = resolveObjectEraserCutsForRender(
+  const activePaths = resolveObjectEraserMaskPathsForRender({
     object,
-    previewCuts ?? sanitizeObjectEraserCuts(object, getObjectRect),
-    getObjectRect
-  );
-  if (resolvedCuts.some((cut) => isPointInsideResolvedObjectEraserCut(point, cut))) {
-    return true;
-  }
-  const committedPaths = resolveObjectEraserPathsForRender(
-    object,
-    sanitizeObjectEraserPaths(object, getObjectRect),
-    getObjectRect
-  );
-  const activePaths = previewPaths ? [...committedPaths, ...previewPaths] : committedPaths;
+    getObjectRect,
+    cuts: previewCuts,
+    previewPaths,
+  });
   return activePaths.some((path) => isPointInsideObjectEraserPreviewPath(point, path));
 };

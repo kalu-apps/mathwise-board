@@ -107,10 +107,9 @@ import {
 } from "../model/sceneStroke";
 import {
   applyEraserPointToCollections,
-  areObjectEraserCutsEquivalent,
   areObjectEraserStoredPathsEquivalent,
   buildEraserSegmentPoints,
-  convertObjectEraserCutToStoredPath,
+  buildCommittedObjectEraserStoredPaths,
   isPointInsideObjectEraserMask,
   normalizeObjectEraserPreviewPath,
   type ObjectEraserCut,
@@ -1248,20 +1247,18 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       const existingStoredPaths = sourceObject
         ? sanitizeObjectEraserPaths(sourceObject, getObjectRect)
         : [];
-      const fallbackStoredPaths =
-        existingStoredPaths.length > 0
-          ? existingStoredPaths
-          : sourceObject
-            ? sanitizeObjectEraserCuts(sourceObject, getObjectRect).map((cut) =>
-                convertObjectEraserCutToStoredPath(cut)
-              )
-            : [];
-      const persistedPaths = [...fallbackStoredPaths, ...nextStoredPaths];
+      const persistedPaths = sourceObject
+        ? buildCommittedObjectEraserStoredPaths({
+            object: sourceObject,
+            getObjectRect,
+            nextStoredPaths,
+          })
+        : [];
       const currentCuts = sourceObject
         ? sanitizeObjectEraserCuts(sourceObject, getObjectRect)
         : [];
       if (
-        areObjectEraserCutsEquivalent(currentCuts, cuts) &&
+        currentCuts.length === 0 &&
         areObjectEraserStoredPathsEquivalent(existingStoredPaths, persistedPaths)
       ) {
         return;
@@ -1270,7 +1267,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         objectId,
         {
           meta: {
-            eraserCuts: cuts,
+            eraserCuts: [],
             eraserPaths: persistedPaths,
           },
         },

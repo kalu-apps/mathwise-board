@@ -6,10 +6,7 @@ import {
   type GraphFunctionDraft,
 } from "./functionGraph";
 import {
-  resolveObjectEraserCutsForRender,
-  resolveObjectEraserPathsForRender,
-  sanitizeObjectEraserCuts,
-  sanitizeObjectEraserPaths,
+  resolveObjectEraserMaskPathsForRender,
   type ObjectEraserCut,
   type ObjectEraserPreviewPath,
 } from "./eraser";
@@ -265,22 +262,15 @@ export const buildMaskedObjectSceneEntry = (params: {
     previewObjectCuts,
     previewObjectPaths,
   } = params;
-  const committedEraserCuts = sanitizeObjectEraserCuts(renderSource, getObjectRect);
-  const committedEraserPaths = resolveObjectEraserPathsForRender(
-    renderSource,
-    sanitizeObjectEraserPaths(renderSource, getObjectRect),
-    getObjectRect
-  );
-  const previewPaths = eraserPreviewActive ? previewObjectPaths[renderSource.id] ?? [] : [];
-  const maskPaths = [...committedEraserPaths, ...previewPaths];
-  const previewCuts = eraserPreviewActive
-    ? previewObjectCuts[renderSource.id] ?? committedEraserCuts
-    : committedEraserCuts;
-  const resolvedEraserCuts = resolveObjectEraserCutsForRender(
-    renderSource,
-    previewCuts,
-    getObjectRect
-  );
+  const previewCuts = eraserPreviewActive ? previewObjectCuts[renderSource.id] ?? null : null;
+  const previewPaths = eraserPreviewActive ? previewObjectPaths[renderSource.id] ?? null : null;
+  const maskPaths = resolveObjectEraserMaskPathsForRender({
+    object: renderSource,
+    getObjectRect,
+    cuts: previewCuts,
+    previewPaths,
+  });
+  const resolvedEraserCuts: ObjectEraserCut[] = [];
   if (resolvedEraserCuts.length === 0 && maskPaths.length === 0) {
     return {
       id: object.id,
