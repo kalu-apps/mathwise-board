@@ -5,8 +5,12 @@ import type { Duplex } from "node:stream";
 import type { Connect, PreviewServer, ViteDevServer } from "vite";
 import { WebSocket, WebSocketServer } from "ws";
 import {
+  copyWorkbookSessionSnapshots,
+  deleteWorkbookSessionArtifacts,
   getDb,
+  readWorkbookSessionSnapshot,
   saveDb,
+  upsertWorkbookSessionSnapshot,
   type AuthSessionRecord,
   type MockDb,
   type UserRecord,
@@ -16,7 +20,6 @@ import {
   type WorkbookSessionKind,
   type WorkbookSessionParticipantRecord,
   type WorkbookSessionRecord,
-  type WorkbookSnapshotRecord,
 } from "./db";
 import {
   publishWorkbookRealtimePayload,
@@ -1668,8 +1671,7 @@ export function setupMockServer(host: MiddlewareHost) {
         );
         db.workbookDrafts = db.workbookDrafts.filter((item) => item.sessionId !== sessionId);
         db.workbookInvites = db.workbookInvites.filter((item) => item.sessionId !== sessionId);
-        db.workbookEvents = db.workbookEvents.filter((item) => item.sessionId !== sessionId);
-        db.workbookSnapshots = db.workbookSnapshots.filter((item) => item.sessionId !== sessionId);
+        await deleteWorkbookSessionArtifacts(sessionId);
         workbookStreamClientsBySession.delete(sessionId);
         saveDb();
         json(res, 200, {
@@ -1879,14 +1881,10 @@ export function setupMockServer(host: MiddlewareHost) {
           roleInSession: actor.role === "teacher" ? "teacher" : "student",
           permissions: defaultPermissions(actor.role),
         });
-        const sourceSnapshots = db.workbookSnapshots.filter((item) => item.sessionId === source.id);
-        sourceSnapshots.forEach((snapshot) => {
-          db.workbookSnapshots.push({
-            ...snapshot,
-            id: ensureId(),
-            sessionId: session.id,
-            createdAt: timestamp,
-          });
+        await copyWorkbookSessionSnapshots({
+          sourceSessionId: source.id,
+          targetSessionId: session.id,
+          createdAt: timestamp,
         });
 
         const draft = ensureDraftForOwner(db, session, actor.id);
@@ -2459,9 +2457,7 @@ export function setupMockServer(host: MiddlewareHost) {
           return;
         }
         const layer = searchParams.get("layer") === "annotations" ? "annotations" : "board";
-        const snapshot = db.workbookSnapshots
-          .filter((item) => item.sessionId === sessionId && item.layer === layer)
-          .sort((a, b) => b.version - a.version)[0];
+        const snapshot = await readWorkbookSessionSnapshot({ sessionId, layer });
         if (!snapshot) {
           json(res, 200, null);
           return;
@@ -2493,30 +2489,12 @@ export function setupMockServer(host: MiddlewareHost) {
         const layer = body?.layer === "annotations" ? "annotations" : "board";
         const version = typeof body?.version === "number" && body.version > 0 ? body.version : 1;
         const payload = body?.payload ?? null;
-
-        const existing = db.workbookSnapshots.find(
-          (item) => item.sessionId === sessionId && item.layer === layer
-        );
-        const timestamp = nowIso();
-
-        let snapshot: WorkbookSnapshotRecord;
-        if (existing) {
-          existing.version = version;
-          existing.payload = JSON.stringify(payload);
-          existing.createdAt = timestamp;
-          snapshot = existing;
-        } else {
-          snapshot = {
-            id: ensureId(),
-            sessionId,
-            layer,
-            version,
-            payload: JSON.stringify(payload),
-            createdAt: timestamp,
-          };
-          db.workbookSnapshots.push(snapshot);
-        }
-        saveDb();
+        const snapshot = await upsertWorkbookSessionSnapshot({
+          sessionId,
+          layer,
+          version,
+          payload,
+        });
 
         json(res, 200, {
           id: snapshot.id,
