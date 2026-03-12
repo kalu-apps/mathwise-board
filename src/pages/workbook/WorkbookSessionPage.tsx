@@ -2414,6 +2414,22 @@ export default function WorkbookSessionPage() {
     []
   );
 
+  const applyLocalBoardObjects = useCallback(
+    (updater: (current: WorkbookBoardObject[]) => WorkbookBoardObject[]) => {
+      const next = updater(boardObjectsRef.current);
+      boardObjectsRef.current = next;
+      setBoardObjects(next);
+    },
+    []
+  );
+
+  const commitInteractiveBoardObjects = useCallback((next: WorkbookBoardObject[]) => {
+    boardObjectsRef.current = next;
+    flushSync(() => {
+      setBoardObjects(next);
+    });
+  }, []);
+
   const flushIncomingPreviewQueue = useCallback(() => {
     incomingPreviewFrameRef.current = null;
     const queue = incomingPreviewQueuedPatchRef.current;
@@ -4842,22 +4858,6 @@ export default function WorkbookSessionPage() {
     },
     []
   );
-
-  const applyLocalBoardObjects = useCallback(
-    (updater: (current: WorkbookBoardObject[]) => WorkbookBoardObject[]) => {
-      const next = updater(boardObjectsRef.current);
-      boardObjectsRef.current = next;
-      setBoardObjects(next);
-    },
-    []
-  );
-
-  const commitInteractiveBoardObjects = useCallback((next: WorkbookBoardObject[]) => {
-    boardObjectsRef.current = next;
-    flushSync(() => {
-      setBoardObjects(next);
-    });
-  }, []);
 
   const applyHistoryOperations = useCallback(
     (operations: WorkbookHistoryOperation[]) => {
