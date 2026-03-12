@@ -1121,6 +1121,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       strokes: allStrokes,
       objects: boardObjects,
       page: safePage,
+      getStrokeCandidatesInRect: visibleHitStrokeCandidatesInRect,
+      getObjectCandidatesInRect: visibleHitObjectCandidatesInRect,
       getObjectRect,
       isStrokeErasedByCircle,
       isObjectErasedByCircle,
@@ -1137,6 +1139,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     isObjectErasedByCircle,
     isStrokeErasedByCircle,
     scheduleRemoteEraserPreviewRender,
+    visibleHitObjectCandidatesInRect,
+    visibleHitStrokeCandidatesInRect,
   ]);
 
   const activeEraserPreviewStrokeFragments = erasing

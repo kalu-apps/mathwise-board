@@ -9,6 +9,7 @@ import type {
   WorkbookPoint,
   WorkbookStroke,
 } from "./types";
+import type { WorkbookSceneRect } from "./sceneVisibility";
 
 type GetObjectRect = (object: WorkbookBoardObject) => {
   x: number;
@@ -71,6 +72,8 @@ export const syncRemoteEraserPreviewState = (params: {
   strokes: WorkbookStroke[];
   objects: WorkbookBoardObject[];
   page: number;
+  getStrokeCandidatesInRect: (rect: WorkbookSceneRect) => WorkbookStroke[];
+  getObjectCandidatesInRect: (rect: WorkbookSceneRect) => WorkbookBoardObject[];
   getObjectRect: GetObjectRect;
   isStrokeErasedByCircle: (
     stroke: WorkbookStroke,
@@ -89,6 +92,8 @@ export const syncRemoteEraserPreviewState = (params: {
     strokes,
     objects,
     page,
+    getStrokeCandidatesInRect,
+    getObjectCandidatesInRect,
     getObjectRect,
     isStrokeErasedByCircle,
     isObjectErasedByCircle,
@@ -125,11 +130,18 @@ export const syncRemoteEraserPreviewState = (params: {
     }
     const nextPoints = preview.points.slice(processedPoints);
     nextPoints.forEach((point) => {
+      const radius = Math.max(4, preview.radius);
+      const queryRect: WorkbookSceneRect = {
+        x: point.x - radius,
+        y: point.y - radius,
+        width: radius * 2,
+        height: radius * 2,
+      };
       applyEraserPointToCollections({
         center: point,
-        radius: Math.max(4, preview.radius),
-        strokes,
-        objects,
+        radius,
+        strokes: getStrokeCandidatesInRect(queryRect),
+        objects: getObjectCandidatesInRect(queryRect),
         strokeFragmentsMap: nextState.strokeFragmentsMap,
         objectCutsMap: nextState.objectCutsMap,
         objectPreviewPathsMap: nextState.objectPreviewPathsMap,
