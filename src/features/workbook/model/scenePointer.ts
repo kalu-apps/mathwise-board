@@ -168,6 +168,7 @@ export const resolveWorkbookSelectStartAction = (params: {
 
 export const resolveWorkbookContinueInteractionMode = (params: {
   pointerIdMatches: boolean;
+  primaryButtonPressed: boolean;
   polygonPointMode: boolean;
   panning: boolean;
   forcePanMode: boolean;
@@ -187,6 +188,9 @@ export const resolveWorkbookContinueInteractionMode = (params: {
     return "polygon_hover" as const;
   }
   if (!params.pointerIdMatches) {
+    return "ignore" as const;
+  }
+  if (!params.primaryButtonPressed) {
     return "ignore" as const;
   }
   if (params.panning) return "panning" as const;

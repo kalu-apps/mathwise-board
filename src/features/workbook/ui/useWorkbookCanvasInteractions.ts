@@ -671,6 +671,8 @@ export const useWorkbookCanvasInteractions = (
 
       const continueMode = resolveWorkbookContinueInteractionMode({
         pointerIdMatches: pointerIdRef.current === event.pointerId,
+        primaryButtonPressed:
+          event.pointerType === "mouse" ? (event.buttons & 1) === 1 : true,
         polygonPointMode: isWorkbookPolygonPointTool(data.tool, data.polygonMode),
         panning: Boolean(data.panning),
         forcePanMode: data.forcePanMode,

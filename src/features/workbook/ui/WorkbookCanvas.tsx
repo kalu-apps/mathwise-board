@@ -1047,9 +1047,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         resolveTopVisibleBoardObject(candidates, (object) => isWorkbookObjectHit(object, point));
       const indexedTarget = resolveTarget(indexedCandidates);
       if (indexedTarget) return indexedTarget;
-      return resolveTarget(visibleHitObjects);
+      const visibleTarget = resolveTarget(visibleHitObjects);
+      if (visibleTarget) return visibleTarget;
+      return resolveTarget(boardObjects);
     },
-    [visibleHitObjectCandidatesAtPoint, visibleHitObjects]
+    [boardObjects, visibleHitObjectCandidatesAtPoint, visibleHitObjects]
   );
 
   const resolveTopStroke = useCallback(
@@ -1059,9 +1061,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         resolveTopVisibleStroke(candidates, (stroke) => isWorkbookStrokeHit(stroke, point));
       const indexedTarget = resolveTarget(indexedCandidates);
       if (indexedTarget) return indexedTarget;
-      return resolveTarget(visibleHitStrokes);
+      const visibleTarget = resolveTarget(visibleHitStrokes);
+      if (visibleTarget) return visibleTarget;
+      return resolveTarget(allStrokes);
     },
-    [visibleHitStrokeCandidatesAtPoint, visibleHitStrokes]
+    [allStrokes, visibleHitStrokeCandidatesAtPoint, visibleHitStrokes]
   );
 
   const isStrokeErasedByCircle = useCallback(
@@ -3970,7 +3974,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     },
     [onSelectedConstraintChange, onSelectedObjectChange]
   );
-
   const solid3dPickMarkers = useMemo(() => {
     const markerSource = solid3dSectionMarkers;
     if (!markerSource?.objectId) {
