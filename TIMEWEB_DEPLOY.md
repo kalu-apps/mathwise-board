@@ -27,7 +27,7 @@ AUTH_COOKIE_SECURE=1
 VITE_WHITEBOARD_TEACHER_PASSWORD=<strong-password>
 
 BOARD_STORAGE_DRIVER=postgres
-DATABASE_URL=postgresql://board_app:<url-encoded-password>@10.20.0.4:5432/board_prod?sslmode=no-verify
+DATABASE_URL=postgresql://board_app:<url-encoded-password>@10.20.0.4:5432/board_prod?sslmode=require
 REDIS_URL=redis://default:<url-encoded-password>@10.20.0.5:6379/0
 BOARD_RUNTIME_REDIS_REQUIRED=1
 
