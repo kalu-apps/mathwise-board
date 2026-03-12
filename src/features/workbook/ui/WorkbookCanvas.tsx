@@ -98,8 +98,20 @@ import {
   resolveWorkbookLineEndpointAtPoint,
 } from "../model/sceneHitTesting";
 import {
+  buildAreaSelection,
+  getAreaSelectionDraftRect,
+  getAreaSelectionHandlePoints,
+  hasMeaningfulAreaSelectionRect,
+  resolveAreaSelectionResizeMode,
+  resizeAreaSelectionRect,
+  type WorkbookAreaSelection,
+} from "../model/sceneSelection";
+import type {
+  WorkbookAreaSelectionDraft,
+  WorkbookAreaSelectionResizeMode,
+} from "../model/sceneSelection";
+import {
   buildStrokePreviewPoints,
-  getStrokeRect,
   toPath,
 } from "../model/stroke";
 import {
@@ -115,6 +127,11 @@ import {
   type ObjectEraserPreviewPath,
   type ObjectEraserStoredPath,
 } from "../model/eraser";
+import {
+  buildRealtimeObjectPatch,
+  toStableSignature,
+  REALTIME_PREVIEW_REPEAT_GUARD_MS,
+} from "../model/realtimePreview";
 import { useAnimationFrameState } from "@/shared/lib/useAnimationFrameState";
 import {
   WorkbookAutoDividerLayer,
@@ -265,11 +282,7 @@ type WorkbookCanvasProps = {
 
 type Rect = WorkbookSceneRect;
 
-type WorkbookCanvasAreaSelection = {
-  objectIds: string[];
-  strokeIds: Array<{ id: string; layer: WorkbookLayer }>;
-  rect: { x: number; y: number; width: number; height: number };
-};
+type WorkbookCanvasAreaSelection = WorkbookAreaSelection;
 
 type ShapeDraft = {
   tool:
@@ -374,12 +387,8 @@ type GraphPanState = {
   pxPerUnit: number;
 };
 
-type AreaSelectionDraft = {
-  start: WorkbookPoint;
-  current: WorkbookPoint;
-};
-
-type AreaSelectionResizeMode = "n" | "s" | "w" | "e" | "nw" | "ne" | "sw" | "se";
+type AreaSelectionDraft = WorkbookAreaSelectionDraft;
+type AreaSelectionResizeMode = WorkbookAreaSelectionResizeMode;
 
 type AreaSelectionResizeState = {
   initialRect: Rect;
@@ -388,64 +397,6 @@ type AreaSelectionResizeState = {
 };
 
 const STROKE_PREVIEW_SEND_INTERVAL_MS = 32;
-
-const getAreaSelectionHandlePoints = (rect: Rect) => {
-  const left = rect.x;
-  const right = rect.x + rect.width;
-  const top = rect.y;
-  const bottom = rect.y + rect.height;
-  const midX = left + rect.width / 2;
-  const midY = top + rect.height / 2;
-  return [
-    { mode: "nw" as const, x: left, y: top },
-    { mode: "n" as const, x: midX, y: top },
-    { mode: "ne" as const, x: right, y: top },
-    { mode: "e" as const, x: right, y: midY },
-    { mode: "se" as const, x: right, y: bottom },
-    { mode: "s" as const, x: midX, y: bottom },
-    { mode: "sw" as const, x: left, y: bottom },
-    { mode: "w" as const, x: left, y: midY },
-  ];
-};
-
-const resolveAreaSelectionResizeMode = (
-  rect: Rect,
-  point: WorkbookPoint
-): AreaSelectionResizeMode | null => {
-  const nearest = getAreaSelectionHandlePoints(rect).reduce<{
-    mode: AreaSelectionResizeMode | null;
-    distance: number;
-  }>(
-    (acc, handle) => {
-      const distance = Math.hypot(handle.x - point.x, handle.y - point.y);
-      if (distance < acc.distance) {
-        return { mode: handle.mode, distance };
-      }
-      return acc;
-    },
-    { mode: null, distance: Number.POSITIVE_INFINITY }
-  );
-  return nearest.mode && nearest.distance <= 12 ? nearest.mode : null;
-};
-
-const resizeAreaSelectionRect = (
-  rect: Rect,
-  mode: AreaSelectionResizeMode,
-  point: WorkbookPoint
-) => {
-  const left = rect.x;
-  const right = rect.x + rect.width;
-  const top = rect.y;
-  const bottom = rect.y + rect.height;
-  const nextLeft = mode.includes("w") ? point.x : left;
-  const nextRight = mode.includes("e") ? point.x : right;
-  const nextTop = mode.includes("n") ? point.y : top;
-  const nextBottom = mode.includes("s") ? point.y : bottom;
-  return normalizeRect(
-    { x: nextLeft, y: nextTop },
-    { x: nextRight, y: nextBottom }
-  );
-};
 
 const ROUND_SOLID_PRESETS = new Set([
   "cylinder",
@@ -503,88 +454,6 @@ const ERASER_MASK_PADDING = 20;
 
 const clampGraphOffsetValue = (value: number) =>
   Math.max(-999, Math.min(999, Number.isFinite(value) ? value : 0));
-
-const COORD_DELTA_EPSILON = 0.01;
-const REALTIME_META_PATCH_MAX_SIGNATURE = 8_192;
-const REALTIME_PREVIEW_REPEAT_GUARD_MS = 120;
-
-const hasCoordChanged = (left: number, right: number) =>
-  Math.abs(left - right) > COORD_DELTA_EPSILON;
-
-const arePointsEqual = (
-  left: WorkbookPoint[] | undefined,
-  right: WorkbookPoint[] | undefined
-) => {
-  if (!left && !right) return true;
-  if (!left || !right) return false;
-  if (left.length !== right.length) return false;
-  for (let index = 0; index < left.length; index += 1) {
-    if (
-      hasCoordChanged(left[index].x, right[index].x) ||
-      hasCoordChanged(left[index].y, right[index].y)
-    ) {
-      return false;
-    }
-  }
-  return true;
-};
-
-const toStableSignature = (value: unknown) => {
-  try {
-    return JSON.stringify(value) ?? "";
-  } catch {
-    return "";
-  }
-};
-
-const buildRealtimeObjectPatch = (
-  base: WorkbookBoardObject,
-  preview: WorkbookBoardObject
-): Partial<WorkbookBoardObject> | null => {
-  const patch: Partial<WorkbookBoardObject> = {};
-  if (hasCoordChanged(base.x, preview.x)) patch.x = preview.x;
-  if (hasCoordChanged(base.y, preview.y)) patch.y = preview.y;
-  if (hasCoordChanged(base.width, preview.width)) patch.width = preview.width;
-  if (hasCoordChanged(base.height, preview.height)) patch.height = preview.height;
-  if (hasCoordChanged(base.rotation ?? 0, preview.rotation ?? 0)) {
-    patch.rotation = preview.rotation;
-  }
-  const basePoints = Array.isArray(base.points) ? base.points : undefined;
-  const previewPoints = Array.isArray(preview.points) ? preview.points : undefined;
-  if (!arePointsEqual(basePoints, previewPoints)) {
-    patch.points = previewPoints;
-  }
-  const baseMetaSignature = toStableSignature(base.meta ?? null);
-  const previewMetaSignature = toStableSignature(preview.meta ?? null);
-  if (baseMetaSignature !== previewMetaSignature) {
-    const previewMeta =
-      preview.meta && typeof preview.meta === "object" && !Array.isArray(preview.meta)
-        ? (preview.meta as Record<string, unknown>)
-        : null;
-    const baseMeta =
-      base.meta && typeof base.meta === "object" && !Array.isArray(base.meta)
-        ? (base.meta as Record<string, unknown>)
-        : null;
-
-    // For 3D objects stream only live camera/view deltas; full 3D state is committed on finalize.
-    if (preview.type === "solid3d" && previewMeta) {
-      const previewView =
-        previewMeta.view && typeof previewMeta.view === "object" && !Array.isArray(previewMeta.view)
-          ? (previewMeta.view as Record<string, unknown>)
-          : null;
-      const baseView =
-        baseMeta?.view && typeof baseMeta.view === "object" && !Array.isArray(baseMeta.view)
-          ? (baseMeta.view as Record<string, unknown>)
-          : null;
-      if (toStableSignature(baseView ?? null) !== toStableSignature(previewView ?? null)) {
-        patch.meta = { view: previewView ?? null };
-      }
-    } else if (previewMetaSignature.length <= REALTIME_META_PATCH_MAX_SIGNATURE) {
-      patch.meta = preview.meta;
-    }
-  }
-  return Object.keys(patch).length > 0 ? patch : null;
-};
 
 const useElementSize = (element: HTMLDivElement | null) => {
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -3310,53 +3179,21 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         latestAreaSelectionResize.mode,
         latestAreaSelectionResize.current
       );
-      const hasMeaningfulArea = nextRect.width > 8 || nextRect.height > 8;
-      if (!hasMeaningfulArea) {
+      if (!hasMeaningfulAreaSelectionRect(nextRect)) {
         onAreaSelectionChange?.(null);
       } else {
-        const objectIds = boardObjects
-          .filter((object) => rectIntersects(getObjectRect(object), nextRect))
-          .map((object) => object.id);
-        const strokeIds = allStrokes
-          .filter((stroke) => {
-            const strokeRect = getStrokeRect(stroke);
-            return strokeRect ? rectIntersects(strokeRect, nextRect) : false;
-          })
-          .map((stroke) => ({ id: stroke.id, layer: stroke.layer }));
         onAreaSelectionChange?.(
-          objectIds.length > 0 || strokeIds.length > 0
-            ? {
-                objectIds,
-                strokeIds,
-                rect: nextRect,
-              }
-            : null
+          buildAreaSelection(nextRect, boardObjects, allStrokes)
         );
       }
       setAreaSelectionResize(null);
     } else if (latestAreaSelectionDraft) {
-      const nextRect = normalizeRect(latestAreaSelectionDraft.start, latestAreaSelectionDraft.current);
-      const hasMeaningfulArea = nextRect.width > 8 || nextRect.height > 8;
-      if (!hasMeaningfulArea) {
+      const nextRect = getAreaSelectionDraftRect(latestAreaSelectionDraft);
+      if (!hasMeaningfulAreaSelectionRect(nextRect)) {
         onAreaSelectionChange?.(null);
       } else {
-        const objectIds = boardObjects
-          .filter((object) => rectIntersects(getObjectRect(object), nextRect))
-          .map((object) => object.id);
-        const strokeIds = allStrokes
-          .filter((stroke) => {
-            const strokeRect = getStrokeRect(stroke);
-            return strokeRect ? rectIntersects(strokeRect, nextRect) : false;
-          })
-          .map((stroke) => ({ id: stroke.id, layer: stroke.layer }));
         onAreaSelectionChange?.(
-          objectIds.length > 0 || strokeIds.length > 0
-            ? {
-                objectIds,
-                strokeIds,
-                rect: nextRect,
-              }
-            : null
+          buildAreaSelection(nextRect, boardObjects, allStrokes)
         );
       }
       setAreaSelectionDraft(null);
@@ -6338,12 +6175,22 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   }, [objectById, selectedPreviewObject, solid3dPickMarkers, solid3dSectionMarkers]);
 
   const draftOverlayNodes = useMemo(() => {
+    const areaSelectionDraftRect = areaSelectionDraft
+      ? getAreaSelectionDraftRect(areaSelectionDraft)
+      : null;
+    const areaSelectionResizeRect = areaSelectionResize
+      ? resizeAreaSelectionRect(
+          areaSelectionResize.initialRect,
+          areaSelectionResize.mode,
+          areaSelectionResize.current
+        )
+      : null;
     if (
       !shapeDraft &&
       !(tool === "polygon" && polygonMode === "points" && polygonPointDraft.length > 0) &&
-      !(tool === "area_select" && areaSelectionDraft) &&
-      !(tool === "select" && areaSelectionDraft) &&
-      !(tool === "area_select" && areaSelectionResize) &&
+      !(tool === "area_select" && areaSelectionDraftRect) &&
+      !(tool === "select" && areaSelectionDraftRect) &&
+      !(tool === "area_select" && areaSelectionResizeRect) &&
       !(tool === "eraser" && eraserCursorPoint)
     ) {
       return null;
@@ -6500,12 +6347,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           </g>
         ) : null}
 
-        {tool === "area_select" && areaSelectionDraft ? (
+        {tool === "area_select" && areaSelectionDraftRect ? (
           <rect
-            x={Math.min(areaSelectionDraft.start.x, areaSelectionDraft.current.x)}
-            y={Math.min(areaSelectionDraft.start.y, areaSelectionDraft.current.y)}
-            width={Math.max(1, Math.abs(areaSelectionDraft.current.x - areaSelectionDraft.start.x))}
-            height={Math.max(1, Math.abs(areaSelectionDraft.current.y - areaSelectionDraft.start.y))}
+            x={areaSelectionDraftRect.x}
+            y={areaSelectionDraftRect.y}
+            width={areaSelectionDraftRect.width}
+            height={areaSelectionDraftRect.height}
             fill="none"
             stroke="#4f63ff"
             strokeWidth={1.2}
@@ -6513,12 +6360,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           />
         ) : null}
 
-        {tool === "select" && areaSelectionDraft ? (
+        {tool === "select" && areaSelectionDraftRect ? (
           <rect
-            x={Math.min(areaSelectionDraft.start.x, areaSelectionDraft.current.x)}
-            y={Math.min(areaSelectionDraft.start.y, areaSelectionDraft.current.y)}
-            width={Math.max(1, Math.abs(areaSelectionDraft.current.x - areaSelectionDraft.start.x))}
-            height={Math.max(1, Math.abs(areaSelectionDraft.current.y - areaSelectionDraft.start.y))}
+            x={areaSelectionDraftRect.x}
+            y={areaSelectionDraftRect.y}
+            width={areaSelectionDraftRect.width}
+            height={areaSelectionDraftRect.height}
             fill="none"
             stroke="#4f63ff"
             strokeWidth={1.2}
@@ -6526,26 +6373,17 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           />
         ) : null}
 
-        {tool === "area_select" && areaSelectionResize ? (
-          (() => {
-            const nextRect = resizeAreaSelectionRect(
-              areaSelectionResize.initialRect,
-              areaSelectionResize.mode,
-              areaSelectionResize.current
-            );
-            return (
-              <rect
-                x={nextRect.x}
-                y={nextRect.y}
-                width={nextRect.width}
-                height={nextRect.height}
-                fill="none"
-                stroke="#4f63ff"
-                strokeWidth={1.2}
-                strokeDasharray="7 5"
-              />
-            );
-          })()
+        {tool === "area_select" && areaSelectionResizeRect ? (
+          <rect
+            x={areaSelectionResizeRect.x}
+            y={areaSelectionResizeRect.y}
+            width={areaSelectionResizeRect.width}
+            height={areaSelectionResizeRect.height}
+            fill="none"
+            stroke="#4f63ff"
+            strokeWidth={1.2}
+            strokeDasharray="7 5"
+          />
         ) : null}
       </>
     );
