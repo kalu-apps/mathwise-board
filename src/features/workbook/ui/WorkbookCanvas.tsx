@@ -95,10 +95,8 @@ import {
   resolveWorkbookLineEndpointAtPoint,
 } from "../model/sceneHitTesting";
 import {
-  getAreaSelectionDraftRect,
   getAreaSelectionHandlePoints,
   resolveAreaSelectionResizeMode,
-  resizeAreaSelectionRect,
   type WorkbookAreaSelection,
 } from "../model/sceneSelection";
 import type {
@@ -165,6 +163,11 @@ import {
   type ResizeState,
   type Solid3dResizeState,
 } from "../model/sceneRuntime";
+import {
+  prepareWorkbookRenderObject,
+  resolveAreaSelectionPreviewRects,
+  resolveSelectedObjectRect,
+} from "../model/sceneRender";
 import { useAnimationFrameState } from "@/shared/lib/useAnimationFrameState";
 import {
   WorkbookAutoDividerLayer,
@@ -2709,61 +2712,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   }, [commitPolygonByPoints, polygonMode, polygonPointDraft, setPolygonHoverPoint, tool]);
 
   const renderObject = (objectSource: WorkbookBoardObject) => {
-    const previewMeta = solid3dPreviewMetaById[objectSource.id];
-    const movingDelta =
-      moving
-        ? {
-            x: moving.current.x - moving.start.x,
-            y: moving.current.y - moving.start.y,
-          }
-        : null;
-    const isInMovingGroup =
-      moving?.groupObjects.some((entry) => entry.id === objectSource.id) ?? false;
-    const movingBaseObject =
-      isInMovingGroup && moving
-        ? moving.groupObjects.find((entry) => entry.id === objectSource.id) ??
-          (moving.object.id === objectSource.id ? moving.object : null)
-        : null;
-    let object =
-      previewMeta && objectSource.type === "solid3d"
-        ? { ...objectSource, meta: previewMeta }
-        : objectSource;
-    if (movingBaseObject && movingDelta) {
-      const sourceForMove =
-        previewMeta && movingBaseObject.type === "solid3d"
-          ? { ...movingBaseObject, meta: previewMeta }
-          : movingBaseObject;
-      object = {
-        ...sourceForMove,
-        x: sourceForMove.x + movingDelta.x,
-        y: sourceForMove.y + movingDelta.y,
-        points: Array.isArray(sourceForMove.points)
-          ? sourceForMove.points.map((point) => ({
-              x: point.x + movingDelta.x,
-              y: point.y + movingDelta.y,
-            }))
-          : sourceForMove.points,
-      };
-    }
-    const rect =
-      activeMoveRect && activeMoveRect.id === object.id
-        ? {
-            ...activeMoveRect,
-          }
-        : {
-            id: object.id,
-            x: object.x,
-            y: object.y,
-            width: object.width,
-            height: object.height,
-          };
-    const normalized =
-      Array.isArray(object.points) && object.points.length > 0
-        ? getObjectRect(object)
-        : normalizeRect(
-            { x: rect.x, y: rect.y },
-            { x: rect.x + rect.width, y: rect.y + rect.height }
-          );
+    const prepared = prepareWorkbookRenderObject({
+      objectSource,
+      moving,
+      activeMoveRect,
+      solid3dPreviewMetaById,
+    });
+    const { object, normalized, transform } = prepared;
     const commonProps = {
       stroke: object.color ?? "#4f63ff",
       strokeWidth: object.strokeWidth ?? 2,
@@ -2771,12 +2726,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       opacity: object.opacity ?? 1,
       "data-object-id": object.id,
     };
-    const centerX = normalized.x + normalized.width / 2;
-    const centerY = normalized.y + normalized.height / 2;
-    const rotation = Number.isFinite(object.rotation) ? (object.rotation as number) : 0;
-    const transform = rotation
-      ? `rotate(${rotation} ${centerX} ${centerY})`
-      : undefined;
 
     const render2dFigureOverlay = (vertices: WorkbookPoint[]) => {
       if (vertices.length < 2) return null;
@@ -5131,21 +5080,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   }, [isLiveInteractionActive]);
 
   const selectedRect = useMemo(() => {
-    if (!selectedPreviewObject) return null;
-    if (
-      selectedPreviewObject.type === "line" ||
-      selectedPreviewObject.type === "arrow" ||
-      (Array.isArray(selectedPreviewObject.points) && selectedPreviewObject.points.length > 0)
-    ) {
-      return getObjectRect(selectedPreviewObject);
-    }
-    return normalizeRect(
-      { x: selectedPreviewObject.x, y: selectedPreviewObject.y },
-      {
-        x: selectedPreviewObject.x + selectedPreviewObject.width,
-        y: selectedPreviewObject.y + selectedPreviewObject.height,
-      }
-    );
+    return resolveSelectedObjectRect(selectedPreviewObject);
   }, [selectedPreviewObject]);
   const selectedLineControls = useMemo(() => {
     if (!selectedPreviewObject) return null;
@@ -5273,16 +5208,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   }, [objectById, selectedPreviewObject, solid3dPickMarkers, solid3dSectionMarkers]);
 
   const draftOverlayNodes = useMemo(() => {
-    const areaSelectionDraftRect = areaSelectionDraft
-      ? getAreaSelectionDraftRect(areaSelectionDraft)
-      : null;
-    const areaSelectionResizeRect = areaSelectionResize
-      ? resizeAreaSelectionRect(
-          areaSelectionResize.initialRect,
-          areaSelectionResize.mode,
-          areaSelectionResize.current
-        )
-      : null;
+    const { areaSelectionDraftRect, areaSelectionResizeRect } =
+      resolveAreaSelectionPreviewRects({
+        areaSelectionDraft,
+        areaSelectionResize,
+      });
     if (
       !shapeDraft &&
       !(tool === "polygon" && polygonMode === "points" && polygonPointDraft.length > 0) &&
