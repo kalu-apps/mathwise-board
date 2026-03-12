@@ -888,9 +888,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     strokeByKey,
     renderViewportRect,
     visibleBoardObjects,
-    visibleHitObjects,
+    visibleHitObjectCandidatesAtPoint,
     visibleStrokes,
-    visibleHitStrokes,
+    visibleHitStrokeCandidatesAtPoint,
   } = sceneAccess;
 
   const getObjectSceneLayerId = useCallback((object: WorkbookBoardObject) => {
@@ -1083,20 +1083,20 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   const resolveTopObject = useCallback(
     (point: WorkbookPoint) => {
-      return resolveTopVisibleBoardObject(visibleHitObjects, (object) =>
+      return resolveTopVisibleBoardObject(visibleHitObjectCandidatesAtPoint(point), (object) =>
         isWorkbookObjectHit(object, point)
       );
     },
-    [visibleHitObjects]
+    [visibleHitObjectCandidatesAtPoint]
   );
 
   const resolveTopStroke = useCallback(
     (point: WorkbookPoint) => {
-      return resolveTopVisibleStroke(visibleHitStrokes, (stroke) =>
+      return resolveTopVisibleStroke(visibleHitStrokeCandidatesAtPoint(point), (stroke) =>
         isWorkbookStrokeHit(stroke, point)
       );
     },
-    [visibleHitStrokes]
+    [visibleHitStrokeCandidatesAtPoint]
   );
 
   const isStrokeErasedByCircle = useCallback(
