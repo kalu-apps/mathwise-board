@@ -5256,12 +5256,14 @@ export default function WorkbookSessionPage() {
             height: constrained.height,
           }
         : patch;
-      if (isPreviewOnly) {
-        setBoardObjects((current) =>
-          current.map((item) =>
-            item.id === objectId ? mergeBoardObjectWithPatch(item, normalizedPatch) : item
-          )
+      const applyPatchToBoardObjects = (source: WorkbookBoardObject[]) =>
+        source.map((item) =>
+          item.id === objectId ? mergeBoardObjectWithPatch(item, normalizedPatch) : item
         );
+      if (isPreviewOnly) {
+        const optimisticBoardObjects = applyPatchToBoardObjects(boardObjectsRef.current);
+        boardObjectsRef.current = optimisticBoardObjects;
+        setBoardObjects(optimisticBoardObjects);
         const pendingPatch = objectPreviewQueuedPatchRef.current.get(objectId) ?? {};
         objectPreviewQueuedPatchRef.current.set(objectId, {
           ...pendingPatch,
@@ -5273,11 +5275,9 @@ export default function WorkbookSessionPage() {
       if (options?.trackHistory !== false && !objectUpdateHistoryBeforeRef.current.has(objectId)) {
         objectUpdateHistoryBeforeRef.current.set(objectId, cloneSerializable(currentObject));
       }
-      setBoardObjects((current) =>
-        current.map((item) =>
-          item.id === objectId ? mergeBoardObjectWithPatch(item, normalizedPatch) : item
-        )
-      );
+      const optimisticBoardObjects = applyPatchToBoardObjects(boardObjectsRef.current);
+      boardObjectsRef.current = optimisticBoardObjects;
+      setBoardObjects(optimisticBoardObjects);
       const pendingPatch = objectUpdateQueuedPatchRef.current.get(objectId) ?? {};
       objectUpdateQueuedPatchRef.current.set(objectId, {
         ...pendingPatch,
