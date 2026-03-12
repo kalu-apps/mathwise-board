@@ -889,8 +889,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     renderViewportRect,
     visibleBoardObjects,
     visibleHitObjectCandidatesAtPoint,
+    visibleHitObjectCandidatesInRect,
     visibleStrokes,
     visibleHitStrokeCandidatesAtPoint,
+    visibleHitStrokeCandidatesInRect,
   } = sceneAccess;
 
   const getObjectSceneLayerId = useCallback((object: WorkbookBoardObject) => {
@@ -1156,11 +1158,17 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const eraseAtPoint = useCallback(
     (center: WorkbookPoint) => {
       const radius = Math.max(4, width);
+      const queryRect = {
+        x: center.x - radius,
+        y: center.y - radius,
+        width: radius * 2,
+        height: radius * 2,
+      };
       applyEraserPointToCollections({
         center,
         radius,
-        strokes: allStrokes,
-        objects: boardObjects,
+        strokes: visibleHitStrokeCandidatesInRect(queryRect),
+        objects: visibleHitObjectCandidatesInRect(queryRect),
         strokeFragmentsMap: eraserStrokeFragmentsRef.current,
         objectCutsMap: eraserObjectCutsRef.current,
         objectPreviewPathsMap: eraserObjectPreviewPathsRef.current,
@@ -1173,11 +1181,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       scheduleEraserPreviewRender();
     },
     [
-      allStrokes,
-      boardObjects,
       isObjectErasedByCircle,
       isStrokeErasedByCircle,
       scheduleEraserPreviewRender,
+      visibleHitObjectCandidatesInRect,
+      visibleHitStrokeCandidatesInRect,
       width,
     ]
   );

@@ -185,6 +185,37 @@ const queryWorkbookSceneRectIndex = <T>(
     .filter((item): item is T => Boolean(item));
 };
 
+const queryWorkbookSceneRectIndexByRect = <T>(
+  index: WorkbookSceneRectIndex<T>,
+  rect: WorkbookSceneRect
+) => {
+  const startX = Math.floor(rect.x / index.cellSize);
+  const endX = Math.floor((rect.x + rect.width) / index.cellSize);
+  const startY = Math.floor(rect.y / index.cellSize);
+  const endY = Math.floor((rect.y + rect.height) / index.cellSize);
+  const seen = new Set<string>();
+  const keys: string[] = [];
+  for (let cellX = startX; cellX <= endX; cellX += 1) {
+    for (let cellY = startY; cellY <= endY; cellY += 1) {
+      const bucket = index.buckets.get(buildRectIndexKey(cellX, cellY));
+      if (!bucket || bucket.length === 0) continue;
+      bucket.forEach((key) => {
+        if (seen.has(key)) return;
+        seen.add(key);
+        keys.push(key);
+      });
+    }
+  }
+  keys.sort(
+    (left, right) =>
+      (index.orderByKey.get(left) ?? Number.POSITIVE_INFINITY) -
+      (index.orderByKey.get(right) ?? Number.POSITIVE_INFINITY)
+  );
+  return keys
+    .map((key) => index.itemByKey.get(key))
+    .filter((item): item is T => Boolean(item));
+};
+
 export type WorkbookSceneAccess = {
   objectById: Map<string, WorkbookBoardObject>;
   strokeByKey: Map<string, WorkbookStroke>;
@@ -193,9 +224,11 @@ export type WorkbookSceneAccess = {
   visibleBoardObjects: WorkbookBoardObject[];
   visibleHitObjects: WorkbookBoardObject[];
   visibleHitObjectCandidatesAtPoint: (point: WorkbookPoint) => WorkbookBoardObject[];
+  visibleHitObjectCandidatesInRect: (rect: WorkbookSceneRect) => WorkbookBoardObject[];
   visibleStrokes: WorkbookStroke[];
   visibleHitStrokes: WorkbookStroke[];
   visibleHitStrokeCandidatesAtPoint: (point: WorkbookPoint) => WorkbookStroke[];
+  visibleHitStrokeCandidatesInRect: (rect: WorkbookSceneRect) => WorkbookStroke[];
 };
 
 export const buildWorkbookSceneAccess = (params: {
@@ -257,6 +290,8 @@ export const buildWorkbookSceneAccess = (params: {
     visibleHitObjects,
     visibleHitObjectCandidatesAtPoint: (point) =>
       queryWorkbookSceneRectIndex(objectHitIndex, point),
+    visibleHitObjectCandidatesInRect: (rect) =>
+      queryWorkbookSceneRectIndexByRect(objectHitIndex, rect),
     visibleStrokes: filterVisibleStrokes({
       strokes: params.strokes,
       viewportRect,
@@ -265,6 +300,8 @@ export const buildWorkbookSceneAccess = (params: {
     visibleHitStrokes,
     visibleHitStrokeCandidatesAtPoint: (point) =>
       queryWorkbookSceneRectIndex(strokeHitIndex, point),
+    visibleHitStrokeCandidatesInRect: (rect) =>
+      queryWorkbookSceneRectIndexByRect(strokeHitIndex, rect),
   };
 };
 
