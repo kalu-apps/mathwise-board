@@ -11,6 +11,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import "./workbookRouteStyles";
 import {
@@ -2427,7 +2428,7 @@ export default function WorkbookSessionPage() {
       queue.delete(objectId);
     });
     if (patches.size === 0) return;
-    setBoardObjects((current) => {
+    applyLocalBoardObjects((current) => {
       if (current.length === 0) return current;
       let changed = false;
       const next = current.map((item) => {
@@ -2441,7 +2442,7 @@ export default function WorkbookSessionPage() {
       });
       return changed ? next : current;
     });
-  }, []);
+  }, [applyLocalBoardObjects]);
 
   const queueIncomingPreviewPatch = useCallback(
     (objectId: string, patch: Partial<WorkbookBoardObject>) => {
@@ -2546,6 +2547,7 @@ export default function WorkbookSessionPage() {
 
   const restoreSceneSnapshot = useCallback((snapshot: WorkbookSceneSnapshot) => {
     setBoardStrokes(snapshot.boardStrokes);
+    boardObjectsRef.current = snapshot.boardObjects;
     setBoardObjects(snapshot.boardObjects);
     setConstraints(snapshot.constraints);
     setAnnotationStrokes(snapshot.annotationStrokes);
@@ -2970,8 +2972,10 @@ export default function WorkbookSessionPage() {
           annotationSnapshot?.payload ?? createEmptyScene()
         );
 
+        const nextBoardObjects = normalizedBoard.objects.filter((item) => item.layer === "board");
         setBoardStrokes(normalizedBoard.strokes.filter((stroke) => stroke.layer === "board"));
-        setBoardObjects(normalizedBoard.objects.filter((item) => item.layer === "board"));
+        boardObjectsRef.current = nextBoardObjects;
+        setBoardObjects(nextBoardObjects);
         setConstraints(normalizedBoard.constraints);
         setChatMessages(normalizedBoard.chat);
         setComments(normalizedBoard.comments);
@@ -4839,6 +4843,22 @@ export default function WorkbookSessionPage() {
     []
   );
 
+  const applyLocalBoardObjects = useCallback(
+    (updater: (current: WorkbookBoardObject[]) => WorkbookBoardObject[]) => {
+      const next = updater(boardObjectsRef.current);
+      boardObjectsRef.current = next;
+      setBoardObjects(next);
+    },
+    []
+  );
+
+  const commitInteractiveBoardObjects = useCallback((next: WorkbookBoardObject[]) => {
+    boardObjectsRef.current = next;
+    flushSync(() => {
+      setBoardObjects(next);
+    });
+  }, []);
+
   const applyHistoryOperations = useCallback(
     (operations: WorkbookHistoryOperation[]) => {
       operations.forEach((operation) => {
@@ -4862,7 +4882,7 @@ export default function WorkbookSessionPage() {
         }
         if (operation.kind === "upsert_object") {
           const nextObject = cloneSerializable(operation.object);
-          setBoardObjects((current) => {
+          applyLocalBoardObjects((current) => {
             const exists = current.some((item) => item.id === nextObject.id);
             if (!exists) return [...current, nextObject];
             return current.map((item) => (item.id === nextObject.id ? nextObject : item));
@@ -4870,7 +4890,7 @@ export default function WorkbookSessionPage() {
           return;
         }
         if (operation.kind === "patch_object") {
-          setBoardObjects((current) =>
+          applyLocalBoardObjects((current) =>
             current.map((item) =>
               item.id === operation.objectId
                 ? mergeBoardObjectWithPatch(item, cloneSerializable(operation.patch))
@@ -4898,7 +4918,7 @@ export default function WorkbookSessionPage() {
             window.clearTimeout(pendingUpdateTimer);
             objectUpdateTimersRef.current.delete(objectId);
           }
-          setBoardObjects((current) => current.filter((item) => item.id !== objectId));
+          applyLocalBoardObjects((current) => current.filter((item) => item.id !== objectId));
           setConstraints((current) =>
             current.filter(
               (constraint) =>
@@ -4998,7 +5018,7 @@ export default function WorkbookSessionPage() {
         }
       });
     },
-    [applyLocalStrokeCollection, finalizeStrokePreview]
+    [applyLocalBoardObjects, applyLocalStrokeCollection, finalizeStrokePreview]
   );
   applyHistoryOperationsRef.current = applyHistoryOperations;
 
@@ -5173,8 +5193,7 @@ export default function WorkbookSessionPage() {
       )
         ? boardObjectsRef.current
         : [...boardObjectsRef.current, normalizedObjectWithPage];
-      boardObjectsRef.current = optimisticBoardObjects;
-      setBoardObjects(optimisticBoardObjects);
+      commitInteractiveBoardObjects(optimisticBoardObjects);
       const createEvent: WorkbookClientEventInput = {
         type: "board.object.create",
         payload: { object: normalizedObjectWithPage },
@@ -5204,8 +5223,7 @@ export default function WorkbookSessionPage() {
         const rolledBackBoardObjects = boardObjectsRef.current.filter(
           (item) => item.id !== normalizedObjectWithPage.id
         );
-        boardObjectsRef.current = rolledBackBoardObjects;
-        setBoardObjects(rolledBackBoardObjects);
+        commitInteractiveBoardObjects(rolledBackBoardObjects);
         setSelectedObjectId((current) =>
           current === normalizedObjectWithPage.id ? null : current
         );
@@ -5218,6 +5236,7 @@ export default function WorkbookSessionPage() {
       appendEventsAndApply,
       boardSettings.currentPage,
       canDraw,
+      commitInteractiveBoardObjects,
       sessionId,
       sendWorkbookLiveEvents,
       upsertLibraryItem,
@@ -5276,8 +5295,7 @@ export default function WorkbookSessionPage() {
         objectUpdateHistoryBeforeRef.current.set(objectId, cloneSerializable(currentObject));
       }
       const optimisticBoardObjects = applyPatchToBoardObjects(boardObjectsRef.current);
-      boardObjectsRef.current = optimisticBoardObjects;
-      setBoardObjects(optimisticBoardObjects);
+      commitInteractiveBoardObjects(optimisticBoardObjects);
       const pendingPatch = objectUpdateQueuedPatchRef.current.get(objectId) ?? {};
       objectUpdateQueuedPatchRef.current.set(objectId, {
         ...pendingPatch,
@@ -5299,6 +5317,7 @@ export default function WorkbookSessionPage() {
       applyConstraintsForObject,
       boardObjectsRef,
       canSelect,
+      commitInteractiveBoardObjects,
       flushQueuedObjectUpdate,
       scheduleVolatileSyncFlush,
       sessionId,
@@ -5356,9 +5375,8 @@ export default function WorkbookSessionPage() {
         constraint.sourceObjectId !== objectId &&
         constraint.targetObjectId !== objectId
     );
-    boardObjectsRef.current = optimisticBoardObjects;
+    commitInteractiveBoardObjects(optimisticBoardObjects);
     constraintsRef.current = optimisticConstraints;
-    setBoardObjects(optimisticBoardObjects);
     setConstraints(optimisticConstraints);
     setSelectedObjectId((current) => (current === objectId ? null : current));
     if (nextSettings) {
@@ -5395,9 +5413,8 @@ export default function WorkbookSessionPage() {
           await new Promise((resolve) => window.setTimeout(resolve, 140));
           continue;
         }
-        boardObjectsRef.current = currentBoardObjects;
+        commitInteractiveBoardObjects(currentBoardObjects);
         constraintsRef.current = currentConstraints;
-        setBoardObjects(currentBoardObjects);
         setConstraints(currentConstraints);
         if (nextSettings) {
           boardSettingsRef.current = currentBoardSettings;
@@ -5540,13 +5557,14 @@ export default function WorkbookSessionPage() {
           axis === "horizontal" ? -baseRotation : Math.PI - baseRotation,
       });
     },
-    [boardObjects, canSelect, commitObjectUpdate, selectedObjectId]
+    [canSelect, commitObjectUpdate, selectedObjectId]
   );
 
   const deleteAreaSelectionObjects = useCallback(async () => {
     if (!canDelete || !areaSelection || !areaSelectionHasContent) return;
+    const currentBoardObjects = boardObjectsRef.current;
     const objectIds = areaSelection.objectIds.filter((id) =>
-      boardObjects.some((object) => object.id === id && !object.pinned)
+      currentBoardObjects.some((object) => object.id === id && !object.pinned)
     );
     const strokeIds = areaSelection.strokeIds.filter((entry) => {
       if (entry.layer === "annotations") {
@@ -5563,7 +5581,7 @@ export default function WorkbookSessionPage() {
       const layerIdsToRemove = normalizedSceneLayers.sceneLayers
         .filter((layerItem) => layerItem.id !== MAIN_SCENE_LAYER_ID)
         .filter((layerItem) => {
-          const layerObjects = boardObjects.filter(
+          const layerObjects = currentBoardObjects.filter(
             (object) => getObjectSceneLayerId(object) === layerItem.id
           );
           if (layerObjects.length === 0) return false;
@@ -5618,7 +5636,6 @@ export default function WorkbookSessionPage() {
     appendEventsAndApply,
     areaSelection,
     boardStrokes,
-    boardObjects,
     boardSettings,
     canDelete,
     getObjectSceneLayerId,
@@ -5628,8 +5645,9 @@ export default function WorkbookSessionPage() {
 
   const copyAreaSelectionObjects = useCallback(() => {
     if (!canSelect || !areaSelection || !areaSelectionHasContent) return;
+    const currentBoardObjects = boardObjectsRef.current;
     const selectedObjects = areaSelection.objectIds
-      .map((id) => boardObjects.find((object) => object.id === id))
+      .map((id) => currentBoardObjects.find((object) => object.id === id))
       .filter(
         (object): object is WorkbookBoardObject =>
           object != null && !object.pinned
@@ -5655,7 +5673,6 @@ export default function WorkbookSessionPage() {
     annotationStrokes,
     areaSelection,
     areaSelectionHasContent,
-    boardObjects,
     boardStrokes,
     canSelect,
   ]);
@@ -5923,7 +5940,7 @@ export default function WorkbookSessionPage() {
       }>
     ) => {
       if (!selectedObjectId || !canSelect) return;
-      const target = boardObjects.find((item) => item.id === selectedObjectId);
+      const target = boardObjectsRef.current.find((item) => item.id === selectedObjectId);
       if (!target || (target.type !== "line" && target.type !== "arrow")) return;
       const nextMeta = {
         ...(target.meta ?? {}),
@@ -5934,13 +5951,13 @@ export default function WorkbookSessionPage() {
         meta: nextMeta,
       });
     },
-    [boardObjects, canSelect, commitObjectUpdate, selectedObjectId]
+    [canSelect, commitObjectUpdate, selectedObjectId]
   );
 
   const updateSelectedObjectMeta = useCallback(
     async (patch: Record<string, unknown>) => {
       if (!selectedObjectId || !canSelect) return;
-      const target = boardObjects.find((item) => item.id === selectedObjectId);
+      const target = boardObjectsRef.current.find((item) => item.id === selectedObjectId);
       if (!target) return;
       await commitObjectUpdate(target.id, {
         meta: {
@@ -5949,17 +5966,17 @@ export default function WorkbookSessionPage() {
         },
       });
     },
-    [boardObjects, canSelect, commitObjectUpdate, selectedObjectId]
+    [canSelect, commitObjectUpdate, selectedObjectId]
   );
 
   const updateSelectedLineObject = useCallback(
     async (patch: Partial<WorkbookBoardObject>) => {
       if (!selectedObjectId || !canSelect) return;
-      const target = boardObjects.find((item) => item.id === selectedObjectId);
+      const target = boardObjectsRef.current.find((item) => item.id === selectedObjectId);
       if (!target || (target.type !== "line" && target.type !== "arrow")) return;
       await commitObjectUpdate(target.id, patch);
     },
-    [boardObjects, canSelect, commitObjectUpdate, selectedObjectId]
+    [canSelect, commitObjectUpdate, selectedObjectId]
   );
 
   const updateSelectedFunctionGraphMeta = useCallback(
@@ -5974,7 +5991,7 @@ export default function WorkbookSessionPage() {
         },
       });
     },
-    [boardObjects, canSelect, commitObjectUpdate, selectedObjectId]
+    [canSelect, commitObjectUpdate, selectedObjectId]
   );
 
   const commitSelectedFunctionGraphDraft = useCallback(
@@ -6167,7 +6184,7 @@ export default function WorkbookSessionPage() {
     ) => {
       if (!selectedObjectId || !canSelect) return;
       const selectedTextObject =
-        boardObjects.find((item) => item.id === selectedObjectId) ?? null;
+        boardObjectsRef.current.find((item) => item.id === selectedObjectId) ?? null;
       if (!selectedTextObject || selectedTextObject.type !== "text") return;
       await commitObjectUpdate(
         selectedTextObject.id,
@@ -6206,7 +6223,7 @@ export default function WorkbookSessionPage() {
       "\n"
     );
     const selectedTextObject =
-      boardObjects.find((item) => item.id === selectedObjectId) ?? null;
+      boardObjectsRef.current.find((item) => item.id === selectedObjectId) ?? null;
     if (selectedTextObject?.type !== "text") return;
     const currentValue =
       typeof selectedTextObject.text === "string" ? selectedTextObject.text : "";
@@ -6222,7 +6239,7 @@ export default function WorkbookSessionPage() {
         markDirty: true,
       }
     );
-  }, [boardObjects, selectedObjectId, updateSelectedTextFormatting]);
+  }, [selectedObjectId, updateSelectedTextFormatting]);
 
   const scheduleSelectedTextDraftCommit = useCallback(
     (value: string) => {
@@ -6235,7 +6252,7 @@ export default function WorkbookSessionPage() {
         window.clearTimeout(selectedTextDraftCommitTimerRef.current);
       }
       const selectedTextObject =
-        boardObjects.find((item) => item.id === selectedObjectId) ?? null;
+        boardObjectsRef.current.find((item) => item.id === selectedObjectId) ?? null;
       const currentValue =
         selectedTextObject?.type === "text" && typeof selectedTextObject.text === "string"
           ? selectedTextObject.text
@@ -6244,7 +6261,7 @@ export default function WorkbookSessionPage() {
         selectedTextDraftDirtyRef.current = false;
         return;
       }
-      setBoardObjects((current) =>
+      applyLocalBoardObjects((current) =>
         current.map((item) =>
           item.id === selectedObjectId ? mergeBoardObjectWithPatch(item, { text: normalizedValue }) : item
         )
@@ -6256,8 +6273,7 @@ export default function WorkbookSessionPage() {
       }, 180);
     },
     [
-      boardObjects,
-      setBoardObjects,
+      applyLocalBoardObjects,
       flushSelectedTextDraftCommit,
       selectedObjectId,
     ]
@@ -8608,6 +8624,7 @@ export default function WorkbookSessionPage() {
       const parsed = JSON.parse(raw) as unknown;
       const normalized = normalizeScenePayload(parsed);
       setBoardStrokes(normalized.strokes.filter((stroke) => stroke.layer === "board"));
+      boardObjectsRef.current = normalized.objects;
       setBoardObjects(normalized.objects);
       setConstraints(normalized.constraints);
       setChatMessages(normalized.chat);
