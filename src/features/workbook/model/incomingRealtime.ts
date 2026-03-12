@@ -76,6 +76,9 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
     objectId: string,
     patch: Partial<WorkbookBoardObject>
   ) => void;
+  applyLocalBoardObjects: (
+    updater: (current: WorkbookBoardObject[]) => WorkbookBoardObject[]
+  ) => void;
   setSession: Dispatch<SetStateAction<WorkbookSession | null>>;
   setCanvasViewport: Dispatch<SetStateAction<WorkbookPoint>>;
   setIncomingEraserPreviews: Dispatch<
@@ -83,7 +86,6 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
   >;
   setBoardStrokes: Dispatch<SetStateAction<WorkbookStroke[]>>;
   setAnnotationStrokes: Dispatch<SetStateAction<WorkbookStroke[]>>;
-  setBoardObjects: Dispatch<SetStateAction<WorkbookBoardObject[]>>;
   setConstraints: Dispatch<SetStateAction<WorkbookConstraint[]>>;
   setSelectedObjectId: Dispatch<SetStateAction<string | null>>;
   setSelectedConstraintId: Dispatch<SetStateAction<string | null>>;
@@ -140,12 +142,12 @@ export const applyWorkbookIncomingRealtimeEvent = (
     queueIncomingStrokePreview,
     finalizeStrokePreview,
     queueIncomingPreviewPatch,
-    setSession,
-    setCanvasViewport,
+  applyLocalBoardObjects,
+  setSession,
+  setCanvasViewport,
     setIncomingEraserPreviews,
     setBoardStrokes,
     setAnnotationStrokes,
-    setBoardObjects,
     setConstraints,
     setSelectedObjectId,
     setSelectedConstraintId,
@@ -384,7 +386,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     const object = normalizeObjectPayload((event.payload as { object?: unknown })?.object);
     if (!object) return true;
     objectLastCommittedEventAtRef.current.set(object.id, eventTimestamp);
-    setBoardObjects((current) =>
+    applyLocalBoardObjects((current) =>
       current.some((item) => item.id === object.id) ? current : [...current, object]
     );
     return true;
@@ -411,7 +413,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
       if (Object.keys(safePatch).length === 0) return true;
     }
     incomingPreviewQueuedPatchRef.current.delete(objectId);
-    setBoardObjects((current) => {
+    applyLocalBoardObjects((current) => {
       let found = false;
       const next = current.map((item) => {
         if (item.id !== objectId) return item;
@@ -474,7 +476,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
       window.clearTimeout(pendingUpdateTimer);
       objectUpdateTimersRef.current.delete(objectId);
     }
-    setBoardObjects((current) => current.filter((item) => item.id !== objectId));
+    applyLocalBoardObjects((current) => current.filter((item) => item.id !== objectId));
     setConstraints((current) =>
       current.filter(
         (constraint) =>
@@ -492,7 +494,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     const payload = event.payload as { objectId?: unknown; pinned?: unknown };
     const objectId = typeof payload.objectId === "string" ? payload.objectId : "";
     if (!objectId) return true;
-    setBoardObjects((current) =>
+    applyLocalBoardObjects((current) =>
       current.map((item) =>
         item.id === objectId ? { ...item, pinned: Boolean(payload.pinned) } : item
       )
@@ -502,7 +504,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
 
   if (event.type === "board.clear") {
     setBoardStrokes([]);
-    setBoardObjects([]);
+    applyLocalBoardObjects(() => []);
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
