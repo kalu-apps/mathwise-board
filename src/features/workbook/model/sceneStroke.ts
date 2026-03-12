@@ -1,4 +1,5 @@
 import { generateId } from "@/shared/lib/id";
+import { buildStrokePreviewPoints, toPath } from "./stroke";
 import type {
   WorkbookLayer,
   WorkbookPoint,
@@ -52,3 +53,50 @@ export const buildWorkbookCommittedStroke = (params: {
   authorUserId: params.activeStroke?.authorUserId ?? params.fallback.authorUserId,
   createdAt: params.activeStroke?.createdAt ?? new Date().toISOString(),
 });
+
+export const finalizeWorkbookStrokeDraft = (params: {
+  activeStroke: WorkbookActiveStrokeDraft | null;
+  bufferedPoints: WorkbookPoint[];
+  fallbackPoint: WorkbookPoint;
+  fallback: {
+    layer: WorkbookLayer;
+    color: string;
+    width: number;
+    tool: WorkbookTool;
+    page: number;
+    authorUserId: string;
+  };
+}) => {
+  const bufferedPoints =
+    params.bufferedPoints.length > 0
+      ? params.bufferedPoints
+      : [params.fallbackPoint];
+  const lastPoint = bufferedPoints[bufferedPoints.length - 1] ?? null;
+  const finalPoints =
+    !lastPoint ||
+    Math.hypot(
+      params.fallbackPoint.x - lastPoint.x,
+      params.fallbackPoint.y - lastPoint.y
+    ) > 0.12
+      ? [...bufferedPoints, params.fallbackPoint]
+      : [...bufferedPoints];
+  if (finalPoints.length === 0) return null;
+  const previewStroke = params.activeStroke
+    ? {
+        ...params.activeStroke,
+        previewVersion: params.activeStroke.previewVersion + 1,
+        points: buildStrokePreviewPoints(finalPoints),
+      }
+    : null;
+  const committedStroke = buildWorkbookCommittedStroke({
+    activeStroke: params.activeStroke,
+    points: finalPoints,
+    fallback: params.fallback,
+  });
+  return {
+    finalPoints,
+    previewStroke,
+    committedStroke,
+    pathD: toPath(finalPoints),
+  };
+};

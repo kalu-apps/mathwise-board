@@ -21,8 +21,8 @@ import type {
 } from "../model/types";
 import {
   buildWorkbookPointObject,
+  buildWorkbookShapeCommitResult,
   buildWorkbookPolygonObjectFromPoints,
-  buildWorkbookShapeObject,
 } from "../model/sceneCreation";
 import { resolveSolid3dPresetId } from "../model/solid3d";
 import {
@@ -122,7 +122,7 @@ import {
 } from "../model/stroke";
 import {
   buildWorkbookActiveStrokeDraft,
-  buildWorkbookCommittedStroke,
+  finalizeWorkbookStrokeDraft,
 } from "../model/sceneStroke";
 import {
   applyEraserPointToCollections,
@@ -1860,28 +1860,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       strokePreviewTimerRef.current = null;
     }
     const fallbackPoint = mapPointer(svg, event.clientX, event.clientY);
-    const bufferedPoints = strokePointsRef.current.length > 0 ? strokePointsRef.current : [fallbackPoint];
-    const lastPoint = bufferedPoints[bufferedPoints.length - 1];
-    const finalPoints =
-      !lastPoint || Math.hypot(fallbackPoint.x - lastPoint.x, fallbackPoint.y - lastPoint.y) > 0.12
-        ? [...bufferedPoints, fallbackPoint]
-        : [...bufferedPoints];
-    if (finalPoints.length === 0) return;
-    const activeStroke = activeStrokeRef.current;
-    if (activeStroke && onStrokePreview) {
-      activeStroke.previewVersion += 1;
-      onStrokePreview({
-        stroke: {
-          ...activeStroke,
-          points: buildStrokePreviewPoints(finalPoints),
-        },
-        previewVersion: activeStroke.previewVersion,
-      });
-    }
     const strokeVisual = resolveWorkbookStrokeVisual(tool, color, width);
-    const committedStroke: WorkbookStroke = buildWorkbookCommittedStroke({
-      activeStroke,
-      points: finalPoints,
+    const finalized = finalizeWorkbookStrokeDraft({
+      activeStroke: activeStrokeRef.current,
+      bufferedPoints: strokePointsRef.current,
+      fallbackPoint,
       fallback: {
         layer,
         color: strokeVisual.color,
@@ -1891,8 +1874,15 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         authorUserId,
       },
     });
-    showCommittedStrokeBridge(committedStroke, toPath(finalPoints));
-    onStrokeCommit(committedStroke);
+    if (!finalized) return;
+    if (finalized.previewStroke && onStrokePreview) {
+      onStrokePreview({
+        stroke: finalized.previewStroke,
+        previewVersion: finalized.previewStroke.previewVersion,
+      });
+    }
+    showCommittedStrokeBridge(finalized.committedStroke, finalized.pathD);
+    onStrokeCommit(finalized.committedStroke);
     activeStrokeRef.current = null;
     strokePointsRef.current = [];
     draftStrokePathRef.current?.setAttribute("d", "");
@@ -1900,7 +1890,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   const finishShape = (draft = shapeDraftState.ref.current) => {
     if (!draft) return;
-    const created = buildWorkbookShapeObject({
+    const result = buildWorkbookShapeCommitResult({
       draft,
       layer,
       color,
@@ -1918,15 +1908,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       lineStyle,
       solid3dInsertPreset,
     });
-    onObjectCreate(created);
-    onSelectedObjectChange(created.id);
-    if (draft.tool === "text") {
-      setInlineTextEdit({
-        objectId: created.id,
-        value: typeof created.text === "string" ? created.text : "",
-      });
+    onObjectCreate(result.created);
+    onSelectedObjectChange(result.created.id);
+    if (result.inlineTextEdit) {
+      setInlineTextEdit(result.inlineTextEdit);
     }
-    if (draft.tool === "solid3d") {
+    if (result.shouldConsumeSolid3dInsert) {
       onSolid3dInsertConsumed?.();
       onRequestSelectTool?.();
     }

@@ -380,3 +380,18 @@ export const buildWorkbookShapeObject = (
                         : undefined,
   };
 };
+
+export const buildWorkbookShapeCommitResult = (params: BuildWorkbookShapeObjectParams) => {
+  const created = buildWorkbookShapeObject(params);
+  return {
+    created,
+    inlineTextEdit:
+      params.draft.tool === "text"
+        ? {
+            objectId: created.id,
+            value: typeof created.text === "string" ? created.text : "",
+          }
+        : null,
+    shouldConsumeSolid3dInsert: params.draft.tool === "solid3d",
+  };
+};
