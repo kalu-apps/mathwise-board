@@ -58,17 +58,50 @@ const loadImageFromDataUrl = (dataUrl: string): Promise<HTMLImageElement> =>
     image.src = dataUrl;
   });
 
+type WorkbookDecodedImageSource = {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  release?: () => void;
+};
+
+const loadImageSourceFromDataUrl = async (
+  dataUrl: string
+): Promise<WorkbookDecodedImageSource> => {
+  if (typeof createImageBitmap === "function" && typeof fetch === "function") {
+    try {
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      const bitmap = await createImageBitmap(blob);
+      return {
+        source: bitmap,
+        width: Math.max(1, bitmap.width),
+        height: Math.max(1, bitmap.height),
+        release: () => bitmap.close(),
+      };
+    } catch {
+      // Fall back to Image() decoding when bitmap decoding is unavailable.
+    }
+  }
+  const image = await loadImageFromDataUrl(dataUrl);
+  return {
+    source: image,
+    width: Math.max(1, image.naturalWidth || image.width),
+    height: Math.max(1, image.naturalHeight || image.height),
+  };
+};
+
 export const optimizeImageDataUrl = async (
   dataUrl: string,
   options?: { maxEdge?: number; quality?: number; maxChars?: number }
 ) => {
   if (typeof document === "undefined") return dataUrl;
-  const image = await loadImageFromDataUrl(dataUrl);
+  const decoded = await loadImageSourceFromDataUrl(dataUrl);
   const maxEdge = Math.max(720, options?.maxEdge ?? 1_920);
   const quality = Math.max(0.5, Math.min(0.95, options?.quality ?? 0.84));
   const maxChars = Math.max(18_000, Math.round(options?.maxChars ?? 420_000));
-  const sourceWidth = Math.max(1, image.naturalWidth || image.width);
-  const sourceHeight = Math.max(1, image.naturalHeight || image.height);
+  const sourceWidth = decoded.width;
+  const sourceHeight = decoded.height;
   const ratio = Math.min(1, maxEdge / Math.max(sourceWidth, sourceHeight));
   let targetWidth = Math.max(1, Math.round(sourceWidth * ratio));
   let targetHeight = Math.max(1, Math.round(sourceHeight * ratio));
@@ -76,12 +109,15 @@ export const optimizeImageDataUrl = async (
   canvas.width = targetWidth;
   canvas.height = targetHeight;
   const context = canvas.getContext("2d");
-  if (!context) return dataUrl;
+  if (!context) {
+    decoded.release?.();
+    return dataUrl;
+  }
   const renderCandidate = (width: number, height: number, outputQuality: number) => {
     canvas.width = width;
     canvas.height = height;
     context.clearRect(0, 0, width, height);
-    context.drawImage(image, 0, 0, width, height);
+    context.drawImage(decoded.source, 0, 0, width, height);
     return canvas.toDataURL("image/jpeg", outputQuality);
   };
   const original = typeof dataUrl === "string" ? dataUrl : "";
@@ -123,5 +159,6 @@ export const optimizeImageDataUrl = async (
       }
     }
   }
+  decoded.release?.();
   return best;
 };

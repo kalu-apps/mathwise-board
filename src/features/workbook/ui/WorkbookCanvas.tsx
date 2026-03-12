@@ -171,6 +171,7 @@ import {
   WorkbookDraftOverlayLayer,
   WorkbookObjectSceneLayer,
   WorkbookPresenceLayer,
+  WorkbookPreviewStrokeRuntimeLayer,
   WorkbookSelectionOverlayLayer,
   WorkbookStrokeLayer,
 } from "./WorkbookCanvasLayers";
@@ -4293,7 +4294,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           onSelectConstraint={handleSelectConstraint}
         />
         <WorkbookStrokeLayer strokes={renderedStrokes} />
-        <WorkbookStrokeLayer strokes={previewStrokes} preview />
+        <WorkbookPreviewStrokeRuntimeLayer strokes={previewStrokes} />
         <WorkbookDraftOverlayLayer
           shapeDraft={shapeDraft}
           tool={tool}

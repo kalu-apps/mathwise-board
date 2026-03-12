@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useLayoutEffect, useRef } from "react";
 import type {
   WorkbookBoardObject,
   WorkbookPoint,
@@ -70,6 +70,56 @@ export const WorkbookStrokeLayer = memo(function WorkbookStrokeLayer({
       ))}
     </>
   );
+});
+
+const syncStrokePathNode = (
+  node: SVGPathElement,
+  stroke: WorkbookStroke,
+  preview: boolean
+) => {
+  node.setAttribute("d", toPath(stroke.points));
+  node.setAttribute("stroke", stroke.color);
+  node.setAttribute("stroke-width", String(stroke.width));
+  node.setAttribute("stroke-linecap", "round");
+  node.setAttribute("stroke-linejoin", "round");
+  node.setAttribute("fill", "none");
+  node.setAttribute(
+    "opacity",
+    String(stroke.tool === "highlighter" ? 0.5 : preview ? 0.94 : 1)
+  );
+  node.setAttribute("pointer-events", "none");
+};
+
+export const WorkbookPreviewStrokeRuntimeLayer = memo(function WorkbookPreviewStrokeRuntimeLayer({
+  strokes,
+}: {
+  strokes: WorkbookStroke[];
+}) {
+  const groupRef = useRef<SVGGElement | null>(null);
+
+  useLayoutEffect(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    const ownerSvg = group.ownerSVGElement;
+    if (!ownerSvg) return;
+    const pathNodes = Array.from(group.children) as SVGPathElement[];
+    while (pathNodes.length < strokes.length) {
+      const node = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      group.appendChild(node);
+      pathNodes.push(node);
+    }
+    while (pathNodes.length > strokes.length) {
+      const node = pathNodes.pop();
+      node?.remove();
+    }
+    strokes.forEach((stroke, index) => {
+      const node = pathNodes[index];
+      if (!node) return;
+      syncStrokePathNode(node, stroke, true);
+    });
+  }, [strokes]);
+
+  return <g ref={groupRef} pointerEvents="none" />;
 });
 
 export const WorkbookPresenceLayer = memo(function WorkbookPresenceLayer({

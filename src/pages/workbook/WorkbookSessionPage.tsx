@@ -8381,12 +8381,29 @@ export default function WorkbookSessionPage() {
     const blob = new Blob([serialized], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     try {
-      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const next = new Image();
-        next.onload = () => resolve(next);
-        next.onerror = () => reject(new Error("image_load_failed"));
-        next.src = url;
-      });
+      const decodedImage = await (async () => {
+        if (typeof createImageBitmap === "function") {
+          try {
+            const bitmap = await createImageBitmap(blob);
+            return {
+              source: bitmap as CanvasImageSource,
+              release: () => bitmap.close(),
+            };
+          } catch {
+            // Fall through to HTMLImageElement decoding below.
+          }
+        }
+        const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const next = new Image();
+          next.onload = () => resolve(next);
+          next.onerror = () => reject(new Error("image_load_failed"));
+          next.src = url;
+        });
+        return {
+          source: image as CanvasImageSource,
+          release: undefined as (() => void) | undefined,
+        };
+      })();
       const widthSource = bounds?.width ?? svg.viewBox.baseVal.width ?? 1600;
       const heightSource = bounds?.height ?? svg.viewBox.baseVal.height ?? 900;
       const width = Math.max(1, Math.round(widthSource));
@@ -8429,8 +8446,9 @@ export default function WorkbookSessionPage() {
         }
         ctx.stroke();
       }
-      ctx.drawImage(image, 0, 0, width, height);
+      ctx.drawImage(decodedImage.source, 0, 0, width, height);
       ctx.restore();
+      decodedImage.release?.();
       return { canvas, width, height };
     } finally {
       URL.revokeObjectURL(url);
