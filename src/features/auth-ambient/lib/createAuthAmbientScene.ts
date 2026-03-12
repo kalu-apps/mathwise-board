@@ -158,10 +158,10 @@ const NARROW_LAYOUTS: Record<
   }
 > = {
   launch: {
-    keep: ["torus", "oblique_prism", "cube"],
+    keep: ["torus", "sphere", "cube"],
     overrides: {
       torus: { screenX: -0.46, screenY: -0.34, scale: 0.78, depth: -3.52 },
-      oblique_prism: { screenX: 0.5, screenY: -0.02, scale: 0.84, depth: -3.18 },
+      sphere: { screenX: 0.5, screenY: -0.02, scale: 0.84, depth: -3.18 },
       cube: { screenX: 0.46, screenY: 0.48, scale: 0.7, depth: -3.52 },
     },
   },
@@ -192,12 +192,12 @@ const DESKTOP_LAYOUTS: Record<
     ],
     overrides: {
       sphere: {
-        screenX: -0.58,
-        screenY: 0.16,
-        scale: 0.68,
-        depth: -3.78,
-        velocityX: 0.034,
-        velocityY: 0.018,
+        screenX: 0.42,
+        screenY: -0.04,
+        scale: 0.92,
+        depth: -3.28,
+        velocityX: -0.038,
+        velocityY: 0.026,
       },
       torus: {
         screenX: -0.34,
@@ -208,28 +208,28 @@ const DESKTOP_LAYOUTS: Record<
         velocityY: 0.024,
       },
       oblique_prism: {
-        screenX: 0.42,
-        screenY: -0.04,
-        scale: 0.92,
-        depth: -3.28,
-        velocityX: -0.038,
-        velocityY: 0.026,
+        screenX: -0.58,
+        screenY: 0.16,
+        scale: 0.68,
+        depth: -3.78,
+        velocityX: 0.034,
+        velocityY: 0.018,
       },
       triangular_prism: {
-        screenX: 0.54,
-        screenY: 0.44,
-        scale: 0.72,
-        depth: -3.62,
-        velocityX: -0.03,
-        velocityY: -0.02,
-      },
-      pyramid_square: {
         screenX: -0.54,
         screenY: 0.5,
         scale: 0.6,
         depth: -3.94,
         velocityX: 0.028,
         velocityY: -0.018,
+      },
+      pyramid_square: {
+        screenX: 0.54,
+        screenY: 0.44,
+        scale: 0.72,
+        depth: -3.62,
+        velocityX: -0.03,
+        velocityY: -0.02,
       },
       cube: {
         screenX: 0.52,
@@ -245,12 +245,12 @@ const DESKTOP_LAYOUTS: Record<
     keep: ["sphere", "torus", "oblique_prism", "cube"],
     overrides: {
       sphere: {
-        screenX: -0.56,
-        screenY: 0.16,
-        scale: 0.62,
-        depth: -3.62,
-        velocityX: 0.026,
-        velocityY: -0.016,
+        screenX: 0.46,
+        screenY: -0.02,
+        scale: 0.78,
+        depth: -3.32,
+        velocityX: -0.03,
+        velocityY: 0.022,
       },
       torus: {
         screenX: -0.34,
@@ -261,12 +261,12 @@ const DESKTOP_LAYOUTS: Record<
         velocityY: 0.022,
       },
       oblique_prism: {
-        screenX: 0.46,
-        screenY: -0.02,
-        scale: 0.78,
-        depth: -3.32,
-        velocityX: -0.03,
-        velocityY: 0.022,
+        screenX: -0.56,
+        screenY: 0.16,
+        scale: 0.62,
+        depth: -3.62,
+        velocityX: 0.026,
+        velocityY: -0.016,
       },
       cube: {
         screenX: 0.5,
@@ -288,7 +288,7 @@ const COMPACT_LAYOUTS: Record<
   }
 > = {
   launch: {
-    keep: ["torus", "oblique_prism", "cube"],
+    keep: ["torus", "sphere", "cube"],
     overrides: {
       torus: {
         screenX: -0.4,
@@ -298,7 +298,7 @@ const COMPACT_LAYOUTS: Record<
         velocityX: 0.036,
         velocityY: 0.02,
       },
-      oblique_prism: {
+      sphere: {
         screenX: 0.48,
         screenY: -0.06,
         scale: 0.76,
