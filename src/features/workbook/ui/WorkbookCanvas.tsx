@@ -79,8 +79,6 @@ import {
   isInsideRect,
   mapConstraintLabel,
   normalizeRect,
-  projectPointToLineCurve,
-  readLineCurveMeta,
   resolve2dFigureVertexLabels,
   resolve2dFigureVertices,
   resolveOutsideVertexLabelPlacement,
@@ -141,6 +139,8 @@ import {
 } from "../model/remoteEraserPreview";
 import {
   applyGraphPanToFunctions,
+  buildMoveCommitResult,
+  buildResizeCommitPatch,
   computeSolid3dResizePatch,
   resolveFunctionGraphScale as resolveFunctionGraphScaleForObject,
   resolveRealtimePatchBaseObject,
@@ -2649,313 +2649,23 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   const finishMoving = (nextMoving = movingState.ref.current) => {
     if (!nextMoving) return;
-    const deltaX = nextMoving.current.x - nextMoving.start.x;
-    const deltaY = nextMoving.current.y - nextMoving.start.y;
-    if (Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5) {
-      const targets =
-        nextMoving.groupObjects.length > 0 ? nextMoving.groupObjects : [nextMoving.object];
-      targets.forEach((target) => {
-        const patch: Partial<WorkbookBoardObject> = {
-          x: target.type === "section_divider" ? target.x : target.x + deltaX,
-          y: target.y + deltaY,
-        };
-        if (Array.isArray(target.points) && target.points.length > 0) {
-          patch.points = target.points.map((point) => ({
-            x: point.x + deltaX,
-            y: point.y + deltaY,
-          }));
-        }
-        onObjectUpdate(target.id, patch);
-      });
-      if (nextMoving.object.id === "__area-selection__" && areaSelection) {
-        onAreaSelectionChange?.({
-          objectIds: targets.map((target) => target.id),
-          strokeIds: areaSelection.strokeIds,
-          rect: {
-            x: areaSelection.rect.x + deltaX,
-            y: areaSelection.rect.y + deltaY,
-            width: areaSelection.rect.width,
-            height: areaSelection.rect.height,
-          },
-        });
-      }
+    const { objectPatches, nextAreaSelection } = buildMoveCommitResult({
+      moving: nextMoving,
+      areaSelection,
+    });
+    objectPatches.forEach(({ id, patch }) => onObjectUpdate(id, patch));
+    if (nextAreaSelection) {
+      onAreaSelectionChange?.(nextAreaSelection);
     }
     setMoving(null);
   };
 
   const finishResizing = (nextResizing = resizingState.ref.current) => {
     if (!nextResizing) return;
-    const object = nextResizing.object;
-    const deltaX = nextResizing.current.x - nextResizing.start.x;
-    const deltaY = nextResizing.current.y - nextResizing.start.y;
-    if (nextResizing.mode === "line-start") {
-      const nextX = object.x + deltaX;
-      const nextY = object.y + deltaY;
-      const nextWidth = object.width - deltaX;
-      const nextHeight = object.height - deltaY;
-      if (Math.hypot(nextWidth, nextHeight) < 1) {
-        setResizing(null);
-        return;
-      }
-      onObjectUpdate(object.id, {
-        x: nextX,
-        y: nextY,
-        width: nextWidth,
-        height: nextHeight,
-      });
-      setResizing(null);
-      return;
+    const patch = buildResizeCommitPatch(nextResizing);
+    if (patch) {
+      onObjectUpdate(nextResizing.object.id, patch);
     }
-    if (nextResizing.mode === "line-end") {
-      const widthValue = object.width + deltaX;
-      const heightValue = object.height + deltaY;
-      if (Math.hypot(widthValue, heightValue) < 1) {
-        setResizing(null);
-        return;
-      }
-      onObjectUpdate(object.id, { width: widthValue, height: heightValue });
-      setResizing(null);
-      return;
-    }
-    if (nextResizing.mode === "line-curve-c1" || nextResizing.mode === "line-curve-c2") {
-      const projected = projectPointToLineCurve(object, nextResizing.current);
-      const currentCurve = readLineCurveMeta(object);
-      const nextCurve =
-        nextResizing.mode === "line-curve-c1"
-          ? {
-              ...currentCurve,
-              c1t: Math.max(-1, Math.min(2, projected.t)),
-              c1n: Math.max(-480, Math.min(480, projected.n)),
-            }
-          : {
-              ...currentCurve,
-              c2t: Math.max(-1, Math.min(2, projected.t)),
-              c2n: Math.max(-480, Math.min(480, projected.n)),
-            };
-      onObjectUpdate(object.id, {
-        meta: {
-          ...(object.meta ?? {}),
-          curve: nextCurve,
-        },
-      });
-      setResizing(null);
-      return;
-    }
-    if (nextResizing.mode === "rotate") {
-      const rect = getObjectRect(object);
-      const centerX = rect.x + rect.width / 2;
-      const centerY = rect.y + rect.height / 2;
-      if (object.type === "line" || object.type === "arrow") {
-        const length = Math.hypot(object.width, object.height) || 1;
-        // Use absolute handle angle around the center to support full 360 rotation smoothly.
-        const angle =
-          Math.atan2(nextResizing.current.y - centerY, nextResizing.current.x - centerX) +
-          Math.PI / 2;
-        const dirX = Math.cos(angle);
-        const dirY = Math.sin(angle);
-        const half = length / 2;
-        const nextStart = {
-          x: centerX - dirX * half,
-          y: centerY - dirY * half,
-        };
-        onObjectUpdate(object.id, {
-          x: nextStart.x,
-          y: nextStart.y,
-          width: dirX * length,
-          height: dirY * length,
-        });
-      } else {
-        const startAngle = Math.atan2(nextResizing.start.y - centerY, nextResizing.start.x - centerX);
-        const nextAngle = Math.atan2(nextResizing.current.y - centerY, nextResizing.current.x - centerX);
-        const deltaDeg = ((nextAngle - startAngle) * 180) / Math.PI;
-        onObjectUpdate(object.id, {
-          rotation: (object.rotation ?? 0) + deltaDeg,
-        });
-      }
-      setResizing(null);
-      return;
-    }
-    if (
-      (nextResizing.mode === "nw" ||
-        nextResizing.mode === "ne" ||
-        nextResizing.mode === "se" ||
-        nextResizing.mode === "sw") &&
-      (object.type === "line" || object.type === "arrow")
-    ) {
-      const rect = getObjectRect(object);
-      const center = {
-        x: rect.x + rect.width / 2,
-        y: rect.y + rect.height / 2,
-      };
-      const startVector = {
-        x: nextResizing.start.x - center.x,
-        y: nextResizing.start.y - center.y,
-      };
-      const currentVector = {
-        x: nextResizing.current.x - center.x,
-        y: nextResizing.current.y - center.y,
-      };
-      const startDistance = Math.hypot(startVector.x, startVector.y);
-      const currentDistance = Math.hypot(currentVector.x, currentVector.y);
-      if (startDistance < 1e-6 || currentDistance < 1e-6) {
-        setResizing(null);
-        return;
-      }
-      const scale = Math.max(0.2, Math.min(8, currentDistance / startDistance));
-      const startPoint = { x: object.x, y: object.y };
-      const endPoint = { x: object.x + object.width, y: object.y + object.height };
-      const nextStart = {
-        x: center.x + (startPoint.x - center.x) * scale,
-        y: center.y + (startPoint.y - center.y) * scale,
-      };
-      const nextEnd = {
-        x: center.x + (endPoint.x - center.x) * scale,
-        y: center.y + (endPoint.y - center.y) * scale,
-      };
-      const nextWidth = nextEnd.x - nextStart.x;
-      const nextHeight = nextEnd.y - nextStart.y;
-      if (Math.hypot(nextWidth, nextHeight) < 1) {
-        setResizing(null);
-        return;
-      }
-      onObjectUpdate(object.id, {
-        x: nextStart.x,
-        y: nextStart.y,
-        width: nextWidth,
-        height: nextHeight,
-      });
-      setResizing(null);
-      return;
-    }
-
-    const rect = normalizeRect(
-      { x: object.x, y: object.y },
-      { x: object.x + object.width, y: object.y + object.height }
-    );
-    const center = {
-      x: rect.x + rect.width / 2,
-      y: rect.y + rect.height / 2,
-    };
-    const localStart =
-      object.rotation && Number.isFinite(object.rotation)
-        ? rotatePointAround(nextResizing.start, center, -(object.rotation ?? 0))
-        : nextResizing.start;
-    const localCurrent =
-      object.rotation && Number.isFinite(object.rotation)
-        ? rotatePointAround(nextResizing.current, center, -(object.rotation ?? 0))
-        : nextResizing.current;
-    if (
-      nextResizing.mode === "n" ||
-      nextResizing.mode === "s" ||
-      nextResizing.mode === "e" ||
-      nextResizing.mode === "w"
-    ) {
-      let nextLeft = rect.x;
-      let nextRight = rect.x + rect.width;
-      let nextTop = rect.y;
-      let nextBottom = rect.y + rect.height;
-
-      if (nextResizing.mode === "n") {
-        nextTop = Math.min(localCurrent.y, nextBottom - 1);
-      } else if (nextResizing.mode === "s") {
-        nextBottom = Math.max(localCurrent.y, nextTop + 1);
-      } else if (nextResizing.mode === "e") {
-        nextRight = Math.max(localCurrent.x, nextLeft + 1);
-      } else if (nextResizing.mode === "w") {
-        nextLeft = Math.min(localCurrent.x, nextRight - 1);
-      }
-
-      const nextRect = normalizeRect(
-        { x: nextLeft, y: nextTop },
-        { x: nextRight, y: nextBottom }
-      );
-
-      if (Array.isArray(object.points) && object.points.length > 0) {
-        const safeWidth = Math.max(1e-6, rect.width);
-        const safeHeight = Math.max(1e-6, rect.height);
-        const nextCenter = {
-          x: nextRect.x + nextRect.width / 2,
-          y: nextRect.y + nextRect.height / 2,
-        };
-        const rotationDeg =
-          object.rotation && Number.isFinite(object.rotation) ? object.rotation : 0;
-        const resizedPoints = object.points.map((point) => {
-          const localPoint =
-            rotationDeg !== 0
-              ? rotatePointAround(point, center, -rotationDeg)
-              : point;
-          const nextLocal = {
-            x: nextRect.x + ((localPoint.x - rect.x) / safeWidth) * nextRect.width,
-            y: nextRect.y + ((localPoint.y - rect.y) / safeHeight) * nextRect.height,
-          };
-          return rotationDeg !== 0
-            ? rotatePointAround(nextLocal, nextCenter, rotationDeg)
-            : nextLocal;
-        });
-        const nextBounds = getPointsBoundsFromPoints(resizedPoints);
-        onObjectUpdate(object.id, {
-          x: nextBounds.minX,
-          y: nextBounds.minY,
-          width: nextBounds.width,
-          height: nextBounds.height,
-          points: resizedPoints,
-        });
-        setResizing(null);
-        return;
-      }
-
-      onObjectUpdate(object.id, {
-        x: nextRect.x,
-        y: nextRect.y,
-        width: nextRect.width,
-        height: nextRect.height,
-      });
-      setResizing(null);
-      return;
-    }
-    const startVector = {
-      x: localStart.x - center.x,
-      y: localStart.y - center.y,
-    };
-    const currentVector = {
-      x: localCurrent.x - center.x,
-      y: localCurrent.y - center.y,
-    };
-    const scaleX =
-      Math.abs(startVector.x) > 2
-        ? Math.max(0.2, Math.min(8, Math.abs(currentVector.x) / Math.abs(startVector.x)))
-        : 1;
-    const scaleY =
-      Math.abs(startVector.y) > 2
-        ? Math.max(0.2, Math.min(8, Math.abs(currentVector.y) / Math.abs(startVector.y)))
-        : 1;
-    const uniformScale = Math.max(scaleX, scaleY);
-    const nextWidth = Math.max(1, rect.width * uniformScale);
-    const nextHeight = Math.max(1, rect.height * uniformScale);
-    const nextLeft = center.x - nextWidth / 2;
-    const nextTop = center.y - nextHeight / 2;
-    if (Array.isArray(object.points) && object.points.length > 0) {
-      const resizedPoints = object.points.map((point) => ({
-        x: center.x + (point.x - center.x) * uniformScale,
-        y: center.y + (point.y - center.y) * uniformScale,
-      }));
-      const nextBounds = getPointsBoundsFromPoints(resizedPoints);
-      onObjectUpdate(object.id, {
-        x: nextBounds.minX,
-        y: nextBounds.minY,
-        width: nextBounds.width,
-        height: nextBounds.height,
-        points: resizedPoints,
-      });
-      setResizing(null);
-      return;
-    }
-    onObjectUpdate(object.id, {
-      x: nextLeft,
-      y: nextTop,
-      width: nextWidth,
-      height: nextHeight,
-    });
     setResizing(null);
   };
 
