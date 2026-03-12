@@ -16,7 +16,7 @@ import {
   type WorkbookAreaSelectionDraft,
   type WorkbookAreaSelectionResizeMode,
 } from "./sceneSelection";
-import { readSolid3dState } from "./solid3dState";
+import { readSolid3dState, writeSolid3dState } from "./solid3dState";
 import type {
   WorkbookBoardObject,
   WorkbookPoint,
@@ -71,6 +71,34 @@ export const buildMovingState = (params: {
   startClientX: params.startClientX,
   startClientY: params.startClientY,
 });
+
+export const buildPanningOffset = (
+  pan: PanState,
+  clientX: number,
+  clientY: number,
+  safeZoom: number
+): WorkbookPoint => {
+  const dx = clientX - pan.start.x;
+  const dy = clientY - pan.start.y;
+  return {
+    x: Math.max(0, pan.baseOffset.x - dx / safeZoom),
+    y: Math.max(0, pan.baseOffset.y - dy / safeZoom),
+  };
+};
+
+export const buildMovingCurrentPoint = (
+  moving: MovingState,
+  clientX: number,
+  clientY: number,
+  safeZoom: number
+): WorkbookPoint => {
+  const deltaX = (clientX - moving.startClientX) / safeZoom;
+  const deltaY = (clientY - moving.startClientY) / safeZoom;
+  return {
+    x: moving.start.x + deltaX,
+    y: moving.start.y + deltaY,
+  };
+};
 
 export const resolveObjectResizeMode = (
   object: WorkbookBoardObject,
@@ -185,6 +213,31 @@ export const buildSolid3dGestureState = (
     basePanX: state.view.panX,
     basePanY: state.view.panY,
   };
+};
+
+export const buildSolid3dGesturePreviewMeta = (
+  gesture: Solid3dGestureState,
+  point: WorkbookPoint
+): Record<string, unknown> => {
+  const deltaX = point.x - gesture.start.x;
+  const deltaY = point.y - gesture.start.y;
+  const currentState = readSolid3dState(gesture.object.meta);
+  const nextView =
+    gesture.mode === "rotate"
+      ? {
+          ...currentState.view,
+          rotationY: gesture.baseRotationY + deltaX * 0.38,
+          rotationX: gesture.baseRotationX + deltaY * 0.32,
+        }
+      : {
+          ...currentState.view,
+          panX: gesture.basePanX + deltaX / 240,
+          panY: gesture.basePanY + deltaY / 240,
+        };
+  return writeSolid3dState(
+    { ...currentState, view: nextView },
+    gesture.object.meta
+  );
 };
 
 export const buildGraphPanState = (params: {

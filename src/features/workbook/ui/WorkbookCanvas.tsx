@@ -110,8 +110,11 @@ import {
   buildGraphPanCommitPatch,
   buildGraphPanState,
   buildMovingState,
+  buildMovingCurrentPoint,
+  buildPanningOffset,
   buildPanState,
   buildResizeState,
+  buildSolid3dGesturePreviewMeta,
   buildSolid3dGestureState,
   finalizeAreaSelectionDraft,
   finalizeAreaSelectionResize,
@@ -2062,12 +2065,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       event.preventDefault();
     }
     if (panning) {
-      const dx = event.clientX - panning.start.x;
-      const dy = event.clientY - panning.start.y;
-      const nextOffset = {
-        x: Math.max(0, panning.baseOffset.x - dx / safeZoom),
-        y: Math.max(0, panning.baseOffset.y - dy / safeZoom),
-      };
+      const nextOffset = buildPanningOffset(
+        panning,
+        event.clientX,
+        event.clientY,
+        safeZoom
+      );
       onViewportOffsetChange?.(nextOffset);
       return;
     }
@@ -2086,27 +2089,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     );
 
     if (solid3dGesture) {
-      const deltaX = point.x - solid3dGesture.start.x;
-      const deltaY = point.y - solid3dGesture.start.y;
-      const currentState = readSolid3dState(solid3dGesture.object.meta);
-      const nextView =
-        solid3dGesture.mode === "rotate"
-          ? {
-              ...currentState.view,
-              rotationY: solid3dGesture.baseRotationY + deltaX * 0.38,
-              rotationX: solid3dGesture.baseRotationX + deltaY * 0.32,
-            }
-          : {
-              ...currentState.view,
-              panX: solid3dGesture.basePanX + deltaX / 240,
-              panY: solid3dGesture.basePanY + deltaY / 240,
-            };
+      const nextMeta = buildSolid3dGesturePreviewMeta(solid3dGesture, point);
       scheduleSolid3dPreviewMetaById((current) => ({
         ...current,
-        [solid3dGesture.object.id]: writeSolid3dState(
-          { ...currentState, view: nextView },
-          solid3dGesture.object.meta
-        ),
+        [solid3dGesture.object.id]: nextMeta,
       }));
       return;
     }
@@ -2201,16 +2187,17 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
 
     if (moving) {
-      const deltaX = (event.clientX - moving.startClientX) / safeZoom;
-      const deltaY = (event.clientY - moving.startClientY) / safeZoom;
+      const nextCurrent = buildMovingCurrentPoint(
+        moving,
+        event.clientX,
+        event.clientY,
+        safeZoom
+      );
       scheduleMoving((prev) =>
         prev
           ? {
               ...prev,
-              current: {
-                x: prev.start.x + deltaX,
-                y: prev.start.y + deltaY,
-              },
+              current: nextCurrent,
             }
           : prev
       );
