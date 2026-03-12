@@ -10,7 +10,6 @@ import {
   type ReactNode,
 } from "react";
 import type { MouseEvent, PointerEvent, WheelEvent } from "react";
-import { generateId } from "@/shared/lib/id";
 import type {
   WorkbookBoardObject,
   WorkbookConstraint,
@@ -20,7 +19,6 @@ import type {
   WorkbookTool,
 } from "../model/types";
 import {
-  buildWorkbookPointObject,
   buildWorkbookShapeCommitResult,
   buildWorkbookPolygonObjectFromPoints,
 } from "../model/sceneCreation";
@@ -85,30 +83,16 @@ import {
   resolveWorkbookLineEndpointAtPoint,
 } from "../model/sceneHitTesting";
 import {
-  buildAreaSelectionProxyObject,
-  collectAreaSelectionObjects,
-  resolveAreaSelectionResizeMode,
   type WorkbookAreaSelection,
 } from "../model/sceneSelection";
 import type {
   WorkbookAreaSelectionDraft,
 } from "../model/sceneSelection";
 import {
-  buildAreaSelectionDraftState,
-  buildAreaSelectionResizeState,
   buildGraphPanState,
   buildMovingState,
-  buildMovingCurrentPoint,
-  buildPanningOffset,
-  buildPanState,
   buildResizeState,
-  buildSolid3dResizeState,
-  buildSolid3dGesturePreviewMeta,
   buildSolid3dGestureState,
-  finalizeAreaSelectionDraftWithQueries,
-  finalizeAreaSelectionResizeWithQueries,
-  resolveObjectResizeMode,
-  shouldKeepObjectSelectedInsideArea,
   type PanState,
   type Solid3dGestureState,
   type WorkbookAreaSelectionResizeState,
@@ -125,7 +109,6 @@ import {
   applyEraserPointToCollections,
   buildEraserSegmentPoints,
   convertObjectEraserCutToStoredPath,
-  finalizeEraserSegmentPreview,
   normalizeObjectEraserPreviewPath,
   type ObjectEraserCut,
   type ObjectEraserPreviewPath,
@@ -146,9 +129,6 @@ import {
 import {
   buildMoveCommitResult,
   buildResizeCommitPatch,
-  collectMappedInteractionPoints,
-  collectSegmentPreviewPoints,
-  filterPreviewPointsByDistance,
   resolveRealtimePatchBaseObject,
   resolveSelectedPreviewObject,
   type GraphPanState,
@@ -168,9 +148,6 @@ import {
   type WorkbookConstraintRenderSegment,
 } from "../model/sceneRender";
 import {
-  buildGraphPanCommitUpdate,
-  buildSolid3dGestureCommitUpdate,
-  buildSolid3dResizeCommitUpdate,
 } from "../model/sceneCommit";
 import {
   resolveSolid3dPointAtPointer,
@@ -184,22 +161,9 @@ import {
 } from "../model/sceneSolid3d";
 import {
   isWorkbookPolygonPointTool,
-  isWorkbookShapeCreationTool,
-  isWorkbookStrokeDrawingTool,
   resolveWorkbookCanvasModeFlags,
   resolveWorkbookStrokeVisual,
-  shouldSnapWorkbookPointerForTool,
 } from "../model/sceneTools";
-import {
-  resolveWorkbookContinueInteractionMode,
-  resolveWorkbookFinishInteractionMode,
-  resolveWorkbookPanStartAction,
-  resolveWorkbookSelectStartAction,
-  resolveWorkbookStartInteractionMode,
-  shouldPreventWorkbookPointerDefault,
-  shouldClearWorkbookLaserOnSecondaryButton,
-  shouldTrackWorkbookEraserHover,
-} from "../model/scenePointer";
 import { useAnimationFrameState } from "@/shared/lib/useAnimationFrameState";
 import {
   WorkbookAutoDividerLayer,
@@ -210,6 +174,7 @@ import {
   WorkbookSelectionOverlayLayer,
   WorkbookStrokeLayer,
 } from "./WorkbookCanvasLayers";
+import { useWorkbookCanvasInteractions } from "./useWorkbookCanvasInteractions";
 
 type WorkbookCanvasProps = {
   boardStrokes: WorkbookStroke[];
@@ -1363,483 +1328,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     onSelectedObjectChange(created.id);
   }, [authorUserId, color, layer, onObjectCreate, onSelectedObjectChange, width]);
 
-  const startInteraction = (event: PointerEvent<SVGSVGElement>) => {
-    if (disabled) return;
-    const svg = event.currentTarget ?? null;
-    if (!svg) return;
-    const startMode = resolveWorkbookStartInteractionMode({
-      button: event.button,
-      tool,
-      polygonPointMode: isWorkbookPolygonPointTool(tool, polygonMode),
-      solid3dInsertPreset: Boolean(solid3dInsertPreset),
-      forcePanMode,
-    });
-    if (startMode === "button_ignore") {
-      if (
-        shouldClearWorkbookLaserOnSecondaryButton({
-          tool,
-          button: event.button,
-        })
-      ) {
-        onLaserClear?.();
-      }
-      return;
-    }
-    if (shouldPreventWorkbookPointerDefault(event.pointerType)) {
-      event.preventDefault();
-    }
-    const shouldSnapPoint = shouldSnapWorkbookPointerForTool(tool, {
-      polygonMode,
-      includeSolid3dInsertPreset: Boolean(solid3dInsertPreset),
-    });
-    const point = mapPointer(svg, event.clientX, event.clientY, shouldSnapPoint);
-    if (startMode === "solid3d_insert") {
-      onSelectedConstraintChange(null);
-      onSelectedObjectChange(null);
-      startShape("solid3d", event, svg);
-      return;
-    }
-    if (startMode === "force_pan") {
-      pointerIdRef.current = event.pointerId;
-      setPanning(
-        buildPanState(
-          { x: event.clientX, y: event.clientY },
-          viewportOffset
-        )
-      );
-      svg.setPointerCapture(event.pointerId);
-      return;
-    }
-
-    if (startMode === "pan") {
-      const target = resolveTopObject(point);
-      const targetFunctionId =
-        target && target.type === "function_graph" && !target.pinned
-          ? resolveGraphFunctionHit(target, point)
-          : null;
-      const panAction = resolveWorkbookPanStartAction({
-        hasTarget: Boolean(target),
-        targetPinned: target?.pinned ?? true,
-        targetType: target?.type ?? null,
-        hasTargetFunctionId: Boolean(targetFunctionId),
-      });
-      onSelectedConstraintChange(null);
-      if (panAction === "rotate_solid3d" && target) {
-        onSelectedObjectChange(target.id);
-        startSolid3dGesture(target, "rotate", event, svg);
-        return;
-      }
-      if (panAction === "graph_pan" && target && targetFunctionId) {
-        onSelectedObjectChange(target.id);
-        if (targetFunctionId) {
-          startGraphPan(target, targetFunctionId, point, event, svg);
-        }
-        return;
-      }
-      if (panAction === "move" && target) {
-        onSelectedObjectChange(target.id);
-        startMoving(target, event, svg);
-        return;
-      }
-      onSelectedObjectChange(null);
-      pointerIdRef.current = event.pointerId;
-      setPanning(
-        buildPanState(
-          { x: event.clientX, y: event.clientY },
-          viewportOffset
-        )
-      );
-      svg.setPointerCapture(event.pointerId);
-      return;
-    }
-
-    if (startMode === "polygon_points") {
-      onSelectedConstraintChange(null);
-      if (event.detail >= 2) {
-        commitPolygonByPoints(polygonPointDraft);
-        setPolygonPointDraft([]);
-        setPolygonHoverPoint(null);
-        return;
-      }
-      setPolygonPointDraft((current) => [...current, snapPoint(point)]);
-      setPolygonHoverPoint(point);
-      return;
-    }
-
-    if (startMode === "laser") {
-      onSelectedConstraintChange(null);
-      if (pointerPoint && Math.hypot(point.x - pointerPoint.x, point.y - pointerPoint.y) <= 18) {
-        onLaserClear?.();
-        return;
-      }
-      onLaserPoint(point);
-      return;
-    }
-
-    if (startMode === "sweep") {
-      const strokeTarget = resolveTopStroke(point);
-      if (strokeTarget) {
-        onSelectedConstraintChange(null);
-        onStrokeDelete(strokeTarget.id, strokeTarget.layer);
-        return;
-      }
-      const target = resolveTopObject(point);
-      if (target && !target.pinned) {
-        onSelectedConstraintChange(null);
-        const layerId = getObjectSceneLayerId(target);
-        if (layerId !== "main") {
-          (unpinnedSceneLayerObjectsById.get(layerId) ?? []).forEach((item) =>
-            onObjectDelete(item.id)
-          );
-        } else {
-          onObjectDelete(target.id);
-        }
-        if (selectedObjectId === target.id || layerId !== "main") {
-          onSelectedObjectChange(null);
-        }
-      } else {
-        onSelectedObjectChange(null);
-        onRequestSelectTool?.();
-      }
-      return;
-    }
-
-    if (startMode === "area_select") {
-      if (areaSelection) {
-        const resizeMode = resolveAreaSelectionResizeMode(areaSelection.rect, point);
-        if (resizeMode) {
-          pointerIdRef.current = event.pointerId;
-          onSelectedConstraintChange(null);
-          onSelectedObjectChange(null);
-          setAreaSelectionResize(
-            buildAreaSelectionResizeState(areaSelection.rect, resizeMode, point)
-          );
-          svg.setPointerCapture(event.pointerId);
-          return;
-        }
-      }
-      pointerIdRef.current = event.pointerId;
-      onSelectedConstraintChange(null);
-      onSelectedObjectChange(null);
-      setAreaSelectionDraft(buildAreaSelectionDraftState(point));
-      svg.setPointerCapture(event.pointerId);
-      return;
-    }
-
-    if (startMode === "point") {
-      onSelectedConstraintChange(null);
-      const created = buildWorkbookPointObject({
-        point,
-        layer,
-        color,
-        width,
-        authorUserId,
-      });
-      onObjectCreate(created);
-      onSelectedObjectChange(created.id);
-      onRequestSelectTool?.();
-      return;
-    }
-
-    if (solid3dDraftPointCollectionObjectId) {
-      const target = resolveTopObject(point);
-      if (
-        target &&
-        target.type === "solid3d" &&
-        target.id === solid3dDraftPointCollectionObjectId &&
-        !target.pinned &&
-        onSolid3dDraftPointAdd
-      ) {
-        const picked = resolveSolid3dPointAtPointer(target, point);
-        if (picked && Number.isInteger(picked.faceIndex)) {
-          onSelectedConstraintChange(null);
-          onSelectedObjectChange(target.id);
-          onSolid3dDraftPointAdd({
-            objectId: target.id,
-            point: {
-              x: picked.point.x,
-              y: picked.point.y,
-              z: picked.point.z,
-              faceIndex: picked.faceIndex,
-              triangleVertexIndices: picked.triangleVertexIndices,
-              barycentric: picked.barycentric,
-            },
-          });
-          return;
-        }
-      }
-    }
-
-    if (startMode === "select") {
-      const selected = selectedObjectId ? objectById.get(selectedObjectId) ?? null : null;
-      const solid3dResizeHit =
-        selected && !selected.pinned && selected.type === "solid3d"
-          ? resolveSolid3dResizeHandleHit(selected, point)
-          : null;
-      const resizeMode =
-        selected && !selected.pinned && selected.type !== "solid3d"
-          ? resolveObjectResizeMode(selected, point)
-          : null;
-      const keepInsideArea = shouldKeepObjectSelectedInsideArea(point, areaSelection);
-      const groupedTargets = keepInsideArea
-        ? collectAreaSelectionObjects(areaSelection, objectById)
-        : [];
-      const target = resolveTopObject(point);
-      const selectAction = resolveWorkbookSelectStartAction({
-        hasSelected: Boolean(selected),
-        selectedPinned: selected?.pinned ?? true,
-        selectedType: selected?.type ?? null,
-        hasSolid3dResizeHit: Boolean(solid3dResizeHit),
-        hasResizeMode: Boolean(resizeMode),
-        keepInsideArea,
-        hasGroupedTargets: groupedTargets.length > 0,
-        hasTarget: Boolean(target),
-        targetPinned: target?.pinned ?? true,
-      });
-      onSelectedConstraintChange(null);
-      if (selectAction === "solid3d_resize" && selected?.type === "solid3d" && solid3dResizeHit) {
-        pointerIdRef.current = event.pointerId;
-        setSolid3dResize(
-          buildSolid3dResizeState({
-            object: selected,
-            mode: solid3dResizeHit.mode,
-            start: point,
-            startLocal: solid3dResizeHit,
-          })
-        );
-        onAreaSelectionChange?.(null);
-        svg.setPointerCapture(event.pointerId);
-        return;
-      }
-      if (selectAction === "resize" && selected && resizeMode) {
-        onAreaSelectionChange?.(null);
-        startResizing(selected, resizeMode, event, svg);
-        return;
-      }
-      if (selectAction === "move_group" && groupedTargets.length > 0) {
-        const proxyObject = buildAreaSelectionProxyObject({
-          rect: areaSelection.rect,
-          layer,
-          authorUserId,
-        });
-        startMoving(proxyObject, event, svg, groupedTargets);
-        return;
-      }
-      if (selectAction === "move" && target && !target.pinned) {
-        onAreaSelectionChange?.(null);
-        onSelectedObjectChange(target.id);
-        startMoving(target, event, svg);
-        return;
-      }
-      onSelectedObjectChange(null);
-      onAreaSelectionChange?.(null);
-      pointerIdRef.current = event.pointerId;
-      setAreaSelectionDraft(buildAreaSelectionDraftState(point));
-      svg.setPointerCapture(event.pointerId);
-      return;
-    }
-
-    if (startMode === "eraser") {
-      pointerIdRef.current = event.pointerId;
-      clearEraserPreviewRuntime();
-      erasedStrokeIdsRef.current.clear();
-      eraserGestureIdRef.current = generateId();
-      eraserLastAppliedPointRef.current = point;
-      eraserLastPreviewPointRef.current = point;
-      setErasing(true);
-      setEraserCursorPoint(point);
-      eraseAtPoint(point);
-      emitEraserPreviewPoints([point]);
-      svg.setPointerCapture(event.pointerId);
-      return;
-    }
-
-    if (startMode === "stroke" && isWorkbookStrokeDrawingTool(tool)) {
-      startStroke(event, svg);
-      return;
-    }
-
-    if (startMode === "shape" && isWorkbookShapeCreationTool(tool, polygonMode)) {
-      const target = resolveTopObject(point);
-      if (target && target.id !== selectedObjectId) {
-        onSelectedConstraintChange(null);
-        onSelectedObjectChange(target.id);
-        onRequestSelectTool?.();
-        return;
-      }
-      if (!target && selectedObjectId) {
-        onSelectedConstraintChange(null);
-        onSelectedObjectChange(null);
-        onRequestSelectTool?.();
-        return;
-      }
-      onSelectedConstraintChange(null);
-      startShape(tool, event, svg);
-    }
-  };
-
-  const continueInteraction = (event: PointerEvent<SVGSVGElement>) => {
-    const svg = event.currentTarget ?? null;
-    if (!svg) return;
-
-    if (shouldTrackWorkbookEraserHover(tool)) {
-      const hoverPoint = mapPointer(svg, event.clientX, event.clientY, false, false);
-      scheduleEraserCursorPoint(hoverPoint);
-    }
-
-    const continueMode = resolveWorkbookContinueInteractionMode({
-      pointerIdMatches: pointerIdRef.current === event.pointerId,
-      polygonPointMode: isWorkbookPolygonPointTool(tool, polygonMode),
-      panning: Boolean(panning),
-      forcePanMode,
-      graphPan: Boolean(graphPan),
-      solid3dGesture: Boolean(solid3dGesture),
-      solid3dResize: Boolean(solid3dResize),
-      areaSelectionResize: Boolean(areaSelectionResize),
-      areaSelectionDraft: Boolean(areaSelectionDraft),
-      erasing,
-      eraserMode: tool === "eraser",
-      hasStrokePoints: strokePointsRef.current.length > 0,
-      shapeDraft: Boolean(shapeDraft),
-      resizing: Boolean(resizing),
-      moving: Boolean(moving),
-    });
-
-    if (continueMode === "polygon_hover") {
-      schedulePolygonHoverPoint(mapPointer(svg, event.clientX, event.clientY, true));
-      return;
-    }
-    if (continueMode === "ignore") return;
-    if (shouldPreventWorkbookPointerDefault(event.pointerType)) {
-      event.preventDefault();
-    }
-    if (continueMode === "panning" && panning) {
-      const nextOffset = buildPanningOffset(
-        panning,
-        event.clientX,
-        event.clientY,
-        safeZoom
-      );
-      onViewportOffsetChange?.(nextOffset);
-      return;
-    }
-    if (continueMode === "graph_pan" && graphPan) {
-      const point = mapPointer(svg, event.clientX, event.clientY, false, false);
-      scheduleGraphPan((prev) => (prev ? { ...prev, current: point } : prev));
-      return;
-    }
-    const requiresUnclampedPointer = Boolean(solid3dGesture || solid3dResize || moving);
-    const point = mapPointer(
-      svg,
-      event.clientX,
-      event.clientY,
-      Boolean(shapeDraft),
-      !requiresUnclampedPointer
-    );
-
-    if (continueMode === "solid3d_gesture" && solid3dGesture) {
-      const nextMeta = buildSolid3dGesturePreviewMeta(solid3dGesture, point);
-      scheduleSolid3dPreviewMetaById((current) => ({
-        ...current,
-        [solid3dGesture.object.id]: nextMeta,
-      }));
-      return;
-    }
-
-    if (continueMode === "solid3d_resize" && solid3dResize) {
-      scheduleSolid3dResize((prev) => (prev ? { ...prev, current: point } : prev));
-      return;
-    }
-
-    if (continueMode === "area_selection_resize" && areaSelectionResize) {
-      scheduleAreaSelectionResize((prev) => (prev ? { ...prev, current: point } : prev));
-      return;
-    }
-
-    if (continueMode === "area_selection_draft" && areaSelectionDraft) {
-      scheduleAreaSelectionDraft((prev) => (prev ? { ...prev, current: point } : prev));
-      return;
-    }
-
-    if (continueMode === "eraser") {
-      const nativeEvent = event.nativeEvent;
-      const coalesced =
-        typeof nativeEvent.getCoalescedEvents === "function"
-          ? nativeEvent.getCoalescedEvents()
-          : [];
-      const sourceEvents =
-        coalesced.length > 0
-          ? coalesced
-          : [{ clientX: event.clientX, clientY: event.clientY }];
-      const eraserSegmentResult = collectSegmentPreviewPoints({
-        sourceEvents,
-        mapPoint: (sourceEvent) =>
-          mapPointer(svg, sourceEvent.clientX, sourceEvent.clientY, false, false),
-        lastAppliedPoint: eraserLastAppliedPointRef.current ?? point,
-        sampleSegment: eraseAlongSegment,
-      });
-      eraserLastAppliedPointRef.current = eraserSegmentResult.lastAppliedPoint;
-      const filteredPoints = filterPreviewPointsByDistance({
-        previewPoints: eraserSegmentResult.previewPoints,
-        lastPreviewPoint: eraserLastPreviewPointRef.current,
-        minDistance: Math.max(1.2, Math.max(4, width) * 0.22),
-      });
-      if (filteredPoints.length > 0) {
-        eraserLastPreviewPointRef.current =
-          filteredPoints[filteredPoints.length - 1];
-        emitEraserPreviewPoints(filteredPoints);
-      }
-      return;
-    }
-
-    if (continueMode === "stroke") {
-      const nativeEvent = event.nativeEvent;
-      const coalesced =
-        typeof nativeEvent.getCoalescedEvents === "function"
-          ? nativeEvent.getCoalescedEvents()
-          : [];
-      const sourceEvents =
-        coalesced.length > 0
-          ? coalesced
-          : [nativeEvent as globalThis.PointerEvent];
-      const nextPoints = collectMappedInteractionPoints({
-        sourceEvents,
-        mapPoint: (pointerEvent) => mapPointer(svg, pointerEvent.clientX, pointerEvent.clientY),
-        lastPoint: strokePointsRef.current[strokePointsRef.current.length - 1] ?? null,
-        minDistance: 0.18,
-      });
-      enqueueStrokePoints(nextPoints);
-      return;
-    }
-
-    if (continueMode === "shape") {
-      scheduleShapeDraft((prev) => (prev ? { ...prev, current: point } : prev));
-      return;
-    }
-
-    if (continueMode === "resizing") {
-      scheduleResizing((prev) => (prev ? { ...prev, current: point } : prev));
-      return;
-    }
-
-    if (continueMode === "moving" && moving) {
-      const nextCurrent = buildMovingCurrentPoint(
-        moving,
-        event.clientX,
-        event.clientY,
-        safeZoom
-      );
-      scheduleMoving((prev) =>
-        prev
-          ? {
-              ...prev,
-              current: nextCurrent,
-            }
-          : prev
-      );
-    }
-  };
-
   const releasePointerCapture = (
     svg: SVGSVGElement,
     pointerId: number
@@ -1944,113 +1432,134 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     setResizing(null);
   };
 
-  const finishInteraction = (event: PointerEvent<SVGSVGElement>) => {
-    const svg = event.currentTarget ?? null;
-    const finishMode = resolveWorkbookFinishInteractionMode({
-      pointerIdMatches: pointerIdRef.current === event.pointerId,
-      svgPresent: Boolean(svg),
-      erasing,
-      hasStrokePoints: strokePointsRef.current.length > 0,
-      hasShapeDraft: Boolean(shapeDraftState.ref.current),
-      hasAreaSelectionResize: Boolean(areaSelectionResizeState.ref.current),
-      hasAreaSelectionDraft: Boolean(areaSelectionDraftState.ref.current),
-      panning: Boolean(panning),
-      hasGraphPan: Boolean(graphPanState.ref.current),
-      hasSolid3dGesture: Boolean(solid3dGesture),
-      hasSolid3dResize: Boolean(solid3dResizeState.ref.current),
-      hasResizing: Boolean(resizingState.ref.current),
-      hasMoving: Boolean(movingState.ref.current),
-    });
-    if (finishMode === "ignore") {
-      pointerIdRef.current = null;
-      return;
-    }
-    if (shouldPreventWorkbookPointerDefault(event.pointerType)) {
-      event.preventDefault();
-    }
-    const latestShapeDraft = flushShapeDraft();
-    const latestMoving = flushMoving();
-    const latestResizing = flushResizing();
-    const latestGraphPan = flushGraphPan();
-    const latestSolid3dResize = flushSolid3dResize();
-    const latestAreaSelectionDraft = flushAreaSelectionDraft();
-    const latestAreaSelectionResize = flushAreaSelectionResize();
-    const latestSolid3dPreviewMetaById = flushSolid3dPreviewMetaById();
-    if (finishMode === "erasing") {
-      const point = mapPointer(svg, event.clientX, event.clientY, false, false);
-      const eraserFinish = finalizeEraserSegmentPreview({
-        point,
-        lastAppliedPoint: eraserLastAppliedPointRef.current ?? point,
+  const { startInteraction, continueInteraction, finishInteraction } =
+    useWorkbookCanvasInteractions({
+      refs: {
+        pointerIdRef,
+        strokePointsRef,
+        erasedStrokeIdsRef,
+        eraserGestureIdRef,
+        eraserLastAppliedPointRef,
+        eraserLastPreviewPointRef,
+        shapeDraftRef: shapeDraftState.ref,
+        movingRef: movingState.ref,
+        resizingRef: resizingState.ref,
+        graphPanRef: graphPanState.ref,
+        solid3dResizeRef: solid3dResizeState.ref,
+        areaSelectionDraftRef: areaSelectionDraftState.ref,
+        areaSelectionResizeRef: areaSelectionResizeState.ref,
+      },
+      setters: {
+        setPanning,
+        setPolygonPointDraft,
+        setPolygonHoverPoint,
+        schedulePolygonHoverPoint,
+        setAreaSelectionResize,
+        setAreaSelectionDraft,
+        setSolid3dResize,
+        setSolid3dGesture,
+        setErasing,
+        setEraserCursorPoint,
+        scheduleEraserCursorPoint,
+        setGraphPan,
+        scheduleGraphPan,
+        setShapeDraft,
+        scheduleShapeDraft,
+        scheduleSolid3dPreviewMetaById,
+        scheduleSolid3dResize,
+        scheduleAreaSelectionResize,
+        scheduleAreaSelectionDraft,
+        scheduleResizing,
+        scheduleMoving,
+        setSolid3dPreviewMetaById,
+      },
+      callbacks: {
+        mapPointer,
+        snapPoint,
+        resolveTopObject,
+        resolveTopStroke,
+        resolveGraphFunctionHit,
+        resolveSolid3dPointAtPointer,
+        resolveSolid3dResizeHandleHit,
+        startStroke,
+        startShape,
+        startMoving,
+        startResizing,
+        startSolid3dGesture,
+        startGraphPan,
+        commitPolygonByPoints,
+        eraseAtPoint,
         eraseAlongSegment,
-      });
-      eraserLastAppliedPointRef.current = eraserFinish.nextLastAppliedPoint;
-      emitEraserPreviewPoints(
-        eraserFinish.sampledPoints.length > 0
-          ? eraserFinish.sampledPoints
-          : [point],
-        true
-      );
-      commitEraserGesture();
-      setErasing(false);
-      erasedStrokeIdsRef.current.clear();
-      eraserGestureIdRef.current = null;
-      eraserLastAppliedPointRef.current = null;
-      eraserLastPreviewPointRef.current = null;
-      clearEraserPreviewRuntime();
-    } else if (finishMode === "stroke") {
-      finishStroke(event, svg);
-    } else if (finishMode === "shape" && latestShapeDraft) {
-      finishShape(latestShapeDraft);
-    } else if (finishMode === "area_selection_resize" && latestAreaSelectionResize) {
-      onAreaSelectionChange?.(
-        finalizeAreaSelectionResizeWithQueries({
-          resize: latestAreaSelectionResize,
-          boardObjectCandidatesInRect,
-          strokeCandidatesInRect,
-        })
-      );
-      setAreaSelectionResize(null);
-    } else if (finishMode === "area_selection_draft" && latestAreaSelectionDraft) {
-      onAreaSelectionChange?.(
-        finalizeAreaSelectionDraftWithQueries({
-          draft: latestAreaSelectionDraft,
-          boardObjectCandidatesInRect,
-          strokeCandidatesInRect,
-        })
-      );
-      setAreaSelectionDraft(null);
-    } else if (finishMode === "panning" && panning) {
-      setPanning(null);
-    } else if (finishMode === "graph_pan" && latestGraphPan) {
-      const update = buildGraphPanCommitUpdate(latestGraphPan);
-      onObjectUpdate(update.id, update.patch);
-      setGraphPan(null);
-    } else if (finishMode === "solid3d_gesture" && solid3dGesture) {
-      const update = buildSolid3dGestureCommitUpdate(
+        emitEraserPreviewPoints,
+        commitEraserGesture,
+        clearEraserPreviewRuntime,
+        enqueueStrokePoints,
+        finishStroke,
+        finishShape,
+        finishMoving,
+        finishResizing,
+        releasePointerCapture,
+        boardObjectCandidatesInRect,
+        strokeCandidatesInRect,
+        getObjectSceneLayerId,
+      },
+      api: {
+        onSelectedConstraintChange,
+        onSelectedObjectChange,
+        onStrokeDelete,
+        onObjectDelete,
+        onObjectCreate,
+        onObjectUpdate,
+        onRequestSelectTool,
+        onAreaSelectionChange,
+        onLaserClear,
+        onLaserPoint,
+        onSolid3dDraftPointAdd,
+        onSolid3dInsertConsumed,
+        onViewportOffsetChange,
+      },
+      data: {
+        disabled,
+        tool,
+        polygonMode,
+        solid3dInsertPreset,
+        forcePanMode,
+        viewportOffset,
+        safeZoom,
+        selectedObjectId,
+        objectById,
+        areaSelection,
+        solid3dDraftPointCollectionObjectId,
+        panning,
+        graphPan,
         solid3dGesture,
-        latestSolid3dPreviewMetaById
-      );
-      if (update) {
-        onObjectUpdate(update.id, update.patch);
-      }
-      setSolid3dGesture(null);
-      setSolid3dPreviewMetaById((current) => {
-        const next = { ...current };
-        delete next[solid3dGesture.object.id];
-        return next;
-      });
-    } else if (finishMode === "solid3d_resize" && latestSolid3dResize) {
-      const update = buildSolid3dResizeCommitUpdate(latestSolid3dResize);
-      onObjectUpdate(update.id, update.patch);
-      setSolid3dResize(null);
-    } else if (finishMode === "resizing" && latestResizing) {
-      finishResizing(latestResizing);
-    } else if (finishMode === "moving" && latestMoving) {
-      finishMoving(latestMoving);
-    }
-    pointerIdRef.current = null;
-    releasePointerCapture(svg, event.pointerId);
-  };
+        solid3dResize,
+        areaSelectionResize,
+        areaSelectionDraft,
+        erasing,
+        shapeDraft,
+        resizing,
+        moving,
+        polygonPointDraft,
+        pointerPoint,
+        layer,
+        color,
+        width,
+        authorUserId,
+        currentPage,
+        latestSolid3dPreviewMetaById: solid3dPreviewMetaById,
+      },
+      flushers: {
+        flushShapeDraft,
+        flushMoving,
+        flushResizing,
+        flushGraphPan,
+        flushSolid3dResize,
+        flushAreaSelectionDraft,
+        flushAreaSelectionResize,
+        flushSolid3dPreviewMetaById,
+      },
+    });
 
   useEffect(() => {
     if (!selectedObjectId) return;
