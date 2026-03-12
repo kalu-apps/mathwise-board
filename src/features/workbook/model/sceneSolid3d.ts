@@ -137,6 +137,15 @@ export const resolveSolid3dResizeHandles = (
   ];
 };
 
+export const resolveSolid3dResizeHandleHit = (
+  object: WorkbookBoardObject,
+  point: WorkbookPoint,
+  radius = 8.5
+): Solid3dResizeHandle | null =>
+  resolveSolid3dResizeHandles(object).find(
+    (handle) => Math.hypot(handle.x - point.x, handle.y - point.y) <= radius
+  ) ?? null;
+
 export const resolveSolid3dPickMarkersForObject = (
   sourceObject: WorkbookBoardObject,
   selectedPoints: Solid3dSectionPoint[],

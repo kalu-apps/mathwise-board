@@ -215,6 +215,23 @@ export const buildSolid3dGestureState = (
   };
 };
 
+export const buildSolid3dResizeState = (params: {
+  object: WorkbookBoardObject;
+  mode: "n" | "s" | "w" | "e" | "nw" | "ne" | "sw" | "se";
+  start: WorkbookPoint;
+  startLocal: WorkbookPoint;
+}) => ({
+  object: params.object,
+  mode: params.mode,
+  start: params.start,
+  current: params.start,
+  center: {
+    x: params.object.x + params.object.width / 2,
+    y: params.object.y + params.object.height / 2,
+  },
+  startLocal: params.startLocal,
+});
+
 export const buildSolid3dGesturePreviewMeta = (
   gesture: Solid3dGestureState,
   point: WorkbookPoint

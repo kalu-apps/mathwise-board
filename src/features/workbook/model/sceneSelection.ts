@@ -117,3 +117,37 @@ export const buildAreaSelection = (
       }
     : null;
 };
+
+export const collectAreaSelectionObjects = (
+  areaSelection: WorkbookAreaSelection | null,
+  objectById: Map<string, WorkbookBoardObject>
+) =>
+  areaSelection
+    ? areaSelection.objectIds.reduce<WorkbookBoardObject[]>((acc, objectId) => {
+        const object = objectById.get(objectId);
+        if (object) {
+          acc.push(object);
+        }
+        return acc;
+      }, [])
+    : [];
+
+export const buildAreaSelectionProxyObject = (params: {
+  rect: WorkbookSceneRect;
+  layer: WorkbookLayer;
+  authorUserId: string;
+}): WorkbookBoardObject => ({
+  id: "__area-selection__",
+  type: "frame",
+  layer: params.layer,
+  x: params.rect.x,
+  y: params.rect.y,
+  width: params.rect.width,
+  height: params.rect.height,
+  color: "#4f63ff",
+  fill: "transparent",
+  strokeWidth: 1,
+  opacity: 1,
+  authorUserId: params.authorUserId,
+  createdAt: new Date().toISOString(),
+});

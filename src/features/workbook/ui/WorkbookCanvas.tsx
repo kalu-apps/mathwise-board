@@ -85,6 +85,8 @@ import {
   resolveWorkbookLineEndpointAtPoint,
 } from "../model/sceneHitTesting";
 import {
+  buildAreaSelectionProxyObject,
+  collectAreaSelectionObjects,
   getAreaSelectionDraftRect,
   resizeAreaSelectionRect,
   resolveAreaSelectionResizeMode,
@@ -103,6 +105,7 @@ import {
   buildPanningOffset,
   buildPanState,
   buildResizeState,
+  buildSolid3dResizeState,
   buildSolid3dGesturePreviewMeta,
   buildSolid3dGestureState,
   finalizeAreaSelectionDraft,
@@ -170,6 +173,7 @@ import {
 import {
   resolveSolid3dPointAtPointer,
   resolveSolid3dResizeHandles,
+  resolveSolid3dResizeHandleHit,
   resolveSolid3dPickMarkersForObject,
   resolveSolid3dVertexAtPointer,
   resolveSolid3dSectionVertexAtPointer,
@@ -1568,9 +1572,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       const selected = selectedObjectId ? objectById.get(selectedObjectId) ?? null : null;
       const solid3dResizeHit =
         selected && !selected.pinned && selected.type === "solid3d"
-          ? resolveSolid3dResizeHandles(selected).find(
-              (handle) => Math.hypot(handle.x - point.x, handle.y - point.y) <= 8.5
-            ) ?? null
+          ? resolveSolid3dResizeHandleHit(selected, point)
           : null;
       const resizeMode =
         selected && !selected.pinned && selected.type !== "solid3d"
@@ -1578,16 +1580,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           : null;
       const keepInsideArea = shouldKeepObjectSelectedInsideArea(point, areaSelection);
       const groupedTargets = keepInsideArea
-        ? areaSelection.objectIds.reduce<WorkbookBoardObject[]>(
-          (acc, objectId) => {
-            const object = objectById.get(objectId);
-            if (object) {
-              acc.push(object);
-            }
-            return acc;
-          },
-          []
-        )
+        ? collectAreaSelectionObjects(areaSelection, objectById)
         : [];
       const target = resolveTopObject(point);
       const selectAction = resolveWorkbookSelectStartAction({
@@ -1604,18 +1597,14 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       onSelectedConstraintChange(null);
       if (selectAction === "solid3d_resize" && selected?.type === "solid3d" && solid3dResizeHit) {
         pointerIdRef.current = event.pointerId;
-        const center = {
-          x: selected.x + selected.width / 2,
-          y: selected.y + selected.height / 2,
-        };
-        setSolid3dResize({
-          object: selected,
-          mode: solid3dResizeHit.mode,
-          start: point,
-          current: point,
-          center,
-          startLocal: solid3dResizeHit,
-        });
+        setSolid3dResize(
+          buildSolid3dResizeState({
+            object: selected,
+            mode: solid3dResizeHit.mode,
+            start: point,
+            startLocal: solid3dResizeHit,
+          })
+        );
         onAreaSelectionChange?.(null);
         svg.setPointerCapture(event.pointerId);
         return;
@@ -1626,21 +1615,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         return;
       }
       if (selectAction === "move_group" && groupedTargets.length > 0) {
-        const proxyObject: WorkbookBoardObject = {
-          id: "__area-selection__",
-          type: "frame",
+        const proxyObject = buildAreaSelectionProxyObject({
+          rect: areaSelection.rect,
           layer,
-          x: areaSelection.rect.x,
-          y: areaSelection.rect.y,
-          width: areaSelection.rect.width,
-          height: areaSelection.rect.height,
-          color: "#4f63ff",
-          fill: "transparent",
-          strokeWidth: 1,
-          opacity: 1,
           authorUserId,
-          createdAt: new Date().toISOString(),
-        };
+        });
         startMoving(proxyObject, event, svg, groupedTargets);
         return;
       }
