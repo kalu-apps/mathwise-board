@@ -93,7 +93,6 @@ import {
   resolveWorkbookLineEndpointAtPoint,
 } from "../model/sceneHitTesting";
 import {
-  getAreaSelectionHandlePoints,
   resolveAreaSelectionResizeMode,
   type WorkbookAreaSelection,
 } from "../model/sceneSelection";
@@ -171,8 +170,10 @@ import { useAnimationFrameState } from "@/shared/lib/useAnimationFrameState";
 import {
   WorkbookAutoDividerLayer,
   WorkbookConstraintLayer,
+  WorkbookDraftOverlayLayer,
   WorkbookObjectSceneLayer,
   WorkbookPresenceLayer,
+  WorkbookSelectionOverlayLayer,
   WorkbookStrokeLayer,
 } from "./WorkbookCanvasLayers";
 
@@ -5113,543 +5114,14 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     });
   }, [objectById, selectedPreviewObject, solid3dPickMarkers, solid3dSectionMarkers]);
 
-  const draftOverlayNodes = useMemo(() => {
-    const { areaSelectionDraftRect, areaSelectionResizeRect } =
+  const { areaSelectionDraftRect, areaSelectionResizeRect } = useMemo(
+    () =>
       resolveAreaSelectionPreviewRects({
         areaSelectionDraft,
         areaSelectionResize,
-      });
-    if (
-      !shapeDraft &&
-      !(tool === "polygon" && polygonMode === "points" && polygonPointDraft.length > 0) &&
-      !(tool === "area_select" && areaSelectionDraftRect) &&
-      !(tool === "select" && areaSelectionDraftRect) &&
-      !(tool === "area_select" && areaSelectionResizeRect) &&
-      !(tool === "eraser" && eraserCursorPoint)
-    ) {
-      return null;
-    }
-    return (
-      <>
-        {shapeDraft ? (
-          <g className="workbook-session__draft-shape">
-            {shapeDraft.tool === "line" || shapeDraft.tool === "arrow" ? (
-              <line
-                x1={shapeDraft.start.x}
-                y1={shapeDraft.start.y}
-                x2={shapeDraft.current.x}
-                y2={shapeDraft.current.y}
-                stroke={color}
-                strokeWidth={Math.max(1, width)}
-                strokeDasharray="6 4"
-                markerEnd={shapeDraft.tool === "arrow" ? "url(#workbook-arrow)" : undefined}
-              />
-            ) : shapeDraft.tool === "divider" ? (
-              <line
-                x1={shapeDraft.start.x - 2000}
-                y1={shapeDraft.start.y}
-                x2={shapeDraft.start.x + 2000}
-                y2={shapeDraft.start.y}
-                stroke={color}
-                strokeWidth={Math.max(1.2, width)}
-                strokeDasharray="8 6"
-              />
-            ) : shapeDraft.tool === "ellipse" || shapeDraft.tool === "compass" ? (
-              <ellipse
-                cx={
-                  shapeDraft.tool === "compass"
-                    ? shapeDraft.start.x
-                    : (shapeDraft.start.x + shapeDraft.current.x) / 2
-                }
-                cy={
-                  shapeDraft.tool === "compass"
-                    ? shapeDraft.start.y
-                    : (shapeDraft.start.y + shapeDraft.current.y) / 2
-                }
-                rx={
-                  shapeDraft.tool === "compass"
-                    ? Math.max(
-                        1,
-                        Math.hypot(
-                          shapeDraft.current.x - shapeDraft.start.x,
-                          shapeDraft.current.y - shapeDraft.start.y
-                        )
-                      )
-                    : Math.max(1, Math.abs(shapeDraft.start.x - shapeDraft.current.x) / 2)
-                }
-                ry={
-                  shapeDraft.tool === "compass"
-                    ? Math.max(
-                        1,
-                        Math.hypot(
-                          shapeDraft.current.x - shapeDraft.start.x,
-                          shapeDraft.current.y - shapeDraft.start.y
-                        )
-                      )
-                    : Math.max(1, Math.abs(shapeDraft.start.y - shapeDraft.current.y) / 2)
-                }
-                stroke={color}
-                strokeWidth={Math.max(1, width)}
-                strokeDasharray="6 4"
-                fill="none"
-              />
-            ) : shapeDraft.tool === "triangle" ? (
-              <path
-                d={`M ${(shapeDraft.start.x + shapeDraft.current.x) / 2} ${
-                  Math.min(shapeDraft.start.y, shapeDraft.current.y)
-                } L ${Math.min(shapeDraft.start.x, shapeDraft.current.x)} ${
-                  Math.max(shapeDraft.start.y, shapeDraft.current.y)
-                } L ${Math.max(shapeDraft.start.x, shapeDraft.current.x)} ${
-                  Math.max(shapeDraft.start.y, shapeDraft.current.y)
-                } Z`}
-                stroke={color}
-                strokeWidth={Math.max(1, width)}
-                strokeDasharray="6 4"
-                fill="none"
-              />
-            ) : shapeDraft.tool === "polygon" ? (
-              <path
-                d={createPolygonPath(
-                  normalizeRect(shapeDraft.start, shapeDraft.current),
-                  polygonSides,
-                  polygonPreset
-                )}
-                stroke={color}
-                strokeWidth={Math.max(1, width)}
-                strokeDasharray="6 4"
-                fill="none"
-              />
-            ) : (
-              <rect
-                x={Math.min(shapeDraft.start.x, shapeDraft.current.x)}
-                y={Math.min(shapeDraft.start.y, shapeDraft.current.y)}
-                width={Math.max(1, Math.abs(shapeDraft.start.x - shapeDraft.current.x))}
-                height={Math.max(1, Math.abs(shapeDraft.start.y - shapeDraft.current.y))}
-                rx={shapeDraft.tool === "text" ? 4 : 8}
-                ry={shapeDraft.tool === "text" ? 4 : 8}
-                stroke={color}
-                strokeWidth={Math.max(1, width)}
-                strokeDasharray="6 4"
-                fill="none"
-              />
-            )}
-          </g>
-        ) : null}
-
-        {tool === "polygon" && polygonMode === "points" && polygonPointDraft.length > 0 ? (
-          <g className="workbook-session__draft-shape">
-            <path
-              d={toPath(
-                polygonHoverPoint
-                  ? [...polygonPointDraft, polygonHoverPoint]
-                  : polygonPointDraft
-              )}
-              stroke={color}
-              strokeWidth={Math.max(1, width)}
-              strokeDasharray="6 4"
-              fill="none"
-            />
-            {polygonPointDraft.map((point, index) => (
-              <circle
-                key={`poly-point-${index}-${point.x}-${point.y}`}
-                cx={point.x}
-                cy={point.y}
-                r={2.5}
-                fill={color}
-              />
-            ))}
-          </g>
-        ) : null}
-
-        {tool === "eraser" && eraserCursorPoint ? (
-          <g pointerEvents="none">
-            <circle
-              cx={eraserCursorPoint.x}
-              cy={eraserCursorPoint.y}
-              r={Math.max(4, width)}
-              fill="rgba(79, 99, 255, 0.08)"
-              stroke="#4f63ff"
-              strokeWidth={1.1}
-              strokeDasharray="5 4"
-            />
-            <circle
-              cx={eraserCursorPoint.x}
-              cy={eraserCursorPoint.y}
-              r={1.5}
-              fill="#4f63ff"
-            />
-          </g>
-        ) : null}
-
-        {tool === "area_select" && areaSelectionDraftRect ? (
-          <rect
-            x={areaSelectionDraftRect.x}
-            y={areaSelectionDraftRect.y}
-            width={areaSelectionDraftRect.width}
-            height={areaSelectionDraftRect.height}
-            fill="none"
-            stroke="#4f63ff"
-            strokeWidth={1.2}
-            strokeDasharray="7 5"
-          />
-        ) : null}
-
-        {tool === "select" && areaSelectionDraftRect ? (
-          <rect
-            x={areaSelectionDraftRect.x}
-            y={areaSelectionDraftRect.y}
-            width={areaSelectionDraftRect.width}
-            height={areaSelectionDraftRect.height}
-            fill="none"
-            stroke="#4f63ff"
-            strokeWidth={1.2}
-            strokeDasharray="7 5"
-          />
-        ) : null}
-
-        {tool === "area_select" && areaSelectionResizeRect ? (
-          <rect
-            x={areaSelectionResizeRect.x}
-            y={areaSelectionResizeRect.y}
-            width={areaSelectionResizeRect.width}
-            height={areaSelectionResizeRect.height}
-            fill="none"
-            stroke="#4f63ff"
-            strokeWidth={1.2}
-            strokeDasharray="7 5"
-          />
-        ) : null}
-      </>
-    );
-  }, [
-    areaSelectionDraft,
-    areaSelectionResize,
-    color,
-    eraserCursorPoint,
-    polygonHoverPoint,
-    polygonMode,
-    polygonPointDraft,
-    polygonPreset,
-    polygonSides,
-    shapeDraft,
-    tool,
-    width,
-  ]);
-
-  const selectionOverlayNodes = useMemo(() => {
-    if (!areaSelection && !selectedRect) return null;
-    return (
-      <>
-        {areaSelection ? (
-          <>
-            <rect
-              x={areaSelection.rect.x}
-              y={areaSelection.rect.y}
-              width={areaSelection.rect.width}
-              height={areaSelection.rect.height}
-              fill="none"
-              stroke="#4f63ff"
-              strokeWidth={1.2}
-              strokeDasharray="7 5"
-            />
-            {tool === "area_select"
-              ? getAreaSelectionHandlePoints(areaSelection.rect).map((handle) => (
-                  <circle
-                    key={`area-selection-handle-${handle.mode}`}
-                    cx={handle.x}
-                    cy={handle.y}
-                    r={4}
-                    fill="#4f63ff"
-                    stroke="#ffffff"
-                    strokeWidth={1}
-                  />
-                ))
-              : null}
-          </>
-        ) : null}
-
-        {tool === "select" && selectedRect ? (
-          <>
-            {selectedPreviewObject?.type === "solid3d" ? (
-              <g>
-                {selectedSolidResizeHandles.length >= 2 ? (
-                  <path
-                    d={`${toPath(
-                      selectedSolidResizeHandles.map((handle) => ({ x: handle.x, y: handle.y }))
-                    )} Z`}
-                    fill="none"
-                    stroke="#4f63ff"
-                    strokeWidth={1}
-                    strokeDasharray="4 4"
-                    strokeOpacity={0.72}
-                  />
-                ) : null}
-                {selectedSolidResizeHandles.map((handle, index) => (
-                  <circle
-                    key={`solid3d-resize-handle-${selectedPreviewObject.id}-${handle.mode}-${index}`}
-                    cx={handle.x}
-                    cy={handle.y}
-                    r={3.5}
-                    fill="#4f63ff"
-                    stroke="#ffffff"
-                    strokeWidth={1}
-                  />
-                ))}
-              </g>
-            ) : selectedPreviewObject?.type === "section_divider" ? (
-              <line
-                x1={selectedPreviewObject.x}
-                y1={selectedPreviewObject.y + selectedPreviewObject.height / 2}
-                x2={selectedPreviewObject.x + selectedPreviewObject.width}
-                y2={selectedPreviewObject.y + selectedPreviewObject.height / 2}
-                stroke="#ff8e3c"
-                strokeWidth={2}
-                strokeDasharray="6 4"
-              />
-            ) : selectedPreviewObject?.type === "point" ? (
-              <circle
-                cx={selectedPreviewObject.x + selectedPreviewObject.width / 2}
-                cy={selectedPreviewObject.y + selectedPreviewObject.height / 2}
-                r={8}
-                fill="none"
-                stroke="#ff8e3c"
-                strokeWidth={1.6}
-                strokeDasharray="6 4"
-              />
-            ) : selectedPreviewObject &&
-              (selectedPreviewObject.type === "line" ||
-                selectedPreviewObject.type === "arrow") ? (
-              <>
-                {(() => {
-                  const lineKind =
-                    selectedPreviewObject.meta?.lineKind === "segment" ? "segment" : "line";
-                  return (
-                    <>
-                      <line
-                        x1={selectedPreviewObject.x}
-                        y1={selectedPreviewObject.y}
-                        x2={selectedLineControls?.c1.x ?? selectedPreviewObject.x}
-                        y2={selectedLineControls?.c1.y ?? selectedPreviewObject.y}
-                        stroke="#5f71ff"
-                        strokeWidth={1}
-                        strokeDasharray="4 3"
-                      />
-                      <line
-                        x1={selectedPreviewObject.x + selectedPreviewObject.width}
-                        y1={selectedPreviewObject.y + selectedPreviewObject.height}
-                        x2={
-                          selectedLineControls?.c2.x ??
-                          selectedPreviewObject.x + selectedPreviewObject.width
-                        }
-                        y2={
-                          selectedLineControls?.c2.y ??
-                          selectedPreviewObject.y + selectedPreviewObject.height
-                        }
-                        stroke="#5f71ff"
-                        strokeWidth={1}
-                        strokeDasharray="4 3"
-                      />
-                      <rect
-                        x={selectedRect.x}
-                        y={selectedRect.y}
-                        width={selectedRect.width}
-                        height={selectedRect.height}
-                        fill="none"
-                        stroke="#ff8e3c"
-                        strokeWidth={1.5}
-                        strokeDasharray="6 4"
-                      />
-                      {!selectedPreviewObject.pinned ? (
-                        <>
-                          {[
-                            { key: "nw", x: selectedRect.x, y: selectedRect.y },
-                            {
-                              key: "ne",
-                              x: selectedRect.x + selectedRect.width,
-                              y: selectedRect.y,
-                            },
-                            {
-                              key: "se",
-                              x: selectedRect.x + selectedRect.width,
-                              y: selectedRect.y + selectedRect.height,
-                            },
-                            {
-                              key: "sw",
-                              x: selectedRect.x,
-                              y: selectedRect.y + selectedRect.height,
-                            },
-                          ].map((handle) => (
-                            <rect
-                              key={`line-handle-${selectedPreviewObject.id}-${handle.key}`}
-                              x={handle.x - 3}
-                              y={handle.y - 3}
-                              width={6}
-                              height={6}
-                              rx={1.5}
-                              ry={1.5}
-                              fill="#ff8e3c"
-                              stroke="#ffffff"
-                              strokeWidth={1}
-                            />
-                          ))}
-                          <circle
-                            cx={selectedLineControls?.c1.x ?? selectedPreviewObject.x}
-                            cy={selectedLineControls?.c1.y ?? selectedPreviewObject.y}
-                            r={3.2}
-                            fill="#5f71ff"
-                            stroke="#ffffff"
-                            strokeWidth={1}
-                          />
-                          <circle
-                            cx={
-                              selectedLineControls?.c2.x ??
-                              selectedPreviewObject.x + selectedPreviewObject.width
-                            }
-                            cy={
-                              selectedLineControls?.c2.y ??
-                              selectedPreviewObject.y + selectedPreviewObject.height
-                            }
-                            r={3.3}
-                            fill="#5f71ff"
-                            stroke="#ffffff"
-                            strokeWidth={1}
-                          />
-                          <circle
-                            cx={selectedPreviewObject.x}
-                            cy={selectedPreviewObject.y}
-                            r={3.5}
-                            fill={lineKind === "segment" ? "#ffffff" : "#ff8e3c"}
-                            stroke="#ff8e3c"
-                            strokeWidth={1.2}
-                          />
-                          <circle
-                            cx={selectedPreviewObject.x + selectedPreviewObject.width}
-                            cy={selectedPreviewObject.y + selectedPreviewObject.height}
-                            r={3.5}
-                            fill={lineKind === "segment" ? "#ffffff" : "#ff8e3c"}
-                            stroke="#ff8e3c"
-                            strokeWidth={1.2}
-                          />
-                          <circle
-                            cx={selectedRect.x + selectedRect.width / 2}
-                            cy={selectedRect.y - 18}
-                            r={3.5}
-                            fill="#5f71ff"
-                            stroke="#ffffff"
-                            strokeWidth={1}
-                          />
-                        </>
-                      ) : null}
-                    </>
-                  );
-                })()}
-              </>
-            ) : selectedPreviewObject ? (
-              <g
-                transform={
-                  selectedPreviewObject.rotation
-                    ? `rotate(${selectedPreviewObject.rotation} ${
-                        selectedRect.x + selectedRect.width / 2
-                      } ${selectedRect.y + selectedRect.height / 2})`
-                    : undefined
-                }
-              >
-                <rect
-                  x={selectedRect.x}
-                  y={selectedRect.y}
-                  width={selectedRect.width}
-                  height={selectedRect.height}
-                  fill="none"
-                  stroke="#ff8e3c"
-                  strokeWidth={1.5}
-                  strokeDasharray="6 4"
-                />
-                {!selectedPreviewObject.pinned ? (
-                  <>
-                    {[
-                      { key: "nw", x: selectedRect.x, y: selectedRect.y },
-                      {
-                        key: "ne",
-                        x: selectedRect.x + selectedRect.width,
-                        y: selectedRect.y,
-                      },
-                      {
-                        key: "se",
-                        x: selectedRect.x + selectedRect.width,
-                        y: selectedRect.y + selectedRect.height,
-                      },
-                      {
-                        key: "sw",
-                        x: selectedRect.x,
-                        y: selectedRect.y + selectedRect.height,
-                      },
-                      {
-                        key: "n",
-                        x: selectedRect.x + selectedRect.width / 2,
-                        y: selectedRect.y,
-                      },
-                      {
-                        key: "e",
-                        x: selectedRect.x + selectedRect.width,
-                        y: selectedRect.y + selectedRect.height / 2,
-                      },
-                      {
-                        key: "s",
-                        x: selectedRect.x + selectedRect.width / 2,
-                        y: selectedRect.y + selectedRect.height,
-                      },
-                      {
-                        key: "w",
-                        x: selectedRect.x,
-                        y: selectedRect.y + selectedRect.height / 2,
-                      },
-                    ].map((handle) => (
-                      <rect
-                        key={`handle-${selectedPreviewObject.id}-${handle.key}`}
-                        x={handle.x - 3}
-                        y={handle.y - 3}
-                        width={6}
-                        height={6}
-                        rx={1.5}
-                        ry={1.5}
-                        fill="#ff8e3c"
-                        stroke="#ffffff"
-                        strokeWidth={1}
-                      />
-                    ))}
-                    <line
-                      x1={selectedRect.x + selectedRect.width / 2}
-                      y1={selectedRect.y}
-                      x2={selectedRect.x + selectedRect.width / 2}
-                      y2={selectedRect.y - 14}
-                      stroke="#5f71ff"
-                      strokeWidth={1.2}
-                      strokeDasharray="4 3"
-                    />
-                    <circle
-                      cx={selectedRect.x + selectedRect.width / 2}
-                      cy={selectedRect.y - 18}
-                      r={3.5}
-                      fill="#5f71ff"
-                      stroke="#ffffff"
-                      strokeWidth={1}
-                    />
-                  </>
-                ) : null}
-              </g>
-            ) : null}
-          </>
-        ) : null}
-      </>
-    );
-  }, [
-    areaSelection,
-    selectedLineControls,
-    selectedPreviewObject,
-    selectedRect,
-    selectedSolidResizeHandles,
-    tool,
-  ]);
+      }),
+    [areaSelectionDraft, areaSelectionResize]
+  );
 
   const canvasStyle: CSSProperties = {
     "--workbook-grid-size": `${Math.max(8, Math.min(96, Math.floor(gridSize || 22)))}px`,
@@ -5902,7 +5374,20 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         />
         <WorkbookStrokeLayer strokes={renderedStrokes} />
         <WorkbookStrokeLayer strokes={previewStrokes} preview />
-        {draftOverlayNodes}
+        <WorkbookDraftOverlayLayer
+          shapeDraft={shapeDraft}
+          tool={tool}
+          color={color}
+          width={width}
+          polygonMode={polygonMode}
+          polygonPointDraft={polygonPointDraft}
+          polygonHoverPoint={polygonHoverPoint}
+          polygonSides={polygonSides}
+          polygonPreset={polygonPreset}
+          eraserCursorPoint={eraserCursorPoint}
+          areaSelectionDraftRect={areaSelectionDraftRect}
+          areaSelectionResizeRect={areaSelectionResizeRect}
+        />
 
         <path
           ref={committedStrokeBridgePathRef}
@@ -5925,7 +5410,14 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           opacity={tool === "highlighter" ? 0.5 : 1}
           pointerEvents="none"
         />
-        {selectionOverlayNodes}
+        <WorkbookSelectionOverlayLayer
+          areaSelection={areaSelection}
+          selectedRect={selectedRect}
+          selectedPreviewObject={selectedPreviewObject}
+          selectedLineControls={selectedLineControls}
+          selectedSolidResizeHandles={selectedSolidResizeHandles}
+          tool={tool}
+        />
         <WorkbookPresenceLayer
           focusPoints={effectiveFocusPoints}
           pointerPoints={effectivePointerPoints}
