@@ -187,7 +187,11 @@ import {
 import {
   resolveWorkbookContinueInteractionMode,
   resolveWorkbookFinishInteractionMode,
+  resolveWorkbookPanStartAction,
+  resolveWorkbookSelectStartAction,
+  resolveWorkbookStartInteractionMode,
   shouldPreventWorkbookPointerDefault,
+  shouldClearWorkbookLaserOnSecondaryButton,
   shouldTrackWorkbookEraserHover,
 } from "../model/scenePointer";
 import { useAnimationFrameState } from "@/shared/lib/useAnimationFrameState";
@@ -1357,27 +1361,39 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     if (disabled) return;
     const svg = event.currentTarget ?? null;
     if (!svg) return;
-    if (shouldPreventWorkbookPointerDefault(event.pointerType)) {
-      event.preventDefault();
-    }
-    if (event.button !== 0) {
-      if (tool === "laser" && event.button === 2) {
+    const startMode = resolveWorkbookStartInteractionMode({
+      button: event.button,
+      tool,
+      polygonPointMode: isWorkbookPolygonPointTool(tool, polygonMode),
+      solid3dInsertPreset: Boolean(solid3dInsertPreset),
+      forcePanMode,
+    });
+    if (startMode === "button_ignore") {
+      if (
+        shouldClearWorkbookLaserOnSecondaryButton({
+          tool,
+          button: event.button,
+        })
+      ) {
         onLaserClear?.();
       }
       return;
+    }
+    if (shouldPreventWorkbookPointerDefault(event.pointerType)) {
+      event.preventDefault();
     }
     const shouldSnapPoint = shouldSnapWorkbookPointerForTool(tool, {
       polygonMode,
       includeSolid3dInsertPreset: Boolean(solid3dInsertPreset),
     });
     const point = mapPointer(svg, event.clientX, event.clientY, shouldSnapPoint);
-    if (solid3dInsertPreset) {
+    if (startMode === "solid3d_insert") {
       onSelectedConstraintChange(null);
       onSelectedObjectChange(null);
       startShape("solid3d", event, svg);
       return;
     }
-    if (forcePanMode) {
+    if (startMode === "force_pan") {
       pointerIdRef.current = event.pointerId;
       setPanning(
         buildPanState(
@@ -1389,32 +1405,36 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       return;
     }
 
-    if (tool === "pan") {
+    if (startMode === "pan") {
       const target = resolveTopObject(point);
-      if (target && target.type === "solid3d" && !target.pinned) {
-        onSelectedConstraintChange(null);
+      const targetFunctionId =
+        target && target.type === "function_graph" && !target.pinned
+          ? resolveGraphFunctionHit(target, point)
+          : null;
+      const panAction = resolveWorkbookPanStartAction({
+        hasTarget: Boolean(target),
+        targetPinned: target?.pinned ?? true,
+        targetType: target?.type ?? null,
+        hasTargetFunctionId: Boolean(targetFunctionId),
+      });
+      onSelectedConstraintChange(null);
+      if (panAction === "rotate_solid3d" && target) {
         onSelectedObjectChange(target.id);
         startSolid3dGesture(target, "rotate", event, svg);
         return;
       }
-      if (target && target.type === "function_graph" && !target.pinned) {
-        onSelectedConstraintChange(null);
+      if (panAction === "graph_pan" && target && targetFunctionId) {
         onSelectedObjectChange(target.id);
-        const targetFunctionId = resolveGraphFunctionHit(target, point);
         if (targetFunctionId) {
           startGraphPan(target, targetFunctionId, point, event, svg);
-        } else {
-          startMoving(target, event, svg);
         }
         return;
       }
-      if (target && !target.pinned) {
-        onSelectedConstraintChange(null);
+      if (panAction === "move" && target) {
         onSelectedObjectChange(target.id);
         startMoving(target, event, svg);
         return;
       }
-      onSelectedConstraintChange(null);
       onSelectedObjectChange(null);
       pointerIdRef.current = event.pointerId;
       setPanning(
@@ -1427,7 +1447,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       return;
     }
 
-    if (isWorkbookPolygonPointTool(tool, polygonMode)) {
+    if (startMode === "polygon_points") {
       onSelectedConstraintChange(null);
       if (event.detail >= 2) {
         commitPolygonByPoints(polygonPointDraft);
@@ -1440,7 +1460,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       return;
     }
 
-    if (tool === "laser") {
+    if (startMode === "laser") {
       onSelectedConstraintChange(null);
       if (pointerPoint && Math.hypot(point.x - pointerPoint.x, point.y - pointerPoint.y) <= 18) {
         onLaserClear?.();
@@ -1450,7 +1470,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       return;
     }
 
-    if (tool === "sweep") {
+    if (startMode === "sweep") {
       const strokeTarget = resolveTopStroke(point);
       if (strokeTarget) {
         onSelectedConstraintChange(null);
@@ -1478,7 +1498,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       return;
     }
 
-    if (tool === "area_select") {
+    if (startMode === "area_select") {
       if (areaSelection) {
         const resizeMode = resolveAreaSelectionResizeMode(areaSelection.rect, point);
         if (resizeMode) {
@@ -1500,7 +1520,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       return;
     }
 
-    if (tool === "point") {
+    if (startMode === "point") {
       onSelectedConstraintChange(null);
       const created = buildWorkbookPointObject({
         point,
@@ -1544,44 +1564,21 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       }
     }
 
-    if (tool === "select") {
+    if (startMode === "select") {
       const selected = selectedObjectId ? objectById.get(selectedObjectId) ?? null : null;
-      if (tool === "select" && selected && !selected.pinned) {
-        if (selected.type === "solid3d") {
-          const handles = resolveSolid3dResizeHandles(selected);
-          const hit = handles.find(
-            (handle) => Math.hypot(handle.x - point.x, handle.y - point.y) <= 8.5
-          );
-          if (hit) {
-            pointerIdRef.current = event.pointerId;
-            const center = {
-              x: selected.x + selected.width / 2,
-              y: selected.y + selected.height / 2,
-            };
-            setSolid3dResize({
-              object: selected,
-              mode: hit.mode,
-              start: point,
-              current: point,
-              center,
-              startLocal: hit,
-            });
-            onAreaSelectionChange?.(null);
-            svg.setPointerCapture(event.pointerId);
-            return;
-          }
-        }
-        if (selected.type !== "solid3d") {
-          const resizeMode = resolveObjectResizeMode(selected, point);
-          if (resizeMode) {
-            onAreaSelectionChange?.(null);
-            startResizing(selected, resizeMode, event, svg);
-            return;
-          }
-        }
-      }
-      if (shouldKeepObjectSelectedInsideArea(point, areaSelection)) {
-        const groupedTargets = areaSelection.objectIds.reduce<WorkbookBoardObject[]>(
+      const solid3dResizeHit =
+        selected && !selected.pinned && selected.type === "solid3d"
+          ? resolveSolid3dResizeHandles(selected).find(
+              (handle) => Math.hypot(handle.x - point.x, handle.y - point.y) <= 8.5
+            ) ?? null
+          : null;
+      const resizeMode =
+        selected && !selected.pinned && selected.type !== "solid3d"
+          ? resolveObjectResizeMode(selected, point)
+          : null;
+      const keepInsideArea = shouldKeepObjectSelectedInsideArea(point, areaSelection);
+      const groupedTargets = keepInsideArea
+        ? areaSelection.objectIds.reduce<WorkbookBoardObject[]>(
           (acc, objectId) => {
             const object = objectById.get(objectId);
             if (object) {
@@ -1590,45 +1587,78 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
             return acc;
           },
           []
-        );
-        if (groupedTargets.length > 0) {
-          const proxyObject: WorkbookBoardObject = {
-            id: "__area-selection__",
-            type: "frame",
-            layer,
-            x: areaSelection.rect.x,
-            y: areaSelection.rect.y,
-            width: areaSelection.rect.width,
-            height: areaSelection.rect.height,
-            color: "#4f63ff",
-            fill: "transparent",
-            strokeWidth: 1,
-            opacity: 1,
-            authorUserId,
-            createdAt: new Date().toISOString(),
-          };
-          onSelectedConstraintChange(null);
-          startMoving(proxyObject, event, svg, groupedTargets);
-          return;
-        }
-      }
+        )
+        : [];
       const target = resolveTopObject(point);
+      const selectAction = resolveWorkbookSelectStartAction({
+        hasSelected: Boolean(selected),
+        selectedPinned: selected?.pinned ?? true,
+        selectedType: selected?.type ?? null,
+        hasSolid3dResizeHit: Boolean(solid3dResizeHit),
+        hasResizeMode: Boolean(resizeMode),
+        keepInsideArea,
+        hasGroupedTargets: groupedTargets.length > 0,
+        hasTarget: Boolean(target),
+        targetPinned: target?.pinned ?? true,
+      });
       onSelectedConstraintChange(null);
-      if (target && !target.pinned) {
+      if (selectAction === "solid3d_resize" && selected?.type === "solid3d" && solid3dResizeHit) {
+        pointerIdRef.current = event.pointerId;
+        const center = {
+          x: selected.x + selected.width / 2,
+          y: selected.y + selected.height / 2,
+        };
+        setSolid3dResize({
+          object: selected,
+          mode: solid3dResizeHit.mode,
+          start: point,
+          current: point,
+          center,
+          startLocal: solid3dResizeHit,
+        });
+        onAreaSelectionChange?.(null);
+        svg.setPointerCapture(event.pointerId);
+        return;
+      }
+      if (selectAction === "resize" && selected && resizeMode) {
+        onAreaSelectionChange?.(null);
+        startResizing(selected, resizeMode, event, svg);
+        return;
+      }
+      if (selectAction === "move_group" && groupedTargets.length > 0) {
+        const proxyObject: WorkbookBoardObject = {
+          id: "__area-selection__",
+          type: "frame",
+          layer,
+          x: areaSelection.rect.x,
+          y: areaSelection.rect.y,
+          width: areaSelection.rect.width,
+          height: areaSelection.rect.height,
+          color: "#4f63ff",
+          fill: "transparent",
+          strokeWidth: 1,
+          opacity: 1,
+          authorUserId,
+          createdAt: new Date().toISOString(),
+        };
+        startMoving(proxyObject, event, svg, groupedTargets);
+        return;
+      }
+      if (selectAction === "move" && target && !target.pinned) {
         onAreaSelectionChange?.(null);
         onSelectedObjectChange(target.id);
         startMoving(target, event, svg);
-      } else {
-        onSelectedObjectChange(null);
-        onAreaSelectionChange?.(null);
-        pointerIdRef.current = event.pointerId;
-        setAreaSelectionDraft(buildAreaSelectionDraftState(point));
-        svg.setPointerCapture(event.pointerId);
+        return;
       }
+      onSelectedObjectChange(null);
+      onAreaSelectionChange?.(null);
+      pointerIdRef.current = event.pointerId;
+      setAreaSelectionDraft(buildAreaSelectionDraftState(point));
+      svg.setPointerCapture(event.pointerId);
       return;
     }
 
-    if (tool === "eraser") {
+    if (startMode === "eraser") {
       pointerIdRef.current = event.pointerId;
       clearEraserPreviewRuntime();
       erasedStrokeIdsRef.current.clear();
@@ -1643,12 +1673,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       return;
     }
 
-    if (isWorkbookStrokeDrawingTool(tool)) {
+    if (startMode === "stroke" && isWorkbookStrokeDrawingTool(tool)) {
       startStroke(event, svg);
       return;
     }
 
-    if (isWorkbookShapeCreationTool(tool, polygonMode)) {
+    if (startMode === "shape" && isWorkbookShapeCreationTool(tool, polygonMode)) {
       const target = resolveTopObject(point);
       if (target && target.id !== selectedObjectId) {
         onSelectedConstraintChange(null);
