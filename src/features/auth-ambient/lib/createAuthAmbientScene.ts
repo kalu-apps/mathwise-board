@@ -42,12 +42,12 @@ type FigureRuntime = {
   baseDepth: number;
   screenX: number;
   screenY: number;
-  velocityX: number;
-  velocityY: number;
-  minX: number;
-  maxX: number;
-  minY: number;
-  maxY: number;
+  anchorX: number;
+  anchorY: number;
+  driftAmplitudeX: number;
+  driftAmplitudeY: number;
+  driftFrequencyX: number;
+  driftFrequencyY: number;
   boundingRadius: number;
   isRound: boolean;
   baseRotation: THREE.Euler;
@@ -59,6 +59,13 @@ type DraftTarget = Pick<
   FigureRuntime,
   "presentationGroup" | "lineLayers" | "overlayGeometries" | "overlayMaterials"
 >;
+
+type AnchorBounds = {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+};
 
 type FigurePosePreset = {
   baseRotation: [number, number, number];
@@ -78,7 +85,6 @@ export type AuthAmbientSceneController = {
   setThemeMode: (themeMode: ThemeMode) => void;
 };
 
-const MAX_DELTA_SECONDS = 0.045;
 const FRAME_INTERVAL_MS = 1000 / 30;
 const CAMERA_Z = 9.1;
 const EDGE_THRESHOLD_ANGLE = 18;
@@ -100,34 +106,34 @@ const SHARED_LINE_COLORS = {
 
 const FIGURE_POSES: Record<string, FigurePosePreset> = {
   sphere: {
-    baseRotation: [0.16, 0.52, 0.02],
-    amplitude: [0.018, 0.1, 0.01],
-    frequency: [0.32, 0.28, 0.24],
+    baseRotation: [0.12, 0.46, 0.01],
+    amplitude: [0.008, 0.058, 0.005],
+    frequency: [0.16, 0.2, 0.14],
   },
   torus: {
-    baseRotation: [0.72, 0.38, 0.04],
-    amplitude: [0.022, 0.12, 0.012],
-    frequency: [0.28, 0.24, 0.2],
+    baseRotation: [0.6, 0.34, 0.02],
+    amplitude: [0.01, 0.064, 0.006],
+    frequency: [0.15, 0.19, 0.14],
   },
   oblique_prism: {
-    baseRotation: [0.18, 0.66, 0.02],
-    amplitude: [0.018, 0.11, 0.012],
-    frequency: [0.26, 0.22, 0.18],
+    baseRotation: [0.12, 0.56, 0.01],
+    amplitude: [0.01, 0.072, 0.006],
+    frequency: [0.15, 0.18, 0.13],
   },
   triangular_prism: {
-    baseRotation: [0.14, 0.76, -0.03],
-    amplitude: [0.016, 0.1, 0.01],
-    frequency: [0.28, 0.24, 0.18],
+    baseRotation: [0.1, 0.64, -0.02],
+    amplitude: [0.01, 0.068, 0.006],
+    frequency: [0.15, 0.18, 0.13],
   },
   pyramid_square: {
-    baseRotation: [0.18, 0.58, 0.02],
-    amplitude: [0.014, 0.08, 0.01],
-    frequency: [0.24, 0.2, 0.16],
+    baseRotation: [0.12, 0.5, 0.01],
+    amplitude: [0.009, 0.058, 0.005],
+    frequency: [0.14, 0.17, 0.12],
   },
   cube: {
-    baseRotation: [0.24, 0.72, 0.02],
-    amplitude: [0.018, 0.1, 0.01],
-    frequency: [0.24, 0.2, 0.18],
+    baseRotation: [0.18, 0.6, 0.01],
+    amplitude: [0.01, 0.068, 0.005],
+    frequency: [0.14, 0.18, 0.12],
   },
 };
 
@@ -141,16 +147,16 @@ const NARROW_LAYOUTS: Record<
   launch: {
     keep: ["torus", "oblique_prism", "cube"],
     overrides: {
-      torus: { screenX: -0.7, screenY: -0.36, scale: 0.82, depth: -3.45 },
-      oblique_prism: { screenX: 0.74, screenY: 0.06, scale: 0.88, depth: -3.15 },
-      cube: { screenX: 0.62, screenY: 0.62, scale: 0.74, depth: -3.55 },
+      torus: { screenX: -0.46, screenY: -0.34, scale: 0.78, depth: -3.52 },
+      oblique_prism: { screenX: 0.5, screenY: -0.02, scale: 0.84, depth: -3.18 },
+      cube: { screenX: 0.46, screenY: 0.48, scale: 0.7, depth: -3.52 },
     },
   },
   invite: {
     keep: ["torus", "cube"],
     overrides: {
-      torus: { screenX: -0.72, screenY: -0.34, scale: 0.8, depth: -3.5 },
-      cube: { screenX: 0.7, screenY: 0.58, scale: 0.72, depth: -3.45 },
+      torus: { screenX: -0.44, screenY: -0.32, scale: 0.78, depth: -3.56 },
+      cube: { screenX: 0.44, screenY: 0.44, scale: 0.68, depth: -3.48 },
     },
   },
 };
@@ -173,52 +179,52 @@ const DESKTOP_LAYOUTS: Record<
     ],
     overrides: {
       sphere: {
-        screenX: -0.98,
-        screenY: 0.14,
-        scale: 0.78,
-        depth: -3.62,
+        screenX: -0.58,
+        screenY: 0.16,
+        scale: 0.68,
+        depth: -3.78,
         velocityX: 0.034,
-        velocityY: -0.02,
+        velocityY: 0.018,
       },
       torus: {
-        screenX: -0.56,
-        screenY: -0.58,
-        scale: 0.92,
-        depth: -3.82,
-        velocityX: 0.055,
-        velocityY: 0.03,
+        screenX: -0.34,
+        screenY: -0.46,
+        scale: 0.88,
+        depth: -3.9,
+        velocityX: 0.044,
+        velocityY: 0.024,
       },
       oblique_prism: {
-        screenX: 0.52,
+        screenX: 0.42,
         screenY: -0.04,
-        scale: 0.98,
-        depth: -3.18,
-        velocityX: -0.05,
-        velocityY: 0.04,
+        scale: 0.92,
+        depth: -3.28,
+        velocityX: -0.038,
+        velocityY: 0.026,
       },
       triangular_prism: {
-        screenX: 0.94,
-        screenY: 0.66,
-        scale: 0.8,
-        depth: -3.48,
-        velocityX: -0.04,
-        velocityY: -0.025,
+        screenX: 0.54,
+        screenY: 0.44,
+        scale: 0.72,
+        depth: -3.62,
+        velocityX: -0.03,
+        velocityY: -0.02,
       },
       pyramid_square: {
-        screenX: -0.94,
-        screenY: 0.72,
-        scale: 0.72,
-        depth: -3.84,
-        velocityX: 0.04,
-        velocityY: -0.025,
+        screenX: -0.54,
+        screenY: 0.5,
+        scale: 0.6,
+        depth: -3.94,
+        velocityX: 0.028,
+        velocityY: -0.018,
       },
       cube: {
-        screenX: 0.82,
-        screenY: -0.3,
-        scale: 0.82,
-        depth: -3.48,
-        velocityX: -0.055,
-        velocityY: 0.025,
+        screenX: 0.52,
+        screenY: -0.24,
+        scale: 0.72,
+        depth: -3.62,
+        velocityX: -0.034,
+        velocityY: 0.02,
       },
     },
   },
@@ -226,36 +232,36 @@ const DESKTOP_LAYOUTS: Record<
     keep: ["sphere", "torus", "oblique_prism", "cube"],
     overrides: {
       sphere: {
-        screenX: -0.98,
-        screenY: 0.2,
-        scale: 0.7,
-        depth: -3.54,
-        velocityX: 0.028,
-        velocityY: -0.018,
+        screenX: -0.56,
+        screenY: 0.16,
+        scale: 0.62,
+        depth: -3.62,
+        velocityX: 0.026,
+        velocityY: -0.016,
       },
       torus: {
-        screenX: -0.58,
-        screenY: -0.54,
-        scale: 0.88,
-        depth: -3.76,
-        velocityX: 0.048,
-        velocityY: 0.026,
+        screenX: -0.34,
+        screenY: -0.44,
+        scale: 0.8,
+        depth: -3.84,
+        velocityX: 0.038,
+        velocityY: 0.022,
       },
       oblique_prism: {
-        screenX: 0.78,
+        screenX: 0.46,
         screenY: -0.02,
-        scale: 0.86,
-        depth: -3.28,
-        velocityX: -0.04,
-        velocityY: 0.03,
+        scale: 0.78,
+        depth: -3.32,
+        velocityX: -0.03,
+        velocityY: 0.022,
       },
       cube: {
-        screenX: 0.78,
-        screenY: 0.6,
-        scale: 0.74,
-        depth: -3.52,
-        velocityX: -0.036,
-        velocityY: -0.02,
+        screenX: 0.5,
+        screenY: 0.42,
+        scale: 0.66,
+        depth: -3.58,
+        velocityX: -0.028,
+        velocityY: -0.018,
       },
     },
   },
@@ -272,28 +278,28 @@ const COMPACT_LAYOUTS: Record<
     keep: ["torus", "oblique_prism", "cube"],
     overrides: {
       torus: {
-        screenX: -0.6,
-        screenY: -0.62,
-        scale: 0.84,
-        depth: -3.72,
-        velocityX: 0.046,
-        velocityY: 0.026,
+        screenX: -0.4,
+        screenY: -0.42,
+        scale: 0.8,
+        depth: -3.76,
+        velocityX: 0.036,
+        velocityY: 0.02,
       },
       oblique_prism: {
-        screenX: 0.76,
+        screenX: 0.48,
         screenY: -0.06,
-        scale: 0.84,
-        depth: -3.24,
-        velocityX: -0.04,
-        velocityY: 0.034,
+        scale: 0.76,
+        depth: -3.28,
+        velocityX: -0.028,
+        velocityY: 0.022,
       },
       cube: {
-        screenX: 0.78,
-        screenY: 0.56,
-        scale: 0.7,
-        depth: -3.5,
-        velocityX: -0.034,
-        velocityY: -0.02,
+        screenX: 0.48,
+        screenY: 0.42,
+        scale: 0.66,
+        depth: -3.54,
+        velocityX: -0.024,
+        velocityY: -0.016,
       },
     },
   },
@@ -301,30 +307,45 @@ const COMPACT_LAYOUTS: Record<
     keep: ["torus", "cube"],
     overrides: {
       torus: {
-        screenX: -0.66,
-        screenY: -0.58,
-        scale: 0.78,
-        depth: -3.62,
-        velocityX: 0.04,
-        velocityY: 0.024,
+        screenX: -0.38,
+        screenY: -0.4,
+        scale: 0.76,
+        depth: -3.66,
+        velocityX: 0.03,
+        velocityY: 0.018,
       },
       cube: {
-        screenX: 0.74,
-        screenY: 0.56,
-        scale: 0.68,
-        depth: -3.48,
-        velocityX: -0.03,
-        velocityY: -0.018,
+        screenX: 0.46,
+        screenY: 0.38,
+        scale: 0.64,
+        depth: -3.5,
+        velocityX: -0.022,
+        velocityY: -0.014,
       },
     },
   },
 };
 
-const clamp = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, value));
-
 const ease = (current: number, target: number, factor: number) =>
   current + (target - current) * factor;
+
+const clampScalar = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+const getAnchorBounds = (
+  variant: AuthAmbientVariant,
+  width: number
+): AnchorBounds => {
+  if (width < NARROW_WIDTH) {
+    return { minX: -0.5, maxX: 0.5, minY: -0.42, maxY: 0.42 };
+  }
+  if (width < COMPACT_WIDTH) {
+    return { minX: -0.56, maxX: 0.56, minY: -0.46, maxY: 0.46 };
+  }
+  return variant === "invite"
+    ? { minX: -0.62, maxX: 0.62, minY: -0.5, maxY: 0.5 }
+    : { minX: -0.66, maxX: 0.66, minY: -0.54, maxY: 0.54 };
+};
 
 const resolveFigureBlueprints = (
   variant: AuthAmbientVariant,
@@ -349,6 +370,63 @@ const resolveFigureBlueprints = (
     }));
 };
 
+const rebalanceFigureAnchors = (
+  figures: FigureRuntime[],
+  variant: AuthAmbientVariant,
+  width: number
+) => {
+  const bounds = getAnchorBounds(variant, width);
+  const compactView = width < COMPACT_WIDTH;
+  const centerSafeX = compactView ? 0.18 : variant === "invite" ? 0.22 : 0.26;
+  const centerSafeY = compactView ? 0.14 : variant === "invite" ? 0.18 : 0.2;
+
+  for (let pass = 0; pass < 5; pass += 1) {
+    figures.forEach((figure) => {
+      figure.anchorX = clampScalar(figure.anchorX, bounds.minX, bounds.maxX);
+      figure.anchorY = clampScalar(figure.anchorY, bounds.minY, bounds.maxY);
+
+      if (
+        Math.abs(figure.anchorX) < centerSafeX &&
+        Math.abs(figure.anchorY) < centerSafeY
+      ) {
+        figure.anchorX =
+          figure.anchorX >= 0
+            ? Math.max(figure.anchorX, centerSafeX)
+            : Math.min(figure.anchorX, -centerSafeX);
+      }
+    });
+
+    for (let index = 0; index < figures.length; index += 1) {
+      for (let compareIndex = index + 1; compareIndex < figures.length; compareIndex += 1) {
+        const current = figures[index];
+        const compare = figures[compareIndex];
+        const deltaX = compare.anchorX - current.anchorX;
+        const deltaY = compare.anchorY - current.anchorY;
+        const distance = Math.hypot(deltaX, deltaY) || 0.001;
+        const minDistance =
+          (compactView ? 0.2 : 0.24) +
+          (current.config.scale + compare.config.scale) * (compactView ? 0.05 : 0.06);
+
+        if (distance >= minDistance) continue;
+
+        const overlap = (minDistance - distance) * 0.5;
+        const pushX = (deltaX / distance) * overlap;
+        const pushY = (deltaY / distance) * overlap;
+
+        current.anchorX = clampScalar(current.anchorX - pushX, bounds.minX, bounds.maxX);
+        current.anchorY = clampScalar(current.anchorY - pushY, bounds.minY, bounds.maxY);
+        compare.anchorX = clampScalar(compare.anchorX + pushX, bounds.minX, bounds.maxX);
+        compare.anchorY = clampScalar(compare.anchorY + pushY, bounds.minY, bounds.maxY);
+      }
+    }
+  }
+
+  figures.forEach((figure) => {
+    figure.screenX = figure.anchorX;
+    figure.screenY = figure.anchorY;
+  });
+};
+
 const createLineMaterial = (opacity: number, baseLineWidth: number) =>
   new LineMaterial({
     color: "#ffffff",
@@ -371,19 +449,71 @@ const vectorPointsToArray = (points: THREE.Vector3[], closed = false) => {
   return positions;
 };
 
-const ellipsePoints = (
-  radiusX: number,
-  radiusY: number,
+const sphereLatitudePoints = (
+  radius: number,
+  latitude: number,
+  segments = DRAFT_SEGMENTS
+) => {
+  const points: THREE.Vector3[] = [];
+  const circleRadius = Math.cos(latitude) * radius;
+  const y = Math.sin(latitude) * radius;
+  for (let index = 0; index < segments; index += 1) {
+    const angle = (index / segments) * Math.PI * 2;
+    points.push(
+      new THREE.Vector3(
+        Math.cos(angle) * circleRadius,
+        y,
+        Math.sin(angle) * circleRadius
+      )
+    );
+  }
+  return points;
+};
+
+const sphereMeridianPoints = (
+  radius: number,
+  meridianAngle: number,
   segments = DRAFT_SEGMENTS
 ) => {
   const points: THREE.Vector3[] = [];
   for (let index = 0; index < segments; index += 1) {
     const angle = (index / segments) * Math.PI * 2;
+    const localX = Math.cos(angle) * radius;
+    const localY = Math.sin(angle) * radius;
     points.push(
       new THREE.Vector3(
-        Math.cos(angle) * radiusX,
-        Math.sin(angle) * radiusY,
-        0
+        Math.cos(meridianAngle) * localX,
+        localY,
+        Math.sin(meridianAngle) * localX
+      )
+    );
+  }
+  return points;
+};
+
+const torusLoopPoints = ({
+  majorRadius,
+  tubeRadius,
+  fixedAngle,
+  mode,
+  segments = DRAFT_SEGMENTS,
+}: {
+  majorRadius: number;
+  tubeRadius: number;
+  fixedAngle: number;
+  mode: "major" | "minor";
+  segments?: number;
+}) => {
+  const points: THREE.Vector3[] = [];
+  for (let index = 0; index < segments; index += 1) {
+    const angle = (index / segments) * Math.PI * 2;
+    const u = mode === "major" ? angle : fixedAngle;
+    const v = mode === "minor" ? angle : fixedAngle;
+    points.push(
+      new THREE.Vector3(
+        (majorRadius + tubeRadius * Math.cos(v)) * Math.cos(u),
+        tubeRadius * Math.sin(v),
+        (majorRadius + tubeRadius * Math.cos(v)) * Math.sin(u)
       )
     );
   }
@@ -406,31 +536,26 @@ const registerLineObject = (
   target.overlayMaterials.push(material);
 };
 
-const addLoopContour = ({
+const addPathContour = ({
   target,
-  radiusX,
-  radiusY,
+  points,
   role,
   opacity,
   baseLineWidth,
-  rotation = [0, 0, 0],
-  position = [0, 0, 0],
+  alwaysVisible = false,
 }: {
   target: DraftTarget;
-  radiusX: number;
-  radiusY: number;
+  points: THREE.Vector3[];
   role: FigureLineRole;
   opacity: number;
   baseLineWidth: number;
-  rotation?: [number, number, number];
-  position?: [number, number, number];
+  alwaysVisible?: boolean;
 }) => {
   const geometry = new LineGeometry();
-  geometry.setPositions(vectorPointsToArray(ellipsePoints(radiusX, radiusY), true));
+  geometry.setPositions(vectorPointsToArray(points, true));
   const material = createLineMaterial(opacity, baseLineWidth);
+  material.depthTest = !alwaysVisible;
   const line = new Line2(geometry, material);
-  line.rotation.set(...rotation);
-  line.position.set(...position);
   registerLineObject(target, line, geometry, material, role, opacity, baseLineWidth);
 };
 
@@ -469,70 +594,77 @@ const applyPremiumContours = (
   const constructionWidth = compact ? 0.58 : 0.72;
 
   if (presetId === "sphere") {
-    addLoopContour({
-      target,
-      radiusX: radius * 0.94,
-      radiusY: radius * 0.94,
-      role: "edge",
-      opacity: 0.82,
-      baseLineWidth: edgeWidth,
+    const sphereRadius = radius * 0.92;
+    const latitudeAngles = compact
+      ? [-0.72, -0.36, 0, 0.36, 0.72]
+      : [-0.76, -0.48, -0.2, 0.12, 0.42, 0.72];
+    const meridianCount = compact ? 7 : 9;
+
+    latitudeAngles.forEach((angle) => {
+      addPathContour({
+        target,
+        points: sphereLatitudePoints(sphereRadius, angle),
+        role: Math.abs(angle) < 0.22 ? "edge" : "construction",
+        opacity: Math.abs(angle) < 0.22 ? 0.3 : 0.14,
+        baseLineWidth:
+          Math.abs(angle) < 0.22 ? edgeWidth * 0.96 : constructionWidth * 0.92,
+        alwaysVisible: true,
+      });
     });
-    addLoopContour({
-      target,
-      radiusX: radius * 0.88,
-      radiusY: radius * 0.58,
-      role: "construction",
-      opacity: 0.24,
-      baseLineWidth: constructionWidth,
-      rotation: [Math.PI / 2, 0, 0],
-    });
-    addLoopContour({
-      target,
-      radiusX: radius * 0.72,
-      radiusY: radius * 0.9,
-      role: "construction",
-      opacity: 0.18,
-      baseLineWidth: constructionWidth,
-      rotation: [0, Math.PI / 2, 0],
-    });
+
+    for (let index = 0; index < meridianCount; index += 1) {
+      addPathContour({
+        target,
+        points: sphereMeridianPoints(
+          sphereRadius,
+          (index / meridianCount) * Math.PI
+        ),
+        role: index % 3 === 0 ? "edge" : "construction",
+        opacity: index % 3 === 0 ? 0.24 : 0.12,
+        baseLineWidth: index % 3 === 0 ? edgeWidth * 0.88 : constructionWidth * 0.9,
+        alwaysVisible: true,
+      });
+    }
     return;
   }
 
   if (presetId === "torus") {
-    addLoopContour({
-      target,
-      radiusX: radius * 0.84,
-      radiusY: radius * 0.78,
-      role: "edge",
-      opacity: 0.82,
-      baseLineWidth: edgeWidth,
-    });
-    addLoopContour({
-      target,
-      radiusX: radius * 0.48,
-      radiusY: radius * 0.44,
-      role: "edge",
-      opacity: 0.64,
-      baseLineWidth: edgeWidth * 0.92,
-    });
-    addLoopContour({
-      target,
-      radiusX: radius * 0.78,
-      radiusY: radius * 0.42,
-      role: "construction",
-      opacity: 0.22,
-      baseLineWidth: constructionWidth,
-      rotation: [Math.PI / 2, 0, 0],
-    });
-    addLoopContour({
-      target,
-      radiusX: radius * 0.56,
-      radiusY: radius * 0.28,
-      role: "construction",
-      opacity: 0.16,
-      baseLineWidth: constructionWidth * 0.92,
-      rotation: [Math.PI / 2, Math.PI / 10, 0],
-    });
+    const majorRadius = radius * 0.62;
+    const tubeRadius = radius * 0.28;
+    const majorCount = compact ? 8 : 10;
+    const minorCount = compact ? 6 : 8;
+
+    for (let index = 0; index < majorCount; index += 1) {
+      addPathContour({
+        target,
+        points: torusLoopPoints({
+          majorRadius,
+          tubeRadius,
+          fixedAngle: (index / majorCount) * Math.PI * 2,
+          mode: "major",
+        }),
+        role: index % 3 === 0 ? "edge" : "construction",
+        opacity: index % 3 === 0 ? 0.24 : 0.12,
+        baseLineWidth: index % 3 === 0 ? edgeWidth * 0.9 : constructionWidth * 0.9,
+        alwaysVisible: true,
+      });
+    }
+
+    for (let index = 0; index < minorCount; index += 1) {
+      addPathContour({
+        target,
+        points: torusLoopPoints({
+          majorRadius,
+          tubeRadius,
+          fixedAngle: (index / minorCount) * Math.PI * 2,
+          mode: "minor",
+        }),
+        role: index % 2 === 0 ? "edge" : "construction",
+        opacity: index % 2 === 0 ? 0.28 : 0.14,
+        baseLineWidth: index % 2 === 0 ? edgeWidth * 0.96 : constructionWidth * 0.92,
+        alwaysVisible: true,
+      });
+    }
     return;
   }
 
@@ -560,6 +692,7 @@ export const createAuthAmbientScene = ({
   const initialWidth = Math.max(container.clientWidth, window.innerWidth, 1);
   const compact = initialWidth < COMPACT_WIDTH;
   const premiumDesktop = !reducedMotion && initialWidth >= COMPACT_WIDTH;
+  const frameIntervalMs = premiumDesktop ? 1000 / 60 : FRAME_INTERVAL_MS;
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 40);
@@ -597,14 +730,11 @@ export const createAuthAmbientScene = ({
   const pointer = { x: 0, y: 0, targetX: 0, targetY: 0 };
   const viewport = { width: 0, height: 0 };
   const reusableVector = new THREE.Vector3();
-  const worldCenter = new THREE.Vector3();
-  const worldRight = new THREE.Vector3();
 
   let palette: AuthAmbientPalette = AUTH_AMBIENT_PALETTES[themeMode];
   let rafId = 0;
   let disposed = false;
   let lastFrameTime = 0;
-  let lastAnimationTime = 0;
 
   const screenToWorld = (screenX: number, screenY: number, depth: number) => {
     reusableVector.set(screenX, screenY, 0.5).unproject(camera);
@@ -613,19 +743,9 @@ export const createAuthAmbientScene = ({
     return camera.position.clone().add(reusableVector.multiplyScalar(distance));
   };
 
-  const computeRadiusNdc = (figure: FigureRuntime, depth: number) => {
-    const center = screenToWorld(figure.screenX, figure.screenY, depth);
-    worldCenter.copy(center);
-    worldRight.copy(center);
-    worldRight.x += figure.boundingRadius * figure.group.scale.x;
-    worldCenter.project(camera);
-    worldRight.project(camera);
-    return Math.max(0.08, Math.abs(worldRight.x - worldCenter.x));
-  };
-
   const updateLineViewportStyle = () => {
     const widthFactor =
-      viewport.width < NARROW_WIDTH ? 0.84 : viewport.width < COMPACT_WIDTH ? 0.94 : 1;
+      viewport.width < NARROW_WIDTH ? 0.88 : viewport.width < COMPACT_WIDTH ? 0.96 : 1.04;
     figures.forEach((figure) => {
       figure.lineLayers.forEach((layer) => {
         layer.material.resolution.set(viewport.width, viewport.height);
@@ -657,8 +777,8 @@ export const createAuthAmbientScene = ({
       figure.mesh.material.opacity = figure.config.opacity;
       figure.glow.material.color.set(figurePalette.glow);
       figure.glow.material.opacity = figure.isRound
-        ? figure.config.opacity * 0.14
-        : figure.config.opacity * 0.09;
+        ? figure.config.opacity * 0.08
+        : figure.config.opacity * 0.07;
       figure.lineLayers.forEach((layer) => {
         layer.material.color.set(
           layer.role === "edge" ? linePalette.edge : linePalette.construction
@@ -674,17 +794,17 @@ export const createAuthAmbientScene = ({
     camera.aspect = viewport.width / viewport.height;
     camera.fov =
       viewport.width < NARROW_WIDTH
-        ? 36
+        ? 34
         : viewport.width < COMPACT_WIDTH
-          ? 33
+          ? 31
           : variant === "invite"
-            ? 30
-            : 28;
+            ? 28
+            : 26;
     camera.updateProjectionMatrix();
     renderer.setPixelRatio(
       viewport.width < COMPACT_WIDTH
         ? 1
-        : Math.min(window.devicePixelRatio || 1, 1.5)
+        : Math.min(window.devicePixelRatio || 1, 1.75)
     );
     renderer.setSize(viewport.width, viewport.height, false);
     updateLineViewportStyle();
@@ -721,7 +841,7 @@ export const createAuthAmbientScene = ({
       new THREE.MeshBasicMaterial({
         color: "#ffffff",
         transparent: true,
-        opacity: isRound ? config.opacity * 0.14 : config.opacity * 0.09,
+        opacity: isRound ? config.opacity * 0.08 : config.opacity * 0.07,
         blending: THREE.AdditiveBlending,
         side: THREE.BackSide,
         depthWrite: false,
@@ -729,7 +849,7 @@ export const createAuthAmbientScene = ({
         toneMapped: false,
       })
     );
-    glow.scale.setScalar(isRound ? 1.016 : 1.01);
+    glow.scale.setScalar(isRound ? 1.01 : 1.006);
     glow.renderOrder = 0;
 
     const group = new THREE.Group();
@@ -751,12 +871,12 @@ export const createAuthAmbientScene = ({
       baseDepth: config.depth,
       screenX: config.screenX,
       screenY: config.screenY,
-      velocityX: config.velocityX,
-      velocityY: config.velocityY,
-      minX: clamp(config.screenX - (compact ? 0.16 : 0.2), -1.12, 1.12),
-      maxX: clamp(config.screenX + (compact ? 0.16 : 0.2), -1.12, 1.12),
-      minY: clamp(config.screenY - (compact ? 0.12 : 0.16), -1.04, 1.04),
-      maxY: clamp(config.screenY + (compact ? 0.12 : 0.16), -1.04, 1.04),
+      anchorX: config.screenX,
+      anchorY: config.screenY,
+      driftAmplitudeX: compact ? (isRound ? 0.075 : 0.066) : isRound ? 0.118 : 0.094,
+      driftAmplitudeY: compact ? (isRound ? 0.052 : 0.046) : isRound ? 0.082 : 0.068,
+      driftFrequencyX: 0.052 + Math.abs(config.velocityX) * 0.48,
+      driftFrequencyY: 0.046 + Math.abs(config.velocityY) * 0.42,
       boundingRadius: geometry.boundingSphere?.radius ?? 1,
       isRound,
       baseRotation: new THREE.Euler(...posePreset.baseRotation, "YXZ"),
@@ -776,6 +896,7 @@ export const createAuthAmbientScene = ({
   };
 
   figureBlueprints.forEach(createFigure);
+  rebalanceFigureAnchors(figures, variant, initialWidth);
   resize();
   updatePalette(themeMode);
 
@@ -793,42 +914,38 @@ export const createAuthAmbientScene = ({
 
   const handleVisibilityChange = () => {
     if (document.visibilityState === "hidden") {
-      lastAnimationTime = 0;
       lastFrameTime = 0;
     }
   };
 
-  const animateFigure = (figure: FigureRuntime, elapsed: number, delta: number) => {
-    figure.screenX += figure.velocityX * delta;
-    figure.screenY += figure.velocityY * delta;
+  const animateFigure = (figure: FigureRuntime, elapsed: number) => {
+    const directionX = Math.sign(figure.config.velocityX) || 1;
+    const directionY = Math.sign(figure.config.velocityY) || 1;
+    const lanePhase = elapsed * figure.driftFrequencyX + figure.config.phase;
+    const drift = Math.sin(lanePhase);
+    const sway = Math.cos(
+      elapsed * figure.driftFrequencyY + figure.config.phase * 0.62
+    );
+
+    figure.screenX =
+      figure.anchorX +
+      drift * figure.driftAmplitudeX * directionX +
+      sway * figure.driftAmplitudeX * 0.14;
+    figure.screenY =
+      figure.anchorY +
+      drift * figure.driftAmplitudeY * directionY +
+      sway * figure.driftAmplitudeY * 0.1;
 
     const depth =
       figure.baseDepth +
-      Math.sin(elapsed * figure.config.depthFrequency + figure.config.phase) *
-        figure.config.depthAmplitude;
-    const radiusNdc = computeRadiusNdc(figure, depth);
-
-    if (figure.screenX + radiusNdc > figure.maxX) {
-      figure.screenX = figure.maxX - radiusNdc;
-      figure.velocityX = -Math.abs(figure.velocityX);
-    } else if (figure.screenX - radiusNdc < figure.minX) {
-      figure.screenX = figure.minX + radiusNdc;
-      figure.velocityX = Math.abs(figure.velocityX);
-    }
-
-    if (figure.screenY + radiusNdc > figure.maxY) {
-      figure.screenY = figure.maxY - radiusNdc;
-      figure.velocityY = -Math.abs(figure.velocityY);
-    } else if (figure.screenY - radiusNdc < figure.minY) {
-      figure.screenY = figure.minY + radiusNdc;
-      figure.velocityY = Math.abs(figure.velocityY);
-    }
+      drift * figure.config.depthAmplitude * 0.72 +
+      sway * figure.config.depthAmplitude * 0.2;
 
     const world = screenToWorld(figure.screenX, figure.screenY, depth);
     world.y +=
-      Math.sin(elapsed * figure.config.bobFrequency + figure.config.phase) *
+      sway *
       figure.config.bobAmplitude *
-      0.7;
+      0.42;
     figure.group.position.copy(world);
 
     const motionX =
@@ -853,26 +970,20 @@ export const createAuthAmbientScene = ({
     if (disposed) return;
     rafId = window.requestAnimationFrame(renderFrame);
     if (document.visibilityState === "hidden") return;
-    if (lastFrameTime && timestamp - lastFrameTime < FRAME_INTERVAL_MS) return;
+    if (lastFrameTime && timestamp - lastFrameTime < frameIntervalMs) return;
 
     const elapsed = timestamp * 0.001;
-    const delta = clamp(
-      lastAnimationTime ? elapsed - lastAnimationTime : FRAME_INTERVAL_MS / 1000,
-      0.001,
-      MAX_DELTA_SECONDS
-    );
-    lastAnimationTime = elapsed;
     lastFrameTime = timestamp;
 
-    pointer.x = ease(pointer.x, pointer.targetX, 0.06);
-    pointer.y = ease(pointer.y, pointer.targetY, 0.06);
+    pointer.x = ease(pointer.x, pointer.targetX, 0.045);
+    pointer.y = ease(pointer.y, pointer.targetY, 0.045);
 
-    figureLayer.rotation.y = pointer.x * (variant === "launch" ? 0.08 : 0.06);
-    figureLayer.rotation.x = -pointer.y * (variant === "launch" ? 0.045 : 0.035);
-    figureLayer.position.x = pointer.x * 0.1;
-    figureLayer.position.y = pointer.y * 0.06;
+    figureLayer.rotation.y = pointer.x * (variant === "launch" ? 0.048 : 0.04);
+    figureLayer.rotation.x = -pointer.y * (variant === "launch" ? 0.024 : 0.02);
+    figureLayer.position.x = pointer.x * 0.05;
+    figureLayer.position.y = pointer.y * 0.032;
 
-    figures.forEach((figure) => animateFigure(figure, elapsed, delta));
+    figures.forEach((figure) => animateFigure(figure, elapsed));
     renderer.render(scene, camera);
   };
 
