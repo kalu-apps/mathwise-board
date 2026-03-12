@@ -21,6 +21,7 @@ import type {
 } from "../model/types";
 import {
   buildWorkbookPointObject,
+  buildWorkbookPolygonObjectFromPoints,
   buildWorkbookShapeObject,
 } from "../model/sceneCreation";
 import { resolveSolid3dPresetId } from "../model/solid3d";
@@ -116,6 +117,10 @@ import {
   buildStrokePreviewPoints,
   toPath,
 } from "../model/stroke";
+import {
+  buildWorkbookActiveStrokeDraft,
+  buildWorkbookCommittedStroke,
+} from "../model/sceneStroke";
 import {
   applyEraserPointToCollections,
   buildEraserSegmentPoints,
@@ -340,10 +345,6 @@ type ShapeDraft = {
     | "solid3d";
   start: WorkbookPoint;
   current: WorkbookPoint;
-};
-
-type ActiveStrokeDraft = Omit<WorkbookStroke, "points"> & {
-  previewVersion: number;
 };
 
 type PendingCommittedStrokeBridge = {
@@ -1235,7 +1236,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const startStroke = (event: PointerEvent<SVGSVGElement>, svg: SVGSVGElement) => {
     pointerIdRef.current = event.pointerId;
     const start = mapPointer(svg, event.clientX, event.clientY);
-    const createdAt = new Date().toISOString();
     const strokeVisual = resolveWorkbookStrokeVisual(tool, color, width);
     if (strokeFlushFrameRef.current !== null) {
       window.cancelAnimationFrame(strokeFlushFrameRef.current);
@@ -1245,17 +1245,14 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       window.clearTimeout(strokePreviewTimerRef.current);
       strokePreviewTimerRef.current = null;
     }
-    activeStrokeRef.current = {
-      id: generateId(),
+    activeStrokeRef.current = buildWorkbookActiveStrokeDraft({
       layer,
       color: strokeVisual.color,
       width: strokeVisual.width,
       tool: strokeVisual.committedTool,
       page: currentPage,
       authorUserId,
-      createdAt,
-      previewVersion: 0,
-    };
+    });
     strokePointsRef.current = [start];
     draftStrokePathRef.current?.setAttribute("d", toPath(strokePointsRef.current));
     scheduleStrokePreview(true);
@@ -1338,30 +1335,14 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   };
 
   const commitPolygonByPoints = useCallback((sourcePoints: WorkbookPoint[]) => {
-    if (sourcePoints.length < 3) return;
-    const xs = sourcePoints.map((point) => point.x);
-    const ys = sourcePoints.map((point) => point.y);
-    const minX = Math.min(...xs);
-    const minY = Math.min(...ys);
-    const maxX = Math.max(...xs);
-    const maxY = Math.max(...ys);
-    const created: WorkbookBoardObject = {
-      id: generateId(),
-      type: "polygon",
+    const created = buildWorkbookPolygonObjectFromPoints({
+      sourcePoints,
       layer,
-      x: minX,
-      y: minY,
-      width: Math.max(1, maxX - minX),
-      height: Math.max(1, maxY - minY),
       color,
-      fill: "transparent",
-      strokeWidth: width,
-      opacity: 1,
-      points: sourcePoints,
-      sides: sourcePoints.length,
+      width,
       authorUserId,
-      createdAt: new Date().toISOString(),
-    };
+    });
+    if (!created) return;
     onObjectCreate(created);
     onSelectedObjectChange(created.id);
   }, [authorUserId, color, layer, onObjectCreate, onSelectedObjectChange, width]);
@@ -1865,17 +1846,18 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       });
     }
     const strokeVisual = resolveWorkbookStrokeVisual(tool, color, width);
-    const committedStroke: WorkbookStroke = {
-      id: activeStroke?.id ?? generateId(),
-      layer: activeStroke?.layer ?? layer,
-      color: activeStroke?.color ?? strokeVisual.color,
-      width: activeStroke?.width ?? strokeVisual.width,
-      tool: activeStroke?.tool ?? strokeVisual.committedTool,
+    const committedStroke: WorkbookStroke = buildWorkbookCommittedStroke({
+      activeStroke,
       points: finalPoints,
-      page: activeStroke?.page ?? currentPage,
-      authorUserId: activeStroke?.authorUserId ?? authorUserId,
-      createdAt: activeStroke?.createdAt ?? new Date().toISOString(),
-    };
+      fallback: {
+        layer,
+        color: strokeVisual.color,
+        width: strokeVisual.width,
+        tool: strokeVisual.committedTool,
+        page: currentPage,
+        authorUserId,
+      },
+    });
     showCommittedStrokeBridge(committedStroke, toPath(finalPoints));
     onStrokeCommit(committedStroke);
     activeStrokeRef.current = null;

@@ -95,6 +95,39 @@ export const buildWorkbookPointObject = (params: {
   },
 });
 
+export const buildWorkbookPolygonObjectFromPoints = (params: {
+  sourcePoints: WorkbookPoint[];
+  layer: WorkbookLayer;
+  color: string;
+  width: number;
+  authorUserId: string;
+}): WorkbookBoardObject | null => {
+  if (params.sourcePoints.length < 3) return null;
+  const xs = params.sourcePoints.map((point) => point.x);
+  const ys = params.sourcePoints.map((point) => point.y);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
+  return {
+    id: generateId(),
+    type: "polygon",
+    layer: params.layer,
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+    color: params.color,
+    fill: "transparent",
+    strokeWidth: params.width,
+    opacity: 1,
+    points: params.sourcePoints,
+    sides: params.sourcePoints.length,
+    authorUserId: params.authorUserId,
+    createdAt: new Date().toISOString(),
+  };
+};
+
 export const buildWorkbookShapeObject = (
   params: BuildWorkbookShapeObjectParams
 ): WorkbookBoardObject => {
