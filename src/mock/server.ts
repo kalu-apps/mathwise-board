@@ -35,7 +35,13 @@ import {
   mergeRuntimeWorkbookEventsIntoDb,
   type WorkbookRealtimeEnvelope,
 } from "./workbookEventService";
-import { ingestRumTelemetryEvents } from "./telemetryService";
+import {
+  getTelemetryDiagnostics,
+  ingestRumTelemetryEvents,
+  readRecentRumTelemetryEvents,
+  readRecentWorkbookServerTraces,
+  recordWorkbookServerTrace,
+} from "./telemetryService";
 import {
   decodeWorkbookPdfDataUrl,
   renderWorkbookPdfPagesViaPoppler,
@@ -174,6 +180,25 @@ const RUNTIME_NODE_ID = `${os.hostname()}-${process.pid}-${crypto.randomBytes(4)
 const workbookLiveSocketServerByHost = new WeakMap<HttpUpgradeServer, WebSocketServer>();
 const nowIso = () => new Date().toISOString();
 const nowTs = () => Date.now();
+const summarizeRealtimeEventTypes = (eventTypes: string[]) =>
+  Array.from(new Set(eventTypes.filter((type) => typeof type === "string" && type.length > 0))).slice(
+    0,
+    6
+  );
+const summarizeRealtimeLatency = (events: Array<{ createdAt?: string }>) => {
+  const latencies = events.reduce<number[]>((acc, event) => {
+    const createdAt = typeof event.createdAt === "string" ? Date.parse(event.createdAt) : NaN;
+    if (!Number.isFinite(createdAt)) return acc;
+    acc.push(Math.max(0, Date.now() - createdAt));
+    return acc;
+  }, []);
+  if (latencies.length === 0) return {};
+  const total = latencies.reduce((sum, value) => sum + value, 0);
+  return {
+    averageLatencyMs: Math.round(total / latencies.length),
+    maxLatencyMs: Math.max(...latencies),
+  };
+};
 const persistPresenceIfNeeded = (
   participant: WorkbookSessionParticipantRecord,
   options?: { force?: boolean }
@@ -798,9 +823,11 @@ const deliverWorkbookStreamEventsToLocalClients = (
   db: MockDb,
   payload: WorkbookRealtimeEnvelope
 ) => {
+  const startedAt = nowTs();
   const sessionClients = workbookStreamClientsBySession.get(payload.sessionId);
   if (!sessionClients || sessionClients.size === 0) return;
   const chunk = `event: workbook\ndata: ${JSON.stringify(payload)}\n\n`;
+  let deliveredClientCount = 0;
   for (const [clientId, client] of sessionClients.entries()) {
     const hasAccess = db.workbookParticipants.some(
       (participant) =>
@@ -812,16 +839,31 @@ const deliverWorkbookStreamEventsToLocalClients = (
     }
     try {
       client.res.write(chunk);
+      deliveredClientCount += 1;
     } catch {
       closeWorkbookStreamClient(payload.sessionId, clientId);
     }
   }
+  recordWorkbookServerTrace({
+    scope: "workbook",
+    op: "deliver_local",
+    channel: "stream",
+    sessionId: payload.sessionId,
+    eventCount: payload.events.length,
+    eventTypes: summarizeRealtimeEventTypes(payload.events.map((event) => event.type)),
+    durationMs: nowTs() - startedAt,
+    latestSeq: payload.latestSeq,
+    clientCount: deliveredClientCount,
+    success: true,
+    ...summarizeRealtimeLatency(payload.events),
+  });
 };
 
 const deliverWorkbookLiveEventsToLocalClients = (
   db: MockDb,
   payload: WorkbookRealtimeEnvelope
 ) => {
+  const startedAt = nowTs();
   const sessionClients = workbookLiveSocketClientsBySession.get(payload.sessionId);
   if (!sessionClients || sessionClients.size === 0) return;
   const chunk = JSON.stringify({
@@ -829,6 +871,7 @@ const deliverWorkbookLiveEventsToLocalClients = (
     latestSeq: payload.latestSeq,
     events: payload.events,
   });
+  let deliveredClientCount = 0;
   for (const [clientId, client] of sessionClients.entries()) {
     const hasAccess = db.workbookParticipants.some(
       (participant) =>
@@ -840,10 +883,24 @@ const deliverWorkbookLiveEventsToLocalClients = (
     }
     try {
       client.socket.send(chunk);
+      deliveredClientCount += 1;
     } catch {
       closeWorkbookLiveSocketClient(payload.sessionId, clientId);
     }
   }
+  recordWorkbookServerTrace({
+    scope: "workbook",
+    op: "deliver_local",
+    channel: "live",
+    sessionId: payload.sessionId,
+    eventCount: payload.events.length,
+    eventTypes: summarizeRealtimeEventTypes(payload.events.map((event) => event.type)),
+    durationMs: nowTs() - startedAt,
+    latestSeq: payload.latestSeq,
+    clientCount: deliveredClientCount,
+    success: true,
+    ...summarizeRealtimeLatency(payload.events),
+  });
 };
 
 async function ensureRuntimeSessionBridge(sessionId: string) {
@@ -1504,6 +1561,21 @@ export function setupMockServer(host: MiddlewareHost) {
           sessionId,
         });
         json(res, 202, { ok: true, accepted: result.accepted });
+        return;
+      }
+
+      if (pathname === "/api/telemetry/runtime" && method === "GET") {
+        const actor = requireAuthUser(req, res, db);
+        if (!actor) return;
+        const limit = Math.max(
+          1,
+          Math.min(200, Number.parseInt(String(searchParams.get("limit") ?? "50"), 10) || 50)
+        );
+        json(res, 200, {
+          diagnostics: getTelemetryDiagnostics(),
+          workbookServerTraces: readRecentWorkbookServerTraces(limit),
+          rumEvents: readRecentRumTelemetryEvents(limit),
+        });
         return;
       }
 

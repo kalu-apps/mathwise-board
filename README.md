@@ -48,6 +48,7 @@ npm run backend:start:board
 - `AUTH_COOKIE_SAME_SITE=Lax|None|Strict`
 - `AUTH_COOKIE_SECURE=1`
 - `REDIS_URL=redis://...` (runtime connectivity/ping)
+- `BOARD_RUNTIME_REDIS_REQUIRED=1` (для production multi-node контура; не даёт тихо стартовать без Redis)
 - `MEDIA_STUN_URLS=stun:stun.l.google.com:19302`
 - `MEDIA_TURN_URLS=turn:turn.your-domain.tld:3478?transport=udp,turns:turn.your-domain.tld:5349?transport=tcp`
 - `MEDIA_TURN_SECRET=<coturn static-auth-secret>` (предпочтительно)  
@@ -70,8 +71,13 @@ npm run backend:start:board
 ## Healthcheck
 `GET /healthz` возвращает статус сервиса и runtime-диагностику:
 - активный драйвер хранения (`file`/`postgres`);
-- состояние подключения к Redis (если `REDIS_URL` задан).
+- preferred/required состояние storage/runtime контуров;
+- состояние подключения к Redis (если `REDIS_URL` задан);
 - медиа-конфиг (`media.turnAuthMode`, количество STUN/TURN URL, статус `media.livekit.configured`).
+- telemetry summary (`telemetry.rumBuffered`, `telemetry.workbookServerTracesBuffered`, `telemetry.recentSlowWorkbookTraceCount`).
+
+Auth-protected runtime telemetry:
+- `GET /api/telemetry/runtime?limit=50`
 
 WebRTC ICE-конфиг для аудио выдаётся runtime-эндпоинтом:
 - `GET /api/workbook/sessions/:sessionId/media/config`

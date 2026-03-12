@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { extname, resolve } from "node:path";
 import type { ViteDevServer } from "vite";
 import { getStorageDiagnostics, initializeDb, shutdownDb } from "../../src/mock/db";
+import { getTelemetryDiagnostics } from "../../src/mock/telemetryService";
 import {
   getRuntimeServicesStatus,
   initializeRuntimeServices,
@@ -142,6 +143,7 @@ const staticMiddleware: NextHandleFunction = async (req, res, next) => {
       storage: getStorageDiagnostics(),
       runtime: getRuntimeServicesStatus(),
       media: getMediaDiagnostics(),
+      telemetry: getTelemetryDiagnostics(),
     });
   }
 

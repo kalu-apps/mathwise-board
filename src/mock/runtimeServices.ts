@@ -1,3 +1,5 @@
+import { recordWorkbookServerTrace } from "./telemetryService";
+
 type RedisClient = ReturnType<typeof import("redis").createClient>;
 
 const REDIS_URL = String(process.env.REDIS_URL ?? "").trim();
@@ -49,6 +51,17 @@ const redisStatus: {
   pubsubConnected: false,
   lastError: null,
 };
+
+const nowMs = () =>
+  typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+
+const summarizeEventTypes = (eventTypes: string[]) =>
+  Array.from(new Set(eventTypes.filter((type) => typeof type === "string" && type.length > 0))).slice(
+    0,
+    6
+  );
 
 const normalizeError = (error: unknown) => {
   if (error instanceof Error) return error.message;
@@ -216,12 +229,36 @@ export const publishWorkbookRealtimePayload = async (
   sessionId: string,
   payload: WorkbookRealtimePayload
 ): Promise<boolean> => {
+  const startedAt = nowMs();
   if (!redisClient) return false;
   try {
     await redisClient.publish(workbookChannel(sessionId), JSON.stringify(payload));
+    recordWorkbookServerTrace({
+      scope: "workbook",
+      op: "publish_runtime",
+      channel: payload.channel === "live" ? "live" : "stream",
+      sessionId,
+      eventCount: payload.events.length,
+      eventTypes: summarizeEventTypes(payload.events.map((event) => event.type)),
+      durationMs: nowMs() - startedAt,
+      latestSeq: payload.latestSeq,
+      success: true,
+    });
     return true;
   } catch (error) {
     markRedisError(error);
+    recordWorkbookServerTrace({
+      scope: "workbook",
+      op: "publish_runtime",
+      channel: payload.channel === "live" ? "live" : "stream",
+      sessionId,
+      eventCount: payload.events.length,
+      eventTypes: summarizeEventTypes(payload.events.map((event) => event.type)),
+      durationMs: nowMs() - startedAt,
+      latestSeq: payload.latestSeq,
+      success: false,
+      error: normalizeError(error),
+    });
     return false;
   }
 };

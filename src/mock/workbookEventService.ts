@@ -4,6 +4,7 @@ import {
   type MockDb,
   type WorkbookEventRecord,
 } from "./db";
+import { recordWorkbookServerTrace } from "./telemetryService";
 import { allocateWorkbookRuntimeSequence } from "./runtimeServices";
 import {
   isUrgentWorkbookLiveEventType,
@@ -12,6 +13,33 @@ import {
 } from "../features/workbook/model/events";
 
 const WORKBOOK_EVENT_LIMIT = 1_200;
+const nowMs = () =>
+  typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+
+const summarizeEventTypes = (eventTypes: string[]) =>
+  Array.from(new Set(eventTypes.filter((type) => typeof type === "string" && type.length > 0))).slice(
+    0,
+    6
+  );
+
+const summarizeLatencyFromCreatedAt = (
+  events: Array<{ createdAt?: string | null }>
+): { averageLatencyMs?: number; maxLatencyMs?: number } => {
+  const latencies = events.reduce<number[]>((acc, event) => {
+    const createdAt = typeof event.createdAt === "string" ? Date.parse(event.createdAt) : NaN;
+    if (!Number.isFinite(createdAt)) return acc;
+    acc.push(Math.max(0, Date.now() - createdAt));
+    return acc;
+  }, []);
+  if (latencies.length === 0) return {};
+  const total = latencies.reduce((sum, value) => sum + value, 0);
+  return {
+    averageLatencyMs: Math.round(total / latencies.length),
+    maxLatencyMs: Math.max(...latencies),
+  };
+};
 
 export type WorkbookRealtimeEnvelope = {
   sessionId: string;
@@ -55,6 +83,7 @@ export const mergeRuntimeWorkbookEventsIntoDb = (
   db: MockDb,
   payload: WorkbookRealtimeEnvelope
 ) => {
+  const startedAt = nowMs();
   if (payload.channel === "live") return false;
   if (!Array.isArray(payload.events) || payload.events.length === 0) return false;
   const existingEventIds = new Set(
@@ -95,6 +124,18 @@ export const mergeRuntimeWorkbookEventsIntoDb = (
   if (!inserted) return false;
   trimWorkbookEventsOverflow(db, payload.sessionId);
   saveDb();
+  recordWorkbookServerTrace({
+    scope: "workbook",
+    op: "runtime_bridge",
+    channel: "stream",
+    sessionId: payload.sessionId,
+    eventCount: payload.events.length,
+    eventTypes: summarizeEventTypes(payload.events.map((event) => event.type)),
+    durationMs: nowMs() - startedAt,
+    latestSeq: payload.latestSeq,
+    success: true,
+    ...summarizeLatencyFromCreatedAt(payload.events),
+  });
   return true;
 };
 
@@ -107,6 +148,7 @@ export const appendWorkbookEvents = async (
     persist?: boolean;
   }
 ) => {
+  const startedAt = nowMs();
   const timestamp = nowIso();
   const isPersisted = params.persist !== false;
   const currentMaxSeq = getWorkbookSessionLatestSeq(db, params.sessionId);
@@ -156,13 +198,25 @@ export const appendWorkbookEvents = async (
     trimWorkbookEventsOverflow(db, params.sessionId);
   }
 
-  return {
+  const result = {
     events: appended,
     latestSeq: isPersisted
       ? appended[appended.length - 1]?.seq ?? currentMaxSeq
       : currentMaxSeq,
     timestamp,
   };
+  recordWorkbookServerTrace({
+    scope: "workbook",
+    op: "append",
+    channel: isPersisted ? "persist" : "live",
+    sessionId: params.sessionId,
+    eventCount: appended.length,
+    eventTypes: summarizeEventTypes(appended.map((event) => event.type)),
+    durationMs: nowMs() - startedAt,
+    latestSeq: result.latestSeq,
+    success: true,
+  });
+  return result;
 };
 
 export const collectUrgentWorkbookLiveEvents = (

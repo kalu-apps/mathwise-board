@@ -29,6 +29,7 @@ VITE_WHITEBOARD_TEACHER_PASSWORD=<strong-password>
 BOARD_STORAGE_DRIVER=postgres
 DATABASE_URL=postgresql://board_app:<url-encoded-password>@10.20.0.4:5432/board_prod?sslmode=no-verify
 REDIS_URL=redis://default:<url-encoded-password>@10.20.0.5:6379/0
+BOARD_RUNTIME_REDIS_REQUIRED=1
 
 MEDIA_STUN_URLS=stun:stun.l.google.com:19302
 MEDIA_TURN_URLS=turn:turn.your-domain.tld:3478?transport=udp,turns:turn.your-domain.tld:5349?transport=tcp
@@ -45,6 +46,12 @@ MEDIA_LIVEKIT_TOKEN_TTL_SECONDS=3600
 systemctl restart mathwise-board
 curl -s https://api.your-domain.tld/healthz | python3 -m json.tool
 ```
+
+Проверить обязательно:
+- `storage.driver=postgres`
+- `storage.required=true`
+- `runtime.redis.required=true`
+- `runtime.redis.connected=true`
 
 ## 3) Nginx + SSL на `mw-app-01`
 - Nginx проксирует `board` и `api.board` на `127.0.0.1:4173`.
