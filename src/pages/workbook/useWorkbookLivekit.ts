@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateA
 import { getWorkbookLivekitToken } from "@/features/workbook/model/api";
 import type { WorkbookSessionKind } from "@/features/workbook/model/types";
 import { ApiError } from "@/shared/api/client";
+import { emitMediaMetric } from "@/shared/lib/mediaMonitoring";
 import type {
   Room as LivekitRoom,
   RemoteAudioTrack,
@@ -24,6 +25,17 @@ type RemoteAudioBinding = {
   element: HTMLAudioElement;
 };
 
+type LivekitConnectFailureSummary = {
+  errorName: string | null;
+  errorMessage: string | null;
+  errorReason: string | null;
+  errorStatus: number | null;
+  retryable: boolean;
+  userMessage: string;
+};
+
+const LIVEKIT_CONNECT_RETRY_DELAYS_MS = [800, 2_000] as const;
+
 const isLocalSecureContext = () => {
   if (typeof window === "undefined") return true;
   if (window.isSecureContext) return true;
@@ -32,6 +44,131 @@ const isLocalSecureContext = () => {
     window.location.hostname === "127.0.0.1" ||
     window.location.hostname === "::1"
   );
+};
+
+const summarizeLivekitConnectFailure = (reason: unknown): LivekitConnectFailureSummary => {
+  if (reason instanceof Error && reason.message === "media_secure_context_required") {
+    return {
+      errorName: reason.name,
+      errorMessage: reason.message,
+      errorReason: "secure_context_required",
+      errorStatus: null,
+      retryable: false,
+      userMessage:
+        "Микрофон доступен только в защищённом режиме: откройте сайт по HTTPS (или localhost).",
+    };
+  }
+
+  if (reason instanceof Error && reason.message === "livekit_token_invalid") {
+    return {
+      errorName: reason.name,
+      errorMessage: reason.message,
+      errorReason: "token_invalid",
+      errorStatus: null,
+      retryable: false,
+      userMessage: "Сервер выдал некорректный LiveKit token. Проверьте media/livekit-token endpoint.",
+    };
+  }
+
+  if (reason instanceof ApiError && reason.status === 503) {
+    return {
+      errorName: "ApiError",
+      errorMessage: reason.message,
+      errorReason: "livekit_unavailable",
+      errorStatus: reason.status,
+      retryable: false,
+      userMessage: "LiveKit не настроен на сервере. Проверьте MEDIA_LIVEKIT_* переменные.",
+    };
+  }
+
+  if (reason instanceof ApiError && reason.status >= 500) {
+    return {
+      errorName: "ApiError",
+      errorMessage: reason.message,
+      errorReason: "api_unavailable",
+      errorStatus: reason.status,
+      retryable: true,
+      userMessage: "Сервис аудио временно недоступен. Повторите попытку подключения через несколько секунд.",
+    };
+  }
+
+  const source =
+    reason && typeof reason === "object"
+      ? (reason as {
+          name?: unknown;
+          message?: unknown;
+          reasonName?: unknown;
+          reason?: unknown;
+          status?: unknown;
+        })
+      : null;
+
+  const errorName =
+    reason instanceof Error
+      ? reason.name
+      : typeof source?.name === "string"
+        ? source.name
+        : null;
+  const errorMessage =
+    reason instanceof Error
+      ? reason.message
+      : typeof source?.message === "string"
+        ? source.message
+        : null;
+  const errorReason =
+    typeof source?.reasonName === "string"
+      ? source.reasonName
+      : typeof source?.reason === "string"
+        ? source.reason
+        : null;
+  const errorStatus = typeof source?.status === "number" ? source.status : null;
+  const normalizedMessage = (errorMessage ?? "").toLowerCase();
+
+  if (errorReason === "NotAllowed" || errorStatus === 401 || errorStatus === 403) {
+    return {
+      errorName,
+      errorMessage,
+      errorReason,
+      errorStatus,
+      retryable: false,
+      userMessage:
+        "Сервис аудио отклонил подключение. Проверьте LiveKit API key/secret и корректность токена.",
+    };
+  }
+
+  if (errorReason === "ServiceNotFound" || errorStatus === 404) {
+    return {
+      errorName,
+      errorMessage,
+      errorReason,
+      errorStatus,
+      retryable: false,
+      userMessage:
+        "LiveKit недоступен на media-сервере. Проверьте прокси rtc.board.mathwise.ru и сам сервис LiveKit.",
+    };
+  }
+
+  const retryable =
+    errorReason === "ServerUnreachable" ||
+    errorReason === "Timeout" ||
+    errorReason === "WebSocket" ||
+    errorReason === "InternalError" ||
+    normalizedMessage.includes("timeout") ||
+    normalizedMessage.includes("timed out") ||
+    normalizedMessage.includes("unreachable") ||
+    normalizedMessage.includes("websocket") ||
+    normalizedMessage.includes("network");
+
+  return {
+    errorName,
+    errorMessage,
+    errorReason,
+    errorStatus,
+    retryable,
+    userMessage: retryable
+      ? "Сервис аудио временно недоступен. Повторите попытку подключения через несколько секунд."
+      : "Не удалось подключить аудио-комнату LiveKit.",
+  };
 };
 
 export const useWorkbookLivekit = ({
@@ -49,7 +186,16 @@ export const useWorkbookLivekit = ({
   const livekitRoomRef = useRef<LivekitRoom | null>(null);
   const livekitRoomSessionIdRef = useRef<string | null>(null);
   const livekitConnectInFlightRef = useRef<Promise<void> | null>(null);
+  const livekitRetryTimeoutRef = useRef<number | null>(null);
+  const livekitConnectAttemptRef = useRef(0);
   const remoteAudioBindingsRef = useRef<Map<string, RemoteAudioBinding>>(new Map());
+
+  const clearLivekitRetryTimeout = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (livekitRetryTimeoutRef.current === null) return;
+    window.clearTimeout(livekitRetryTimeoutRef.current);
+    livekitRetryTimeoutRef.current = null;
+  }, []);
 
   const ensureLivekitRuntime = useCallback(async () => {
     if (livekitRuntimeRef.current) return livekitRuntimeRef.current;
@@ -178,8 +324,12 @@ export const useWorkbookLivekit = ({
   );
 
   const disconnectLivekitRoom = useCallback(
-    async (options?: { forceStopTracks?: boolean }) => {
+    async (options?: { forceStopTracks?: boolean; resetRetryState?: boolean }) => {
       livekitConnectInFlightRef.current = null;
+      clearLivekitRetryTimeout();
+      if (options?.resetRetryState !== false) {
+        livekitConnectAttemptRef.current = 0;
+      }
       const room = livekitRoomRef.current;
       if (!room) {
         setIsLivekitConnected(false);
@@ -198,7 +348,7 @@ export const useWorkbookLivekit = ({
         setMicEnabled(false);
       }
     },
-    [detachAllRemoteAudio]
+    [clearLivekitRetryTimeout, detachAllRemoteAudio]
   );
 
   const connectLivekitRoom = useCallback(async () => {
@@ -209,7 +359,30 @@ export const useWorkbookLivekit = ({
     }
     const task = (async () => {
       const runtime = await ensureLivekitRuntime();
+      clearLivekitRetryTimeout();
+      const connectAttempt = livekitConnectAttemptRef.current + 1;
+      livekitConnectAttemptRef.current = connectAttempt;
+      emitMediaMetric({
+        scope: "workbook",
+        subsystem: "livekit",
+        phase: "token_request",
+        sessionId,
+        sessionKind: sessionKind ?? null,
+        timestamp: new Date().toISOString(),
+        attempt: connectAttempt,
+      });
       const tokenConfig = await getWorkbookLivekitToken(sessionId);
+      emitMediaMetric({
+        scope: "workbook",
+        subsystem: "livekit",
+        phase: "token_success",
+        sessionId,
+        sessionKind: sessionKind ?? null,
+        timestamp: new Date().toISOString(),
+        attempt: connectAttempt,
+        wsUrl: tokenConfig.wsUrl,
+        roomName: tokenConfig.roomName,
+      });
       if (!tokenConfig.wsUrl || !tokenConfig.token) {
         throw new Error("livekit_token_invalid");
       }
@@ -226,7 +399,7 @@ export const useWorkbookLivekit = ({
         return;
       }
       if (currentRoom) {
-        await disconnectLivekitRoom({ forceStopTracks: false });
+        await disconnectLivekitRoom({ forceStopTracks: false, resetRetryState: false });
       }
 
       const room = new runtime.Room({
@@ -240,9 +413,37 @@ export const useWorkbookLivekit = ({
       });
       room.on(runtime.RoomEvent.Disconnected, () => {
         detachAllRemoteAudio();
+        emitMediaMetric({
+          scope: "workbook",
+          subsystem: "livekit",
+          phase: "disconnect",
+          sessionId,
+          sessionKind: sessionKind ?? null,
+          timestamp: new Date().toISOString(),
+        });
       });
       room.on(runtime.RoomEvent.ConnectionStateChanged, (state: unknown) => {
         setIsLivekitConnected(state === runtime.ConnectionState.Connected);
+        emitMediaMetric({
+          scope: "workbook",
+          subsystem: "livekit",
+          phase: "connection_state",
+          sessionId,
+          sessionKind: sessionKind ?? null,
+          timestamp: new Date().toISOString(),
+          connectionState: typeof state === "string" ? state : String(state ?? ""),
+        });
+      });
+      emitMediaMetric({
+        scope: "workbook",
+        subsystem: "livekit",
+        phase: "connect_start",
+        sessionId,
+        sessionKind: sessionKind ?? null,
+        timestamp: new Date().toISOString(),
+        attempt: connectAttempt,
+        wsUrl: tokenConfig.wsUrl,
+        roomName: tokenConfig.roomName,
       });
       await room.connect(tokenConfig.wsUrl, tokenConfig.token, {
         autoSubscribe: true,
@@ -250,6 +451,18 @@ export const useWorkbookLivekit = ({
       livekitRoomRef.current = room;
       livekitRoomSessionIdRef.current = sessionId;
       setIsLivekitConnected(true);
+      livekitConnectAttemptRef.current = 0;
+      emitMediaMetric({
+        scope: "workbook",
+        subsystem: "livekit",
+        phase: "connect_success",
+        sessionId,
+        sessionKind: sessionKind ?? null,
+        timestamp: new Date().toISOString(),
+        attempt: connectAttempt,
+        wsUrl: tokenConfig.wsUrl,
+        roomName: tokenConfig.roomName,
+      });
     })();
     livekitConnectInFlightRef.current = task;
     try {
@@ -266,20 +479,53 @@ export const useWorkbookLivekit = ({
         return current;
       });
     } catch (reason) {
-      if (reason instanceof Error && reason.message === "media_secure_context_required") {
-        setError(
-          "Микрофон доступен только в защищённом режиме: откройте сайт по HTTPS (или localhost)."
-        );
-      } else if (reason instanceof ApiError && reason.status === 503) {
-        setError("LiveKit не настроен на сервере. Проверьте MEDIA_LIVEKIT_* переменные.");
+      const failure = summarizeLivekitConnectFailure(reason);
+      const connectAttempt = livekitConnectAttemptRef.current;
+      const retryDelay =
+        failure.retryable && connectAttempt <= LIVEKIT_CONNECT_RETRY_DELAYS_MS.length
+          ? LIVEKIT_CONNECT_RETRY_DELAYS_MS[connectAttempt - 1]
+          : null;
+      emitMediaMetric({
+        scope: "workbook",
+        subsystem: "livekit",
+        phase: "connect_failure",
+        sessionId,
+        sessionKind: sessionKind ?? null,
+        timestamp: new Date().toISOString(),
+        attempt: connectAttempt,
+        errorName: failure.errorName,
+        errorMessage: failure.errorMessage,
+        errorReason: failure.errorReason,
+        errorStatus: failure.errorStatus,
+      });
+      await disconnectLivekitRoom({ forceStopTracks: false, resetRetryState: retryDelay === null });
+      if (retryDelay !== null && typeof window !== "undefined") {
+        emitMediaMetric({
+          scope: "workbook",
+          subsystem: "livekit",
+          phase: "retry_scheduled",
+          sessionId,
+          sessionKind: sessionKind ?? null,
+          timestamp: new Date().toISOString(),
+          attempt: connectAttempt,
+          retryInMs: retryDelay,
+          errorName: failure.errorName,
+          errorReason: failure.errorReason,
+          errorStatus: failure.errorStatus,
+        });
+        livekitRetryTimeoutRef.current = window.setTimeout(() => {
+          livekitRetryTimeoutRef.current = null;
+          void connectLivekitRoom();
+        }, retryDelay);
       } else {
-        setError("Не удалось подключить аудио-комнату LiveKit.");
+        livekitConnectAttemptRef.current = 0;
+        setError(failure.userMessage);
       }
-      await disconnectLivekitRoom({ forceStopTracks: false });
     } finally {
       livekitConnectInFlightRef.current = null;
     }
   }, [
+    clearLivekitRetryTimeout,
     detachAllRemoteAudio,
     detachRemoteAudio,
     disconnectLivekitRoom,
@@ -348,6 +594,20 @@ export const useWorkbookLivekit = ({
     },
     [disconnectLivekitRoom]
   );
+
+  useEffect(() => {
+    if (!sessionId || sessionKind !== "CLASS" || !canUseMedia || isEnded || !userId) {
+      return;
+    }
+    const handleOnline = () => {
+      if (livekitRoomRef.current || livekitConnectInFlightRef.current) return;
+      void connectLivekitRoom();
+    };
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [canUseMedia, connectLivekitRoom, isEnded, sessionId, sessionKind, userId]);
 
   useEffect(() => {
     if (sessionKind !== "CLASS" || !canUseMedia || isEnded) return;

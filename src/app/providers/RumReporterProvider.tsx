@@ -14,12 +14,16 @@ import {
   type RealtimeMetricEventDetail,
 } from "@/shared/lib/realtimeMonitoring";
 import {
+  APP_MEDIA_EVENT,
+  type MediaMetricEventDetail,
+} from "@/shared/lib/mediaMonitoring";
+import {
   APP_ACTION_GUARD_EVENT,
   type ActionGuardEventDetail,
 } from "@/shared/lib/useActionGuard";
 
 type RumEvent = {
-  type: "performance" | "api_failure" | "api_success" | "action_guard" | "realtime";
+  type: "performance" | "api_failure" | "api_success" | "action_guard" | "realtime" | "media";
   at: string;
   route: string;
   payload: unknown;
@@ -32,10 +36,15 @@ const RUM_BATCH_SIZE = 40;
 const RUM_TIMEOUT_MS = 4_000;
 
 const IS_DEV = typeof import.meta !== "undefined" && Boolean(import.meta.env?.DEV);
+const IS_BOARD_REALTIME_BUILD =
+  typeof import.meta !== "undefined" &&
+  String(import.meta.env?.VITE_BOARD_MODE ?? "").toLowerCase() === "realtime" &&
+  String(import.meta.env?.VITE_WHITEBOARD_ONLY ?? "") === "1";
 const RUM_ENABLED =
   typeof import.meta !== "undefined" &&
   (Boolean(import.meta.env?.DEV) ||
-    String(import.meta.env?.VITE_RUM_ENABLED ?? "").toLowerCase() === "true");
+    String(import.meta.env?.VITE_RUM_ENABLED ?? "").toLowerCase() === "true" ||
+    IS_BOARD_REALTIME_BUILD);
 
 const getRouteSnapshot = () => {
   if (typeof window === "undefined") return "/";
@@ -164,6 +173,17 @@ const createRumReporterSession = () => {
     });
   };
 
+  const onMedia = (event: Event) => {
+    const detail = (event as CustomEvent<MediaMetricEventDetail>).detail;
+    if (!detail) return;
+    pushEvent({
+      type: "media",
+      at: new Date().toISOString(),
+      route: getRouteSnapshot(),
+      payload: detail,
+    });
+  };
+
   const flushTimer = window.setInterval(() => {
     void flushBatch();
   }, RUM_FLUSH_INTERVAL_MS);
@@ -177,6 +197,7 @@ const createRumReporterSession = () => {
   window.addEventListener(APP_API_SUCCESS_EVENT, onApiSuccess as EventListener);
   window.addEventListener(APP_ACTION_GUARD_EVENT, onActionGuard as EventListener);
   window.addEventListener(APP_REALTIME_EVENT, onRealtime as EventListener);
+  window.addEventListener(APP_MEDIA_EVENT, onMedia as EventListener);
   window.addEventListener("online", onOnline);
   window.addEventListener("visibilitychange", flushOnHidden);
   window.addEventListener("pagehide", flushOnHidden);
@@ -188,6 +209,7 @@ const createRumReporterSession = () => {
     window.removeEventListener(APP_API_SUCCESS_EVENT, onApiSuccess as EventListener);
     window.removeEventListener(APP_ACTION_GUARD_EVENT, onActionGuard as EventListener);
     window.removeEventListener(APP_REALTIME_EVENT, onRealtime as EventListener);
+    window.removeEventListener(APP_MEDIA_EVENT, onMedia as EventListener);
     window.removeEventListener("online", onOnline);
     window.removeEventListener("visibilitychange", flushOnHidden);
     window.removeEventListener("pagehide", flushOnHidden);

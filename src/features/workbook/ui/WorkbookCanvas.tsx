@@ -1175,8 +1175,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   viewportOffset = { x: 0, y: 0 },
   onViewportOffsetChange,
   forcePanMode = false,
-  autoDividerStep = 960,
-  autoDividersEnabled = false,
   areaSelection = null,
   solid3dDraftPointCollectionObjectId = null,
   solid3dSectionMarkers = null,
@@ -6843,33 +6841,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     selectedPreviewObject,
     solid3dSectionMarkers,
   ]);
-
-  const autoDividerNodes = useMemo(() => {
-    if (!autoDividersEnabled) return null;
-    return Array.from(
-      {
-        length: Math.ceil((size.height / safeZoom) / Math.max(320, autoDividerStep)) + 2,
-      },
-      (_, index) => {
-        const step = Math.max(320, autoDividerStep);
-        const startY = Math.floor(viewportOffset.y / step) * step;
-        const y = startY + index * step;
-        return (
-          <line
-            key={`auto-divider-${y}`}
-            x1={viewportOffset.x - 1200}
-            y1={y}
-            x2={viewportOffset.x + size.width / safeZoom + 1200}
-            y2={y}
-            stroke="#a1a9c8"
-            strokeWidth={1}
-            strokeDasharray="5 5"
-            opacity={0.7}
-          />
-        );
-      }
-    );
-  }, [autoDividerStep, autoDividersEnabled, safeZoom, size.height, size.width, viewportOffset.x, viewportOffset.y]);
 
   const solid3dMarkerNodes = useMemo(() => {
     if (!solid3dSectionMarkers?.objectId) return null;

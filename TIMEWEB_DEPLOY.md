@@ -144,6 +144,22 @@ curl -s -b /tmp/board.cookies \
 - board backend выдаёт токен через `GET /api/workbook/sessions/:sessionId/media/livekit-token`;
 - frontend подключается через `livekit-client` (без p2p сигналинга через workbook events).
 
+Рекомендуемая production-модель:
+- `LiveKit` должен быть поднят через `systemd`, а не отдельным background-процессом;
+- source of truth для `LiveKit keys` должен быть один, например `/etc/livekit.yaml`;
+- `MEDIA_LIVEKIT_API_KEY` и `MEDIA_LIVEKIT_API_SECRET` на `mw-app-01` обязаны совпадать с `keys:` в `/etc/livekit.yaml`;
+- если рядом есть `/opt/mathwise/media/.env.media`, он не должен расходиться с `/etc/livekit.yaml`.
+
+Минимальные проверки на `mw-media-01`:
+```bash
+systemctl status livekit --no-pager -l
+ps -ef | grep [l]ivekit
+ss -ltnp | grep -E "7880|7881"
+nginx -T 2>/dev/null | grep -nA20 -B5 "server_name rtc.board.your-domain.tld"
+```
+
+Если `ps` показывает живой `/livekit-server`, а `systemctl status livekit` — `inactive/dead`, значит сервис запущен вне supervisor-контура. Это источник плавающих аудио-сбоев и плохой диагностики.
+
 ## 6) Финальный smoke-check
 1. Teacher логинится на `board.your-domain.tld`.
 2. Создаёт урок, копирует invite.

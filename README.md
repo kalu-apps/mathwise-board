@@ -78,6 +78,8 @@ npm run backend:start:board
 
 Auth-protected runtime telemetry:
 - `GET /api/telemetry/runtime?limit=50`
+- в `rumEvents` можно смотреть клиентские `media` события для диагностики LiveKit token/connect ошибок и transient reconnect.
+- для `board realtime`-сборки RUM включён по умолчанию, чтобы production-диагностика доски не зависела от отдельного флага.
 
 WebRTC ICE-конфиг для аудио выдаётся runtime-эндпоинтом:
 - `GET /api/workbook/sessions/:sessionId/media/config`
