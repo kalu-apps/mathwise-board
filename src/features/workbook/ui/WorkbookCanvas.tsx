@@ -1183,6 +1183,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   viewportOffset = { x: 0, y: 0 },
   onViewportOffsetChange,
   forcePanMode = false,
+  autoDividerStep = 960,
+  autoDividersEnabled = false,
   areaSelection = null,
   solid3dDraftPointCollectionObjectId = null,
   solid3dSectionMarkers = null,
