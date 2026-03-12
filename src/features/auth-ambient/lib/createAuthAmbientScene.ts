@@ -32,6 +32,7 @@ type FigureLineLayer = {
 
 type FigureRuntime = {
   config: AmbientFigureConfig;
+  visualPresetId: string;
   group: THREE.Group;
   presentationGroup: THREE.Group;
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshPhongMaterial>;
@@ -59,6 +60,11 @@ type DraftTarget = Pick<
   FigureRuntime,
   "presentationGroup" | "lineLayers" | "overlayGeometries" | "overlayMaterials"
 >;
+
+type AmbientContourSpec =
+  | { kind: "sphere"; radius: number }
+  | { kind: "torus"; majorRadius: number; tubeRadius: number }
+  | { kind: "cone"; radius: number; height: number };
 
 type AnchorBounds = {
   minX: number;
@@ -89,31 +95,38 @@ const FRAME_INTERVAL_MS = 1000 / 30;
 const CAMERA_Z = 9.1;
 const EDGE_THRESHOLD_ANGLE = 18;
 const ROUND_PRESETS = new Set(["sphere", "torus"]);
-const DRAFT_SEGMENTS = 64;
+const LINE_ONLY_PRESETS = new Set(["sphere", "torus", "cone"]);
+const DRAFT_SEGMENTS = 96;
 const COMPACT_WIDTH = 820;
 const NARROW_WIDTH = 620;
+const presentationGeometryCache = new Map<string, THREE.BufferGeometry>();
 
 const SHARED_LINE_COLORS = {
   dark: {
-    edge: "#d8f7ff",
-    construction: "#6f9bbc",
+    edge: "#c8daee",
+    construction: "#9fb4cb",
   },
   light: {
-    edge: "#365378",
-    construction: "#8aa0bc",
+    edge: "#2f5ca3",
+    construction: "#5577b1",
   },
 } as const;
 
 const FIGURE_POSES: Record<string, FigurePosePreset> = {
   sphere: {
-    baseRotation: [0.12, 0.46, 0.01],
-    amplitude: [0.008, 0.058, 0.005],
-    frequency: [0.16, 0.2, 0.14],
+    baseRotation: [0.18, 0.58, -0.74],
+    amplitude: [0.006, 0.038, 0.012],
+    frequency: [0.1, 0.14, 0.08],
   },
   torus: {
-    baseRotation: [0.6, 0.34, 0.02],
-    amplitude: [0.01, 0.064, 0.006],
-    frequency: [0.15, 0.19, 0.14],
+    baseRotation: [0.78, 0.28, 0.02],
+    amplitude: [0.006, 0.034, 0.005],
+    frequency: [0.1, 0.13, 0.08],
+  },
+  cone: {
+    baseRotation: [0.08, 0.34, -0.04],
+    amplitude: [0.006, 0.032, 0.004],
+    frequency: [0.1, 0.12, 0.08],
   },
   oblique_prism: {
     baseRotation: [0.12, 0.56, 0.01],
@@ -332,6 +345,9 @@ const ease = (current: number, target: number, factor: number) =>
 const clampScalar = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
+const resolveVisualPresetId = (presetId: string) =>
+  presetId === "oblique_prism" ? "cone" : presetId;
+
 const getAnchorBounds = (
   variant: AuthAmbientVariant,
   width: number
@@ -449,6 +465,53 @@ const vectorPointsToArray = (points: THREE.Vector3[], closed = false) => {
   return positions;
 };
 
+const getContourSpec = (geometry: THREE.BufferGeometry) =>
+  geometry.userData.authAmbientContourSpec as AmbientContourSpec | undefined;
+
+const createPresentationGeometry = (presetId: string) => {
+  const cached = presentationGeometryCache.get(presetId);
+  if (cached) return cached;
+
+  let geometry: THREE.BufferGeometry | null = null;
+
+  if (presetId === "sphere") {
+    const radius = 1.42;
+    geometry = new THREE.SphereGeometry(radius, 56, 38);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+    geometry.userData.authAmbientContourSpec = { kind: "sphere", radius };
+  } else if (presetId === "torus") {
+    const majorRadius = 1.34;
+    const tubeRadius = 0.46;
+    geometry = new THREE.TorusGeometry(majorRadius, tubeRadius, 42, 128);
+    geometry.rotateX(Math.PI / 2);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+    geometry.userData.authAmbientContourSpec = {
+      kind: "torus",
+      majorRadius,
+      tubeRadius,
+    };
+  } else if (presetId === "cone") {
+    const radius = 1.06;
+    const height = 2.18;
+    geometry = new THREE.ConeGeometry(radius, height, 72, 1, true);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+    geometry.userData.authAmbientContourSpec = {
+      kind: "cone",
+      radius,
+      height,
+    };
+  } else {
+    geometry = getAmbientGeometry(presetId);
+  }
+
+  if (!geometry) return null;
+  presentationGeometryCache.set(presetId, geometry);
+  return geometry;
+};
+
 const sphereLatitudePoints = (
   radius: number,
   latitude: number,
@@ -520,6 +583,53 @@ const torusLoopPoints = ({
   return points;
 };
 
+const ellipseArcPoints = ({
+  radiusX,
+  radiusZ,
+  y,
+  startAngle,
+  endAngle,
+  segments = Math.max(24, Math.round(DRAFT_SEGMENTS * 0.5)),
+}: {
+  radiusX: number;
+  radiusZ: number;
+  y: number;
+  startAngle: number;
+  endAngle: number;
+  segments?: number;
+}) => {
+  const points: THREE.Vector3[] = [];
+  const stepCount = Math.max(2, segments);
+  for (let index = 0; index <= stepCount; index += 1) {
+    const t = index / stepCount;
+    const angle = startAngle + (endAngle - startAngle) * t;
+    points.push(
+      new THREE.Vector3(
+        Math.cos(angle) * radiusX,
+        y,
+        Math.sin(angle) * radiusZ
+      )
+    );
+  }
+  return points;
+};
+
+const coneGeneratrixPoints = ({
+  radius,
+  height,
+  angle,
+}: {
+  radius: number;
+  height: number;
+  angle: number;
+}) => {
+  const halfHeight = height * 0.5;
+  return [
+    new THREE.Vector3(0, halfHeight, 0),
+    new THREE.Vector3(Math.cos(angle) * radius, -halfHeight, Math.sin(angle) * radius),
+  ];
+};
+
 const registerLineObject = (
   target: DraftTarget,
   object: Line2 | LineSegments2,
@@ -543,6 +653,7 @@ const addPathContour = ({
   opacity,
   baseLineWidth,
   alwaysVisible = false,
+  closed = true,
 }: {
   target: DraftTarget;
   points: THREE.Vector3[];
@@ -550,9 +661,10 @@ const addPathContour = ({
   opacity: number;
   baseLineWidth: number;
   alwaysVisible?: boolean;
+  closed?: boolean;
 }) => {
   const geometry = new LineGeometry();
-  geometry.setPositions(vectorPointsToArray(points, true));
+  geometry.setPositions(vectorPointsToArray(points, closed));
   const material = createLineMaterial(opacity, baseLineWidth);
   material.depthTest = !alwaysVisible;
   const line = new Line2(geometry, material);
@@ -590,27 +702,29 @@ const applyPremiumContours = (
   radius: number,
   compact: boolean
 ) => {
+  const contourSpec = getContourSpec(geometry);
   const edgeWidth = compact ? 0.9 : 1.08;
-  const constructionWidth = compact ? 0.58 : 0.72;
 
   if (presetId === "sphere") {
-    const sphereRadius = radius * 0.92;
-    const latitudeAngles = compact
-      ? [-0.72, -0.36, 0, 0.36, 0.72]
-      : [-0.76, -0.48, -0.2, 0.12, 0.42, 0.72];
-    const meridianCount = compact ? 7 : 9;
+    const sphereRadius =
+      contourSpec?.kind === "sphere" ? contourSpec.radius : radius * 0.92;
+    const latitudeCount = compact ? 9 : 13;
+    const meridianCount = compact ? 14 : 22;
+    const roundLineWidth = compact ? edgeWidth * 0.7 : edgeWidth * 0.76;
+    const roundLineOpacity = compact ? 0.22 : 0.28;
 
-    latitudeAngles.forEach((angle) => {
+    for (let index = 0; index < latitudeCount; index += 1) {
+      const angle =
+        -Math.PI / 2 + ((index + 1) / (latitudeCount + 1)) * Math.PI;
       addPathContour({
         target,
         points: sphereLatitudePoints(sphereRadius, angle),
-        role: Math.abs(angle) < 0.22 ? "edge" : "construction",
-        opacity: Math.abs(angle) < 0.22 ? 0.3 : 0.14,
-        baseLineWidth:
-          Math.abs(angle) < 0.22 ? edgeWidth * 0.96 : constructionWidth * 0.92,
+        role: "edge",
+        opacity: roundLineOpacity,
+        baseLineWidth: roundLineWidth,
         alwaysVisible: true,
       });
-    });
+    }
 
     for (let index = 0; index < meridianCount; index += 1) {
       addPathContour({
@@ -619,9 +733,9 @@ const applyPremiumContours = (
           sphereRadius,
           (index / meridianCount) * Math.PI
         ),
-        role: index % 3 === 0 ? "edge" : "construction",
-        opacity: index % 3 === 0 ? 0.24 : 0.12,
-        baseLineWidth: index % 3 === 0 ? edgeWidth * 0.88 : constructionWidth * 0.9,
+        role: "edge",
+        opacity: roundLineOpacity,
+        baseLineWidth: roundLineWidth,
         alwaysVisible: true,
       });
     }
@@ -629,40 +743,113 @@ const applyPremiumContours = (
   }
 
   if (presetId === "torus") {
-    const majorRadius = radius * 0.62;
-    const tubeRadius = radius * 0.28;
-    const majorCount = compact ? 8 : 10;
-    const minorCount = compact ? 6 : 8;
+    const majorRadius =
+      contourSpec?.kind === "torus" ? contourSpec.majorRadius : radius * 0.62;
+    const tubeRadius =
+      contourSpec?.kind === "torus" ? contourSpec.tubeRadius : radius * 0.28;
+    const majorCount = compact ? 14 : 24;
+    const minorCount = compact ? 10 : 18;
+    const majorWidth = compact ? edgeWidth * 0.62 : edgeWidth * 0.68;
+    const minorWidth = compact ? edgeWidth * 0.7 : edgeWidth * 0.78;
 
     for (let index = 0; index < majorCount; index += 1) {
+      const fixedAngle = (index / majorCount) * Math.PI * 2;
+      const bandOpacity =
+        0.11 +
+        ((1 + Math.cos(fixedAngle - Math.PI * 0.24)) / 2) * 0.09;
       addPathContour({
         target,
         points: torusLoopPoints({
           majorRadius,
           tubeRadius,
-          fixedAngle: (index / majorCount) * Math.PI * 2,
+          fixedAngle,
           mode: "major",
         }),
-        role: index % 3 === 0 ? "edge" : "construction",
-        opacity: index % 3 === 0 ? 0.24 : 0.12,
-        baseLineWidth: index % 3 === 0 ? edgeWidth * 0.9 : constructionWidth * 0.9,
-        alwaysVisible: true,
+        role: "edge",
+        opacity: compact ? bandOpacity * 0.9 : bandOpacity,
+        baseLineWidth: majorWidth,
       });
     }
 
     for (let index = 0; index < minorCount; index += 1) {
+      const fixedAngle = (index / minorCount) * Math.PI * 2;
+      const ringOpacity =
+        0.13 +
+        ((1 + Math.sin(fixedAngle * 2 - Math.PI * 0.18)) / 2) * 0.1;
       addPathContour({
         target,
         points: torusLoopPoints({
           majorRadius,
           tubeRadius,
-          fixedAngle: (index / minorCount) * Math.PI * 2,
+          fixedAngle,
           mode: "minor",
         }),
-        role: index % 2 === 0 ? "edge" : "construction",
-        opacity: index % 2 === 0 ? 0.28 : 0.14,
-        baseLineWidth: index % 2 === 0 ? edgeWidth * 0.96 : constructionWidth * 0.92,
+        role: "edge",
+        opacity: compact ? ringOpacity * 0.92 : ringOpacity,
+        baseLineWidth: minorWidth,
+      });
+    }
+    return;
+  }
+
+  if (presetId === "cone") {
+    const coneRadius =
+      contourSpec?.kind === "cone" ? contourSpec.radius : radius * 0.72;
+    const coneHeight =
+      contourSpec?.kind === "cone" ? contourSpec.height : radius * 1.64;
+    const baseY = -coneHeight * 0.5;
+    const lineWidth = compact ? edgeWidth * 0.72 : edgeWidth * 0.78;
+    const ribCount = compact ? 8 : 12;
+
+    addPathContour({
+      target,
+      points: ellipseArcPoints({
+        radiusX: coneRadius,
+        radiusZ: coneRadius,
+        y: baseY,
+        startAngle: Math.PI * 0.08,
+        endAngle: Math.PI * 1.08,
+      }),
+      role: "edge",
+      opacity: compact ? 0.22 : 0.28,
+      baseLineWidth: lineWidth * 0.9,
+      alwaysVisible: true,
+      closed: false,
+    });
+
+    addPathContour({
+      target,
+      points: ellipseArcPoints({
+        radiusX: coneRadius,
+        radiusZ: coneRadius,
+        y: baseY,
+        startAngle: Math.PI * 1.08,
+        endAngle: Math.PI * 2.08,
+      }),
+      role: "edge",
+      opacity: compact ? 0.32 : 0.4,
+      baseLineWidth: lineWidth,
+      alwaysVisible: true,
+      closed: false,
+    });
+
+    for (let index = 0; index < ribCount; index += 1) {
+      const angle = (index / ribCount) * Math.PI * 2;
+      const opacity =
+        0.16 +
+        ((1 + Math.cos(angle - Math.PI * 0.2)) / 2) * (compact ? 0.1 : 0.14);
+      addPathContour({
+        target,
+        points: coneGeneratrixPoints({
+          radius: coneRadius,
+          height: coneHeight,
+          angle,
+        }),
+        role: "edge",
+        opacity,
+        baseLineWidth: lineWidth * 0.84,
         alwaysVisible: true,
+        closed: false,
       });
     }
     return;
@@ -771,14 +958,23 @@ export const createAuthAmbientScene = ({
 
     figures.forEach((figure) => {
       const figurePalette = palette.figures[figure.config.colorSlot];
+      const torusDraftFigure = figure.visualPresetId === "torus";
+      const lineOnlyDraftFigure = LINE_ONLY_PRESETS.has(figure.visualPresetId);
       figure.mesh.material.color.set(figurePalette.fill);
-      figure.mesh.material.emissive.set(figurePalette.emissive);
-      figure.mesh.material.specular.set(figurePalette.specular);
-      figure.mesh.material.opacity = figure.config.opacity;
+      figure.mesh.material.emissive.set(
+        lineOnlyDraftFigure ? "#000000" : figurePalette.emissive
+      );
+      figure.mesh.material.specular.set(
+        lineOnlyDraftFigure ? "#000000" : figurePalette.specular
+      );
+      figure.mesh.material.opacity = torusDraftFigure ? 1 : lineOnlyDraftFigure ? 0 : figure.config.opacity;
+      figure.mesh.material.colorWrite = !lineOnlyDraftFigure;
+      figure.mesh.material.depthWrite = torusDraftFigure;
+      figure.mesh.material.transparent = !torusDraftFigure;
+      figure.mesh.visible = torusDraftFigure;
       figure.glow.material.color.set(figurePalette.glow);
-      figure.glow.material.opacity = figure.isRound
-        ? figure.config.opacity * 0.08
-        : figure.config.opacity * 0.07;
+      figure.glow.material.opacity = lineOnlyDraftFigure ? 0 : figure.config.opacity * 0.07;
+      figure.glow.visible = !lineOnlyDraftFigure;
       figure.lineLayers.forEach((layer) => {
         layer.material.color.set(
           layer.role === "edge" ? linePalette.edge : linePalette.construction
@@ -811,29 +1007,34 @@ export const createAuthAmbientScene = ({
   };
 
   const createFigure = (config: AmbientFigureConfig) => {
-    const geometry = getAmbientGeometry(config.presetId);
+    const visualPresetId = resolveVisualPresetId(config.presetId);
+    const geometry = createPresentationGeometry(visualPresetId);
     if (!geometry) return;
-    const isRound = ROUND_PRESETS.has(config.presetId);
-    const posePreset = getPosePreset(config.presetId);
+    const isRound = ROUND_PRESETS.has(visualPresetId);
+    const lineOnlyDraft = LINE_ONLY_PRESETS.has(visualPresetId);
+    const torusDraft = visualPresetId === "torus";
+    const posePreset = getPosePreset(visualPresetId);
 
     const material = new THREE.MeshPhongMaterial({
       color: "#ffffff",
-      transparent: true,
-      opacity: config.opacity,
+      transparent: !torusDraft,
+      opacity: torusDraft ? 1 : isRound ? 0 : config.opacity,
       emissive: "#0a0f1b",
-      emissiveIntensity: isRound ? 0.08 : 0.12,
-      shininess: isRound ? 124 : config.shading === "smooth" ? 92 : 56,
+      emissiveIntensity: isRound ? 0 : 0.12,
+      shininess: isRound ? 0 : config.shading === "smooth" ? 92 : 56,
       flatShading: config.shading === "flat",
-      depthWrite: false,
+      depthWrite: torusDraft,
       depthTest: true,
-      polygonOffset: true,
-      polygonOffsetFactor: 1,
-      polygonOffsetUnits: 2,
+      polygonOffset: torusDraft,
+      polygonOffsetFactor: torusDraft ? 1 : 0,
+      polygonOffsetUnits: torusDraft ? 2 : 0,
       side: THREE.FrontSide,
       specular: new THREE.Color("#ffffff"),
     });
+    material.colorWrite = !lineOnlyDraft;
 
     const mesh = new THREE.Mesh(geometry, material);
+    mesh.visible = torusDraft;
     mesh.renderOrder = 1;
 
     const glow = new THREE.Mesh(
@@ -841,7 +1042,7 @@ export const createAuthAmbientScene = ({
       new THREE.MeshBasicMaterial({
         color: "#ffffff",
         transparent: true,
-        opacity: isRound ? config.opacity * 0.08 : config.opacity * 0.07,
+        opacity: isRound ? 0 : config.opacity * 0.07,
         blending: THREE.AdditiveBlending,
         side: THREE.BackSide,
         depthWrite: false,
@@ -849,6 +1050,7 @@ export const createAuthAmbientScene = ({
         toneMapped: false,
       })
     );
+    glow.visible = !isRound;
     glow.scale.setScalar(isRound ? 1.01 : 1.006);
     glow.renderOrder = 0;
 
@@ -861,6 +1063,7 @@ export const createAuthAmbientScene = ({
 
     const runtime: FigureRuntime = {
       config,
+      visualPresetId,
       group,
       presentationGroup,
       mesh,
@@ -887,7 +1090,7 @@ export const createAuthAmbientScene = ({
     applyPremiumContours(
       runtime,
       geometry,
-      config.presetId,
+      visualPresetId,
       runtime.boundingRadius,
       compact
     );
