@@ -1,3 +1,12 @@
+import type { ReactNode } from "react";
+import {
+  resolveObjectEraserCutsForRender,
+  resolveObjectEraserPathsForRender,
+  sanitizeObjectEraserCuts,
+  sanitizeObjectEraserPaths,
+  type ObjectEraserCut,
+  type ObjectEraserPreviewPath,
+} from "./eraser";
 import { getObjectRect, normalizeRect } from "./sceneGeometry";
 import {
   getAreaSelectionDraftRect,
@@ -41,6 +50,16 @@ export type PreparedWorkbookRenderObject = {
   rotation: number;
   transform: string | undefined;
 };
+
+export type WorkbookMaskedObjectSceneEntry = {
+  id: string;
+  renderedObject: ReactNode;
+  resolvedEraserCuts: ObjectEraserCut[];
+  maskPaths: ObjectEraserPreviewPath[];
+  maskBounds: { x: number; y: number; width: number; height: number } | null;
+};
+
+const ERASER_MASK_PADDING = 20;
 
 export const prepareWorkbookRenderObject = (params: {
   objectSource: WorkbookBoardObject;
@@ -159,3 +178,78 @@ export const resolveAreaSelectionPreviewRects = (params: {
       )
     : null,
 });
+
+export const buildMaskedObjectSceneEntry = (params: {
+  object: WorkbookBoardObject;
+  renderSource: WorkbookBoardObject;
+  renderedObject: ReactNode;
+  eraserPreviewActive: boolean;
+  previewObjectCuts: Record<string, ObjectEraserCut[]>;
+  previewObjectPaths: Record<string, ObjectEraserPreviewPath[]>;
+}): WorkbookMaskedObjectSceneEntry => {
+  const {
+    object,
+    renderSource,
+    renderedObject,
+    eraserPreviewActive,
+    previewObjectCuts,
+    previewObjectPaths,
+  } = params;
+  const committedEraserCuts = sanitizeObjectEraserCuts(renderSource, getObjectRect);
+  const committedEraserPaths = resolveObjectEraserPathsForRender(
+    renderSource,
+    sanitizeObjectEraserPaths(renderSource, getObjectRect),
+    getObjectRect
+  );
+  const previewPaths = eraserPreviewActive ? previewObjectPaths[renderSource.id] ?? [] : [];
+  const maskPaths =
+    committedEraserPaths.length > 0 ? [...committedEraserPaths, ...previewPaths] : previewPaths;
+  const previewCuts =
+    eraserPreviewActive && maskPaths.length === 0
+      ? previewObjectCuts[renderSource.id] ?? committedEraserCuts
+      : committedEraserCuts;
+  const resolvedEraserCuts =
+    committedEraserPaths.length > 0
+      ? []
+      : resolveObjectEraserCutsForRender(renderSource, previewCuts, getObjectRect);
+  if (resolvedEraserCuts.length === 0 && maskPaths.length === 0) {
+    return {
+      id: object.id,
+      renderedObject,
+      resolvedEraserCuts,
+      maskPaths,
+      maskBounds: null,
+    };
+  }
+  const objectRect = getObjectRect(renderSource);
+  let minX = objectRect.x - ERASER_MASK_PADDING;
+  let minY = objectRect.y - ERASER_MASK_PADDING;
+  let maxX = objectRect.x + objectRect.width + ERASER_MASK_PADDING;
+  let maxY = objectRect.y + objectRect.height + ERASER_MASK_PADDING;
+  resolvedEraserCuts.forEach((cut) => {
+    minX = Math.min(minX, cut.x - cut.radius - ERASER_MASK_PADDING);
+    minY = Math.min(minY, cut.y - cut.radius - ERASER_MASK_PADDING);
+    maxX = Math.max(maxX, cut.x + cut.radius + ERASER_MASK_PADDING);
+    maxY = Math.max(maxY, cut.y + cut.radius + ERASER_MASK_PADDING);
+  });
+  maskPaths.forEach((path) => {
+    path.points.forEach((point) => {
+      minX = Math.min(minX, point.x - path.radius - ERASER_MASK_PADDING);
+      minY = Math.min(minY, point.y - path.radius - ERASER_MASK_PADDING);
+      maxX = Math.max(maxX, point.x + path.radius + ERASER_MASK_PADDING);
+      maxY = Math.max(maxY, point.y + path.radius + ERASER_MASK_PADDING);
+    });
+  });
+  return {
+    id: object.id,
+    renderedObject,
+    resolvedEraserCuts,
+    maskPaths,
+    maskBounds: {
+      x: minX,
+      y: minY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY),
+    },
+  };
+};

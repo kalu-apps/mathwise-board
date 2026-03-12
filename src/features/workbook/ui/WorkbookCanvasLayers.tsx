@@ -1,11 +1,11 @@
-import { memo, type ReactNode } from "react";
+import { memo } from "react";
 import type {
   WorkbookConstraint,
   WorkbookPoint,
   WorkbookStroke,
   WorkbookTool,
 } from "../model/types";
-import type { ObjectEraserCut, ObjectEraserPreviewPath } from "../model/eraser";
+import type { WorkbookMaskedObjectSceneEntry } from "../model/sceneRender";
 import { toPath, toSmoothPath } from "../model/stroke";
 
 export type WorkbookCanvasDividerLine = {
@@ -111,14 +111,6 @@ export const WorkbookPresenceLayer = memo(function WorkbookPresenceLayer({
     </>
   );
 });
-
-export type WorkbookMaskedObjectSceneEntry = {
-  id: string;
-  renderedObject: ReactNode;
-  resolvedEraserCuts: ObjectEraserCut[];
-  maskPaths: ObjectEraserPreviewPath[];
-  maskBounds: { x: number; y: number; width: number; height: number } | null;
-};
 
 export const WorkbookObjectSceneLayer = memo(function WorkbookObjectSceneLayer({
   entries,
