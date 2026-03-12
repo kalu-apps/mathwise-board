@@ -272,16 +272,15 @@ export const buildMaskedObjectSceneEntry = (params: {
     getObjectRect
   );
   const previewPaths = eraserPreviewActive ? previewObjectPaths[renderSource.id] ?? [] : [];
-  const maskPaths =
-    committedEraserPaths.length > 0 ? [...committedEraserPaths, ...previewPaths] : previewPaths;
-  const previewCuts =
-    eraserPreviewActive && maskPaths.length === 0
-      ? previewObjectCuts[renderSource.id] ?? committedEraserCuts
-      : committedEraserCuts;
-  const resolvedEraserCuts =
-    committedEraserPaths.length > 0
-      ? []
-      : resolveObjectEraserCutsForRender(renderSource, previewCuts, getObjectRect);
+  const maskPaths = [...committedEraserPaths, ...previewPaths];
+  const previewCuts = eraserPreviewActive
+    ? previewObjectCuts[renderSource.id] ?? committedEraserCuts
+    : committedEraserCuts;
+  const resolvedEraserCuts = resolveObjectEraserCutsForRender(
+    renderSource,
+    previewCuts,
+    getObjectRect
+  );
   if (resolvedEraserCuts.length === 0 && maskPaths.length === 0) {
     return {
       id: object.id,
