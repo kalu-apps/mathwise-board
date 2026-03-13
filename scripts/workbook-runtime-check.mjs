@@ -3,12 +3,16 @@
 const DEFAULT_BASE_URL = "https://api.board.mathwise.ru";
 const DEFAULT_TIMEOUT_MS = 10000;
 const DEFAULT_MAX_SLOW_TRACE_COUNT = 30;
+const DEFAULT_MAX_FAILURE_RATE = 0.2;
+const DEFAULT_MAX_P95_MS = 450;
 
 const parseArgs = (argv) => {
   const options = {
     baseUrl: DEFAULT_BASE_URL,
     timeoutMs: DEFAULT_TIMEOUT_MS,
     maxSlowTraceCount: DEFAULT_MAX_SLOW_TRACE_COUNT,
+    maxFailureRate: DEFAULT_MAX_FAILURE_RATE,
+    maxP95Ms: DEFAULT_MAX_P95_MS,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -28,6 +32,19 @@ const parseArgs = (argv) => {
         1,
         Number.parseInt(argv[index + 1], 10) || DEFAULT_MAX_SLOW_TRACE_COUNT
       );
+      index += 1;
+      continue;
+    }
+    if (arg === "--max-failure-rate" && argv[index + 1]) {
+      const parsed = Number.parseFloat(argv[index + 1]);
+      options.maxFailureRate = Number.isFinite(parsed)
+        ? Math.min(1, Math.max(0, parsed))
+        : DEFAULT_MAX_FAILURE_RATE;
+      index += 1;
+      continue;
+    }
+    if (arg === "--max-p95-ms" && argv[index + 1]) {
+      options.maxP95Ms = Math.max(50, Number.parseInt(argv[index + 1], 10) || DEFAULT_MAX_P95_MS);
       index += 1;
     }
   }
@@ -109,12 +126,30 @@ const run = async () => {
 
     const telemetry = health.payload?.telemetry ?? null;
     const slowTraceCount = Number(telemetry?.recentSlowWorkbookTraceCount ?? 0);
+    const failureRate = Number(telemetry?.recentWorkbookFailureRate ?? 0);
+    const p95Ms = Number(telemetry?.recentDurationP95Ms ?? 0);
     checks.push({
       name: "slow_workbook_traces",
       ok: slowTraceCount <= options.maxSlowTraceCount,
       detail: {
         recentSlowWorkbookTraceCount: slowTraceCount,
         threshold: options.maxSlowTraceCount,
+      },
+    });
+    checks.push({
+      name: "workbook_failure_rate",
+      ok: failureRate <= options.maxFailureRate,
+      detail: {
+        recentWorkbookFailureRate: failureRate,
+        threshold: options.maxFailureRate,
+      },
+    });
+    checks.push({
+      name: "workbook_duration_p95",
+      ok: p95Ms <= options.maxP95Ms,
+      detail: {
+        recentDurationP95Ms: p95Ms,
+        threshold: options.maxP95Ms,
       },
     });
 

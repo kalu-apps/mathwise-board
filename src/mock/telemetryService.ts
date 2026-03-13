@@ -38,6 +38,16 @@ const safeIso = (value: unknown) => {
   return value;
 };
 
+const percentile = (values: number[], ratio: number) => {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.floor((sorted.length - 1) * ratio))
+  );
+  return Math.round(sorted[index]);
+};
+
 const sanitizeString = (value: unknown, fallback = "") => {
   if (typeof value !== "string") return fallback;
   return value.trim();
@@ -118,12 +128,23 @@ export const readRecentWorkbookServerTraces = (limit = 100) =>
 
 export const getTelemetryDiagnostics = () => {
   const recentTraces = readRecentWorkbookServerTraces(200);
+  const durations = recentTraces
+    .map((trace) => trace.durationMs)
+    .filter((value) => Number.isFinite(value));
+  const failureCount = recentTraces.filter((trace) => !trace.success).length;
   const slowTraceCount = recentTraces.filter(
     (trace) => !trace.success || trace.durationMs >= SERVER_TRACE_SLOW_THRESHOLD_MS
   ).length;
+  const failureRate = recentTraces.length > 0 ? failureCount / recentTraces.length : 0;
   return {
     rumBuffered: rumTelemetryBuffer.length,
     workbookServerTracesBuffered: workbookServerTraceBuffer.length,
+    recentWorkbookTraceCount: recentTraces.length,
+    recentWorkbookFailureCount: failureCount,
+    recentWorkbookFailureRate: Number(failureRate.toFixed(4)),
+    recentDurationP50Ms: percentile(durations, 0.5),
+    recentDurationP95Ms: percentile(durations, 0.95),
+    recentDurationP99Ms: percentile(durations, 0.99),
     recentSlowWorkbookTraceCount: slowTraceCount,
     lastWorkbookTraceAt: recentTraces[recentTraces.length - 1]?.timestamp ?? null,
   };

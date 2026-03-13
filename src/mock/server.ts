@@ -56,6 +56,12 @@ import {
   getSessionUserKey,
 } from "./dbIndex";
 import { getWorkbookPersistenceReadiness } from "./runtimeReadiness";
+import {
+  INVALID_JSON_BODY_ERROR,
+  readJsonBody,
+  REQUEST_BODY_TOO_LARGE_ERROR,
+} from "./httpBody";
+import { createTokenBucketRateLimiter } from "./tokenBucketRateLimiter";
 
 const WHITEBOARD_TEACHER_LOGIN = "teacher@axiom.demo";
 const WHITEBOARD_TEACHER_PASSWORD =
@@ -109,6 +115,19 @@ const readPositiveInt = (name: string, fallback: number) => {
   if (!Number.isFinite(raw) || raw <= 0) return fallback;
   return raw;
 };
+const WORKBOOK_REQUEST_BODY_MAX_BYTES = readPositiveInt("WORKBOOK_REQUEST_BODY_MAX_BYTES", 768_000);
+const WORKBOOK_VOLATILE_RATE_LIMIT_CAPACITY = readPositiveInt(
+  "WORKBOOK_VOLATILE_RATE_LIMIT_CAPACITY",
+  120
+);
+const WORKBOOK_VOLATILE_RATE_LIMIT_REFILL_PER_SEC = readPositiveInt(
+  "WORKBOOK_VOLATILE_RATE_LIMIT_REFILL_PER_SEC",
+  90
+);
+const WORKBOOK_VOLATILE_RATE_LIMIT_IDLE_TTL_MS = readPositiveInt(
+  "WORKBOOK_VOLATILE_RATE_LIMIT_IDLE_TTL_MS",
+  2 * 60_000
+);
 const MEDIA_STUN_URLS_RAW = sanitizeIceUrls(parseCsvEnv("MEDIA_STUN_URLS"));
 const MEDIA_STUN_URLS = MEDIA_STUN_URLS_RAW.length
   ? MEDIA_STUN_URLS_RAW
@@ -195,6 +214,12 @@ const presenceSnapshotHashBySession = new Map<string, string>();
 const presenceActiveTabsByParticipant = new Map<string, Set<string>>();
 const runtimeUnsubscribeBySession = new Map<string, () => Promise<void> | void>();
 const runtimeSubscribeInFlightBySession = new Map<string, Promise<void>>();
+const workbookVolatileRateLimiter = createTokenBucketRateLimiter({
+  capacity: WORKBOOK_VOLATILE_RATE_LIMIT_CAPACITY,
+  refillPerSecond: WORKBOOK_VOLATILE_RATE_LIMIT_REFILL_PER_SEC,
+  idleTtlMs: WORKBOOK_VOLATILE_RATE_LIMIT_IDLE_TTL_MS,
+  maxKeys: 20_000,
+});
 const RUNTIME_NODE_ID = `${os.hostname()}-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
 const workbookLiveSocketServerByHost = new WeakMap<HttpUpgradeServer, WebSocketServer>();
 const nowIso = () => new Date().toISOString();
@@ -396,6 +421,22 @@ const badRequest = (res: ServerResponse, message = "Bad request") => {
 
 const conflict = (res: ServerResponse, message = "Conflict") => {
   json(res, 409, { error: message });
+};
+
+const tooManyRequests = (
+  res: ServerResponse,
+  message = "Too many requests",
+  retryAfterMs?: number
+) => {
+  if (typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
+    res.setHeader("Retry-After", String(Math.max(1, Math.ceil(retryAfterMs / 1_000))));
+  }
+  json(res, 429, {
+    error: message,
+    ...(typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && retryAfterMs > 0
+      ? { retryAfterMs: Math.ceil(retryAfterMs) }
+      : {}),
+  });
 };
 
 const serviceUnavailable = (res: ServerResponse, message = "Service unavailable") => {
@@ -621,12 +662,9 @@ const buildInviteUrl = (req: IncomingMessage, token: string) => {
 };
 
 const readBody = async (req: IncomingMessage): Promise<unknown> => {
-  let body = "";
-  for await (const chunk of req) {
-    body += String(chunk);
-  }
-  if (!body.trim()) return null;
-  return JSON.parse(body);
+  return readJsonBody(req, {
+    maxBytes: WORKBOOK_REQUEST_BODY_MAX_BYTES,
+  });
 };
 
 const pickTeacher = (db: MockDb): UserRecord => {
@@ -758,6 +796,14 @@ const normalizeDbParticipantPermissions = (db: MockDb) => {
   if (changed) {
     saveDb();
   }
+};
+
+const participantPermissionsNormalizedDb = new WeakSet<MockDb>();
+
+const ensureDbParticipantPermissionsNormalized = (db: MockDb) => {
+  if (participantPermissionsNormalizedDb.has(db)) return;
+  normalizeDbParticipantPermissions(db);
+  participantPermissionsNormalizedDb.add(db);
 };
 
 const participantPermissionKeys: Array<keyof WorkbookParticipantPermissions> = [
@@ -984,6 +1030,35 @@ const getWorkbookParticipants = (db: MockDb, sessionId: string) =>
 
 const getWorkbookParticipant = (db: MockDb, sessionId: string, userId: string) =>
   getDbIndex(db).participantsBySessionUser.get(getSessionUserKey(sessionId, userId)) ?? null;
+
+const buildVolatileRateLimitKey = (
+  sessionId: string,
+  userId: string,
+  channel: "preview_http" | "live_http" | "live_ws"
+) => `${channel}:${sessionId}:${userId}`;
+
+const enforceVolatileRateLimit = (
+  res: ServerResponse,
+  sessionId: string,
+  userId: string,
+  channel: "preview_http" | "live_http"
+) => {
+  const result = workbookVolatileRateLimiter.consume(
+    buildVolatileRateLimitKey(sessionId, userId, channel)
+  );
+  if (result.allowed) return true;
+  tooManyRequests(res, "volatile_stream_rate_limited", result.retryAfterMs);
+  return false;
+};
+
+const isVolatileRateLimitAllowed = (
+  sessionId: string,
+  userId: string,
+  channel: "live_ws"
+) =>
+  workbookVolatileRateLimiter.consume(
+    buildVolatileRateLimitKey(sessionId, userId, channel)
+  );
 
 const isParticipantOnline = (participant: WorkbookSessionParticipantRecord) => {
   if (!participant.isActive || !participant.lastSeenAt) return false;
@@ -1724,7 +1799,7 @@ const attachWorkbookLiveSocketServer = (host: MiddlewareHost) => {
     }
     const db = getDb();
     pickTeacher(db);
-    normalizeDbParticipantPermissions(db);
+    ensureDbParticipantPermissionsNormalized(db);
     const actor = resolveAuthUser(req, db);
     if (!actor) {
       rejectUpgrade(socket, 401, "Unauthorized");
@@ -1779,6 +1854,15 @@ const attachWorkbookLiveSocketServer = (host: MiddlewareHost) => {
           }
           return;
         }
+        const volatileLimit = isVolatileRateLimitAllowed(sessionId, actor.id, "live_ws");
+        if (!volatileLimit.allowed) {
+          try {
+            ws.close(1013, "rate_limited");
+          } catch {
+            // ignore close failures
+          }
+          return;
+        }
         const events = Array.isArray(parsed?.events) ? parsed.events : [];
         const sanitizedEvents = sanitizeWorkbookLiveEvents(currentParticipant, events);
         if (sanitizedEvents.length === 0) return;
@@ -1803,11 +1887,6 @@ const attachWorkbookLiveSocketServer = (host: MiddlewareHost) => {
   });
 };
 
-const hasOnlineTeacherInSession = (session: WorkbookSessionRecord, db: MockDb) =>
-  getWorkbookParticipants(db, session.id).some(
-    (participant) => participant.roleInSession === "teacher" && isParticipantOnline(participant)
-  );
-
 const resolveEffectiveStudentControls = (
   session: WorkbookSessionRecord,
   hasOnlineTeacher: boolean
@@ -1828,13 +1907,15 @@ const resolveEffectiveStudentControls = (
 };
 
 const applyStudentControls = (session: WorkbookSessionRecord, db: MockDb) => {
-  const hasOnlineTeacher = hasOnlineTeacherInSession(session, db);
+  const sessionParticipants = getWorkbookParticipants(db, session.id);
+  if (sessionParticipants.length === 0) return false;
+  const hasOnlineTeacher = sessionParticipants.some(
+    (participant) => participant.roleInSession === "teacher" && isParticipantOnline(participant)
+  );
   const controls = resolveEffectiveStudentControls(session, hasOnlineTeacher);
   let changed = false;
-  db.workbookParticipants = db.workbookParticipants.map((participant) => {
-    if (participant.sessionId !== session.id || participant.roleInSession !== "student") {
-      return participant;
-    }
+  for (const participant of sessionParticipants) {
+    if (participant.roleInSession !== "student") continue;
     const boardToolsOverride =
       participant.boardToolsOverride === "enabled" || participant.boardToolsOverride === "disabled"
         ? participant.boardToolsOverride
@@ -1855,13 +1936,10 @@ const applyStudentControls = (session: WorkbookSessionRecord, db: MockDb) => {
     const unchanged = participantPermissionKeys.every(
       (key) => participant.permissions?.[key] === nextPermissions[key]
     );
-    if (unchanged) return participant;
+    if (unchanged) continue;
     changed = true;
-    return {
-      ...participant,
-      permissions: nextPermissions,
-    };
-  });
+    participant.permissions = nextPermissions;
+  }
   return changed;
 };
 
@@ -1957,7 +2035,7 @@ export function setupMockServer(host: MiddlewareHost) {
 
     const db = getDb();
     pickTeacher(db);
-    normalizeDbParticipantPermissions(db);
+    ensureDbParticipantPermissionsNormalized(db);
 
     try {
       if (pathname === "/api/auth/session" && method === "GET") {
@@ -2967,6 +3045,9 @@ export function setupMockServer(host: MiddlewareHost) {
           forbidden(res);
           return;
         }
+        if (!enforceVolatileRateLimit(res, sessionId, actor.id, "live_http")) {
+          return;
+        }
         const body = (await readBody(req)) as { events?: unknown[] } | null;
         const events = Array.isArray(body?.events) ? body.events : [];
         const sanitizedEvents = sanitizeWorkbookLiveEvents(participant, events);
@@ -3007,6 +3088,9 @@ export function setupMockServer(host: MiddlewareHost) {
         const participant = getWorkbookParticipant(db, sessionId, actor.id);
         if (!participant) {
           forbidden(res);
+          return;
+        }
+        if (!enforceVolatileRateLimit(res, sessionId, actor.id, "preview_http")) {
           return;
         }
 
@@ -3379,7 +3463,18 @@ export function setupMockServer(host: MiddlewareHost) {
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown_error";
       const isRuntimeTimeout = /_timeout$/i.test(message);
-      json(res, isRuntimeTimeout ? 503 : 500, {
+      const isRateLimitedError = /_rate_limited$/i.test(message);
+      const statusCode =
+        message === REQUEST_BODY_TOO_LARGE_ERROR
+          ? 413
+          : message === INVALID_JSON_BODY_ERROR
+            ? 400
+            : isRateLimitedError
+              ? 429
+              : isRuntimeTimeout
+                ? 503
+                : 500;
+      json(res, statusCode, {
         error: message,
       });
     }

@@ -11,6 +11,10 @@ import {
   isVolatileWorkbookEventType,
   type WorkbookClientEventInput,
 } from "../features/workbook/model/events";
+import {
+  bumpWorkbookSessionLatestSeqCached,
+  readWorkbookSessionLatestSeqCached,
+} from "./workbookSeqCache";
 
 const WORKBOOK_EVENT_LIMIT = 1_200;
 const nowMs = () =>
@@ -65,9 +69,11 @@ const ensureId = () =>
 const nowIso = () => new Date().toISOString();
 
 export const getWorkbookSessionLatestSeq = (db: MockDb, sessionId: string) =>
-  db.workbookEvents
-    .filter((event) => event.sessionId === sessionId)
-    .reduce((max, event) => Math.max(max, event.seq), 0);
+  readWorkbookSessionLatestSeqCached(sessionId, () =>
+    db.workbookEvents
+      .filter((event) => event.sessionId === sessionId)
+      .reduce((max, event) => Math.max(max, event.seq), 0)
+  );
 
 export const trimWorkbookEventsOverflow = (db: MockDb, sessionId: string) => {
   const sessionEvents = db.workbookEvents
@@ -122,6 +128,7 @@ export const mergeRuntimeWorkbookEventsIntoDb = (
     inserted = true;
   }
   if (!inserted) return false;
+  bumpWorkbookSessionLatestSeqCached(payload.sessionId, payload.latestSeq);
   trimWorkbookEventsOverflow(db, payload.sessionId);
   saveDb();
   recordWorkbookServerTrace({
@@ -205,6 +212,7 @@ export const appendWorkbookEvents = async (
       : currentMaxSeq,
     timestamp,
   };
+  bumpWorkbookSessionLatestSeqCached(params.sessionId, result.latestSeq);
   recordWorkbookServerTrace({
     scope: "workbook",
     op: "append",
