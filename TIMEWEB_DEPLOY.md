@@ -28,6 +28,8 @@ VITE_WHITEBOARD_TEACHER_PASSWORD=<strong-password>
 
 BOARD_STORAGE_DRIVER=postgres
 DATABASE_URL=postgresql://board_app:<url-encoded-password>@10.20.0.4:5432/board_prod?sslmode=require
+WORKBOOK_ACCESS_LOG_RETENTION_DAYS=90
+WORKBOOK_ACCESS_LOG_HASH_SALT=<random-secret-salt>
 REDIS_URL=redis://default:<url-encoded-password>@10.20.0.5:6379/0
 BOARD_RUNTIME_REDIS_REQUIRED=1
 
@@ -76,6 +78,21 @@ PGPASSWORD='<strong-password>' psql \
 - `workbook_events`
 - `workbook_session_seq`
 - `workbook_snapshots`
+- `workbook_access_logs`
+
+Логи входов/устройств сохраняются только в `PostgreSQL` и не отдаются через API. Чтение только через терминал сервера.
+
+Быстрый просмотр через встроенный скрипт (на `mw-app-01`, из `/opt/mathwise/board`):
+```bash
+npm run logs:workbook -- --session <session-id> --limit 50
+```
+
+Пример команды (последние 50 событий по сессии):
+```bash
+PGPASSWORD='<strong-password>' psql \
+  "host=10.20.0.4 port=5432 dbname=board_prod user=board_app sslmode=require" \
+  -c "SELECT created_at, event_type, actor_user_id, actor_role, actor_name, user_agent_family, device_class, ip_hash, device_id_hash, details FROM workbook_access_logs WHERE session_id = '<session-id>' ORDER BY created_at DESC LIMIT 50;"
+```
 
 Проверка после старта приложения:
 ```bash

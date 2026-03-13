@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "verify": "npm run lint && npm run build:board",
     "monitor:workbook": "node scripts/workbook-runtime-check.mjs",
+    "logs:workbook": "node scripts/workbook-access-logs.mjs",
     "preview": "vite preview",
     "start:board": "vite preview --mode board --host 0.0.0.0 --port ${PORT:-4173}",
     "backend:start": "node --import tsx backend/src/server.ts",

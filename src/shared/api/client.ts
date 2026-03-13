@@ -48,6 +48,10 @@ const DEFAULT_GET_CACHE_TTL_MS = 1_500;
 const MAX_GET_CACHE_TTL_MS = 20_000;
 const DEFAULT_GET_STALE_IF_ERROR_MS = 0;
 const MAX_GET_STALE_IF_ERROR_MS = 120_000;
+const WORKBOOK_API_PREFIX = "/workbook/";
+const WORKBOOK_DEVICE_ID_STORAGE_KEY = "mathwise_workbook_device_id_v1";
+const WORKBOOK_DEVICE_ID_HEADER = "X-Workbook-Device-Id";
+const WORKBOOK_DEVICE_ID_MAX_LENGTH = 96;
 export const APP_API_FAILURE_EVENT = "app-api-failure";
 export const APP_API_SUCCESS_EVENT = "app-api-success";
 
@@ -178,6 +182,47 @@ const hasHeaderCaseInsensitive = (
   if (!headers) return false;
   const target = name.toLowerCase();
   return Object.keys(headers).some((key) => key.toLowerCase() === target);
+};
+
+const createWorkbookDeviceId = () => {
+  if (
+    typeof globalThis !== "undefined" &&
+    "crypto" in globalThis &&
+    typeof globalThis.crypto?.randomUUID === "function"
+  ) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `wb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const readWorkbookDeviceId = () => {
+  if (typeof window === "undefined" || typeof window.localStorage === "undefined") return null;
+  try {
+    const existingRaw = window.localStorage.getItem(WORKBOOK_DEVICE_ID_STORAGE_KEY);
+    const existing = typeof existingRaw === "string" ? existingRaw.trim() : "";
+    if (existing.length > 0) {
+      return existing.slice(0, WORKBOOK_DEVICE_ID_MAX_LENGTH);
+    }
+    const created = createWorkbookDeviceId().slice(0, WORKBOOK_DEVICE_ID_MAX_LENGTH);
+    window.localStorage.setItem(WORKBOOK_DEVICE_ID_STORAGE_KEY, created);
+    return created;
+  } catch {
+    return null;
+  }
+};
+
+const resolveWorkbookDeviceHeader = (
+  path: string,
+  headers: Record<string, string> | undefined
+) => {
+  if (!path.startsWith(WORKBOOK_API_PREFIX)) return headers;
+  if (hasHeaderCaseInsensitive(headers, WORKBOOK_DEVICE_ID_HEADER)) return headers;
+  const deviceId = readWorkbookDeviceId();
+  if (!deviceId) return headers;
+  return {
+    ...(headers ?? {}),
+    [WORKBOOK_DEVICE_ID_HEADER]: deviceId,
+  };
 };
 
 const resolveIdempotencyHeader = (
@@ -401,14 +446,15 @@ const notifyDataUpdate = () => {
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method ?? "GET";
   const requestId = createRequestId();
+  const requestHeaders = resolveWorkbookDeviceHeader(path, options.headers);
   const idempotencyHeaders = resolveIdempotencyHeader(method, options, requestId);
   const retryPolicy = normalizeRetryPolicy(method, options.retryPolicy);
   const timeoutMs = Math.max(1_000, Math.floor(options.timeoutMs ?? DEFAULT_TIMEOUT_MS));
   const cachePolicy = normalizeCachePolicy(method, options);
-  const cacheKey = method === "GET" ? buildCacheKey(path, options.headers) : null;
+  const cacheKey = method === "GET" ? buildCacheKey(path, requestHeaders) : null;
   const dedupeEnabled =
     method === "GET" && options.dedupe !== false && !options.signal;
-  const dedupeKey = dedupeEnabled ? buildDedupeKey(path, options.headers) : null;
+  const dedupeKey = dedupeEnabled ? buildDedupeKey(path, requestHeaders) : null;
 
   if (cachePolicy.enabled && cacheKey) {
     const cached = getFreshCacheHit(cacheKey, Date.now());
@@ -476,7 +522,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
             "X-Request-Id": requestId,
             "X-Retry-Attempt": String(attempt),
             ...(idempotencyHeaders ?? {}),
-            ...(options.headers ?? {}),
+            ...(requestHeaders ?? {}),
           },
           body: options.body ? JSON.stringify(options.body) : undefined,
         });

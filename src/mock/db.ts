@@ -120,6 +120,66 @@ export type WorkbookSnapshotRecord = {
   createdAt: string;
 };
 
+export type WorkbookAccessDeviceClass = "desktop" | "mobile" | "tablet" | "bot" | "unknown";
+
+export type WorkbookAccessEventType =
+  | "invite_resolved"
+  | "invite_joined"
+  | "invite_join_denied"
+  | "presence_started"
+  | "presence_ended"
+  | "session_opened";
+
+export type WorkbookAccessLogRecord = {
+  id: string;
+  sessionId: string;
+  eventType: WorkbookAccessEventType;
+  actorUserId?: string | null;
+  actorRole?: UserRole | null;
+  actorName?: string | null;
+  inviteTokenHash?: string | null;
+  deviceIdHash?: string | null;
+  userAgentHash?: string | null;
+  ipHash?: string | null;
+  userAgentFamily?: string | null;
+  deviceClass?: WorkbookAccessDeviceClass | null;
+  details: string;
+  createdAt: string;
+};
+
+export type WorkbookAccessLogEntry = {
+  id: string;
+  sessionId: string;
+  eventType: WorkbookAccessEventType;
+  actorUserId: string | null;
+  actorRole: UserRole | null;
+  actorName: string | null;
+  inviteTokenHash: string | null;
+  deviceIdHash: string | null;
+  userAgentHash: string | null;
+  ipHash: string | null;
+  userAgentFamily: string | null;
+  deviceClass: WorkbookAccessDeviceClass | null;
+  details: unknown;
+  createdAt: string;
+};
+
+export type WorkbookAccessLogInput = {
+  sessionId: string;
+  eventType: WorkbookAccessEventType;
+  actorUserId?: string | null;
+  actorRole?: UserRole | null;
+  actorName?: string | null;
+  inviteTokenHash?: string | null;
+  deviceIdHash?: string | null;
+  userAgentHash?: string | null;
+  ipHash?: string | null;
+  userAgentFamily?: string | null;
+  deviceClass?: WorkbookAccessDeviceClass | null;
+  details?: unknown;
+  createdAt?: string;
+};
+
 export type WorkbookOperationScope =
   | "workbook_sessions_create"
   | "workbook_sessions_delete"
@@ -148,6 +208,7 @@ export type MockDb = {
   workbookOperations: WorkbookOperationRecord[];
   workbookEvents: WorkbookEventRecord[];
   workbookSnapshots: WorkbookSnapshotRecord[];
+  workbookAccessLogs: WorkbookAccessLogRecord[];
 };
 
 export type WorkbookEventInput = {
@@ -184,6 +245,17 @@ const STATE_TABLE = "app_state";
 const EVENT_TABLE = "workbook_events";
 const EVENT_SEQ_TABLE = "workbook_session_seq";
 const SNAPSHOT_TABLE = "workbook_snapshots";
+const ACCESS_LOG_TABLE = "workbook_access_logs";
+const ACCESS_LOG_RETENTION_DAYS = (() => {
+  const raw = Number.parseInt(
+    String(process.env.WORKBOOK_ACCESS_LOG_RETENTION_DAYS ?? "90").trim(),
+    10
+  );
+  if (!Number.isFinite(raw) || raw <= 0) return 90;
+  return Math.min(3650, Math.floor(raw));
+})();
+const ACCESS_LOG_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const WORKBOOK_ACCESS_LOG_DEFAULT_LIMIT = 120;
 let db: MockDb | null = null;
 let persistTimer: NodeJS.Timeout | null = null;
 let persistInFlight = false;
@@ -192,6 +264,7 @@ let dbInitialized = false;
 let dbInitPromise: Promise<void> | null = null;
 let storageDriver: "file" | "postgres" = "file";
 let storageError: string | null = null;
+let accessLogCleanupTimer: NodeJS.Timeout | null = null;
 const postgresEventTrimTimerBySession = new Map<string, NodeJS.Timeout>();
 type PgQueryResult<T> = {
   rows: T[];
@@ -230,6 +303,23 @@ type PgWorkbookSnapshotRow = {
   created_at: Date | string;
 };
 
+type PgWorkbookAccessLogRow = {
+  id: string;
+  session_id: string;
+  event_type: WorkbookAccessEventType;
+  actor_user_id: string | null;
+  actor_role: UserRole | null;
+  actor_name: string | null;
+  invite_token_hash: string | null;
+  device_id_hash: string | null;
+  user_agent_hash: string | null;
+  ip_hash: string | null;
+  user_agent_family: string | null;
+  device_class: WorkbookAccessDeviceClass | null;
+  details: unknown;
+  created_at: Date | string;
+};
+
 const defaultTeacherUser = (): UserRecord => ({
   id: "teacher-axiom",
   role: "teacher",
@@ -249,6 +339,7 @@ const createDefaultDb = (): MockDb => ({
   workbookOperations: [],
   workbookEvents: [],
   workbookSnapshots: [],
+  workbookAccessLogs: [],
 });
 
 const normalizeError = (error: unknown) => {
@@ -351,6 +442,33 @@ const ensurePgSchema = async (pool: PgPool) => {
       UNIQUE (session_id, layer)
     );
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ${ACCESS_LOG_TABLE} (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      actor_user_id TEXT NULL,
+      actor_role TEXT NULL CHECK (actor_role IN ('teacher', 'student')),
+      actor_name TEXT NULL,
+      invite_token_hash TEXT NULL,
+      device_id_hash TEXT NULL,
+      user_agent_hash TEXT NULL,
+      ip_hash TEXT NULL,
+      user_agent_family TEXT NULL,
+      device_class TEXT NULL CHECK (device_class IN ('desktop', 'mobile', 'tablet', 'bot', 'unknown')),
+      details JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS ${ACCESS_LOG_TABLE}_session_created_idx
+      ON ${ACCESS_LOG_TABLE} (session_id, created_at DESC);
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS ${ACCESS_LOG_TABLE}_created_idx
+      ON ${ACCESS_LOG_TABLE} (created_at);
+  `);
 };
 
 const ensurePgPool = async () => {
@@ -431,6 +549,9 @@ const ensureShape = (raw: unknown): MockDb => {
     workbookSnapshots: Array.isArray(source.workbookSnapshots)
       ? source.workbookSnapshots
       : base.workbookSnapshots,
+    workbookAccessLogs: Array.isArray(source.workbookAccessLogs)
+      ? source.workbookAccessLogs
+      : base.workbookAccessLogs,
   };
 
   if (!next.users.some((user) => user.role === "teacher" && user.email === "teacher@axiom.demo")) {
@@ -526,6 +647,12 @@ const ensureShape = (raw: unknown): MockDb => {
     (current, candidate) => candidate.version >= current.version
   );
 
+  const accessLogs = dedupeBy(
+    next.workbookAccessLogs.filter((entry) => validSessionIds.has(entry.sessionId)),
+    (entry) => entry.id,
+    (current, candidate) => parseTs(candidate.createdAt) >= parseTs(current.createdAt)
+  );
+
   return {
     ...next,
     workbookSessions: sessions,
@@ -535,6 +662,7 @@ const ensureShape = (raw: unknown): MockDb => {
     workbookOperations: operationRecords,
     workbookEvents: events,
     workbookSnapshots: snapshots,
+    workbookAccessLogs: accessLogs,
   };
 };
 
@@ -575,6 +703,40 @@ const mapPgSnapshot = (row: PgWorkbookSnapshotRow): PersistedWorkbookSnapshot =>
   layer: row.layer,
   version: Number(row.version),
   payload: row.payload ?? null,
+  createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+});
+
+const mapFileAccessLog = (log: WorkbookAccessLogRecord): WorkbookAccessLogEntry => ({
+  id: log.id,
+  sessionId: log.sessionId,
+  eventType: normalizeAccessEventType(log.eventType),
+  actorUserId: log.actorUserId ?? null,
+  actorRole: log.actorRole ?? null,
+  actorName: log.actorName ?? null,
+  inviteTokenHash: log.inviteTokenHash ?? null,
+  deviceIdHash: log.deviceIdHash ?? null,
+  userAgentHash: log.userAgentHash ?? null,
+  ipHash: log.ipHash ?? null,
+  userAgentFamily: log.userAgentFamily ?? null,
+  deviceClass: normalizeAccessDeviceClass(log.deviceClass),
+  details: safeParseJson(log.details, {}),
+  createdAt: log.createdAt,
+});
+
+const mapPgAccessLog = (row: PgWorkbookAccessLogRow): WorkbookAccessLogEntry => ({
+  id: row.id,
+  sessionId: row.session_id,
+  eventType: normalizeAccessEventType(row.event_type),
+  actorUserId: row.actor_user_id ?? null,
+  actorRole: row.actor_role ?? null,
+  actorName: row.actor_name ?? null,
+  inviteTokenHash: row.invite_token_hash ?? null,
+  deviceIdHash: row.device_id_hash ?? null,
+  userAgentHash: row.user_agent_hash ?? null,
+  ipHash: row.ip_hash ?? null,
+  userAgentFamily: row.user_agent_family ?? null,
+  deviceClass: normalizeAccessDeviceClass(row.device_class),
+  details: row.details ?? {},
   createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
 });
 
@@ -621,7 +783,11 @@ const writeDbToFile = async (payload: string) => {
 
 const migrateLegacyWorkbookCollections = async (payload: MockDb) => {
   if (storageDriver !== "postgres") return false;
-  if (payload.workbookEvents.length === 0 && payload.workbookSnapshots.length === 0) {
+  if (
+    payload.workbookEvents.length === 0 &&
+    payload.workbookSnapshots.length === 0 &&
+    payload.workbookAccessLogs.length === 0
+  ) {
     return false;
   }
 
@@ -711,6 +877,73 @@ const migrateLegacyWorkbookCollections = async (payload: MockDb) => {
             snapshot.version,
             JSON.stringify(parsedPayload),
             snapshot.createdAt,
+          ]
+        );
+      }
+    }
+
+    if (payload.workbookAccessLogs.length > 0) {
+      const sortedAccessLogs = [...payload.workbookAccessLogs].sort(
+        (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+      );
+      for (const accessLog of sortedAccessLogs) {
+        const details = safeParseJson(accessLog.details, {});
+        await client.query(
+          `
+            INSERT INTO ${ACCESS_LOG_TABLE}
+              (
+                id,
+                session_id,
+                event_type,
+                actor_user_id,
+                actor_role,
+                actor_name,
+                invite_token_hash,
+                device_id_hash,
+                user_agent_hash,
+                ip_hash,
+                user_agent_family,
+                device_class,
+                details,
+                created_at
+              )
+            VALUES
+              (
+                $1,
+                $2,
+                $3,
+                $4,
+                $5,
+                $6,
+                $7,
+                $8,
+                $9,
+                $10,
+                $11,
+                $12,
+                $13::jsonb,
+                $14::timestamptz
+              )
+            ON CONFLICT (id) DO NOTHING
+          `,
+          [
+            accessLog.id,
+            accessLog.sessionId,
+            normalizeAccessEventType(accessLog.eventType),
+            normalizeNullableText(accessLog.actorUserId, 160),
+            normalizeNullableText(accessLog.actorRole, 24) === "teacher" ||
+            normalizeNullableText(accessLog.actorRole, 24) === "student"
+              ? normalizeNullableText(accessLog.actorRole, 24)
+              : null,
+            normalizeNullableText(accessLog.actorName, 200),
+            normalizeNullableText(accessLog.inviteTokenHash, 128),
+            normalizeNullableText(accessLog.deviceIdHash, 128),
+            normalizeNullableText(accessLog.userAgentHash, 128),
+            normalizeNullableText(accessLog.ipHash, 128),
+            normalizeNullableText(accessLog.userAgentFamily, 120),
+            normalizeAccessDeviceClass(accessLog.deviceClass),
+            JSON.stringify(details),
+            normalizeAccessCreatedAt(accessLog.createdAt),
           ]
         );
       }
@@ -828,6 +1061,7 @@ export const initializeDb = async () => {
         if (migrated) {
           loaded.workbookEvents = [];
           loaded.workbookSnapshots = [];
+          loaded.workbookAccessLogs = [];
           await writeDbToPostgres(JSON.stringify(loaded, null, 2));
         }
       } catch (error) {
@@ -841,6 +1075,15 @@ export const initializeDb = async () => {
     db = ensureShape(loaded);
     clearWorkbookLatestSeqCache();
     dbInitialized = true;
+    ensureAccessLogCleanupTimer();
+    try {
+      await purgeWorkbookAccessLogs({ olderThanDays: ACCESS_LOG_RETENTION_DAYS });
+    } catch (error) {
+      storageError = normalizeError(error);
+      if (isPostgresRequired()) {
+        throw error;
+      }
+    }
   })().finally(() => {
     dbInitPromise = null;
   });
@@ -860,6 +1103,81 @@ const normalizeClientEventId = (value: string | undefined) => {
   const normalized = value.trim();
   if (!normalized) return null;
   return normalized.slice(0, 160);
+};
+
+const workbookAccessEventTypeSet = new Set<WorkbookAccessEventType>([
+  "invite_resolved",
+  "invite_joined",
+  "invite_join_denied",
+  "presence_started",
+  "presence_ended",
+  "session_opened",
+]);
+
+const workbookAccessDeviceClassSet = new Set<WorkbookAccessDeviceClass>([
+  "desktop",
+  "mobile",
+  "tablet",
+  "bot",
+  "unknown",
+]);
+
+const normalizeAccessLogLimit = (value: number | undefined) => {
+  if (!Number.isFinite(value)) return WORKBOOK_ACCESS_LOG_DEFAULT_LIMIT;
+  return Math.max(1, Math.min(300, Math.floor(value ?? WORKBOOK_ACCESS_LOG_DEFAULT_LIMIT)));
+};
+
+const normalizeAccessEventType = (value: unknown): WorkbookAccessEventType => {
+  if (typeof value === "string" && workbookAccessEventTypeSet.has(value as WorkbookAccessEventType)) {
+    return value as WorkbookAccessEventType;
+  }
+  return "invite_resolved";
+};
+
+const normalizeAccessDeviceClass = (value: unknown): WorkbookAccessDeviceClass | null => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (workbookAccessDeviceClassSet.has(normalized as WorkbookAccessDeviceClass)) {
+    return normalized as WorkbookAccessDeviceClass;
+  }
+  return "unknown";
+};
+
+const normalizeNullableText = (value: unknown, maxLength: number) => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  if (!normalized) return null;
+  return normalized.slice(0, maxLength);
+};
+
+const normalizeAccessCreatedAt = (value: unknown) => {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return nowIso();
+  const parsed = Date.parse(raw);
+  if (!Number.isFinite(parsed)) return nowIso();
+  return new Date(parsed).toISOString();
+};
+
+const normalizeAccessDetails = (value: unknown): unknown => {
+  if (value === null || value === undefined) return {};
+  if (typeof value === "string") {
+    const normalized = value.trim();
+    return normalized ? { message: normalized.slice(0, 600) } : {};
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return { value };
+  }
+  if (typeof value === "object") return value;
+  return { value: String(value) };
+};
+
+const serializeAccessDetails = (value: unknown) => {
+  try {
+    return JSON.stringify(normalizeAccessDetails(value));
+  } catch {
+    return JSON.stringify({ value: "unserializable_details" });
+  }
 };
 
 export const readWorkbookSessionEvents = async (params: {
@@ -1544,6 +1862,241 @@ export const copyWorkbookSessionSnapshots = async (params: {
   }
 };
 
+export const appendWorkbookAccessLog = async (
+  params: WorkbookAccessLogInput
+): Promise<WorkbookAccessLogEntry> => {
+  const sessionId = normalizeNullableText(params.sessionId, 160);
+  if (!sessionId) {
+    throw new Error("session_id is required for workbook access log");
+  }
+  const createdAt = normalizeAccessCreatedAt(params.createdAt);
+  const eventType = normalizeAccessEventType(params.eventType);
+  const actorUserId = normalizeNullableText(params.actorUserId, 160);
+  const actorRoleRaw = normalizeNullableText(params.actorRole, 24);
+  const actorRole = actorRoleRaw === "teacher" || actorRoleRaw === "student" ? actorRoleRaw : null;
+  const actorName = normalizeNullableText(params.actorName, 200);
+  const inviteTokenHash = normalizeNullableText(params.inviteTokenHash, 128);
+  const deviceIdHash = normalizeNullableText(params.deviceIdHash, 128);
+  const userAgentHash = normalizeNullableText(params.userAgentHash, 128);
+  const ipHash = normalizeNullableText(params.ipHash, 128);
+  const userAgentFamily = normalizeNullableText(params.userAgentFamily, 120);
+  const deviceClass = normalizeAccessDeviceClass(params.deviceClass);
+  const details = normalizeAccessDetails(params.details);
+
+  if (storageDriver === "postgres") {
+    const pool = await ensurePgPool();
+    const result = await pool.query<PgWorkbookAccessLogRow>(
+      `
+        INSERT INTO ${ACCESS_LOG_TABLE}
+          (
+            id,
+            session_id,
+            event_type,
+            actor_user_id,
+            actor_role,
+            actor_name,
+            invite_token_hash,
+            device_id_hash,
+            user_agent_hash,
+            ip_hash,
+            user_agent_family,
+            device_class,
+            details,
+            created_at
+          )
+        VALUES
+          (
+            $1,
+            $2,
+            $3,
+            $4,
+            $5,
+            $6,
+            $7,
+            $8,
+            $9,
+            $10,
+            $11,
+            $12,
+            $13::jsonb,
+            $14::timestamptz
+          )
+        RETURNING
+          id,
+          session_id,
+          event_type,
+          actor_user_id,
+          actor_role,
+          actor_name,
+          invite_token_hash,
+          device_id_hash,
+          user_agent_hash,
+          ip_hash,
+          user_agent_family,
+          device_class,
+          details,
+          created_at
+      `,
+      [
+        ensureId(),
+        sessionId,
+        eventType,
+        actorUserId,
+        actorRole,
+        actorName,
+        inviteTokenHash,
+        deviceIdHash,
+        userAgentHash,
+        ipHash,
+        userAgentFamily,
+        deviceClass,
+        JSON.stringify(details),
+        createdAt,
+      ]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error("access_log_insert_failed");
+    }
+    return mapPgAccessLog(row);
+  }
+
+  const localDb = getDb();
+  const record: WorkbookAccessLogRecord = {
+    id: ensureId(),
+    sessionId,
+    eventType,
+    actorUserId,
+    actorRole,
+    actorName,
+    inviteTokenHash,
+    deviceIdHash,
+    userAgentHash,
+    ipHash,
+    userAgentFamily,
+    deviceClass,
+    details: serializeAccessDetails(details),
+    createdAt,
+  };
+  localDb.workbookAccessLogs.push(record);
+  saveDb();
+  return mapFileAccessLog(record);
+};
+
+export const readWorkbookSessionAccessLogs = async (params: {
+  sessionId: string;
+  limit?: number;
+}): Promise<WorkbookAccessLogEntry[]> => {
+  const sessionId = normalizeNullableText(params.sessionId, 160);
+  if (!sessionId) return [];
+  const limit = normalizeAccessLogLimit(params.limit);
+
+  if (storageDriver === "postgres") {
+    const pool = await ensurePgPool();
+    const result = await pool.query<PgWorkbookAccessLogRow>(
+      `
+        SELECT
+          id,
+          session_id,
+          event_type,
+          actor_user_id,
+          actor_role,
+          actor_name,
+          invite_token_hash,
+          device_id_hash,
+          user_agent_hash,
+          ip_hash,
+          user_agent_family,
+          device_class,
+          details,
+          created_at
+        FROM ${ACCESS_LOG_TABLE}
+        WHERE session_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+      `,
+      [sessionId, limit]
+    );
+    return result.rows.map(mapPgAccessLog);
+  }
+
+  const localDb = getDb();
+  return localDb.workbookAccessLogs
+    .filter((entry) => entry.sessionId === sessionId)
+    .sort(
+      (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+    )
+    .slice(0, limit)
+    .map(mapFileAccessLog);
+};
+
+export const deleteWorkbookSessionAccessLogs = async (sessionId: string) => {
+  const normalizedSessionId = normalizeNullableText(sessionId, 160);
+  if (!normalizedSessionId) return;
+
+  if (storageDriver === "postgres") {
+    const pool = await ensurePgPool();
+    await pool.query(`DELETE FROM ${ACCESS_LOG_TABLE} WHERE session_id = $1`, [normalizedSessionId]);
+    return;
+  }
+
+  const localDb = getDb();
+  const initialLength = localDb.workbookAccessLogs.length;
+  localDb.workbookAccessLogs = localDb.workbookAccessLogs.filter(
+    (entry) => entry.sessionId !== normalizedSessionId
+  );
+  if (localDb.workbookAccessLogs.length !== initialLength) {
+    saveDb();
+  }
+};
+
+export const purgeWorkbookAccessLogs = async (params?: {
+  olderThanDays?: number;
+}): Promise<{ deleted: number; retentionDays: number }> => {
+  const requestedDays = Number.isFinite(params?.olderThanDays)
+    ? Math.floor(params?.olderThanDays ?? ACCESS_LOG_RETENTION_DAYS)
+    : ACCESS_LOG_RETENTION_DAYS;
+  const retentionDays = Math.max(1, Math.min(3650, requestedDays));
+  const cutoffDate = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+  const cutoffIso = cutoffDate.toISOString();
+
+  if (storageDriver === "postgres") {
+    const pool = await ensurePgPool();
+    const result = await pool.query<{ id: string }>(
+      `DELETE FROM ${ACCESS_LOG_TABLE} WHERE created_at < $1 RETURNING id`,
+      [cutoffIso]
+    );
+    return {
+      deleted: result.rowCount ?? result.rows.length,
+      retentionDays,
+    };
+  }
+
+  const localDb = getDb();
+  const next = localDb.workbookAccessLogs.filter(
+    (entry) => new Date(entry.createdAt).getTime() >= cutoffDate.getTime()
+  );
+  const deleted = localDb.workbookAccessLogs.length - next.length;
+  if (deleted > 0) {
+    localDb.workbookAccessLogs = next;
+    saveDb();
+  }
+  return {
+    deleted,
+    retentionDays,
+  };
+};
+
+const ensureAccessLogCleanupTimer = () => {
+  if (accessLogCleanupTimer) return;
+  accessLogCleanupTimer = setInterval(() => {
+    void purgeWorkbookAccessLogs({ olderThanDays: ACCESS_LOG_RETENTION_DAYS }).catch((error) => {
+      storageError = normalizeError(error);
+    });
+  }, ACCESS_LOG_CLEANUP_INTERVAL_MS);
+  accessLogCleanupTimer.unref?.();
+};
+
 export const deleteWorkbookSessionArtifacts = async (sessionId: string) => {
   const pendingTrimTimer = postgresEventTrimTimerBySession.get(sessionId);
   if (pendingTrimTimer) {
@@ -1557,6 +2110,7 @@ export const deleteWorkbookSessionArtifacts = async (sessionId: string) => {
       pool.query(`DELETE FROM ${EVENT_TABLE} WHERE session_id = $1`, [sessionId]),
       pool.query(`DELETE FROM ${SNAPSHOT_TABLE} WHERE session_id = $1`, [sessionId]),
       pool.query(`DELETE FROM ${EVENT_SEQ_TABLE} WHERE session_id = $1`, [sessionId]),
+      pool.query(`DELETE FROM ${ACCESS_LOG_TABLE} WHERE session_id = $1`, [sessionId]),
     ]);
     return;
   }
@@ -1564,6 +2118,9 @@ export const deleteWorkbookSessionArtifacts = async (sessionId: string) => {
   const localDb = getDb();
   localDb.workbookEvents = localDb.workbookEvents.filter((item) => item.sessionId !== sessionId);
   localDb.workbookSnapshots = localDb.workbookSnapshots.filter(
+    (item) => item.sessionId !== sessionId
+  );
+  localDb.workbookAccessLogs = localDb.workbookAccessLogs.filter(
     (item) => item.sessionId !== sessionId
   );
   saveDb();
@@ -1575,6 +2132,7 @@ export const getStorageDiagnostics = () => ({
   required: isPostgresRequired(),
   ready: dbInitialized,
   databaseUrlConfigured: DATABASE_URL.length > 0,
+  accessLogRetentionDays: ACCESS_LOG_RETENTION_DAYS,
   lastError: storageError,
 });
 
@@ -1587,6 +2145,10 @@ export const shutdownDb = async () => {
     clearTimeout(timer);
   });
   postgresEventTrimTimerBySession.clear();
+  if (accessLogCleanupTimer) {
+    clearInterval(accessLogCleanupTimer);
+    accessLogCleanupTimer = null;
+  }
   clearWorkbookLatestSeqCache();
   if (pgPool) {
     await pgPool.end().catch(() => undefined);

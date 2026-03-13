@@ -5,6 +5,7 @@ import type { Duplex } from "node:stream";
 import type { Connect, PreviewServer, ViteDevServer } from "vite";
 import { WebSocket, WebSocketServer } from "ws";
 import {
+  appendWorkbookAccessLog,
   copyWorkbookSessionSnapshots,
   deleteWorkbookSessionArtifacts,
   getDb,
@@ -12,6 +13,7 @@ import {
   type AuthSessionRecord,
   type MockDb,
   type UserRecord,
+  type WorkbookAccessDeviceClass,
   type WorkbookDraftRecord,
   type WorkbookInviteRecord,
   type WorkbookOperationRecord,
@@ -115,6 +117,8 @@ const readPositiveInt = (name: string, fallback: number) => {
   if (!Number.isFinite(raw) || raw <= 0) return fallback;
   return raw;
 };
+const WORKBOOK_DEVICE_ID_HEADER = "x-workbook-device-id";
+const WORKBOOK_ACCESS_LOG_HASH_SALT = String(process.env.WORKBOOK_ACCESS_LOG_HASH_SALT ?? "").trim();
 const WORKBOOK_REQUEST_BODY_MAX_BYTES = readPositiveInt("WORKBOOK_REQUEST_BODY_MAX_BYTES", 768_000);
 const WORKBOOK_VOLATILE_RATE_LIMIT_CAPACITY = readPositiveInt(
   "WORKBOOK_VOLATILE_RATE_LIMIT_CAPACITY",
@@ -323,6 +327,8 @@ const applyParticipantPresenceState = (
   const wasActive = participant.isActive;
   const hadCurrentVisit = Boolean(participant.currentVisitStartedAt);
   let changed = false;
+  let visitStarted = false;
+  let visitEnded = false;
 
   if (options.state === "active") {
     if (!tabs.has(options.tabId)) {
@@ -331,6 +337,7 @@ const applyParticipantPresenceState = (
     }
     if (startParticipantVisit(participant, options.timestamp)) {
       changed = true;
+      visitStarted = true;
     }
     if (!participant.isActive) {
       participant.isActive = true;
@@ -357,6 +364,7 @@ const applyParticipantPresenceState = (
       }
       if (finishParticipantVisit(participant, options.timestamp)) {
         changed = true;
+        visitEnded = true;
       }
     } else {
       if (!participant.isActive) {
@@ -380,6 +388,8 @@ const applyParticipantPresenceState = (
   return {
     changed: changed || wasActive !== participant.isActive || hadCurrentVisit !== Boolean(participant.currentVisitStartedAt),
     hasActiveTabs: tabs.size > 0,
+    visitStarted,
+    visitEnded,
   };
 };
 
@@ -469,6 +479,99 @@ const readHeaderValue = (req: IncomingMessage, name: string) => {
   const value = entry[1];
   if (Array.isArray(value)) return String(value[0] ?? "").trim();
   return typeof value === "string" ? value.trim() : "";
+};
+
+const hashWorkbookAccessValue = (value: string | null | undefined) => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  if (!normalized) return null;
+  return crypto
+    .createHash("sha256")
+    .update(`${WORKBOOK_ACCESS_LOG_HASH_SALT}:${normalized}`)
+    .digest("hex")
+    .slice(0, 32);
+};
+
+const resolveWorkbookClientIp = (req: IncomingMessage) => {
+  const forwardedFor = readHeaderValue(req, "x-forwarded-for");
+  if (forwardedFor) {
+    const first = forwardedFor
+      .split(",")
+      .map((item) => item.trim())
+      .find(Boolean);
+    if (first) return first.replace(/^::ffff:/, "");
+  }
+  const realIp = readHeaderValue(req, "x-real-ip");
+  if (realIp) return realIp.replace(/^::ffff:/, "");
+  const remote = req.socket?.remoteAddress;
+  if (!remote) return null;
+  return remote.replace(/^::ffff:/, "");
+};
+
+const resolveWorkbookUserAgentFamily = (userAgent: string) => {
+  const ua = userAgent.toLowerCase();
+  if (ua.includes("edg/")) return "Edge";
+  if (ua.includes("opr/") || ua.includes("opera")) return "Opera";
+  if (ua.includes("chrome/")) return "Chrome";
+  if (ua.includes("firefox/")) return "Firefox";
+  if (ua.includes("safari/") && !ua.includes("chrome/")) return "Safari";
+  if (ua.includes("postmanruntime")) return "Postman";
+  return "Unknown";
+};
+
+const resolveWorkbookDeviceClass = (userAgent: string): WorkbookAccessDeviceClass => {
+  const ua = userAgent.toLowerCase();
+  if (ua.includes("bot") || ua.includes("spider") || ua.includes("crawler")) return "bot";
+  if (ua.includes("ipad") || ua.includes("tablet")) return "tablet";
+  if (ua.includes("mobile") || ua.includes("android") || ua.includes("iphone")) return "mobile";
+  if (!ua) return "unknown";
+  return "desktop";
+};
+
+const resolveWorkbookActorName = (actor: UserRecord | null | undefined) => {
+  if (!actor) return null;
+  const fullName = `${actor.firstName} ${actor.lastName}`.trim();
+  if (fullName.length > 0) return fullName.slice(0, 200);
+  const email = actor.email.trim();
+  if (email.length > 0) return email.slice(0, 200);
+  return actor.id.slice(0, 200);
+};
+
+const recordWorkbookAccessEvent = async (params: {
+  req: IncomingMessage;
+  sessionId: string;
+  eventType:
+    | "invite_resolved"
+    | "invite_joined"
+    | "invite_join_denied"
+    | "presence_started"
+    | "presence_ended"
+    | "session_opened";
+  actor?: UserRecord | null;
+  inviteToken?: string | null;
+  details?: unknown;
+}) => {
+  const userAgent = readHeaderValue(params.req, "user-agent");
+  const workbookDeviceId = readHeaderValue(params.req, WORKBOOK_DEVICE_ID_HEADER);
+  const clientIp = resolveWorkbookClientIp(params.req);
+  try {
+    await appendWorkbookAccessLog({
+      sessionId: params.sessionId,
+      eventType: params.eventType,
+      actorUserId: params.actor?.id ?? null,
+      actorRole: params.actor?.role ?? null,
+      actorName: resolveWorkbookActorName(params.actor),
+      inviteTokenHash: hashWorkbookAccessValue(params.inviteToken ?? null),
+      deviceIdHash: hashWorkbookAccessValue(workbookDeviceId),
+      userAgentHash: hashWorkbookAccessValue(userAgent),
+      ipHash: hashWorkbookAccessValue(clientIp),
+      userAgentFamily: resolveWorkbookUserAgentFamily(userAgent),
+      deviceClass: resolveWorkbookDeviceClass(userAgent),
+      details: params.details ?? {},
+    });
+  } catch {
+    // Access logs are best-effort and must not impact workbook request handling.
+  }
 };
 
 const readIdempotencyKey = (req: IncomingMessage) => {
@@ -627,7 +730,7 @@ const applyCors = (req: IncomingMessage, res: ServerResponse) => {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type, X-Request-Id, X-Retry-Attempt, X-Idempotency-Key"
+    "Content-Type, X-Request-Id, X-Retry-Attempt, X-Idempotency-Key, X-Workbook-Device-Id"
   );
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   appendVary(res, "Origin");
@@ -2418,6 +2521,15 @@ export function setupMockServer(host: MiddlewareHost) {
         touchSessionActivity(session);
         ensureDraftForOwner(db, session, actor.id).lastOpenedAt = nowIso();
         saveDb();
+        await recordWorkbookAccessEvent({
+          req,
+          sessionId: session.id,
+          eventType: "session_opened",
+          actor,
+          details: {
+            via: "open_endpoint",
+          },
+        });
         json(res, 200, { ok: true });
         return;
       }
@@ -2759,6 +2871,19 @@ export function setupMockServer(host: MiddlewareHost) {
         }
         const hostUser = db.users.find((item) => item.id === session.createdBy);
         const expired = isInviteExpired(invite);
+        const actor = resolveAuthUser(req, db, { touchSession: false });
+        await recordWorkbookAccessEvent({
+          req,
+          sessionId: session.id,
+          eventType: "invite_resolved",
+          actor,
+          inviteToken: token,
+          details: {
+            expired,
+            revoked: Boolean(invite.revokedAt),
+            ended: session.status === "ended",
+          },
+        });
         json(res, 200, {
           sessionId: session.id,
           title: session.title,
@@ -2786,16 +2911,37 @@ export function setupMockServer(host: MiddlewareHost) {
           notFound(res);
           return;
         }
+        const requestingActor = resolveAuthUser(req, db, { touchSession: false });
         if (session.status === "ended") {
+          await recordWorkbookAccessEvent({
+            req,
+            sessionId: session.id,
+            eventType: "invite_join_denied",
+            actor: requestingActor,
+            inviteToken: token,
+            details: { reason: "lesson_ended" },
+          });
           forbidden(res, "lesson_ended");
           return;
         }
         if (invite.revokedAt || isInviteExpired(invite)) {
+          await recordWorkbookAccessEvent({
+            req,
+            sessionId: session.id,
+            eventType: "invite_join_denied",
+            actor: requestingActor,
+            inviteToken: token,
+            details: {
+              reason: "invite_inactive",
+              revoked: Boolean(invite.revokedAt),
+              expired: isInviteExpired(invite),
+            },
+          });
           forbidden(res, "invite_inactive");
           return;
         }
 
-        let actor = resolveAuthUser(req, db);
+        let actor = requestingActor;
         const body = (await readBody(req)) as { guestName?: string } | null;
         const requestedGuestName =
           typeof body?.guestName === "string" ? body.guestName.trim() : "";
@@ -2822,6 +2968,18 @@ export function setupMockServer(host: MiddlewareHost) {
 
         const draft = ensureDraftForOwner(db, session, actor.id);
         saveDb();
+        await recordWorkbookAccessEvent({
+          req,
+          sessionId: session.id,
+          eventType: "invite_joined",
+          actor,
+          inviteToken: token,
+          details: {
+            kind: session.kind,
+            role: actor.role,
+            inviteUseCount: invite.useCount,
+          },
+        });
 
         json(res, 200, {
           session: serializeSession(db, session, actor.id),
@@ -3333,6 +3491,31 @@ export function setupMockServer(host: MiddlewareHost) {
           force: presenceResult.changed || shouldTouchSessionActivity,
         });
         const participants = maybePublishPresenceSync(db, sessionId, actor.id);
+        if (presenceResult.visitStarted) {
+          await recordWorkbookAccessEvent({
+            req,
+            sessionId,
+            eventType: "presence_started",
+            actor,
+            details: {
+              state,
+              tabId,
+            },
+          });
+        }
+        if (presenceResult.visitEnded) {
+          await recordWorkbookAccessEvent({
+            req,
+            sessionId,
+            eventType: "presence_ended",
+            actor,
+            details: {
+              reason: "presence_inactive",
+              state,
+              tabId,
+            },
+          });
+        }
 
         json(res, 200, {
           ok: true,
@@ -3378,6 +3561,21 @@ export function setupMockServer(host: MiddlewareHost) {
         applyStudentControls(session, db);
         persistPresenceIfNeeded(participant, { force: presenceResult.changed });
         const participants = maybePublishPresenceSync(db, sessionId, actor.id);
+        if (presenceResult.visitEnded) {
+          await recordWorkbookAccessEvent({
+            req,
+            sessionId,
+            eventType: "presence_ended",
+            actor,
+            details: {
+              reason:
+                typeof body?.reason === "string" && body.reason.trim().length > 0
+                  ? body.reason.trim().slice(0, 120)
+                  : "leave_endpoint",
+              tabId,
+            },
+          });
+        }
 
         json(res, 200, {
           ok: true,
