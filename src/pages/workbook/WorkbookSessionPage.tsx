@@ -99,6 +99,7 @@ import {
   compactWorkbookObjectUpdateEvents,
   hasWorkbookEventGap,
   mergeBoardObjectWithPatch,
+  mergeBoardObjectPatches,
   mergePreviewPathPoints,
   resolveNextLatestSeq,
   withWorkbookClientEventIds,
@@ -4115,10 +4116,10 @@ export default function WorkbookSessionPage() {
                 error.code === "rate_limited");
             if (isTransientError) {
               const pendingPatch = objectUpdateQueuedPatchRef.current.get(objectId) ?? {};
-              objectUpdateQueuedPatchRef.current.set(objectId, {
-                ...queuedPatch,
-                ...pendingPatch,
-              });
+              objectUpdateQueuedPatchRef.current.set(
+                objectId,
+                mergeBoardObjectPatches(queuedPatch, pendingPatch)
+              );
               const pendingOptions = objectUpdateDispatchOptionsRef.current.get(objectId) ?? {
                 trackHistory: false,
                 markDirty: false,
@@ -5285,10 +5286,10 @@ export default function WorkbookSessionPage() {
         boardObjectsRef.current = optimisticBoardObjects;
         setBoardObjects(optimisticBoardObjects);
         const pendingPatch = objectPreviewQueuedPatchRef.current.get(objectId) ?? {};
-        objectPreviewQueuedPatchRef.current.set(objectId, {
-          ...pendingPatch,
-          ...normalizedPatch,
-        });
+        objectPreviewQueuedPatchRef.current.set(
+          objectId,
+          mergeBoardObjectPatches(pendingPatch, normalizedPatch)
+        );
         scheduleVolatileSyncFlush();
         return;
       }
@@ -5298,10 +5299,10 @@ export default function WorkbookSessionPage() {
       const optimisticBoardObjects = applyPatchToBoardObjects(boardObjectsRef.current);
       commitInteractiveBoardObjects(optimisticBoardObjects);
       const pendingPatch = objectUpdateQueuedPatchRef.current.get(objectId) ?? {};
-      objectUpdateQueuedPatchRef.current.set(objectId, {
-        ...pendingPatch,
-        ...normalizedPatch,
-      });
+      objectUpdateQueuedPatchRef.current.set(
+        objectId,
+        mergeBoardObjectPatches(pendingPatch, normalizedPatch)
+      );
       const pendingDispatchOptions =
         objectUpdateDispatchOptionsRef.current.get(objectId) ?? null;
       const nextDispatchOptions = {

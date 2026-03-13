@@ -57,10 +57,7 @@ export const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
           ...event,
           payload: {
             objectId,
-            patch: {
-              ...previousPayload.patch,
-              ...patch,
-            },
+            patch: mergeBoardObjectPatches(previousPayload.patch, patch),
           },
         });
       } else {
@@ -147,6 +144,39 @@ export const mergeBoardObjectWithPatch = (
     ...current,
     ...patch,
     meta: nextMeta,
+  };
+};
+
+export const mergeBoardObjectPatches = (
+  current: Partial<WorkbookBoardObject>,
+  patch: Partial<WorkbookBoardObject>
+): Partial<WorkbookBoardObject> => {
+  const hasMetaPatch = Object.prototype.hasOwnProperty.call(patch, "meta");
+  if (!hasMetaPatch) {
+    return {
+      ...current,
+      ...patch,
+    };
+  }
+  const patchMeta = patch.meta;
+  if (!patchMeta || typeof patchMeta !== "object" || Array.isArray(patchMeta)) {
+    return {
+      ...current,
+      ...patch,
+      meta: patchMeta,
+    };
+  }
+  const currentMeta =
+    current.meta && typeof current.meta === "object" && !Array.isArray(current.meta)
+      ? (current.meta as Record<string, unknown>)
+      : {};
+  return {
+    ...current,
+    ...patch,
+    meta: {
+      ...currentMeta,
+      ...(patchMeta as Record<string, unknown>),
+    },
   };
 };
 
