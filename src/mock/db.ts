@@ -67,6 +67,7 @@ export type WorkbookSessionParticipantRecord = {
   lastVisitStartedAt?: string | null;
   lastVisitEndedAt?: string | null;
   lastVisitDurationMinutes?: number | null;
+  boardToolsOverride?: "enabled" | "disabled" | null;
   permissions: WorkbookParticipantPermissions;
 };
 

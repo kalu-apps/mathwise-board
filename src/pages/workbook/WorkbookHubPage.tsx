@@ -116,7 +116,6 @@ export default function WorkbookHubPage() {
   const [drafts, setDrafts] = useState<WorkbookDraftCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [creatingClass, setCreatingClass] = useState(false);
   const [creatingPersonal, setCreatingPersonal] = useState(false);
   const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null);
@@ -281,7 +280,6 @@ export default function WorkbookHubPage() {
     try {
       setCreatingClass(true);
       setError(null);
-      setSuccess(null);
       const created = await createWorkbookSession({
         kind: "CLASS",
         title: "Индивидуальное занятие",
@@ -315,7 +313,6 @@ export default function WorkbookHubPage() {
     try {
       setCreatingPersonal(true);
       setError(null);
-      setSuccess(null);
       const created = await createWorkbookSession({
         kind: "PERSONAL",
       });
@@ -353,10 +350,8 @@ export default function WorkbookHubPage() {
     try {
       setDeletingSessionId(card.sessionId);
       setError(null);
-      setSuccess(null);
       await deleteWorkbookSession(card.sessionId);
       setDrafts((current) => current.filter((item) => item.sessionId !== card.sessionId));
-      setSuccess("Карточка удалена. Ссылка доступа отключена.");
     } catch {
       setError("Не удалось удалить карточку.");
     } finally {
@@ -369,14 +364,12 @@ export default function WorkbookHubPage() {
     try {
       setCopyingSessionId(card.sessionId);
       setError(null);
-      setSuccess(null);
       const invite = await createWorkbookInvite(card.sessionId);
       const inviteUrl = resolveInviteUrl(invite);
       if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
         throw new Error("clipboard_unavailable");
       }
       await navigator.clipboard.writeText(inviteUrl);
-      setSuccess("Бессрочная ссылка приглашения скопирована.");
     } catch {
       setError("Не удалось скопировать ссылку приглашения.");
     } finally {
@@ -397,7 +390,6 @@ export default function WorkbookHubPage() {
     try {
       setRenamingSessionId(card.sessionId);
       setError(null);
-      setSuccess(null);
       const result = await renameWorkbookSession(card.sessionId, nextTitle);
       const updatedAt = result.session.lastActivityAt;
       const updatedTitle = result.session.title;
@@ -412,7 +404,6 @@ export default function WorkbookHubPage() {
             : item
         )
       );
-      setSuccess("Название карточки обновлено.");
       triggerDraftCardsReload(true);
     } catch {
       setError("Не удалось изменить название карточки.");
@@ -520,11 +511,6 @@ export default function WorkbookHubPage() {
         {error ? (
           <Alert severity="error" onClose={() => setError(null)}>
             {error}
-          </Alert>
-        ) : null}
-        {success ? (
-          <Alert severity="success" onClose={() => setSuccess(null)}>
-            {success}
           </Alert>
         ) : null}
 

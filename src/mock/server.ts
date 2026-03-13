@@ -775,6 +775,39 @@ const participantPermissionKeys: Array<keyof WorkbookParticipantPermissions> = [
   "canUseLaser",
 ];
 
+const boardToolsPermissionKeys: Array<
+  | "canDraw"
+  | "canAnnotate"
+  | "canSelect"
+  | "canDelete"
+  | "canInsertImage"
+  | "canClear"
+  | "canUseLaser"
+> = [
+  "canDraw",
+  "canAnnotate",
+  "canSelect",
+  "canDelete",
+  "canInsertImage",
+  "canClear",
+  "canUseLaser",
+];
+
+type BoardToolsOverrideState = "enabled" | "disabled" | null;
+
+const hasBoardToolsPermissionPatch = (patch: Partial<WorkbookParticipantPermissions>) =>
+  boardToolsPermissionKeys.some((key) => typeof patch[key] === "boolean");
+
+const resolveBoardToolsOverrideState = (
+  permissions: WorkbookParticipantPermissions
+): BoardToolsOverrideState => {
+  const allEnabled = boardToolsPermissionKeys.every((key) => permissions[key] === true);
+  if (allEnabled) return "enabled";
+  const allDisabled = boardToolsPermissionKeys.every((key) => permissions[key] === false);
+  if (allDisabled) return "disabled";
+  return null;
+};
+
 const sanitizePermissionPatch = (value: unknown): Partial<WorkbookParticipantPermissions> => {
   if (!value || typeof value !== "object") return {};
   const source = value as Partial<Record<keyof WorkbookParticipantPermissions, unknown>>;
@@ -1408,6 +1441,9 @@ const ensureParticipant = (
     if (typeof existing.lastVisitDurationMinutes === "undefined") {
       existing.lastVisitDurationMinutes = null;
     }
+    if (typeof existing.boardToolsOverride === "undefined") {
+      existing.boardToolsOverride = null;
+    }
     existing.permissions = normalizeParticipantPermissions(
       params.roleInSession,
       params.permissions
@@ -1427,6 +1463,7 @@ const ensureParticipant = (
     lastVisitStartedAt: null,
     lastVisitEndedAt: null,
     lastVisitDurationMinutes: null,
+    boardToolsOverride: null,
     permissions: normalizeParticipantPermissions(params.roleInSession, params.permissions),
   };
   db.workbookParticipants.push(created);
@@ -1766,15 +1803,16 @@ const attachWorkbookLiveSocketServer = (host: MiddlewareHost) => {
   });
 };
 
+const hasOnlineTeacherInSession = (session: WorkbookSessionRecord, db: MockDb) =>
+  getWorkbookParticipants(db, session.id).some(
+    (participant) => participant.roleInSession === "teacher" && isParticipantOnline(participant)
+  );
+
 const resolveEffectiveStudentControls = (
   session: WorkbookSessionRecord,
-  db: MockDb
+  hasOnlineTeacher: boolean
 ) => {
   const settings = readSessionSettings(session);
-  const hasOnlineTeacher = getWorkbookParticipants(db, session.id).some(
-    (participant) =>
-      participant.roleInSession === "teacher" && isParticipantOnline(participant)
-  );
   if (hasOnlineTeacher) {
     return settings.studentControls;
   }
@@ -1790,22 +1828,29 @@ const resolveEffectiveStudentControls = (
 };
 
 const applyStudentControls = (session: WorkbookSessionRecord, db: MockDb) => {
-  const controls = resolveEffectiveStudentControls(session, db);
+  const hasOnlineTeacher = hasOnlineTeacherInSession(session, db);
+  const controls = resolveEffectiveStudentControls(session, hasOnlineTeacher);
   let changed = false;
   db.workbookParticipants = db.workbookParticipants.map((participant) => {
     if (participant.sessionId !== session.id || participant.roleInSession !== "student") {
       return participant;
     }
+    const boardToolsOverride =
+      participant.boardToolsOverride === "enabled" || participant.boardToolsOverride === "disabled"
+        ? participant.boardToolsOverride
+        : null;
+    const hasBoardToolsOverride = hasOnlineTeacher && boardToolsOverride !== null;
+    const boardToolsEnabled = boardToolsOverride === "enabled";
     const nextPermissions = normalizeParticipantPermissions("student", {
       ...participant.permissions,
-      canDraw: controls.canDraw,
-      canAnnotate: controls.canDraw,
-      canSelect: controls.canSelect,
-      canDelete: controls.canDelete,
-      canInsertImage: controls.canInsertImage,
-      canClear: controls.canClear,
+      canDraw: hasBoardToolsOverride ? boardToolsEnabled : controls.canDraw,
+      canAnnotate: hasBoardToolsOverride ? boardToolsEnabled : controls.canDraw,
+      canSelect: hasBoardToolsOverride ? boardToolsEnabled : controls.canSelect,
+      canDelete: hasBoardToolsOverride ? boardToolsEnabled : controls.canDelete,
+      canInsertImage: hasBoardToolsOverride ? boardToolsEnabled : controls.canInsertImage,
+      canClear: hasBoardToolsOverride ? boardToolsEnabled : controls.canClear,
       canExport: controls.canExport,
-      canUseLaser: controls.canUseLaser,
+      canUseLaser: hasBoardToolsOverride ? boardToolsEnabled : controls.canUseLaser,
     });
     const unchanged = participantPermissionKeys.every(
       (key) => participant.permissions?.[key] === nextPermissions[key]
@@ -2862,10 +2907,14 @@ export function setupMockServer(host: MiddlewareHost) {
           if (!targetParticipant || targetParticipant.roleInSession !== "student") continue;
           const patch = sanitizePermissionPatch(payload?.permissions ?? null);
           if (Object.keys(patch).length === 0) continue;
-          targetParticipant.permissions = {
+          const nextPermissions = normalizeParticipantPermissions("student", {
             ...targetParticipant.permissions,
             ...patch,
-          };
+          });
+          targetParticipant.permissions = nextPermissions;
+          if (hasBoardToolsPermissionPatch(patch)) {
+            targetParticipant.boardToolsOverride = resolveBoardToolsOverrideState(nextPermissions);
+          }
           participant = getWorkbookParticipant(db, sessionId, actor.id) ?? participant;
         }
 

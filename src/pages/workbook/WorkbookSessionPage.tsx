@@ -24,6 +24,7 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  InputAdornment,
   Menu,
   MenuItem,
   Switch,
@@ -226,8 +227,6 @@ import {
 } from "./workbookBoardSettingsModel";
 import {
   flushWorkbookPersistenceQueue,
-  getWorkbookPersistenceQueueSnapshot,
-  subscribeWorkbookPersistenceQueue,
 } from "@/features/workbook/model/persistenceQueue";
 
 const WorkbookSessionBoardSettingsPanel = lazy(async () => ({
@@ -1496,9 +1495,6 @@ export default function WorkbookSessionPage() {
   const [error, setError] = useState<string | null>(null);
   const [saveSyncWarning, setSaveSyncWarning] = useState<string | null>(null);
   const [realtimeSyncWarning, setRealtimeSyncWarning] = useState<string | null>(null);
-  const [persistenceQueueSnapshot, setPersistenceQueueSnapshot] = useState(() =>
-    getWorkbookPersistenceQueueSnapshot()
-  );
   const [copyingInviteLink, setCopyingInviteLink] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [isStereoDialogOpen, setIsStereoDialogOpen] = useState(false);
@@ -1944,10 +1940,6 @@ export default function WorkbookSessionPage() {
           return left.displayName.localeCompare(right.displayName, "ru");
         }),
     [session?.participants]
-  );
-  const onlineParticipantsCount = useMemo(
-    () => participantCards.filter((participant) => participant.isOnline).length,
-    [participantCards]
   );
   const sessionChatReadStorageKey = useMemo(
     () => (sessionId && user?.id ? `workbook:chat-read:${sessionId}:${user.id}` : ""),
@@ -3745,13 +3737,6 @@ export default function WorkbookSessionPage() {
       persistSnapshotsRef.current = null;
     };
   }, [persistSnapshots]);
-
-  useEffect(() => {
-    setPersistenceQueueSnapshot(getWorkbookPersistenceQueueSnapshot());
-    return subscribeWorkbookPersistenceQueue(() => {
-      setPersistenceQueueSnapshot(getWorkbookPersistenceQueueSnapshot());
-    });
-  }, []);
 
   useEffect(() => {
     if (!sessionId || !session) return;
@@ -10228,18 +10213,6 @@ export default function WorkbookSessionPage() {
         </Alert>
       ) : null}
 
-      {persistenceQueueSnapshot.pendingCount > 0 ? (
-        <Alert
-          severity="warning"
-          className={`workbook-session__alert${
-            isFullscreen ? " workbook-session__alert--floating" : ""
-          }`}
-        >
-          Сохранение в очереди: {persistenceQueueSnapshot.pendingCount}. Данные будут отправлены
-          автоматически после восстановления связи.
-        </Alert>
-      ) : null}
-
       {pendingClearRequest &&
       pendingClearRequest.authorUserId !== user?.id &&
       session.status !== "ended" ? (
@@ -11048,11 +11021,11 @@ export default function WorkbookSessionPage() {
                       ))}
                     </div>
                     <div className="workbook-session__session-chat-meta-right">
-                      <span>{onlineParticipantsCount} онлайн</span>
                       {canManageSession && chatMessages.length > 0 ? (
                         <Tooltip title="Очистить чат" arrow>
                           <IconButton
                             size="small"
+                            className="workbook-session__chat-action-icon"
                             onClick={() => setIsClearSessionChatDialogOpen(true)}
                             aria-label="Очистить чат"
                           >
@@ -11111,15 +11084,6 @@ export default function WorkbookSessionPage() {
                   {canSendSessionChat ? (
                     <div className="workbook-session__session-chat-input-wrap">
                       <div className="workbook-session__session-chat-input">
-                        <IconButton
-                          size="small"
-                          aria-label="Эмодзи"
-                          onClick={() =>
-                            setIsSessionChatEmojiOpen((current) => !current)
-                          }
-                        >
-                          <SentimentSatisfiedRoundedIcon fontSize="small" />
-                        </IconButton>
                         <TextField
                           size="small"
                           fullWidth
@@ -11131,16 +11095,36 @@ export default function WorkbookSessionPage() {
                             event.preventDefault();
                             void handleSendSessionChatMessage();
                           }}
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <IconButton
+                                  size="small"
+                                  className="workbook-session__chat-action-icon"
+                                  aria-label="Эмодзи"
+                                  onClick={() =>
+                                    setIsSessionChatEmojiOpen((current) => !current)
+                                  }
+                                >
+                                  <SentimentSatisfiedRoundedIcon fontSize="small" />
+                                </IconButton>
+                              </InputAdornment>
+                            ),
+                            endAdornment: (
+                              <InputAdornment position="end">
+                                <IconButton
+                                  size="small"
+                                  className="workbook-session__chat-action-icon workbook-session__chat-send-icon"
+                                  aria-label="Отправить"
+                                  onClick={() => void handleSendSessionChatMessage()}
+                                  disabled={!sessionChatDraft.trim()}
+                                >
+                                  <SendRoundedIcon fontSize="small" />
+                                </IconButton>
+                              </InputAdornment>
+                            ),
+                          }}
                         />
-                        <IconButton
-                          size="small"
-                          color="primary"
-                          aria-label="Отправить"
-                          onClick={() => void handleSendSessionChatMessage()}
-                          disabled={!sessionChatDraft.trim()}
-                        >
-                          <SendRoundedIcon fontSize="small" />
-                        </IconButton>
                       </div>
                       {isSessionChatEmojiOpen ? (
                         <div className="workbook-session__session-chat-emoji">

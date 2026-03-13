@@ -3069,6 +3069,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
   font-size: 12px;
   color: var(--text-secondary);
@@ -3077,13 +3078,21 @@
 .workbook-session__session-chat-meta-right {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  margin-left: auto;
 }
 
 .workbook-session__session-chat-avatars {
   display: inline-flex;
   align-items: center;
+  min-width: 0;
+  overflow-x: auto;
   margin-left: 2px;
+  scrollbar-width: none;
+}
+
+.workbook-session__session-chat-avatars::-webkit-scrollbar {
+  display: none;
 }
 
 .workbook-session__session-chat-avatar {
@@ -3201,10 +3210,32 @@
 }
 
 .workbook-session__session-chat-input {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px;
+  min-width: 0;
+}
+
+.workbook-session__session-chat-input .MuiOutlinedInput-root {
+  border-radius: 12px;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.workbook-session__chat-action-icon.MuiIconButton-root {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.workbook-session__chat-action-icon.MuiIconButton-root:hover {
+  border: none !important;
+  background: color-mix(in srgb, var(--brand-soft) 16%, transparent) !important;
+}
+
+.workbook-session__chat-send-icon.MuiIconButton-root {
+  color: color-mix(in srgb, var(--brand-solid) 86%, var(--text-primary));
+}
+
+.workbook-session__chat-send-icon.MuiIconButton-root.Mui-disabled {
+  color: var(--text-muted);
 }
 
 .workbook-session__session-chat-emoji {
@@ -3905,33 +3936,36 @@
   }
 
   .workbook-session__canvas {
-    min-height: clamp(340px, 56dvh, 620px);
-    height: clamp(340px, 56dvh, 620px);
+    min-height: clamp(280px, 56dvh, 620px);
+    height: clamp(280px, 56dvh, 620px);
   }
 
   .workbook-session__board-shell {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: start;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
     gap: 8px;
     padding-right: 0;
     padding-bottom: 0;
     min-width: 0;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .workbook-session__tools {
     position: static;
-    width: 38px;
-    max-height: clamp(300px, 56dvh, 620px);
-    flex-direction: column;
-    overflow-y: auto;
-    overflow-x: hidden;
-    padding: 4px;
+    width: 100%;
+    max-height: none;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 4px 6px;
     gap: 5px;
     z-index: 7;
     scrollbar-width: none;
+    border-radius: 14px;
+    justify-content: flex-start;
   }
 
   .workbook-session__tools::-webkit-scrollbar {
@@ -3939,8 +3973,8 @@
   }
 
   .workbook-session__tool-btn {
-    width: 28px;
-    height: 28px;
+    width: 30px;
+    height: 30px;
     border-radius: 8px;
   }
 
@@ -4124,6 +4158,22 @@
   }
 }
 
+@media (max-width: 760px) and (orientation: landscape) {
+  .workbook-session__canvas {
+    min-height: clamp(220px, 50dvh, 420px);
+    height: clamp(220px, 50dvh, 420px);
+  }
+
+  .workbook-session__session-chat {
+    top: 8px;
+    max-height: calc(100dvh - 16px);
+  }
+
+  .workbook-session__chat-list {
+    min-height: 120px;
+  }
+}
+
 @media (max-width: 520px) {
   .workbook-hub,
   .workbook-session,
@@ -4157,9 +4207,8 @@
   }
 
   .workbook-session__tools {
-    width: 34px;
-    padding: 3px;
-    right: 5px;
+    width: 100%;
+    padding: 3px 5px;
   }
 
   .workbook-session__tool-btn {
