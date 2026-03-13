@@ -2562,7 +2562,10 @@ export function setupMockServer(host: MiddlewareHost) {
           sessionId: snapshot.sessionId,
           layer: snapshot.layer,
           version: snapshot.version,
-          payload: safeParseJson(snapshot.payload, null),
+          payload:
+            typeof snapshot.payload === "string"
+              ? safeParseJson(snapshot.payload, null)
+              : snapshot.payload,
           createdAt: snapshot.createdAt,
         });
         return;
