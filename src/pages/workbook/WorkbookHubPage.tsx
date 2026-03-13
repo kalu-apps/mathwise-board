@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -6,6 +6,7 @@ import {
   Button,
   CircularProgress,
   IconButton,
+  Skeleton,
   Stack,
   Tooltip,
   Typography,
@@ -16,7 +17,6 @@ import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import MenuBookRoundedIcon from "@mui/icons-material/MenuBookRounded";
 import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
-import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
 import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
 import "./workbookRouteStyles";
 import { ApiError } from "@/shared/api/client";
@@ -35,10 +35,24 @@ type HubScope = "class" | "personal";
 
 const toSessionPath = (sessionId: string) =>
   `/workbook/session/${encodeURIComponent(sessionId)}`;
+const HUB_REFRESH_INTERVAL_MS = 30_000;
+const HUB_REFRESH_THROTTLE_MS = 900;
 
 const toSortTimestamp = (value: string) => {
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const dedupeDraftCards = (items: WorkbookDraftCard[]) => {
+  const uniqueCards = new Map<string, WorkbookDraftCard>();
+  items.forEach((item) => {
+    const key = `${item.kind}:${item.sessionId}`;
+    const previous = uniqueCards.get(key);
+    if (!previous || toSortTimestamp(item.updatedAt) >= toSortTimestamp(previous.updatedAt)) {
+      uniqueCards.set(key, item);
+    }
+  });
+  return Array.from(uniqueCards.values());
 };
 
 const formatDateTime = (value: string) => {
@@ -82,54 +96,120 @@ export default function WorkbookHubPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [reloadVersion, setReloadVersion] = useState(0);
   const [creatingClass, setCreatingClass] = useState(false);
   const [creatingPersonal, setCreatingPersonal] = useState(false);
-  const [copyingDraftId, setCopyingDraftId] = useState<string | null>(null);
-  const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
+  const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const lastReloadAtRef = useRef(0);
+  const loadRequestVersionRef = useRef(0);
 
   useEffect(() => {
     if (!isAuthReady || user) return;
     openAuthModal();
   }, [isAuthReady, openAuthModal, user]);
 
-  useEffect(() => {
-    if (!isAuthReady) return;
-    if (!user || user.role !== "teacher") {
+  const loadDraftCards = useCallback(async () => {
+    if (!isAuthReady || !user || user.role !== "teacher") {
       setLoading(false);
       return;
     }
-    let active = true;
-    const loadDraftCards = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const response = await getWorkbookDrafts("all");
-        if (!active) return;
-        const sorted = response.items
-          .slice()
-          .sort((left, right) => toSortTimestamp(right.updatedAt) - toSortTimestamp(left.updatedAt));
-        setDrafts(sorted);
-      } catch {
-        if (!active) return;
-        setError("Не удалось загрузить карточки. Обновите страницу и повторите.");
-      } finally {
-        if (active) setLoading(false);
+    const requestVersion = loadRequestVersionRef.current + 1;
+    loadRequestVersionRef.current = requestVersion;
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await getWorkbookDrafts("all");
+      if (loadRequestVersionRef.current !== requestVersion) return;
+      const sorted = dedupeDraftCards(response.items).sort(
+        (left, right) => toSortTimestamp(right.updatedAt) - toSortTimestamp(left.updatedAt)
+      );
+      setDrafts(sorted);
+    } catch {
+      if (loadRequestVersionRef.current !== requestVersion) return;
+      setError("Не удалось загрузить карточки. Повторим синхронизацию автоматически.");
+    } finally {
+      if (loadRequestVersionRef.current === requestVersion) {
+        setLoading(false);
       }
+    }
+  }, [isAuthReady, user]);
+
+  const triggerDraftCardsReload = useCallback(
+    (force = false) => {
+      const now = Date.now();
+      if (!force && now - lastReloadAtRef.current < HUB_REFRESH_THROTTLE_MS) return;
+      lastReloadAtRef.current = now;
+      void loadDraftCards();
+    },
+    [loadDraftCards]
+  );
+
+  useEffect(() => {
+    if (!isAuthReady || !user || user.role !== "teacher") {
+      setLoading(false);
+      return;
+    }
+    triggerDraftCardsReload(true);
+  }, [isAuthReady, triggerDraftCardsReload, user]);
+
+  useEffect(() => {
+    if (!isAuthReady || !user || user.role !== "teacher") return;
+    const handleFocus = () => {
+      triggerDraftCardsReload();
     };
-    void loadDraftCards();
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      triggerDraftCardsReload();
+    };
+    const handlePageShow = () => {
+      triggerDraftCardsReload(true);
+    };
+    const handleOnline = () => {
+      triggerDraftCardsReload(true);
+    };
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("online", handleOnline);
+    document.addEventListener("visibilitychange", handleVisibility);
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      triggerDraftCardsReload();
+    }, HUB_REFRESH_INTERVAL_MS);
     return () => {
-      active = false;
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("online", handleOnline);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.clearInterval(intervalId);
     };
-  }, [isAuthReady, reloadVersion, user]);
+  }, [isAuthReady, triggerDraftCardsReload, user]);
 
-  const classCards = drafts.filter((item) => item.kind === "CLASS");
-  const personalCards = drafts.filter((item) => item.kind === "PERSONAL");
+  const openSessionInNewTab = useCallback(
+    (sessionId: string) => {
+      const sessionPath = toSessionPath(sessionId);
+      if (typeof window === "undefined") {
+        navigate(sessionPath);
+        return;
+      }
+      const targetUrl = new URL(sessionPath, window.location.origin).toString();
+      const openedTab = window.open(targetUrl, "_blank", "noopener,noreferrer");
+      if (openedTab) {
+        openedTab.focus?.();
+        return;
+      }
+      navigate(sessionPath);
+      setError("Браузер заблокировал новую вкладку. Разрешите всплывающие окна и повторите.");
+    },
+    [navigate]
+  );
+
+  const [classCards, personalCards] = useMemo(() => {
+    const classDrafts = drafts.filter((item) => item.kind === "CLASS");
+    const personalDrafts = drafts.filter((item) => item.kind === "PERSONAL");
+    return [classDrafts, personalDrafts];
+  }, [drafts]);
   const cards = scope === "class" ? classCards : personalCards;
-
-  const handleRefresh = () => {
-    setReloadVersion((current) => current + 1);
-  };
+  const skeletonCount = Math.max(3, Math.min(cards.length || 0, 6));
 
   const handleCreateClassSession = async () => {
     try {
@@ -140,7 +220,8 @@ export default function WorkbookHubPage() {
         kind: "CLASS",
         title: "Индивидуальное занятие",
       });
-      navigate(toSessionPath(created.session.id));
+      openSessionInNewTab(created.session.id);
+      triggerDraftCardsReload(true);
     } catch (reason) {
       if (reason instanceof ApiError && reason.status === 401) {
         openAuthModal();
@@ -172,7 +253,8 @@ export default function WorkbookHubPage() {
       const created = await createWorkbookSession({
         kind: "PERSONAL",
       });
-      navigate(toSessionPath(created.session.id));
+      openSessionInNewTab(created.session.id);
+      triggerDraftCardsReload(true);
     } catch (reason) {
       if (reason instanceof ApiError && reason.status === 401) {
         openAuthModal();
@@ -203,7 +285,7 @@ export default function WorkbookHubPage() {
     );
     if (!confirmed) return;
     try {
-      setDeletingDraftId(card.draftId);
+      setDeletingSessionId(card.sessionId);
       setError(null);
       setSuccess(null);
       await deleteWorkbookSession(card.sessionId);
@@ -212,14 +294,14 @@ export default function WorkbookHubPage() {
     } catch {
       setError("Не удалось удалить карточку.");
     } finally {
-      setDeletingDraftId(null);
+      setDeletingSessionId(null);
     }
   };
 
   const handleCopyInvite = async (card: WorkbookDraftCard) => {
     if (card.kind !== "CLASS") return;
     try {
-      setCopyingDraftId(card.draftId);
+      setCopyingSessionId(card.sessionId);
       setError(null);
       setSuccess(null);
       const invite = await createWorkbookInvite(card.sessionId);
@@ -232,7 +314,7 @@ export default function WorkbookHubPage() {
     } catch {
       setError("Не удалось скопировать ссылку приглашения.");
     } finally {
-      setCopyingDraftId(null);
+      setCopyingSessionId(null);
     }
   };
 
@@ -310,14 +392,6 @@ export default function WorkbookHubPage() {
             >
               {creatingPersonal ? "Создаем..." : "Новая личная тетрадь"}
             </Button>
-            <Button
-              variant="text"
-              startIcon={<RefreshRoundedIcon />}
-              onClick={handleRefresh}
-              disabled={loading}
-            >
-              Обновить
-            </Button>
           </div>
         </div>
       </article>
@@ -352,10 +426,32 @@ export default function WorkbookHubPage() {
         ) : null}
 
         {loading ? (
-          <Stack direction="row" spacing={1.5} alignItems="center">
-            <CircularProgress size={22} />
-            <Typography variant="body2">{t("route.loadingPage")}</Typography>
-          </Stack>
+          <div className="workbook-hub__list" aria-busy="true" aria-live="polite">
+            {Array.from({ length: skeletonCount }).map((_, index) => (
+              <article className="workbook-hub__card workbook-hub__card--skeleton" key={index}>
+                <div className="workbook-hub__card-main">
+                  <div className="workbook-hub__card-title-row">
+                    <Skeleton variant="circular" width={26} height={26} />
+                    <Skeleton variant="text" width="72%" height={30} />
+                  </div>
+                  <div className="workbook-hub__card-meta">
+                    <Skeleton variant="rounded" width={148} height={18} />
+                    <Skeleton variant="rounded" width={120} height={18} />
+                  </div>
+                  <div className="workbook-hub__card-timeline">
+                    <Skeleton variant="rounded" height={24} />
+                    <Skeleton variant="rounded" height={24} />
+                  </div>
+                  <div className="workbook-hub__card-timeline-row">
+                    <span />
+                    <div className="workbook-hub__card-actions">
+                      <Skeleton variant="rounded" width={118} height={30} />
+                    </div>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
         ) : cards.length === 0 ? (
           <Alert severity="info">
             {scope === "class"
@@ -365,10 +461,10 @@ export default function WorkbookHubPage() {
         ) : (
           <div className="workbook-hub__list">
             {cards.map((card) => {
-              const isCopying = copyingDraftId === card.draftId;
-              const isDeleting = deletingDraftId === card.draftId;
+              const isCopying = copyingSessionId === card.sessionId;
+              const isDeleting = deletingSessionId === card.sessionId;
               return (
-                <article className="workbook-hub__card" key={card.draftId}>
+                <article className="workbook-hub__card" key={card.sessionId}>
                   {card.canDelete ? (
                     <Tooltip title="Удалить карточку">
                       <span>
@@ -425,7 +521,11 @@ export default function WorkbookHubPage() {
                           size="small"
                           variant="text"
                           startIcon={<OpenInNewRoundedIcon />}
-                          onClick={() => navigate(toSessionPath(card.sessionId))}
+                          component="a"
+                          href={toSessionPath(card.sessionId)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => triggerDraftCardsReload()}
                         >
                           Открыть
                         </Button>

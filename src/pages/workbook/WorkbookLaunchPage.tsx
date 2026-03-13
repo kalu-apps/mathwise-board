@@ -44,7 +44,18 @@ export default function WorkbookLaunchPage() {
           activeSession?.sessionId ??
           (await createWorkbookSession({ kind: "CLASS" })).session.id;
         if (!active) return;
-        navigate(toSessionPath(sessionId), { replace: true });
+        if (typeof window === "undefined") {
+          navigate(toSessionPath(sessionId), { replace: true });
+          return;
+        }
+        const sessionUrl = new URL(toSessionPath(sessionId), window.location.origin).toString();
+        const openedTab = window.open(sessionUrl, "_blank", "noopener,noreferrer");
+        if (!openedTab) {
+          navigate(toSessionPath(sessionId), { replace: true });
+          return;
+        }
+        openedTab.focus?.();
+        navigate("/workbook", { replace: true });
       } catch {
         if (!active) return;
         setError(t("whiteboardLaunch.lessonOpenError"));

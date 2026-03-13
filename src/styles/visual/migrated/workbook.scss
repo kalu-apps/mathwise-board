@@ -163,6 +163,16 @@
   box-shadow: 0 12px 22px color-mix(in srgb, #1d3266 16%, transparent);
 }
 
+.workbook-hub__card--skeleton {
+  pointer-events: none;
+}
+
+.workbook-hub__card--skeleton:hover {
+  transform: none;
+  border-color: color-mix(in srgb, var(--brand-soft) 30%, var(--border-subtle));
+  box-shadow: none;
+}
+
 .workbook-hub__card-remove {
   position: absolute !important;
   top: 6px;
