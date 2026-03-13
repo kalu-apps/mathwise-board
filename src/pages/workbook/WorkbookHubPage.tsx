@@ -15,6 +15,7 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import AutoStoriesRoundedIcon from "@mui/icons-material/AutoStoriesRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
+import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import MenuBookRoundedIcon from "@mui/icons-material/MenuBookRounded";
 import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
 import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
@@ -28,6 +29,7 @@ import {
   createWorkbookSession,
   deleteWorkbookSession,
   getWorkbookDrafts,
+  renameWorkbookSession,
 } from "@/features/workbook/model/api";
 import type { WorkbookDraftCard, WorkbookInviteInfo } from "@/features/workbook/model/types";
 
@@ -100,6 +102,7 @@ export default function WorkbookHubPage() {
   const [creatingPersonal, setCreatingPersonal] = useState(false);
   const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const lastReloadAtRef = useRef(0);
   const loadRequestVersionRef = useRef(0);
 
@@ -318,6 +321,43 @@ export default function WorkbookHubPage() {
     }
   };
 
+  const handleRenameCard = async (card: WorkbookDraftCard) => {
+    if (!card.canDelete) return;
+    const nextTitleRaw = window.prompt("Введите новое название карточки:", card.title);
+    if (nextTitleRaw === null) return;
+    const nextTitle = nextTitleRaw.trim();
+    if (nextTitle.length < 2) {
+      setError("Название должно содержать минимум 2 символа.");
+      return;
+    }
+    if (nextTitle === card.title) return;
+    try {
+      setRenamingSessionId(card.sessionId);
+      setError(null);
+      setSuccess(null);
+      const result = await renameWorkbookSession(card.sessionId, nextTitle);
+      const updatedAt = result.session.lastActivityAt;
+      const updatedTitle = result.session.title;
+      setDrafts((current) =>
+        current.map((item) =>
+          item.sessionId === card.sessionId
+            ? {
+                ...item,
+                title: updatedTitle,
+                updatedAt,
+              }
+            : item
+        )
+      );
+      setSuccess("Название карточки обновлено.");
+      triggerDraftCardsReload(true);
+    } catch {
+      setError("Не удалось изменить название карточки.");
+    } finally {
+      setRenamingSessionId(null);
+    }
+  };
+
   if (!isAuthReady) {
     return (
       <section className="workbook-launch workbook-entry-shell workbook-entry-shell--launch">
@@ -463,6 +503,7 @@ export default function WorkbookHubPage() {
             {cards.map((card) => {
               const isCopying = copyingSessionId === card.sessionId;
               const isDeleting = deletingSessionId === card.sessionId;
+              const isRenaming = renamingSessionId === card.sessionId;
               return (
                 <article className="workbook-hub__card" key={card.sessionId}>
                   {card.canDelete ? (
@@ -489,6 +530,23 @@ export default function WorkbookHubPage() {
                         )}
                       </Avatar>
                       <h3 title={card.title}>{card.title}</h3>
+                      {card.canDelete ? (
+                        <Tooltip title="Переименовать карточку">
+                          <span>
+                            <IconButton
+                              size="small"
+                              onClick={() => void handleRenameCard(card)}
+                              disabled={isRenaming}
+                            >
+                              {isRenaming ? (
+                                <CircularProgress size={16} />
+                              ) : (
+                                <EditRoundedIcon fontSize="small" />
+                              )}
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      ) : null}
                     </div>
 
                     <div className="workbook-hub__card-meta">
@@ -505,12 +563,18 @@ export default function WorkbookHubPage() {
 
                     <div className="workbook-hub__card-timeline">
                       <div className="workbook-hub__card-timeline-row">
-                        <span>Последний вход</span>
-                        <span>{formatDateTime(card.updatedAt)}</span>
+                        <span className="workbook-hub__card-timeline-label">Последний вход</span>
+                        <span className="workbook-hub__card-timeline-value">
+                          {formatDateTime(card.updatedAt)}
+                        </span>
                       </div>
                       <div className="workbook-hub__card-timeline-row">
-                        <span>Длительность присутствия</span>
-                        <span>{formatDuration(card.durationMinutes)}</span>
+                        <span className="workbook-hub__card-timeline-label">
+                          Длительность присутствия
+                        </span>
+                        <span className="workbook-hub__card-timeline-value">
+                          {formatDuration(card.durationMinutes)}
+                        </span>
                       </div>
                     </div>
 

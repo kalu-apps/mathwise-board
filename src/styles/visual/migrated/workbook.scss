@@ -191,10 +191,12 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
+  width: 100%;
 
   h3 {
     margin: 0;
     font-size: 16px;
+    flex: 1 1 auto;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -230,6 +232,17 @@
   }
 }
 
+.workbook-hub__card-timeline-label {
+  color: color-mix(in srgb, var(--text-secondary) 78%, #d9ecff);
+  font-weight: 600;
+}
+
+.workbook-hub__card-timeline-value {
+  color: color-mix(in srgb, #58e9d4 72%, #ffffff);
+  font-weight: 700;
+  text-shadow: 0 0 10px color-mix(in srgb, #58e9d4 22%, transparent);
+}
+
 .workbook-hub__details-meta {
   display: flex;
   flex-wrap: wrap;
@@ -260,11 +273,10 @@
   align-items: center;
   flex-direction: row;
   justify-content: flex-end;
-  gap: 4px;
-  padding: 2px 4px;
-  border: 1px solid color-mix(in srgb, var(--brand-soft) 28%, var(--border-subtle));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-soft) 86%, transparent);
+  gap: 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
   flex-shrink: 0;
   width: fit-content;
   max-width: 100%;

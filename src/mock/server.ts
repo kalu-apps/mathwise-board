@@ -1563,8 +1563,17 @@ const attachWorkbookLiveSocketServer = (host: MiddlewareHost) => {
         }
         const currentDb = getDb();
         const currentSession = getWorkbookSessionById(currentDb, sessionId);
+        if (!currentSession) {
+          try {
+            ws.close();
+          } catch {
+            // ignore close failures
+          }
+          return;
+        }
+        applyStudentControls(currentSession, currentDb);
         const currentParticipant = getWorkbookParticipant(currentDb, sessionId, actor.id);
-        if (!currentSession || !currentParticipant) {
+        if (!currentParticipant) {
           try {
             ws.close();
           } catch {
@@ -1596,26 +1605,58 @@ const attachWorkbookLiveSocketServer = (host: MiddlewareHost) => {
   });
 };
 
-const applyStudentControls = (session: WorkbookSessionRecord, db: MockDb) => {
+const resolveEffectiveStudentControls = (
+  session: WorkbookSessionRecord,
+  db: MockDb
+) => {
   const settings = readSessionSettings(session);
+  const hasOnlineTeacher = getWorkbookParticipants(db, session.id).some(
+    (participant) =>
+      participant.roleInSession === "teacher" && isParticipantOnline(participant)
+  );
+  if (hasOnlineTeacher) {
+    return settings.studentControls;
+  }
+  return {
+    ...settings.studentControls,
+    canDraw: true,
+    canSelect: true,
+    canDelete: true,
+    canInsertImage: true,
+    canClear: true,
+    canUseLaser: true,
+  };
+};
+
+const applyStudentControls = (session: WorkbookSessionRecord, db: MockDb) => {
+  const controls = resolveEffectiveStudentControls(session, db);
+  let changed = false;
   db.workbookParticipants = db.workbookParticipants.map((participant) => {
     if (participant.sessionId !== session.id || participant.roleInSession !== "student") {
       return participant;
     }
+    const nextPermissions = normalizeParticipantPermissions("student", {
+      ...participant.permissions,
+      canDraw: controls.canDraw,
+      canAnnotate: controls.canDraw,
+      canSelect: controls.canSelect,
+      canDelete: controls.canDelete,
+      canInsertImage: controls.canInsertImage,
+      canClear: controls.canClear,
+      canExport: controls.canExport,
+      canUseLaser: controls.canUseLaser,
+    });
+    const unchanged = participantPermissionKeys.every(
+      (key) => participant.permissions?.[key] === nextPermissions[key]
+    );
+    if (unchanged) return participant;
+    changed = true;
     return {
       ...participant,
-      permissions: {
-        ...participant.permissions,
-        canDraw: settings.studentControls.canDraw,
-        canSelect: settings.studentControls.canSelect,
-        canDelete: settings.studentControls.canDelete,
-        canInsertImage: settings.studentControls.canInsertImage,
-        canClear: settings.studentControls.canClear,
-        canExport: settings.studentControls.canExport,
-        canUseLaser: settings.studentControls.canUseLaser,
-      },
+      permissions: nextPermissions,
     };
   });
+  return changed;
 };
 
 const requireAuthUser = (req: IncomingMessage, res: ServerResponse, db: MockDb) => {
@@ -1781,6 +1822,10 @@ export function setupMockServer(host: MiddlewareHost) {
             (left, right) =>
               new Date(right.lastActivityAt).getTime() - new Date(left.lastActivityAt).getTime()
           );
+        sessions.forEach((session) => {
+          if (session.kind !== "CLASS") return;
+          applyStudentControls(session, db);
+        });
         const latestDraftBySession = new Map<string, WorkbookDraftRecord>();
         db.workbookDrafts.forEach((draft) => {
           const current = latestDraftBySession.get(draft.sessionId);
@@ -1913,6 +1958,7 @@ export function setupMockServer(host: MiddlewareHost) {
           forbidden(res);
           return;
         }
+        applyStudentControls(session, db);
         json(res, 200, serializeSession(db, session, actor.id));
         return;
       }
@@ -2444,6 +2490,7 @@ export function setupMockServer(host: MiddlewareHost) {
           roleInSession: actor.role === "teacher" ? "teacher" : "student",
           permissions: defaultPermissions(actor.role),
         });
+        applyStudentControls(session, db);
 
         invite.useCount += 1;
         session.status = "in_progress";
@@ -2568,7 +2615,8 @@ export function setupMockServer(host: MiddlewareHost) {
           notFound(res);
           return;
         }
-        const participant = getWorkbookParticipant(db, sessionId, actor.id);
+        applyStudentControls(session, db);
+        let participant = getWorkbookParticipant(db, sessionId, actor.id);
         if (!participant) {
           forbidden(res);
           return;
@@ -2618,6 +2666,7 @@ export function setupMockServer(host: MiddlewareHost) {
             ...targetParticipant.permissions,
             ...patch,
           };
+          participant = getWorkbookParticipant(db, sessionId, actor.id) ?? participant;
         }
 
         const appendResult = await workbookEventStore.append({
@@ -2663,6 +2712,7 @@ export function setupMockServer(host: MiddlewareHost) {
           notFound(res);
           return;
         }
+        applyStudentControls(session, db);
         const participant = getWorkbookParticipant(db, sessionId, actor.id);
         if (!participant) {
           forbidden(res);
@@ -2704,6 +2754,7 @@ export function setupMockServer(host: MiddlewareHost) {
           notFound(res);
           return;
         }
+        applyStudentControls(session, db);
         const participant = getWorkbookParticipant(db, sessionId, actor.id);
         if (!participant) {
           forbidden(res);
@@ -2932,6 +2983,7 @@ export function setupMockServer(host: MiddlewareHost) {
           ensureDraftForOwner(db, session, actor.id).updatedAt = session.lastActivityAt;
           presenceActivityTouchAtBySession.set(sessionId, heartbeatTs);
         }
+        applyStudentControls(session, db);
         persistPresenceIfNeeded(participant, {
           force: !wasActive || shouldTouchSessionActivity,
         });
@@ -2951,6 +3003,11 @@ export function setupMockServer(host: MiddlewareHost) {
         const actor = requireAuthUser(req, res, db);
         if (!actor) return;
         const sessionId = decodeURIComponent(workbookPresenceLeaveMatch[1]);
+        const session = getWorkbookSessionById(db, sessionId);
+        if (!session) {
+          notFound(res);
+          return;
+        }
         const participant = getWorkbookParticipant(db, sessionId, actor.id);
         if (!participant) {
           forbidden(res);
@@ -2960,6 +3017,7 @@ export function setupMockServer(host: MiddlewareHost) {
         presenceActivityTouchAtBySession.delete(sessionId);
         participant.leftAt = nowIso();
         participant.lastSeenAt = participant.leftAt;
+        applyStudentControls(session, db);
         persistPresenceIfNeeded(participant, { force: true });
         const participants = maybePublishPresenceSync(db, sessionId, actor.id);
 
