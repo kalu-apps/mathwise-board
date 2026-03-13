@@ -452,6 +452,26 @@
   flex-shrink: 0;
 }
 
+.workbook-hub__card-action-btn.MuiButton-root {
+  min-height: 28px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: clamp(0.71rem, 0.75vw, 0.78rem);
+  line-height: 1.2;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-transform: none;
+
+  .MuiButton-startIcon {
+    margin-right: 4px;
+    margin-left: 0;
+  }
+
+  .MuiButton-startIcon > *:first-of-type {
+    font-size: 1rem;
+  }
+}
+
 .workbook-session__head {
   display: flex;
   align-items: flex-start;
@@ -3629,27 +3649,33 @@
 
 .workbook-launch__student-alert .MuiAlert-message {
   width: 100%;
+  min-width: 0;
 }
 
 .workbook-launch__student-alert-content {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 12px;
+  row-gap: 10px;
   width: 100%;
+  min-width: 0;
+}
 
-  > span {
-    flex: 1 1 260px;
-    min-width: 0;
-    line-height: 1.45;
-  }
+.workbook-launch__student-alert-text {
+  min-width: 0;
+  margin: 0;
+  line-height: 1.48;
 }
 
 .workbook-launch__student-alert-button {
-  flex: 0 0 auto;
+  justify-self: end;
+  align-self: end;
   min-width: 0;
-  white-space: nowrap;
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-transform: none;
 }
 
 .workbook-entry-shell {
@@ -3859,16 +3885,13 @@
   }
 
   .workbook-launch__student-alert-content {
-    flex-direction: column;
-    align-items: stretch;
-
-    > span {
-      flex: 1 1 auto;
-    }
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 12px;
   }
 
   .workbook-launch__student-alert-button {
     width: 100%;
+    justify-self: stretch;
   }
 
   .workbook-session__head,
@@ -3914,6 +3937,11 @@
 
   .workbook-hub__card-actions-row > .MuiButton-root {
     min-width: 0;
+  }
+
+  .workbook-hub__card-action-btn.MuiButton-root {
+    padding: 3px 7px;
+    font-size: 0.72rem;
   }
 
   .workbook-session__head {

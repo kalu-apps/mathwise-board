@@ -5,6 +5,10 @@ import {
   Avatar,
   Button,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   IconButton,
   Skeleton,
   Stack,
@@ -121,6 +125,7 @@ export default function WorkbookHubPage() {
   const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [pendingDeleteCard, setPendingDeleteCard] = useState<WorkbookDraftCard | null>(null);
   const lastReloadAtRef = useRef(0);
   const loadRequestVersionRef = useRef(0);
   const hasLoadedAtLeastOnceRef = useRef(false);
@@ -341,17 +346,20 @@ export default function WorkbookHubPage() {
     }
   };
 
-  const handleDeleteCard = async (card: WorkbookDraftCard) => {
+  const handleDeleteCard = (card: WorkbookDraftCard) => {
     if (!card.canDelete) return;
-    const confirmed = window.confirm(
-      `Удалить карточку «${card.title}»?\nСсылка доступа к этой доске будет деактивирована.`
-    );
-    if (!confirmed) return;
+    setPendingDeleteCard(card);
+  };
+
+  const handleConfirmDeleteCard = async () => {
+    const card = pendingDeleteCard;
+    if (!card || !card.canDelete) return;
     try {
       setDeletingSessionId(card.sessionId);
       setError(null);
       await deleteWorkbookSession(card.sessionId);
       setDrafts((current) => current.filter((item) => item.sessionId !== card.sessionId));
+      setPendingDeleteCard(null);
     } catch {
       setError("Не удалось удалить карточку.");
     } finally {
@@ -440,15 +448,20 @@ export default function WorkbookHubPage() {
         <AuthAmbientScene variant="launch" />
         <article className="workbook-launch__card">
           <Typography variant="h4">Рабочие тетради</Typography>
-          <Alert
-            severity="warning"
-            action={
-              <Button color="inherit" size="small" onClick={logout}>
+          <Alert severity="warning" className="workbook-launch__student-alert">
+            <div className="workbook-launch__student-alert-content">
+              <span className="workbook-launch__student-alert-text">
+                {t("whiteboardLaunch.waitingStudent")}
+              </span>
+              <Button
+                color="inherit"
+                size="small"
+                onClick={logout}
+                className="workbook-launch__student-alert-button"
+              >
                 {t("whiteboardLaunch.loginAsTeacher")}
               </Button>
-            }
-          >
-            {t("whiteboardLaunch.waitingStudent")}
+            </div>
           </Alert>
         </article>
       </section>
@@ -612,6 +625,7 @@ export default function WorkbookHubPage() {
 
                     <div className="workbook-hub__card-actions-row">
                       <Button
+                        className="workbook-hub__card-action-btn workbook-hub__card-action-btn--open"
                         size="small"
                         variant="text"
                         startIcon={<OpenInNewRoundedIcon />}
@@ -622,6 +636,7 @@ export default function WorkbookHubPage() {
                       <div className="workbook-hub__card-actions">
                         {card.kind === "CLASS" ? (
                           <Button
+                            className="workbook-hub__card-action-btn"
                             size="small"
                             variant="text"
                             startIcon={
@@ -639,6 +654,7 @@ export default function WorkbookHubPage() {
                         ) : null}
                         {card.canDelete ? (
                           <Button
+                            className="workbook-hub__card-action-btn"
                             size="small"
                             variant="text"
                             startIcon={
@@ -663,6 +679,40 @@ export default function WorkbookHubPage() {
           </div>
         )}
       </article>
+
+      <Dialog
+        open={Boolean(pendingDeleteCard)}
+        onClose={() => {
+          if (deletingSessionId) return;
+          setPendingDeleteCard(null);
+        }}
+        className="workbook-hub__confirm-dialog"
+      >
+        <DialogTitle>Удалить карточку?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            {pendingDeleteCard
+              ? `Карточка «${pendingDeleteCard.title}» будет удалена, а ссылка доступа деактивирована.`
+              : "Карточка будет удалена, а ссылка доступа деактивирована."}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setPendingDeleteCard(null)}
+            disabled={Boolean(deletingSessionId)}
+          >
+            Отмена
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => void handleConfirmDeleteCard()}
+            disabled={Boolean(deletingSessionId)}
+          >
+            {deletingSessionId ? "Удаляем..." : "Удалить"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
     </section>
   );

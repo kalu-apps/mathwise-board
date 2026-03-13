@@ -112,7 +112,9 @@ export default function WorkbookLaunchPage() {
         {isAuthReady && user?.role === "student" ? (
           <Alert severity="warning" className="workbook-launch__student-alert">
             <div className="workbook-launch__student-alert-content">
-              <span>{t("whiteboardLaunch.waitingStudent")}</span>
+              <span className="workbook-launch__student-alert-text">
+                {t("whiteboardLaunch.waitingStudent")}
+              </span>
               <Button
                 color="inherit"
                 size="small"
