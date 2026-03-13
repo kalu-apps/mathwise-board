@@ -181,9 +181,11 @@ export default function WorkbookInviteJoinPage() {
         {state.error ? <Alert severity="error">{state.error}</Alert> : null}
         {!state.loading && !state.error ? (
           <div className="workbook-invite__meta">
-            <p>
-              {t("workbookInvite.sessionLabel")}: <strong>{state.title}</strong>
-            </p>
+            {!shouldCollectGuestName ? (
+              <p>
+                {t("workbookInvite.sessionLabel")}: <strong>{state.title}</strong>
+              </p>
+            ) : null}
             <p>
               {t("workbookInvite.teacherLabel")}: <strong>{state.hostName}</strong>
             </p>

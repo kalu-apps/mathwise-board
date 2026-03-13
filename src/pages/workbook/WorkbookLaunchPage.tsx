@@ -110,15 +110,18 @@ export default function WorkbookLaunchPage() {
           </Stack>
         ) : null}
         {isAuthReady && user?.role === "student" ? (
-          <Alert
-            severity="warning"
-            action={
-              <Button color="inherit" size="small" onClick={logout}>
+          <Alert severity="warning" className="workbook-launch__student-alert">
+            <div className="workbook-launch__student-alert-content">
+              <span>{t("whiteboardLaunch.waitingStudent")}</span>
+              <Button
+                color="inherit"
+                size="small"
+                onClick={logout}
+                className="workbook-launch__student-alert-button"
+              >
                 {t("whiteboardLaunch.loginAsTeacher")}
               </Button>
-            }
-          >
-            {t("whiteboardLaunch.waitingStudent")}
+            </div>
           </Alert>
         ) : null}
       </article>
