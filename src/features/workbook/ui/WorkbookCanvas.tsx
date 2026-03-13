@@ -112,6 +112,8 @@ import {
   buildCommittedObjectEraserStoredPaths,
   isPointInsideObjectEraserMask,
   normalizeObjectEraserPreviewPath,
+  sanitizeObjectEraserCuts,
+  sanitizeObjectEraserPaths,
   type ObjectEraserCut,
   type ObjectEraserPreviewPath,
   type ObjectEraserStoredPath,
