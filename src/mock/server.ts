@@ -70,6 +70,7 @@ const ONLINE_TIMEOUT_MS = 3_500;
 const PRESENCE_PERSIST_INTERVAL_MS = 15_000;
 const PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS = 20_000;
 const INVITE_TTL_MS = 2 * 60 * 60 * 1000;
+const CLASS_INVITE_PERSISTENT_EXPIRES_AT = "2999-12-31T23:59:59.999Z";
 const WORKBOOK_EVENT_LIMIT = 1_200;
 const CORS_ALLOWED_ORIGINS = String(process.env.CORS_ALLOWED_ORIGINS ?? "")
   .split(",")
@@ -1679,7 +1680,7 @@ export function setupMockServer(host: MiddlewareHost) {
           typeof body?.title === "string" && body.title.trim().length > 0
             ? body.title.trim().slice(0, 140)
             : kind === "CLASS"
-              ? "Коллективный урок"
+              ? "Индивидуальное занятие"
               : "Личная тетрадь";
         const timestamp = nowIso();
         const session: WorkbookSessionRecord = {
@@ -2081,18 +2082,38 @@ export function setupMockServer(host: MiddlewareHost) {
         }
 
         const timestamp = nowIso();
-        const invite: WorkbookInviteRecord = {
-          id: ensureId(),
-          sessionId,
-          token: ensureId(),
-          createdBy: actor.id,
-          createdAt: timestamp,
-          expiresAt: new Date(nowTs() + INVITE_TTL_MS).toISOString(),
-          maxUses: 1,
-          useCount: 0,
-          revokedAt: null,
-        };
-        db.workbookInvites.push(invite);
+        const existingInvite =
+          session.kind === "CLASS"
+            ? db.workbookInvites
+                .filter((item) => item.sessionId === sessionId && !item.revokedAt)
+                .sort(
+                  (left, right) =>
+                    new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+                )[0]
+            : null;
+        const invite: WorkbookInviteRecord =
+          existingInvite ??
+          {
+            id: ensureId(),
+            sessionId,
+            token: ensureId(),
+            createdBy: actor.id,
+            createdAt: timestamp,
+            expiresAt: new Date(nowTs() + INVITE_TTL_MS).toISOString(),
+            maxUses: 1,
+            useCount: 0,
+            revokedAt: null,
+          };
+        if (session.kind === "CLASS") {
+          invite.expiresAt = CLASS_INVITE_PERSISTENT_EXPIRES_AT;
+          invite.maxUses = null;
+        } else if (!existingInvite) {
+          invite.expiresAt = new Date(nowTs() + INVITE_TTL_MS).toISOString();
+          invite.maxUses = 1;
+        }
+        if (!existingInvite) {
+          db.workbookInvites.push(invite);
+        }
         saveDb();
         json(res, 200, {
           inviteId: invite.id,

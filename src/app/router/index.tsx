@@ -10,6 +10,9 @@ const WorkbookSessionPage = lazy(
 const WorkbookInviteJoinPage = lazy(
   () => import("@/pages/workbook/WorkbookInviteJoinPage")
 );
+const WorkbookHubPage = lazy(
+  () => import("@/pages/workbook/WorkbookHubPage")
+);
 const WorkbookLaunchPage = lazy(
   () => import("@/pages/workbook/WorkbookLaunchPage")
 );
@@ -30,10 +33,14 @@ const withSuspense = (node: ReactNode) => (
 const whiteboardChildren: RouteObject[] = [
   {
     path: "/",
-    element: withSuspense(<WorkbookLaunchPage />),
+    element: withSuspense(<WorkbookHubPage />),
   },
   {
     path: "/workbook",
+    element: withSuspense(<WorkbookHubPage />),
+  },
+  {
+    path: "/workbook/launch",
     element: withSuspense(<WorkbookLaunchPage />),
   },
   {

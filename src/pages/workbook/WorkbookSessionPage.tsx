@@ -10068,7 +10068,7 @@ export default function WorkbookSessionPage() {
             <div className="workbook-session__head-meta">
               <Chip
                 size="small"
-                label={session.kind === "CLASS" ? "Коллективная сессия" : "Личная тетрадь"}
+                label={session.kind === "CLASS" ? "Индивидуальное занятие" : "Личная тетрадь"}
               />
               {session.status === "ended" ? (
                 <Chip size="small" label="Завершено" color="default" />
