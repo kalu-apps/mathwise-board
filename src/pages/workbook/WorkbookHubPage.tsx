@@ -31,6 +31,7 @@ import {
   renameWorkbookSession,
 } from "@/features/workbook/model/api";
 import type { WorkbookDraftCard, WorkbookInviteInfo } from "@/features/workbook/model/types";
+import { APP_DATA_UPDATED_EVENT } from "@/shared/lib/dataUpdateBus";
 
 type HubScope = "class" | "personal";
 
@@ -54,6 +55,25 @@ const dedupeDraftCards = (items: WorkbookDraftCard[]) => {
     }
   });
   return Array.from(uniqueCards.values());
+};
+
+const areDraftCardsEqual = (left: WorkbookDraftCard[], right: WorkbookDraftCard[]) => {
+  if (left.length !== right.length) return false;
+  return left.every((current, index) => {
+    const next = right[index];
+    return (
+      next &&
+      current.sessionId === next.sessionId &&
+      current.kind === next.kind &&
+      current.title === next.title &&
+      current.updatedAt === next.updatedAt &&
+      current.durationMinutes === next.durationMinutes &&
+      current.participantsCount === next.participantsCount &&
+      current.statusForCard === next.statusForCard &&
+      current.canDelete === next.canDelete &&
+      current.isOwner === next.isOwner
+    );
+  });
 };
 
 const formatDateTime = (value: string) => {
@@ -94,7 +114,8 @@ export default function WorkbookHubPage() {
   const { user, isAuthReady, openAuthModal, logout } = useAuth();
   const [scope, setScope] = useState<HubScope>("class");
   const [drafts, setDrafts] = useState<WorkbookDraftCard[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [creatingClass, setCreatingClass] = useState(false);
@@ -104,6 +125,14 @@ export default function WorkbookHubPage() {
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const lastReloadAtRef = useRef(0);
   const loadRequestVersionRef = useRef(0);
+  const hasLoadedAtLeastOnceRef = useRef(false);
+  const loadingInFlightRef = useRef(false);
+  const queuedReloadRef = useRef(false);
+  const draftsRef = useRef<WorkbookDraftCard[]>([]);
+
+  useEffect(() => {
+    draftsRef.current = drafts;
+  }, [drafts]);
 
   useEffect(() => {
     if (!isAuthReady || user) return;
@@ -113,25 +142,51 @@ export default function WorkbookHubPage() {
   const loadDraftCards = useCallback(async () => {
     if (!isAuthReady || !user || user.role !== "teacher") {
       setLoading(false);
+      setIsRefreshing(false);
+      loadingInFlightRef.current = false;
+      queuedReloadRef.current = false;
+      hasLoadedAtLeastOnceRef.current = false;
       return;
     }
+    if (loadingInFlightRef.current) {
+      queuedReloadRef.current = true;
+      return;
+    }
+    loadingInFlightRef.current = true;
     const requestVersion = loadRequestVersionRef.current + 1;
     loadRequestVersionRef.current = requestVersion;
+    const showSkeleton = !hasLoadedAtLeastOnceRef.current && draftsRef.current.length === 0;
     try {
-      setLoading(true);
-      setError(null);
+      if (showSkeleton) {
+        setLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
       const response = await getWorkbookDrafts("all");
       if (loadRequestVersionRef.current !== requestVersion) return;
       const sorted = dedupeDraftCards(response.items).sort(
         (left, right) => toSortTimestamp(right.updatedAt) - toSortTimestamp(left.updatedAt)
       );
-      setDrafts(sorted);
+      hasLoadedAtLeastOnceRef.current = true;
+      setError(null);
+      setDrafts((current) => (areDraftCardsEqual(current, sorted) ? current : sorted));
     } catch {
       if (loadRequestVersionRef.current !== requestVersion) return;
-      setError("Не удалось загрузить карточки. Повторим синхронизацию автоматически.");
+      hasLoadedAtLeastOnceRef.current = true;
+      setError(
+        draftsRef.current.length > 0
+          ? "Не удалось синхронизировать карточки. Показываем последние сохраненные данные."
+          : "Не удалось загрузить карточки. Повторим синхронизацию автоматически."
+      );
     } finally {
+      loadingInFlightRef.current = false;
       if (loadRequestVersionRef.current === requestVersion) {
         setLoading(false);
+        setIsRefreshing(false);
+      }
+      if (queuedReloadRef.current) {
+        queuedReloadRef.current = false;
+        void loadDraftCards();
       }
     }
   }, [isAuthReady, user]);
@@ -169,9 +224,13 @@ export default function WorkbookHubPage() {
     const handleOnline = () => {
       triggerDraftCardsReload(true);
     };
+    const handleDataUpdated = () => {
+      triggerDraftCardsReload(true);
+    };
     window.addEventListener("focus", handleFocus);
     window.addEventListener("pageshow", handlePageShow);
     window.addEventListener("online", handleOnline);
+    window.addEventListener(APP_DATA_UPDATED_EVENT, handleDataUpdated);
     document.addEventListener("visibilitychange", handleVisibility);
     const intervalId = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
@@ -181,6 +240,7 @@ export default function WorkbookHubPage() {
       window.removeEventListener("focus", handleFocus);
       window.removeEventListener("pageshow", handlePageShow);
       window.removeEventListener("online", handleOnline);
+      window.removeEventListener(APP_DATA_UPDATED_EVENT, handleDataUpdated);
       document.removeEventListener("visibilitychange", handleVisibility);
       window.clearInterval(intervalId);
     };
@@ -472,8 +532,16 @@ export default function WorkbookHubPage() {
             {success}
           </Alert>
         ) : null}
+        {isRefreshing ? (
+          <Stack direction="row" spacing={1} alignItems="center" aria-live="polite">
+            <CircularProgress size={14} />
+            <Typography variant="caption" color="text.secondary">
+              Обновляем карточки...
+            </Typography>
+          </Stack>
+        ) : null}
 
-        {loading ? (
+        {loading && drafts.length === 0 ? (
           <div className="workbook-hub__list" aria-busy="true" aria-live="polite">
             {Array.from({ length: skeletonCount }).map((_, index) => (
               <article className="workbook-hub__card workbook-hub__card--skeleton" key={index}>

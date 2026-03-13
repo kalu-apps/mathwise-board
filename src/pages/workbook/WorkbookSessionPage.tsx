@@ -10069,11 +10069,9 @@ export default function WorkbookSessionPage() {
     }
     if (typeof window !== "undefined" && window.opener && !window.opener.closed) {
       try {
-        const targetUrl = new URL(fromPath, window.location.origin).toString();
-        window.opener.location.assign(targetUrl);
         window.opener.focus?.();
       } catch {
-        // ignore opener navigation/focus errors; fallback will still close/navigate current tab
+        // ignore opener focus errors; fallback will still close/navigate current tab
       }
       window.close();
       if (!window.closed) {
