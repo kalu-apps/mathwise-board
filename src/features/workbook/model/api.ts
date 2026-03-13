@@ -1,7 +1,12 @@
-import { api } from "@/shared/api/client";
+import { api, isRecoverableApiError } from "@/shared/api/client";
 import { buildApiUrl } from "@/shared/api/base";
 import type { User } from "@/entities/user/model/types";
 import type { WorkbookClientEventInput } from "./events";
+import {
+  enqueueWorkbookEventsPersistence,
+  enqueueWorkbookSnapshotPersistence,
+  flushWorkbookPersistenceQueue,
+} from "./persistenceQueue";
 import type {
   WorkbookDraftCard,
   WorkbookEvent,
@@ -348,11 +353,23 @@ export async function appendWorkbookEvents(params: {
   sessionId: string;
   events: WorkbookClientEventInput[];
 }) {
-  return api.post<{ events: WorkbookEvent[]; latestSeq: number }>(
-    `/workbook/sessions/${encodeURIComponent(params.sessionId)}/events`,
-    { events: params.events },
-    { notifyDataUpdate: false }
-  );
+  try {
+    const response = await api.post<{ events: WorkbookEvent[]; latestSeq: number }>(
+      `/workbook/sessions/${encodeURIComponent(params.sessionId)}/events`,
+      { events: params.events },
+      { notifyDataUpdate: false }
+    );
+    void flushWorkbookPersistenceQueue();
+    return response;
+  } catch (error) {
+    if (isRecoverableApiError(error)) {
+      enqueueWorkbookEventsPersistence({
+        sessionId: params.sessionId,
+        events: params.events,
+      });
+    }
+    throw error;
+  }
 }
 
 export async function appendWorkbookLiveEvents(params: {
@@ -425,11 +442,20 @@ export async function saveWorkbookSnapshot(params: {
   version: number;
   payload: unknown;
 }) {
-  return api.put<WorkbookSnapshot>(
-    `/workbook/sessions/${encodeURIComponent(params.sessionId)}/snapshot`,
-    params,
-    { notifyDataUpdate: false }
-  );
+  try {
+    const response = await api.put<WorkbookSnapshot>(
+      `/workbook/sessions/${encodeURIComponent(params.sessionId)}/snapshot`,
+      params,
+      { notifyDataUpdate: false }
+    );
+    void flushWorkbookPersistenceQueue();
+    return response;
+  } catch (error) {
+    if (isRecoverableApiError(error)) {
+      enqueueWorkbookSnapshotPersistence(params);
+    }
+    throw error;
+  }
 }
 
 export async function heartbeatWorkbookPresence(sessionId: string) {

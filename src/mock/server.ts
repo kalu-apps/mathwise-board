@@ -14,6 +14,7 @@ import {
   type UserRecord,
   type WorkbookDraftRecord,
   type WorkbookInviteRecord,
+  type WorkbookOperationRecord,
   type WorkbookParticipantPermissions,
   type WorkbookSessionKind,
   type WorkbookSessionParticipantRecord,
@@ -71,6 +72,8 @@ const PRESENCE_PERSIST_INTERVAL_MS = 15_000;
 const PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS = 20_000;
 const INVITE_TTL_MS = 2 * 60 * 60 * 1000;
 const CLASS_INVITE_PERSISTENT_EXPIRES_AT = "2999-12-31T23:59:59.999Z";
+const WORKBOOK_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+const WORKBOOK_IDEMPOTENCY_MAX_RECORDS = 5_000;
 const WORKBOOK_EVENT_LIMIT = 1_200;
 const CORS_ALLOWED_ORIGINS = String(process.env.CORS_ALLOWED_ORIGINS ?? "")
   .split(",")
@@ -262,6 +265,10 @@ const badRequest = (res: ServerResponse, message = "Bad request") => {
   json(res, 400, { error: message });
 };
 
+const conflict = (res: ServerResponse, message = "Conflict") => {
+  json(res, 409, { error: message });
+};
+
 const serviceUnavailable = (res: ServerResponse, message = "Service unavailable") => {
   json(res, 503, { error: message });
 };
@@ -283,6 +290,114 @@ const parseCookies = (req: IncomingMessage): Record<string, string> => {
     acc[key] = decodeURIComponent(rest.join("=") ?? "");
     return acc;
   }, {});
+};
+
+const readHeaderValue = (req: IncomingMessage, name: string) => {
+  const target = name.toLowerCase();
+  const entry = Object.entries(req.headers).find(([key]) => key.toLowerCase() === target);
+  if (!entry) return "";
+  const value = entry[1];
+  if (Array.isArray(value)) return String(value[0] ?? "").trim();
+  return typeof value === "string" ? value.trim() : "";
+};
+
+const readIdempotencyKey = (req: IncomingMessage) => {
+  const raw = readHeaderValue(req, "x-idempotency-key");
+  if (!raw) return null;
+  return raw.slice(0, 240);
+};
+
+const normalizeOperationFingerprint = (value: unknown) => {
+  try {
+    return JSON.stringify(value ?? null);
+  } catch {
+    return String(value ?? "");
+  }
+};
+
+const cleanupWorkbookIdempotencyOperations = (db: MockDb) => {
+  const now = nowTs();
+  let operations = db.workbookOperations.filter(
+    (entry) => new Date(entry.expiresAt).getTime() > now
+  );
+  if (operations.length > WORKBOOK_IDEMPOTENCY_MAX_RECORDS) {
+    operations = operations
+      .slice()
+      .sort(
+        (left, right) =>
+          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+      )
+      .slice(0, WORKBOOK_IDEMPOTENCY_MAX_RECORDS);
+  }
+  if (operations.length === db.workbookOperations.length) return;
+  db.workbookOperations = operations;
+  saveDb();
+};
+
+const readWorkbookIdempotentOperation = <TPayload>(
+  db: MockDb,
+  params: {
+    scope: WorkbookOperationRecord["scope"];
+    actorUserId: string;
+    idempotencyKey: string | null;
+    requestFingerprint: string;
+  }
+) => {
+  if (!params.idempotencyKey) return null;
+  cleanupWorkbookIdempotencyOperations(db);
+  const key = `${params.actorUserId}:${params.idempotencyKey}`;
+  const operation =
+    getDbIndex(db).operationsByScopeKey.get(`${params.scope}:${key}`) ?? null;
+  if (!operation) return null;
+  if (operation.requestFingerprint !== params.requestFingerprint) {
+    return { conflict: true } as const;
+  }
+  return {
+    conflict: false as const,
+    statusCode: operation.statusCode,
+    payload: safeParseJson<TPayload>(operation.responsePayload, null as TPayload),
+  };
+};
+
+const saveWorkbookIdempotentOperation = (
+  db: MockDb,
+  params: {
+    scope: WorkbookOperationRecord["scope"];
+    actorUserId: string;
+    idempotencyKey: string | null;
+    requestFingerprint: string;
+    statusCode: number;
+    payload: unknown;
+  }
+) => {
+  if (!params.idempotencyKey) return;
+  cleanupWorkbookIdempotencyOperations(db);
+  const key = `${params.actorUserId}:${params.idempotencyKey}`;
+  const timestamp = nowIso();
+  const expiresAt = new Date(nowTs() + WORKBOOK_IDEMPOTENCY_TTL_MS).toISOString();
+  const payloadRaw = normalizeOperationFingerprint(params.payload);
+  const existingIndex = db.workbookOperations.findIndex(
+    (entry) => entry.scope === params.scope && entry.key === key
+  );
+  const record: WorkbookOperationRecord = {
+    id: existingIndex >= 0 ? db.workbookOperations[existingIndex].id : ensureId(),
+    scope: params.scope,
+    actorUserId: params.actorUserId,
+    key,
+    requestFingerprint: params.requestFingerprint,
+    statusCode: params.statusCode,
+    responsePayload: payloadRaw,
+    createdAt:
+      existingIndex >= 0 ? db.workbookOperations[existingIndex].createdAt : timestamp,
+    updatedAt: timestamp,
+    expiresAt,
+  };
+  if (existingIndex >= 0) {
+    db.workbookOperations[existingIndex] = record;
+  } else {
+    db.workbookOperations.push(record);
+  }
+  saveDb();
 };
 
 const writeAuthCookie = (res: ServerResponse, token: string) => {
@@ -1722,6 +1837,28 @@ export function setupMockServer(host: MiddlewareHost) {
             : kind === "CLASS"
               ? "Индивидуальное занятие"
               : "Личная тетрадь";
+        const idempotencyKey = readIdempotencyKey(req);
+        const requestFingerprint = normalizeOperationFingerprint({
+          kind,
+          title,
+        });
+        const existingOperation = readWorkbookIdempotentOperation<{
+          session: ReturnType<typeof serializeSession>;
+          draft: ReturnType<typeof serializeDraft>;
+        }>(db, {
+          scope: "workbook_sessions_create",
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+        });
+        if (existingOperation?.conflict) {
+          conflict(res, "idempotency_key_reused_with_different_payload");
+          return;
+        }
+        if (existingOperation) {
+          json(res, existingOperation.statusCode, existingOperation.payload);
+          return;
+        }
         const timestamp = nowIso();
         const session: WorkbookSessionRecord = {
           id: ensureId(),
@@ -1745,11 +1882,20 @@ export function setupMockServer(host: MiddlewareHost) {
         });
 
         const draft = ensureDraftForOwner(db, session, actor.id);
-        saveDb();
-        json(res, 200, {
+        const payload = {
           session: serializeSession(db, session, actor.id),
           draft: serializeDraft(db, draft, actor.id),
+        };
+        saveWorkbookIdempotentOperation(db, {
+          scope: "workbook_sessions_create",
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+          statusCode: 200,
+          payload,
         });
+        saveDb();
+        json(res, 200, payload);
         return;
       }
 
@@ -1822,6 +1968,26 @@ export function setupMockServer(host: MiddlewareHost) {
         const actor = requireAuthUser(req, res, db);
         if (!actor) return;
         const sessionId = decodeURIComponent(workbookSessionMatch[1]);
+        const idempotencyKey = readIdempotencyKey(req);
+        const requestFingerprint = normalizeOperationFingerprint({ sessionId });
+        const existingOperation = readWorkbookIdempotentOperation<{
+          ok: true;
+          deletedSessionId: string;
+          message: string;
+        }>(db, {
+          scope: "workbook_sessions_delete",
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+        });
+        if (existingOperation?.conflict) {
+          conflict(res, "idempotency_key_reused_with_different_payload");
+          return;
+        }
+        if (existingOperation) {
+          json(res, existingOperation.statusCode, existingOperation.payload);
+          return;
+        }
         const session = getWorkbookSessionById(db, sessionId);
         if (!session) {
           notFound(res);
@@ -1844,12 +2010,21 @@ export function setupMockServer(host: MiddlewareHost) {
         workbookLiveSocketClientsBySession.delete(sessionId);
         presenceSnapshotHashBySession.delete(sessionId);
         presenceActivityTouchAtBySession.delete(sessionId);
-        saveDb();
-        json(res, 200, {
-          ok: true,
+        const payload = {
+          ok: true as const,
           deletedSessionId: sessionId,
           message: "Сессия удалена",
+        };
+        saveWorkbookIdempotentOperation(db, {
+          scope: "workbook_sessions_delete",
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+          statusCode: 200,
+          payload,
         });
+        saveDb();
+        json(res, 200, payload);
         return;
       }
 
@@ -2110,6 +2285,30 @@ export function setupMockServer(host: MiddlewareHost) {
         const actor = requireAuthUser(req, res, db);
         if (!actor) return;
         const sessionId = decodeURIComponent(workbookInviteCreateMatch[1]);
+        const idempotencyKey = readIdempotencyKey(req);
+        const requestFingerprint = normalizeOperationFingerprint({ sessionId });
+        const existingOperation = readWorkbookIdempotentOperation<{
+          inviteId: string;
+          sessionId: string;
+          token: string;
+          inviteUrl: string;
+          expiresAt?: string | null;
+          maxUses?: number | null;
+          useCount: number;
+        }>(db, {
+          scope: "workbook_invite_create",
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+        });
+        if (existingOperation?.conflict) {
+          conflict(res, "idempotency_key_reused_with_different_payload");
+          return;
+        }
+        if (existingOperation) {
+          json(res, existingOperation.statusCode, existingOperation.payload);
+          return;
+        }
         const session = getWorkbookSessionById(db, sessionId);
         if (!session) {
           notFound(res);
@@ -2154,8 +2353,7 @@ export function setupMockServer(host: MiddlewareHost) {
         if (!existingInvite) {
           db.workbookInvites.push(invite);
         }
-        saveDb();
-        json(res, 200, {
+        const payload = {
           inviteId: invite.id,
           sessionId: invite.sessionId,
           token: invite.token,
@@ -2163,7 +2361,17 @@ export function setupMockServer(host: MiddlewareHost) {
           expiresAt: invite.expiresAt,
           maxUses: invite.maxUses ?? null,
           useCount: invite.useCount,
+        };
+        saveWorkbookIdempotentOperation(db, {
+          scope: "workbook_invite_create",
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+          statusCode: 200,
+          payload,
         });
+        saveDb();
+        json(res, 200, payload);
         return;
       }
 

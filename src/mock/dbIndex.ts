@@ -3,6 +3,7 @@ import type {
   MockDb,
   UserRecord,
   WorkbookDraftRecord,
+  WorkbookOperationRecord,
   WorkbookInviteRecord,
   WorkbookSessionParticipantRecord,
   WorkbookSessionRecord,
@@ -24,6 +25,8 @@ type DbIndexSnapshot = {
   workbookDraftsLen: number;
   workbookInvitesRef: MockDb["workbookInvites"];
   workbookInvitesLen: number;
+  workbookOperationsRef: MockDb["workbookOperations"];
+  workbookOperationsLen: number;
 };
 
 export type DbIndex = {
@@ -34,6 +37,7 @@ export type DbIndex = {
   participantsBySessionUser: Map<string, WorkbookSessionParticipantRecord>;
   draftsBySessionOwner: Map<string, WorkbookDraftRecord>;
   invitesByToken: Map<string, WorkbookInviteRecord>;
+  operationsByScopeKey: Map<string, WorkbookOperationRecord>;
 };
 
 const dbIndexCache = new WeakMap<MockDb, { snapshot: DbIndexSnapshot; index: DbIndex }>();
@@ -51,6 +55,8 @@ const createSnapshot = (db: MockDb): DbIndexSnapshot => ({
   workbookDraftsLen: db.workbookDrafts.length,
   workbookInvitesRef: db.workbookInvites,
   workbookInvitesLen: db.workbookInvites.length,
+  workbookOperationsRef: db.workbookOperations,
+  workbookOperationsLen: db.workbookOperations.length,
 });
 
 const isSnapshotReusable = (db: MockDb, snapshot: DbIndexSnapshot) =>
@@ -65,7 +71,9 @@ const isSnapshotReusable = (db: MockDb, snapshot: DbIndexSnapshot) =>
   snapshot.workbookDraftsRef === db.workbookDrafts &&
   snapshot.workbookDraftsLen === db.workbookDrafts.length &&
   snapshot.workbookInvitesRef === db.workbookInvites &&
-  snapshot.workbookInvitesLen === db.workbookInvites.length;
+  snapshot.workbookInvitesLen === db.workbookInvites.length &&
+  snapshot.workbookOperationsRef === db.workbookOperations &&
+  snapshot.workbookOperationsLen === db.workbookOperations.length;
 
 const buildDbIndex = (db: MockDb): DbIndex => {
   const usersById = new Map(db.users.map((user) => [user.id, user]));
@@ -92,6 +100,12 @@ const buildDbIndex = (db: MockDb): DbIndex => {
   });
 
   const invitesByToken = new Map(db.workbookInvites.map((invite) => [invite.token, invite]));
+  const operationsByScopeKey = new Map(
+    db.workbookOperations.map((operation) => [
+      `${operation.scope}:${operation.key}`,
+      operation,
+    ])
+  );
 
   return {
     usersById,
@@ -101,6 +115,7 @@ const buildDbIndex = (db: MockDb): DbIndex => {
     participantsBySessionUser,
     draftsBySessionOwner,
     invitesByToken,
+    operationsByScopeKey,
   };
 };
 

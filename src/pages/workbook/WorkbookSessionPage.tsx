@@ -224,6 +224,11 @@ import {
   normalizeSmartInkOptions,
   type SmartInkOptions,
 } from "./workbookBoardSettingsModel";
+import {
+  flushWorkbookPersistenceQueue,
+  getWorkbookPersistenceQueueSnapshot,
+  subscribeWorkbookPersistenceQueue,
+} from "@/features/workbook/model/persistenceQueue";
 
 const WorkbookSessionBoardSettingsPanel = lazy(async () => ({
   default: (await import("./WorkbookSessionBoardSettingsPanel")).WorkbookSessionBoardSettingsPanel,
@@ -1490,6 +1495,10 @@ export default function WorkbookSessionPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveSyncWarning, setSaveSyncWarning] = useState<string | null>(null);
+  const [realtimeSyncWarning, setRealtimeSyncWarning] = useState<string | null>(null);
+  const [persistenceQueueSnapshot, setPersistenceQueueSnapshot] = useState(() =>
+    getWorkbookPersistenceQueueSnapshot()
+  );
   const [copyingInviteLink, setCopyingInviteLink] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [isStereoDialogOpen, setIsStereoDialogOpen] = useState(false);
@@ -1582,6 +1591,8 @@ export default function WorkbookSessionPage() {
   } | null>(null);
   const presenceLeaveSentRef = useRef(false);
   const sessionResyncInFlightRef = useRef(false);
+  const realtimeDisconnectSinceRef = useRef<number | null>(null);
+  const lastForcedResyncAtRef = useRef<number>(0);
   const boardObjectsRef = useRef<WorkbookBoardObject[]>([]);
   const boardStrokesRef = useRef<WorkbookStroke[]>([]);
   const annotationStrokesRef = useRef<WorkbookStroke[]>([]);
@@ -3210,6 +3221,46 @@ export default function WorkbookSessionPage() {
   ]);
 
   useEffect(() => {
+    if (!sessionId || !session) {
+      realtimeDisconnectSinceRef.current = null;
+      setRealtimeSyncWarning(null);
+      return;
+    }
+    const disconnected = !isWorkbookStreamConnected && !isWorkbookLiveConnected;
+    if (!disconnected) {
+      realtimeDisconnectSinceRef.current = null;
+      setRealtimeSyncWarning(null);
+      return;
+    }
+    if (!realtimeDisconnectSinceRef.current) {
+      realtimeDisconnectSinceRef.current = Date.now();
+    }
+    const timerId = window.setInterval(() => {
+      const startedAt = realtimeDisconnectSinceRef.current;
+      if (!startedAt) return;
+      const elapsed = Date.now() - startedAt;
+      if (elapsed >= 12_000) {
+        setRealtimeSyncWarning(
+          "Realtime-канал нестабилен. Продолжаем синхронизацию через резервные механизмы."
+        );
+      }
+      if (elapsed >= 30_000 && Date.now() - lastForcedResyncAtRef.current >= 20_000) {
+        lastForcedResyncAtRef.current = Date.now();
+        triggerSessionResync();
+      }
+    }, 2_500);
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, [
+    isWorkbookLiveConnected,
+    isWorkbookStreamConnected,
+    session,
+    sessionId,
+    triggerSessionResync,
+  ]);
+
+  useEffect(() => {
     if (!sessionId || !session) return;
     const unsubscribe = subscribeWorkbookEventsStream({
       sessionId,
@@ -3665,6 +3716,24 @@ export default function WorkbookSessionPage() {
       persistSnapshotsRef.current = null;
     };
   }, [persistSnapshots]);
+
+  useEffect(() => {
+    setPersistenceQueueSnapshot(getWorkbookPersistenceQueueSnapshot());
+    return subscribeWorkbookPersistenceQueue(() => {
+      setPersistenceQueueSnapshot(getWorkbookPersistenceQueueSnapshot());
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!sessionId || !session) return;
+    void flushWorkbookPersistenceQueue();
+    const intervalId = window.setInterval(() => {
+      void flushWorkbookPersistenceQueue();
+    }, 4_000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [session, sessionId]);
 
   useEffect(() => {
     const onBeforeUnload = () => {
@@ -10116,6 +10185,30 @@ export default function WorkbookSessionPage() {
           }`}
         >
           {saveSyncWarning}
+        </Alert>
+      ) : null}
+
+      {realtimeSyncWarning ? (
+        <Alert
+          severity="warning"
+          onClose={() => setRealtimeSyncWarning(null)}
+          className={`workbook-session__alert${
+            isFullscreen ? " workbook-session__alert--floating" : ""
+          }`}
+        >
+          {realtimeSyncWarning}
+        </Alert>
+      ) : null}
+
+      {persistenceQueueSnapshot.pendingCount > 0 ? (
+        <Alert
+          severity="warning"
+          className={`workbook-session__alert${
+            isFullscreen ? " workbook-session__alert--floating" : ""
+          }`}
+        >
+          Сохранение в очереди: {persistenceQueueSnapshot.pendingCount}. Данные будут отправлены
+          автоматически после восстановления связи.
         </Alert>
       ) : null}
 

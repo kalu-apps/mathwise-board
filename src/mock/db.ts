@@ -109,6 +109,24 @@ export type WorkbookSnapshotRecord = {
   createdAt: string;
 };
 
+export type WorkbookOperationScope =
+  | "workbook_sessions_create"
+  | "workbook_sessions_delete"
+  | "workbook_invite_create";
+
+export type WorkbookOperationRecord = {
+  id: string;
+  scope: WorkbookOperationScope;
+  actorUserId: string;
+  key: string;
+  requestFingerprint: string;
+  statusCode: number;
+  responsePayload: string;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+};
+
 export type MockDb = {
   users: UserRecord[];
   authSessions: AuthSessionRecord[];
@@ -116,6 +134,7 @@ export type MockDb = {
   workbookParticipants: WorkbookSessionParticipantRecord[];
   workbookDrafts: WorkbookDraftRecord[];
   workbookInvites: WorkbookInviteRecord[];
+  workbookOperations: WorkbookOperationRecord[];
   workbookEvents: WorkbookEventRecord[];
   workbookSnapshots: WorkbookSnapshotRecord[];
 };
@@ -215,6 +234,7 @@ const createDefaultDb = (): MockDb => ({
   workbookParticipants: [],
   workbookDrafts: [],
   workbookInvites: [],
+  workbookOperations: [],
   workbookEvents: [],
   workbookSnapshots: [],
 });
@@ -356,6 +376,9 @@ const ensureShape = (raw: unknown): MockDb => {
     workbookInvites: Array.isArray(source.workbookInvites)
       ? source.workbookInvites
       : base.workbookInvites,
+    workbookOperations: Array.isArray(source.workbookOperations)
+      ? source.workbookOperations
+      : base.workbookOperations,
     workbookEvents: Array.isArray(source.workbookEvents)
       ? source.workbookEvents
       : base.workbookEvents,
@@ -368,7 +391,105 @@ const ensureShape = (raw: unknown): MockDb => {
     next.users.push(defaultTeacherUser());
   }
 
-  return next;
+  const parseTs = (value: string | null | undefined) => {
+    const parsed = Date.parse(String(value ?? ""));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const dedupeBy = <T>(
+    entries: T[],
+    keyOf: (entry: T) => string,
+    shouldReplace: (current: T, nextEntry: T) => boolean
+  ) => {
+    const map = new Map<string, T>();
+    entries.forEach((entry) => {
+      const key = keyOf(entry);
+      if (!key) return;
+      const current = map.get(key);
+      if (!current) {
+        map.set(key, entry);
+        return;
+      }
+      if (shouldReplace(current, entry)) {
+        map.set(key, entry);
+      }
+    });
+    return Array.from(map.values());
+  };
+
+  const sessions = dedupeBy(
+    next.workbookSessions,
+    (entry) => entry.id,
+    (current, candidate) => parseTs(candidate.lastActivityAt) >= parseTs(current.lastActivityAt)
+  );
+  const validSessionIds = new Set(sessions.map((entry) => entry.id));
+  const validUserIds = new Set(next.users.map((entry) => entry.id));
+
+  const participants = dedupeBy(
+    next.workbookParticipants.filter(
+      (entry) => validSessionIds.has(entry.sessionId) && validUserIds.has(entry.userId)
+    ),
+    (entry) => `${entry.sessionId}:${entry.userId}`,
+    (current, candidate) => {
+      const currentTs = Math.max(parseTs(current.lastSeenAt), parseTs(current.joinedAt));
+      const candidateTs = Math.max(parseTs(candidate.lastSeenAt), parseTs(candidate.joinedAt));
+      return candidateTs >= currentTs;
+    }
+  );
+
+  const drafts = dedupeBy(
+    next.workbookDrafts.filter(
+      (entry) => validSessionIds.has(entry.sessionId) && validUserIds.has(entry.ownerUserId)
+    ),
+    (entry) => `${entry.sessionId}:${entry.ownerUserId}`,
+    (current, candidate) => parseTs(candidate.updatedAt) >= parseTs(current.updatedAt)
+  );
+
+  const invites = dedupeBy(
+    next.workbookInvites.filter(
+      (entry) => validSessionIds.has(entry.sessionId) && validUserIds.has(entry.createdBy)
+    ),
+    (entry) => entry.token,
+    (current, candidate) => parseTs(candidate.createdAt) >= parseTs(current.createdAt)
+  );
+
+  const operationRecords = dedupeBy(
+    next.workbookOperations.filter(
+      (entry) =>
+        Boolean(entry.key) &&
+        Boolean(entry.scope) &&
+        validUserIds.has(entry.actorUserId) &&
+        parseTs(entry.expiresAt) > Date.now()
+    ),
+    (entry) => `${entry.scope}:${entry.key}`,
+    (current, candidate) => parseTs(candidate.updatedAt) >= parseTs(current.updatedAt)
+  );
+
+  const events = dedupeBy(
+    next.workbookEvents.filter((entry) => validSessionIds.has(entry.sessionId)),
+    (entry) => entry.id,
+    (current, candidate) => {
+      if (candidate.seq !== current.seq) return candidate.seq > current.seq;
+      return parseTs(candidate.createdAt) >= parseTs(current.createdAt);
+    }
+  );
+
+  const snapshots = dedupeBy(
+    next.workbookSnapshots.filter((entry) => validSessionIds.has(entry.sessionId)),
+    (entry) => `${entry.sessionId}:${entry.layer}`,
+    (current, candidate) => candidate.version >= current.version
+  );
+
+  return {
+    ...next,
+    workbookSessions: sessions,
+    workbookParticipants: participants,
+    workbookDrafts: drafts,
+    workbookInvites: invites,
+    workbookOperations: operationRecords,
+    workbookEvents: events,
+    workbookSnapshots: snapshots,
+  };
 };
 
 const mapFileEvent = (event: WorkbookEventRecord): PersistedWorkbookEvent => ({
