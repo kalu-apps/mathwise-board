@@ -105,13 +105,12 @@ import {
   withWorkbookClientEventIds,
 } from "@/features/workbook/model/runtime";
 import {
-  observeWorkbookRealtimeApply,
   observeWorkbookRealtimeGap,
   observeWorkbookRealtimePersistAck,
   observeWorkbookRealtimeReceive,
   observeWorkbookRealtimeSend,
 } from "@/features/workbook/model/realtimeObservability";
-import { createWorkbookRealtimeApplyQueue } from "@/features/workbook/model/realtimeApplyQueue";
+import { useWorkbookRealtimeApplyQueue } from "@/features/workbook/model/useWorkbookRealtimeApplyQueue";
 import { startWorkbookPerformanceSession } from "@/features/workbook/model/workbookPerformance";
 import {
   buildWorkbookDocumentAsset,
@@ -1562,15 +1561,10 @@ export default function WorkbookSessionPage() {
   const undoStackRef = useRef<WorkbookHistoryEntry[]>([]);
   const redoStackRef = useRef<WorkbookHistoryEntry[]>([]);
   const latestSeqRef = useRef(0);
-  const sessionIdRef = useRef(sessionId);
   const processedEventIdsRef = useRef<Set<string>>(new Set());
   const applyHistoryOperationsRef = useRef<
     (operations: WorkbookHistoryOperation[]) => void
   >(() => {});
-  const applyIncomingEventsRef = useRef<(events: WorkbookEvent[]) => void>(() => {});
-  const incomingRealtimeApplyQueueRef = useRef<
-    ReturnType<typeof createWorkbookRealtimeApplyQueue> | null
-  >(null);
   const sessionChatListRef = useRef<HTMLDivElement | null>(null);
   const sessionChatRef = useRef<HTMLDivElement | null>(null);
   const contextbarRef = useRef<HTMLDivElement | null>(null);
@@ -2181,10 +2175,6 @@ export default function WorkbookSessionPage() {
   useEffect(() => {
     latestSeqRef.current = latestSeq;
   }, [latestSeq]);
-
-  useEffect(() => {
-    sessionIdRef.current = sessionId;
-  }, [sessionId]);
 
   const persistSessionChatReadAt = useCallback(
     (value: string | null) => {
@@ -2962,70 +2952,16 @@ export default function WorkbookSessionPage() {
     ]
   );
 
-  useEffect(() => {
-    applyIncomingEventsRef.current = applyIncomingEvents;
-  }, [applyIncomingEvents]);
-
-  useEffect(() => {
-    const queue = createWorkbookRealtimeApplyQueue({
-      applyEvents: (events) => {
-        applyIncomingEventsRef.current(events);
-      },
-      onBatchApplied: (batch) => {
-        const currentSessionId = sessionIdRef.current;
-        if (!currentSessionId || batch.events.length === 0) return;
-        observeWorkbookRealtimeApply({
-          sessionId: currentSessionId,
-          channel: batch.channel,
-          latestSeq: batch.latestSeq,
-          events: batch.events,
-        });
-      },
-      frameBudgetMs: 6,
-      maxEventsPerFrame: 120,
+  const { enqueueIncomingRealtimeApply, clearIncomingRealtimeApplyQueue } =
+    useWorkbookRealtimeApplyQueue({
+      sessionId,
+      applyIncomingEvents,
     });
-    incomingRealtimeApplyQueueRef.current = queue;
-    return () => {
-      if (incomingRealtimeApplyQueueRef.current === queue) {
-        incomingRealtimeApplyQueueRef.current = null;
-      }
-      queue.destroy();
-    };
-  }, []);
-
-  const enqueueIncomingRealtimeApply = useCallback(
-    (params: {
-      channel: "persist" | "stream" | "live" | "poll";
-      latestSeq: number;
-      events: WorkbookEvent[];
-    }) => {
-      if (params.events.length === 0) return;
-      const queue = incomingRealtimeApplyQueueRef.current;
-      if (queue) {
-        queue.enqueue({
-          channel: params.channel,
-          latestSeq: params.latestSeq,
-          events: params.events,
-        });
-        return;
-      }
-      applyIncomingEventsRef.current(params.events);
-      const currentSessionId = sessionIdRef.current;
-      if (!currentSessionId) return;
-      observeWorkbookRealtimeApply({
-        sessionId: currentSessionId,
-        channel: params.channel,
-        latestSeq: params.latestSeq,
-        events: params.events,
-      });
-    },
-    []
-  );
 
   const loadSession = useCallback(async (options?: { background?: boolean }) => {
     if (!sessionId) return;
     const isBackground = options?.background === true;
-    incomingRealtimeApplyQueueRef.current?.clear();
+    clearIncomingRealtimeApplyQueue();
     if (!isBackground) {
       setLoading(true);
       setError(null);
@@ -3186,6 +3122,7 @@ export default function WorkbookSessionPage() {
       setLoading(false);
     }
   }, [
+    clearIncomingRealtimeApplyQueue,
     clearIncomingEraserPreviewRuntime,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
@@ -3196,11 +3133,11 @@ export default function WorkbookSessionPage() {
   const triggerSessionResync = useCallback(() => {
     if (sessionResyncInFlightRef.current) return;
     sessionResyncInFlightRef.current = true;
-    incomingRealtimeApplyQueueRef.current?.clear();
+    clearIncomingRealtimeApplyQueue();
     void loadSession({ background: true }).finally(() => {
       sessionResyncInFlightRef.current = false;
     });
-  }, [loadSession]);
+  }, [clearIncomingRealtimeApplyQueue, loadSession]);
 
   useEffect(() => {
     void loadSession();
@@ -3318,6 +3255,7 @@ export default function WorkbookSessionPage() {
       unsubscribe();
     };
   }, [
+    clearIncomingRealtimeApplyQueue,
     enqueueIncomingRealtimeApply,
     filterUnseenWorkbookEvents,
     session,
@@ -3328,7 +3266,7 @@ export default function WorkbookSessionPage() {
   useEffect(() => {
     if (!sessionId || !session) {
       workbookLiveSendRef.current = null;
-      incomingRealtimeApplyQueueRef.current?.clear();
+      clearIncomingRealtimeApplyQueue();
       return;
     }
     const connection = subscribeWorkbookLiveSocket({
@@ -3380,6 +3318,7 @@ export default function WorkbookSessionPage() {
       connection.close();
     };
   }, [
+    clearIncomingRealtimeApplyQueue,
     enqueueIncomingRealtimeApply,
     filterUnseenWorkbookEvents,
     session,
@@ -5558,7 +5497,7 @@ export default function WorkbookSessionPage() {
   const mirrorSelectedObject = useCallback(
     async (axis: "horizontal" | "vertical") => {
       if (!selectedObjectId || !canSelect) return;
-      const targetObject = boardObjects.find((item) => item.id === selectedObjectId);
+      const targetObject = boardObjectsRef.current.find((item) => item.id === selectedObjectId);
       if (!targetObject) return;
 
       const centerX = targetObject.x + targetObject.width / 2;
@@ -6061,7 +6000,7 @@ export default function WorkbookSessionPage() {
   const updateSelectedFunctionGraphMeta = useCallback(
     async (patch: Record<string, unknown>) => {
       if (!selectedObjectId || !canSelect) return;
-      const target = boardObjects.find((item) => item.id === selectedObjectId);
+      const target = boardObjectsRef.current.find((item) => item.id === selectedObjectId);
       if (!target || target.type !== "function_graph") return;
       await commitObjectUpdate(target.id, {
         meta: {
@@ -6281,7 +6220,7 @@ export default function WorkbookSessionPage() {
         options
       );
     },
-    [boardObjects, canSelect, commitObjectUpdate, selectedObjectId]
+    [canSelect, commitObjectUpdate, selectedObjectId]
   );
 
   const flushSelectedTextDraftCommit = useCallback(async (

@@ -122,6 +122,8 @@ type WorkbookSceneRectIndex<T> = {
   cellSize: number;
   orderByKey: Map<string, number>;
   itemByKey: Map<string, T>;
+  rectByKey: Map<string, WorkbookSceneRect>;
+  nonIndexedKeys: string[];
   buckets: Map<string, string[]>;
 };
 
@@ -152,6 +154,8 @@ const buildWorkbookSceneRectIndex = <T>(params: {
   const padding = params.padding ?? 0;
   const orderByKey = new Map<string, number>();
   const itemByKey = new Map<string, T>();
+  const rectByKey = new Map<string, WorkbookSceneRect>();
+  const nonIndexedKeys: string[] = [];
   const buckets = new Map<string, string[]>();
 
   params.items.forEach((item, index) => {
@@ -159,8 +163,12 @@ const buildWorkbookSceneRectIndex = <T>(params: {
     const rect = params.getRect(item);
     orderByKey.set(key, index);
     itemByKey.set(key, item);
-    if (!rect) return;
+    if (!rect) {
+      nonIndexedKeys.push(key);
+      return;
+    }
     const indexedRect = padding > 0 ? expandRectForIndex(rect, padding) : rect;
+    rectByKey.set(key, indexedRect);
     const startX = Math.floor(indexedRect.x / cellSize);
     const endX = Math.floor((indexedRect.x + indexedRect.width) / cellSize);
     const startY = Math.floor(indexedRect.y / cellSize);
@@ -182,9 +190,25 @@ const buildWorkbookSceneRectIndex = <T>(params: {
     cellSize,
     orderByKey,
     itemByKey,
+    rectByKey,
+    nonIndexedKeys,
     buckets,
   };
 };
+
+const sortSceneIndexKeys = <T>(index: WorkbookSceneRectIndex<T>, keys: string[]) => {
+  keys.sort(
+    (left, right) =>
+      (index.orderByKey.get(left) ?? Number.POSITIVE_INFINITY) -
+      (index.orderByKey.get(right) ?? Number.POSITIVE_INFINITY)
+  );
+  return keys;
+};
+
+const mapSceneIndexKeysToItems = <T>(index: WorkbookSceneRectIndex<T>, keys: string[]) =>
+  keys
+    .map((key) => index.itemByKey.get(key))
+    .filter((item): item is T => Boolean(item));
 
 const queryWorkbookSceneRectIndex = <T>(
   index: WorkbookSceneRectIndex<T>,
@@ -198,16 +222,11 @@ const queryWorkbookSceneRectIndex = <T>(
   const keys = bucket.filter((key) => {
     if (seen.has(key)) return false;
     seen.add(key);
-    return true;
+    const rect = index.rectByKey.get(key);
+    if (!rect) return false;
+    return isPointInsideSceneRect(point, rect);
   });
-  keys.sort(
-    (left, right) =>
-      (index.orderByKey.get(left) ?? Number.POSITIVE_INFINITY) -
-      (index.orderByKey.get(right) ?? Number.POSITIVE_INFINITY)
-  );
-  return keys
-    .map((key) => index.itemByKey.get(key))
-    .filter((item): item is T => Boolean(item));
+  return mapSceneIndexKeysToItems(index, sortSceneIndexKeys(index, keys));
 };
 
 const queryWorkbookSceneRectIndexByRect = <T>(
@@ -226,19 +245,82 @@ const queryWorkbookSceneRectIndexByRect = <T>(
       if (!bucket || bucket.length === 0) continue;
       bucket.forEach((key) => {
         if (seen.has(key)) return;
+        const keyRect = index.rectByKey.get(key);
+        if (!keyRect || !rectIntersects(keyRect, rect)) return;
         seen.add(key);
         keys.push(key);
       });
     }
   }
-  keys.sort(
+  return mapSceneIndexKeysToItems(index, sortSceneIndexKeys(index, keys));
+};
+
+const collectSceneIndexItemsInRect = <T>(params: {
+  index: WorkbookSceneRectIndex<T>;
+  rect: WorkbookSceneRect;
+  getKey: (item: T) => string;
+  nonIndexedPredicate?: (item: T, rect: WorkbookSceneRect) => boolean;
+}) => {
+  const indexedItems = queryWorkbookSceneRectIndexByRect(params.index, params.rect);
+  if (!params.nonIndexedPredicate || params.index.nonIndexedKeys.length === 0) {
+    return indexedItems;
+  }
+  const seen = new Set(indexedItems.map((item) => params.getKey(item)));
+  const merged = indexedItems.slice();
+  params.index.nonIndexedKeys.forEach((key) => {
+    if (seen.has(key)) return;
+    const item = params.index.itemByKey.get(key);
+    if (!item) return;
+    if (!params.nonIndexedPredicate?.(item, params.rect)) return;
+    seen.add(key);
+    merged.push(item);
+  });
+  merged.sort(
     (left, right) =>
-      (index.orderByKey.get(left) ?? Number.POSITIVE_INFINITY) -
-      (index.orderByKey.get(right) ?? Number.POSITIVE_INFINITY)
+      (params.index.orderByKey.get(params.getKey(left)) ?? Number.POSITIVE_INFINITY) -
+      (params.index.orderByKey.get(params.getKey(right)) ?? Number.POSITIVE_INFINITY)
   );
-  return keys
-    .map((key) => index.itemByKey.get(key))
-    .filter((item): item is T => Boolean(item));
+  return merged;
+};
+
+const appendForcedVisibleObjects = (params: {
+  objects: WorkbookBoardObject[];
+  index: WorkbookSceneRectIndex<WorkbookBoardObject>;
+  objectById: Map<string, WorkbookBoardObject>;
+  forcedVisibleObjectIds?: ReadonlySet<string>;
+}) => {
+  if (!params.forcedVisibleObjectIds || params.forcedVisibleObjectIds.size === 0) {
+    return params.objects;
+  }
+  const seen = new Set(params.objects.map((object) => object.id));
+  const merged = params.objects.slice();
+  params.forcedVisibleObjectIds.forEach((objectId) => {
+    if (seen.has(objectId)) return;
+    const object = params.objectById.get(objectId);
+    if (!object) return;
+    seen.add(objectId);
+    merged.push(object);
+  });
+  merged.sort(
+    (left, right) =>
+      (params.index.orderByKey.get(left.id) ?? Number.POSITIVE_INFINITY) -
+      (params.index.orderByKey.get(right.id) ?? Number.POSITIVE_INFINITY)
+  );
+  return merged;
+};
+
+const isStrokeInsideRect = (stroke: WorkbookStroke, rect: WorkbookSceneRect) =>
+  stroke.points.some((point) => isPointInsideSceneRect(point, rect));
+
+export type WorkbookSceneIndex = {
+  boardObjects: WorkbookBoardObject[];
+  strokes: WorkbookStroke[];
+  objectById: Map<string, WorkbookBoardObject>;
+  strokeByKey: Map<string, WorkbookStroke>;
+  unpinnedSceneLayerObjectsById: Map<string, WorkbookBoardObject[]>;
+  allObjectIndex: WorkbookSceneRectIndex<WorkbookBoardObject>;
+  allStrokeIndex: WorkbookSceneRectIndex<WorkbookStroke>;
+  getObjectRect: (object: WorkbookBoardObject) => WorkbookSceneRect;
 };
 
 export type WorkbookSceneAccess = {
@@ -259,6 +341,131 @@ export type WorkbookSceneAccess = {
   visibleHitStrokeCandidatesInRect: (rect: WorkbookSceneRect) => WorkbookStroke[];
 };
 
+export const buildWorkbookSceneIndex = (params: {
+  boardObjects: WorkbookBoardObject[];
+  strokes: WorkbookStroke[];
+  getObjectRect: (object: WorkbookBoardObject) => WorkbookSceneRect;
+}): WorkbookSceneIndex => {
+  const allObjectIndex = buildWorkbookSceneRectIndex({
+    items: params.boardObjects,
+    getKey: (object) => object.id,
+    getRect: params.getObjectRect,
+  });
+  const allStrokeIndex = buildWorkbookSceneRectIndex({
+    items: params.strokes,
+    getKey: (stroke) => `${stroke.layer}:${stroke.id}`,
+    getRect: (stroke) => getStrokeRect(stroke),
+  });
+  return {
+    boardObjects: params.boardObjects,
+    strokes: params.strokes,
+    objectById: buildWorkbookObjectLookup(params.boardObjects),
+    strokeByKey: buildWorkbookStrokeLookup(params.strokes),
+    unpinnedSceneLayerObjectsById: buildWorkbookSceneLayerObjectGroups(params.boardObjects),
+    allObjectIndex,
+    allStrokeIndex,
+    getObjectRect: params.getObjectRect,
+  };
+};
+
+export const buildWorkbookSceneAccessFromIndex = (params: {
+  sceneIndex: WorkbookSceneIndex;
+  viewportOffset: WorkbookPoint;
+  width: number;
+  height: number;
+  zoom: number;
+  renderPadding?: number;
+  hitPadding?: number;
+  forcedVisibleObjectIds?: ReadonlySet<string>;
+}): WorkbookSceneAccess => {
+  const viewportRect = buildViewportSceneRect({
+    viewportOffset: params.viewportOffset,
+    width: params.width,
+    height: params.height,
+    zoom: params.zoom,
+  });
+  const renderPadding = params.renderPadding ?? 360;
+  const hitPadding = params.hitPadding ?? 96;
+  const renderViewportRect = expandSceneRect(viewportRect, renderPadding);
+  const hitViewportRect = expandSceneRect(viewportRect, hitPadding);
+  const visibleBoardObjects = appendForcedVisibleObjects({
+    objects: collectSceneIndexItemsInRect({
+      index: params.sceneIndex.allObjectIndex,
+      rect: renderViewportRect,
+      getKey: (object) => object.id,
+    }),
+    index: params.sceneIndex.allObjectIndex,
+    objectById: params.sceneIndex.objectById,
+    forcedVisibleObjectIds: params.forcedVisibleObjectIds,
+  });
+  const visibleHitObjects = appendForcedVisibleObjects({
+    objects: collectSceneIndexItemsInRect({
+      index: params.sceneIndex.allObjectIndex,
+      rect: hitViewportRect,
+      getKey: (object) => object.id,
+    }),
+    index: params.sceneIndex.allObjectIndex,
+    objectById: params.sceneIndex.objectById,
+    forcedVisibleObjectIds: params.forcedVisibleObjectIds,
+  });
+  const visibleStrokes = collectSceneIndexItemsInRect({
+    index: params.sceneIndex.allStrokeIndex,
+    rect: renderViewportRect,
+    getKey: (stroke) => `${stroke.layer}:${stroke.id}`,
+    nonIndexedPredicate: isStrokeInsideRect,
+  });
+  const visibleHitStrokes = collectSceneIndexItemsInRect({
+    index: params.sceneIndex.allStrokeIndex,
+    rect: hitViewportRect,
+    getKey: (stroke) => `${stroke.layer}:${stroke.id}`,
+    nonIndexedPredicate: isStrokeInsideRect,
+  });
+  const objectHitIndex = buildWorkbookSceneRectIndex({
+    items: visibleHitObjects,
+    getKey: (object) => object.id,
+    getRect: params.sceneIndex.getObjectRect,
+    padding: OBJECT_HIT_INDEX_PADDING,
+  });
+  const strokeHitIndex = buildWorkbookSceneRectIndex({
+    items: visibleHitStrokes,
+    getKey: (stroke) => `${stroke.layer}:${stroke.id}`,
+    getRect: (stroke) => getStrokeRect(stroke),
+    padding: STROKE_HIT_INDEX_PADDING,
+  });
+  return {
+    objectById: params.sceneIndex.objectById,
+    strokeByKey: params.sceneIndex.strokeByKey,
+    unpinnedSceneLayerObjectsById: params.sceneIndex.unpinnedSceneLayerObjectsById,
+    boardObjectCandidatesInRect: (rect) =>
+      collectSceneIndexItemsInRect({
+        index: params.sceneIndex.allObjectIndex,
+        rect,
+        getKey: (object) => object.id,
+      }),
+    strokeCandidatesInRect: (rect) =>
+      collectSceneIndexItemsInRect({
+        index: params.sceneIndex.allStrokeIndex,
+        rect,
+        getKey: (stroke) => `${stroke.layer}:${stroke.id}`,
+        nonIndexedPredicate: isStrokeInsideRect,
+      }),
+    viewportRect,
+    renderViewportRect,
+    visibleBoardObjects,
+    visibleHitObjects,
+    visibleHitObjectCandidatesAtPoint: (point) =>
+      queryWorkbookSceneRectIndex(objectHitIndex, point),
+    visibleHitObjectCandidatesInRect: (rect) =>
+      queryWorkbookSceneRectIndexByRect(objectHitIndex, rect),
+    visibleStrokes,
+    visibleHitStrokes,
+    visibleHitStrokeCandidatesAtPoint: (point) =>
+      queryWorkbookSceneRectIndex(strokeHitIndex, point),
+    visibleHitStrokeCandidatesInRect: (rect) =>
+      queryWorkbookSceneRectIndexByRect(strokeHitIndex, rect),
+  };
+};
+
 export const buildWorkbookSceneAccess = (params: {
   boardObjects: WorkbookBoardObject[];
   strokes: WorkbookStroke[];
@@ -270,83 +477,21 @@ export const buildWorkbookSceneAccess = (params: {
   hitPadding?: number;
   forcedVisibleObjectIds?: ReadonlySet<string>;
   getObjectRect: (object: WorkbookBoardObject) => WorkbookSceneRect;
-}): WorkbookSceneAccess => {
-  const viewportRect = buildViewportSceneRect({
+}): WorkbookSceneAccess =>
+  buildWorkbookSceneAccessFromIndex({
+    sceneIndex: buildWorkbookSceneIndex({
+      boardObjects: params.boardObjects,
+      strokes: params.strokes,
+      getObjectRect: params.getObjectRect,
+    }),
     viewportOffset: params.viewportOffset,
     width: params.width,
     height: params.height,
     zoom: params.zoom,
-  });
-  const renderPadding = params.renderPadding ?? 360;
-  const hitPadding = params.hitPadding ?? 96;
-  const allObjectIndex = buildWorkbookSceneRectIndex({
-    items: params.boardObjects,
-    getKey: (object) => object.id,
-    getRect: params.getObjectRect,
-  });
-  const allStrokeIndex = buildWorkbookSceneRectIndex({
-    items: params.strokes,
-    getKey: (stroke) => `${stroke.layer}:${stroke.id}`,
-    getRect: (stroke) => getStrokeRect(stroke),
-  });
-  const visibleHitObjects = filterVisibleBoardObjects({
-    boardObjects: params.boardObjects,
-    viewportRect,
-    padding: hitPadding,
+    renderPadding: params.renderPadding,
+    hitPadding: params.hitPadding,
     forcedVisibleObjectIds: params.forcedVisibleObjectIds,
-    getObjectRect: params.getObjectRect,
   });
-  const visibleHitStrokes = filterVisibleStrokes({
-    strokes: params.strokes,
-    viewportRect,
-    padding: hitPadding,
-  });
-  const objectHitIndex = buildWorkbookSceneRectIndex({
-    items: visibleHitObjects,
-    getKey: (object) => object.id,
-    getRect: params.getObjectRect,
-    padding: OBJECT_HIT_INDEX_PADDING,
-  });
-  const strokeHitIndex = buildWorkbookSceneRectIndex({
-    items: visibleHitStrokes,
-    getKey: (stroke) => `${stroke.layer}:${stroke.id}`,
-    getRect: (stroke) => getStrokeRect(stroke),
-    padding: STROKE_HIT_INDEX_PADDING,
-  });
-  return {
-    objectById: buildWorkbookObjectLookup(params.boardObjects),
-    strokeByKey: buildWorkbookStrokeLookup(params.strokes),
-    unpinnedSceneLayerObjectsById: buildWorkbookSceneLayerObjectGroups(params.boardObjects),
-    boardObjectCandidatesInRect: (rect) =>
-      queryWorkbookSceneRectIndexByRect(allObjectIndex, rect),
-    strokeCandidatesInRect: (rect) =>
-      queryWorkbookSceneRectIndexByRect(allStrokeIndex, rect),
-    viewportRect,
-    renderViewportRect: expandSceneRect(viewportRect, renderPadding),
-    visibleBoardObjects: filterVisibleBoardObjects({
-      boardObjects: params.boardObjects,
-      viewportRect,
-      padding: renderPadding,
-      forcedVisibleObjectIds: params.forcedVisibleObjectIds,
-      getObjectRect: params.getObjectRect,
-    }),
-    visibleHitObjects,
-    visibleHitObjectCandidatesAtPoint: (point) =>
-      queryWorkbookSceneRectIndex(objectHitIndex, point),
-    visibleHitObjectCandidatesInRect: (rect) =>
-      queryWorkbookSceneRectIndexByRect(objectHitIndex, rect),
-    visibleStrokes: filterVisibleStrokes({
-      strokes: params.strokes,
-      viewportRect,
-      padding: renderPadding,
-    }),
-    visibleHitStrokes,
-    visibleHitStrokeCandidatesAtPoint: (point) =>
-      queryWorkbookSceneRectIndex(strokeHitIndex, point),
-    visibleHitStrokeCandidatesInRect: (rect) =>
-      queryWorkbookSceneRectIndexByRect(strokeHitIndex, rect),
-  };
-};
 
 export const resolveTopVisibleBoardObject = (
   boardObjects: WorkbookBoardObject[],

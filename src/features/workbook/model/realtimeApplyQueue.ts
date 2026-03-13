@@ -27,6 +27,12 @@ const normalizeFinite = (value: unknown, fallback: number, min = 1) => {
   return Math.max(min, Math.floor(value));
 };
 
+const resolveBackpressureMultiplier = (queuedEvents: number) => {
+  if (queuedEvents >= 4_000) return 4;
+  if (queuedEvents >= 1_500) return 2;
+  return 1;
+};
+
 export const createWorkbookRealtimeApplyQueue = (
   options: WorkbookRealtimeApplyQueueOptions
 ) => {
@@ -45,6 +51,9 @@ export const createWorkbookRealtimeApplyQueue = (
   let frameId: number | null = null;
   let disposed = false;
 
+  const getQueuedEventsCount = () =>
+    queue.reduce((sum, batch) => sum + batch.events.length, 0);
+
   const clearScheduledFrame = () => {
     if (frameId === null || typeof window === "undefined") return;
     window.cancelAnimationFrame(frameId);
@@ -54,6 +63,10 @@ export const createWorkbookRealtimeApplyQueue = (
   const flushFrame = () => {
     frameId = null;
     if (disposed || queue.length === 0) return;
+    const queuedEvents = getQueuedEventsCount();
+    const backpressureMultiplier = resolveBackpressureMultiplier(queuedEvents);
+    const effectiveFrameBudgetMs = frameBudgetMs * backpressureMultiplier;
+    const effectiveMaxEventsPerFrame = maxEventsPerFrame * backpressureMultiplier;
     const frameStartedAt = nowMs();
     let processedEvents = 0;
 
@@ -63,7 +76,7 @@ export const createWorkbookRealtimeApplyQueue = (
         queue.shift();
         continue;
       }
-      const remainingCapacity = maxEventsPerFrame - processedEvents;
+      const remainingCapacity = effectiveMaxEventsPerFrame - processedEvents;
       if (remainingCapacity <= 0) break;
 
       const chunkSize = Math.max(1, Math.min(remainingCapacity, head.events.length));
@@ -80,7 +93,7 @@ export const createWorkbookRealtimeApplyQueue = (
       if (head.events.length === 0) {
         queue.shift();
       }
-      if (nowMs() - frameStartedAt >= frameBudgetMs) break;
+      if (nowMs() - frameStartedAt >= effectiveFrameBudgetMs) break;
     }
 
     if (!disposed && queue.length > 0) {
@@ -104,11 +117,17 @@ export const createWorkbookRealtimeApplyQueue = (
   return {
     enqueue(batch: WorkbookRealtimeApplyBatch) {
       if (disposed || !batch || batch.events.length === 0) return;
-      queue.push({
-        channel: batch.channel,
-        latestSeq: batch.latestSeq,
-        events: batch.events.slice(),
-      });
+      const lastBatch = queue[queue.length - 1];
+      if (lastBatch && lastBatch.channel === batch.channel) {
+        lastBatch.latestSeq = Math.max(lastBatch.latestSeq, batch.latestSeq);
+        lastBatch.events.push(...batch.events);
+      } else {
+        queue.push({
+          channel: batch.channel,
+          latestSeq: batch.latestSeq,
+          events: batch.events.slice(),
+        });
+      }
       scheduleFlush();
     },
     clear() {
@@ -132,8 +151,7 @@ export const createWorkbookRealtimeApplyQueue = (
       clearScheduledFrame();
     },
     size() {
-      return queue.reduce((sum, batch) => sum + batch.events.length, 0);
+      return getQueuedEventsCount();
     },
   };
 };
-

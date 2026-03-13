@@ -39,11 +39,11 @@ import type { ProjectedSolidVertex } from "../model/solid3dGeometry";
 import { resolveBoardObjectImageAssetId } from "../model/scene";
 import {
   buildForcedVisibleObjectIdSet,
-  buildWorkbookSceneAccess,
   resolveWorkbookObjectSceneLayerId,
   resolveTopVisibleBoardObject,
   resolveTopVisibleStroke,
 } from "../model/sceneVisibility";
+import { useWorkbookSceneAccess } from "./useWorkbookSceneAccess";
 import {
   type GraphFunctionDraft,
 } from "../model/functionGraph";
@@ -859,22 +859,18 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     solid3dResize,
     solid3dSectionMarkers?.objectId,
   ]);
-  const sceneAccess = useMemo(
-    () =>
-      buildWorkbookSceneAccess({
-        boardObjects,
-        strokes: allStrokes,
-        viewportOffset,
-        width: size.width,
-        height: size.height,
-        zoom: safeZoom,
-        renderPadding: 360,
-        hitPadding: 96,
-        forcedVisibleObjectIds,
-        getObjectRect,
-      }),
-    [allStrokes, boardObjects, forcedVisibleObjectIds, safeZoom, size.height, size.width, viewportOffset]
-  );
+  const sceneAccess = useWorkbookSceneAccess({
+    boardObjects,
+    strokes: allStrokes,
+    viewportOffset,
+    width: size.width,
+    height: size.height,
+    zoom: safeZoom,
+    renderPadding: 360,
+    hitPadding: 96,
+    forcedVisibleObjectIds,
+    getObjectRect,
+  });
   const {
     boardObjectCandidatesInRect,
     objectById,
