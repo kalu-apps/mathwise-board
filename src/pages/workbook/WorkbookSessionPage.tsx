@@ -1489,6 +1489,7 @@ export default function WorkbookSessionPage() {
   const [latestSeq, setLatestSeq] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [saveSyncWarning, setSaveSyncWarning] = useState<string | null>(null);
   const [copyingInviteLink, setCopyingInviteLink] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [isStereoDialogOpen, setIsStereoDialogOpen] = useState(false);
@@ -3622,6 +3623,7 @@ export default function WorkbookSessionPage() {
       if (dirtyRevisionRef.current === revisionAtSaveStart) {
         dirtyRef.current = false;
         setSaveState("saved");
+        setSaveSyncWarning(null);
       } else {
         dirtyRef.current = true;
         pendingAutosaveAfterSaveRef.current = true;
@@ -3631,6 +3633,9 @@ export default function WorkbookSessionPage() {
       return true;
     } catch {
       setSaveState("error");
+      setSaveSyncWarning(
+        "Автосохранение временно недоступно. Не закрывайте вкладку: повторяем синхронизацию."
+      );
       return false;
     } finally {
       isSavingRef.current = false;
@@ -10099,6 +10104,18 @@ export default function WorkbookSessionPage() {
           }`}
         >
           {error}
+        </Alert>
+      ) : null}
+
+      {saveSyncWarning ? (
+        <Alert
+          severity="warning"
+          onClose={() => setSaveSyncWarning(null)}
+          className={`workbook-session__alert${
+            isFullscreen ? " workbook-session__alert--floating" : ""
+          }`}
+        >
+          {saveSyncWarning}
         </Alert>
       ) : null}
 
