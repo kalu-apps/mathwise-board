@@ -115,7 +115,6 @@ export default function WorkbookHubPage() {
   const [scope, setScope] = useState<HubScope>("class");
   const [drafts, setDrafts] = useState<WorkbookDraftCard[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [creatingClass, setCreatingClass] = useState(false);
@@ -142,7 +141,6 @@ export default function WorkbookHubPage() {
   const loadDraftCards = useCallback(async () => {
     if (!isAuthReady || !user || user.role !== "teacher") {
       setLoading(false);
-      setIsRefreshing(false);
       loadingInFlightRef.current = false;
       queuedReloadRef.current = false;
       hasLoadedAtLeastOnceRef.current = false;
@@ -159,8 +157,6 @@ export default function WorkbookHubPage() {
     try {
       if (showSkeleton) {
         setLoading(true);
-      } else {
-        setIsRefreshing(true);
       }
       const response = await getWorkbookDrafts("all");
       if (loadRequestVersionRef.current !== requestVersion) return;
@@ -182,7 +178,6 @@ export default function WorkbookHubPage() {
       loadingInFlightRef.current = false;
       if (loadRequestVersionRef.current === requestVersion) {
         setLoading(false);
-        setIsRefreshing(false);
       }
       if (queuedReloadRef.current) {
         queuedReloadRef.current = false;
@@ -531,14 +526,6 @@ export default function WorkbookHubPage() {
           <Alert severity="success" onClose={() => setSuccess(null)}>
             {success}
           </Alert>
-        ) : null}
-        {isRefreshing ? (
-          <Stack direction="row" spacing={1} alignItems="center" aria-live="polite">
-            <CircularProgress size={14} />
-            <Typography variant="caption" color="text.secondary">
-              Обновляем карточки...
-            </Typography>
-          </Stack>
         ) : null}
 
         {loading && drafts.length === 0 ? (
