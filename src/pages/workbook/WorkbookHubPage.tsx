@@ -11,7 +11,6 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import AutoStoriesRoundedIcon from "@mui/icons-material/AutoStoriesRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
@@ -624,15 +623,6 @@ export default function WorkbookHubPage() {
         )}
       </article>
 
-      <article className="workbook-hub__panel">
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <AddRoundedIcon color="action" />
-          <Typography variant="body2" color="text.secondary">
-            В индивидуальных занятиях ссылка постоянная до удаления карточки преподавателем. После
-            удаления доступ по ссылке закрывается.
-          </Typography>
-        </Stack>
-      </article>
     </section>
   );
 }

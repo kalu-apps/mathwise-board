@@ -169,6 +169,23 @@
   background: color-mix(in srgb, var(--surface-soft) 78%, transparent);
 }
 
+.workbook-hub .MuiAlert-action .MuiIconButton-root,
+.workbook-session .MuiAlert-action .MuiIconButton-root,
+.workbook-invite .MuiAlert-action .MuiIconButton-root,
+.workbook-hub__card-remove.MuiIconButton-root {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.workbook-hub .MuiAlert-action .MuiIconButton-root:hover,
+.workbook-session .MuiAlert-action .MuiIconButton-root:hover,
+.workbook-invite .MuiAlert-action .MuiIconButton-root:hover,
+.workbook-hub__card-remove.MuiIconButton-root:hover {
+  border: none !important;
+  background: transparent !important;
+}
+
 .workbook-hub__invite {
   margin-top: 12px;
   display: flex;
