@@ -11,7 +11,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { flushSync } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import "./workbookRouteStyles";
 import {
@@ -228,6 +227,11 @@ import {
 import {
   flushWorkbookPersistenceQueue,
 } from "@/features/workbook/model/persistenceQueue";
+import {
+  useWorkbookIncomingRuntimeController,
+  type WorkbookIncomingEraserPreviewEntry,
+  type WorkbookStrokePreviewEntry,
+} from "@/features/workbook/model/useWorkbookIncomingRuntimeController";
 
 const WorkbookSessionBoardSettingsPanel = lazy(async () => ({
   default: (await import("./WorkbookSessionBoardSettingsPanel")).WorkbookSessionBoardSettingsPanel,
@@ -1230,23 +1234,6 @@ type WorkbookAreaSelectionClipboard = {
   strokes: WorkbookStroke[];
 };
 
-type StrokePreviewEntry = {
-  stroke: WorkbookStroke;
-  previewVersion: number;
-  updatedAt: number;
-};
-
-type IncomingEraserPreviewEntry = {
-  id: string;
-  authorUserId: string;
-  gestureId: string;
-  layer: WorkbookLayer;
-  page: number;
-  radius: number;
-  points: WorkbookPoint[];
-  updatedAt: number;
-};
-
 type ToolPaintSettings = {
   color: string;
   width: number;
@@ -1515,10 +1502,10 @@ export default function WorkbookSessionPage() {
   const [confirmedClearRequest, setConfirmedClearRequest] =
     useState<ClearRequest | null>(null);
   const [incomingStrokePreviews, setIncomingStrokePreviews] = useState<
-    Record<string, StrokePreviewEntry>
+    Record<string, WorkbookStrokePreviewEntry>
   >({});
   const [incomingEraserPreviews, setIncomingEraserPreviews] = useState<
-    Record<string, IncomingEraserPreviewEntry>
+    Record<string, WorkbookIncomingEraserPreviewEntry>
   >({});
   const [isSessionChatOpen, setIsSessionChatOpen] = useState(false);
   const [isSessionChatMinimized, setIsSessionChatMinimized] = useState(false);
@@ -1641,7 +1628,7 @@ export default function WorkbookSessionPage() {
       }
     >
   >(new Map());
-  const incomingStrokePreviewQueuedRef = useRef<Map<string, StrokePreviewEntry | null>>(
+  const incomingStrokePreviewQueuedRef = useRef<Map<string, WorkbookStrokePreviewEntry | null>>(
     new Map()
   );
   const incomingStrokePreviewFrameRef = useRef<number | null>(null);
@@ -2294,200 +2281,41 @@ export default function WorkbookSessionPage() {
     return restored;
   }, []);
 
-  const clearObjectSyncRuntime = useCallback((options?: { cancelIncomingFrame?: boolean }) => {
-    objectUpdateQueuedPatchRef.current.clear();
-    objectUpdateHistoryBeforeRef.current.clear();
-    objectUpdateTimersRef.current.forEach((timerId) => {
-      window.clearTimeout(timerId);
-    });
-    objectUpdateTimersRef.current.clear();
-    objectUpdateInFlightRef.current.clear();
-    objectUpdateDispatchOptionsRef.current.clear();
-    objectPreviewQueuedPatchRef.current.clear();
-    objectPreviewVersionRef.current.clear();
-    incomingPreviewQueuedPatchRef.current.clear();
-    incomingPreviewVersionByAuthorObjectRef.current.clear();
-    objectLastCommittedEventAtRef.current.clear();
-    if (options?.cancelIncomingFrame !== false && incomingPreviewFrameRef.current !== null) {
-      window.cancelAnimationFrame(incomingPreviewFrameRef.current);
-      incomingPreviewFrameRef.current = null;
-    }
-  }, []);
-
-  const clearIncomingEraserPreviewRuntime = useCallback(() => {
-    incomingEraserPreviewTimersRef.current.forEach((timerId) => {
-      window.clearTimeout(timerId);
-    });
-    incomingEraserPreviewTimersRef.current.clear();
-    eraserPreviewQueuedByGestureRef.current.clear();
-    setIncomingEraserPreviews({});
-  }, []);
-
-  const scheduleIncomingEraserPreviewExpiry = useCallback(
-    (previewId: string, delay: number) => {
-      const currentTimer = incomingEraserPreviewTimersRef.current.get(previewId);
-      if (currentTimer !== undefined) {
-        window.clearTimeout(currentTimer);
-      }
-      const timerId = window.setTimeout(() => {
-        incomingEraserPreviewTimersRef.current.delete(previewId);
-        setIncomingEraserPreviews((current) => {
-          if (!(previewId in current)) return current;
-          const next = { ...current };
-          delete next[previewId];
-          return next;
-        });
-      }, Math.max(60, delay));
-      incomingEraserPreviewTimersRef.current.set(previewId, timerId);
-    },
-    []
-  );
-
-  const flushIncomingStrokePreviewQueue = useCallback(() => {
-    incomingStrokePreviewFrameRef.current = null;
-    const queued = new Map(incomingStrokePreviewQueuedRef.current);
-    incomingStrokePreviewQueuedRef.current.clear();
-    if (queued.size === 0) return;
-    setIncomingStrokePreviews((current) => {
-      let changed = false;
-      const next: Record<string, StrokePreviewEntry> = { ...current };
-      queued.forEach((entry, strokeId) => {
-        if (entry === null) {
-          if (next[strokeId]) {
-            delete next[strokeId];
-            changed = true;
-          }
-          return;
-        }
-        const existing = next[strokeId];
-        if (existing && existing.previewVersion >= entry.previewVersion) {
-          return;
-        }
-        next[strokeId] = entry;
-        changed = true;
-      });
-      return changed ? next : current;
-    });
-  }, []);
-
-  const scheduleIncomingStrokePreviewFlush = useCallback(() => {
-    if (incomingStrokePreviewFrameRef.current !== null) return;
-    if (typeof window === "undefined") {
-      flushIncomingStrokePreviewQueue();
-      return;
-    }
-    incomingStrokePreviewFrameRef.current = window.requestAnimationFrame(() => {
-      flushIncomingStrokePreviewQueue();
-    });
-  }, [flushIncomingStrokePreviewQueue]);
-
-  const queueIncomingStrokePreview = useCallback(
-    (entry: StrokePreviewEntry | null, strokeId: string) => {
-      incomingStrokePreviewQueuedRef.current.set(strokeId, entry);
-      scheduleIncomingStrokePreviewFlush();
-    },
-    [scheduleIncomingStrokePreviewFlush]
-  );
-
-  const finalizeStrokePreview = useCallback(
-    (strokeId: string) => {
-      if (!strokeId) return;
-      finalizedStrokePreviewIdsRef.current.add(strokeId);
-      strokePreviewQueuedByIdRef.current.delete(strokeId);
-      incomingStrokePreviewVersionRef.current.delete(strokeId);
-      queueIncomingStrokePreview(null, strokeId);
-    },
-    [queueIncomingStrokePreview]
-  );
-
-  const clearStrokePreviewRuntime = useCallback(
-    (options?: { clearFinalized?: boolean; cancelIncomingFrame?: boolean }) => {
-      strokePreviewQueuedByIdRef.current.clear();
-      incomingStrokePreviewQueuedRef.current.clear();
-      incomingStrokePreviewVersionRef.current.clear();
-      if (options?.clearFinalized !== false) {
-        finalizedStrokePreviewIdsRef.current.clear();
-      }
-      if (
-        options?.cancelIncomingFrame !== false &&
-        incomingStrokePreviewFrameRef.current !== null
-      ) {
-        window.cancelAnimationFrame(incomingStrokePreviewFrameRef.current);
-        incomingStrokePreviewFrameRef.current = null;
-      }
-      setIncomingStrokePreviews({});
-    },
-    []
-  );
-
-  const applyLocalBoardObjects = useCallback(
-    (updater: (current: WorkbookBoardObject[]) => WorkbookBoardObject[]) => {
-      const next = updater(boardObjectsRef.current);
-      boardObjectsRef.current = next;
-      setBoardObjects(next);
-    },
-    []
-  );
-
-  const commitInteractiveBoardObjects = useCallback((next: WorkbookBoardObject[]) => {
-    boardObjectsRef.current = next;
-    flushSync(() => {
-      setBoardObjects(next);
-    });
-  }, []);
-
-  const flushIncomingPreviewQueue = useCallback(() => {
-    incomingPreviewFrameRef.current = null;
-    const queue = incomingPreviewQueuedPatchRef.current;
-    if (queue.size === 0) return;
-    const patches = new Map<string, Partial<WorkbookBoardObject>[]>();
-    queue.forEach((pendingQueue, objectId) => {
-      if (pendingQueue.length === 0) {
-        queue.delete(objectId);
-        return;
-      }
-      patches.set(objectId, pendingQueue.slice());
-      queue.delete(objectId);
-    });
-    if (patches.size === 0) return;
-    applyLocalBoardObjects((current) => {
-      if (current.length === 0) return current;
-      let changed = false;
-      const next = current.map((item) => {
-        const pendingPatches = patches.get(item.id);
-        if (!pendingPatches || pendingPatches.length === 0) return item;
-        changed = true;
-        return pendingPatches.reduce(
-          (previewObject, patch) => mergeBoardObjectWithPatch(previewObject, patch),
-          item
-        );
-      });
-      return changed ? next : current;
-    });
-  }, [applyLocalBoardObjects]);
-
-  const queueIncomingPreviewPatch = useCallback(
-    (objectId: string, patch: Partial<WorkbookBoardObject>) => {
-      const pendingQueue = incomingPreviewQueuedPatchRef.current.get(objectId) ?? [];
-      pendingQueue.push(patch);
-      if (pendingQueue.length > MAX_INCOMING_PREVIEW_PATCHES_PER_OBJECT) {
-        pendingQueue.splice(
-          0,
-          pendingQueue.length - MAX_INCOMING_PREVIEW_PATCHES_PER_OBJECT
-        );
-      }
-      incomingPreviewQueuedPatchRef.current.set(objectId, pendingQueue);
-      if (incomingPreviewFrameRef.current !== null) return;
-      if (typeof window === "undefined") {
-        flushIncomingPreviewQueue();
-        return;
-      }
-      incomingPreviewFrameRef.current = window.requestAnimationFrame(() => {
-        flushIncomingPreviewQueue();
-      });
-    },
-    [flushIncomingPreviewQueue]
-  );
+  const {
+    clearObjectSyncRuntime,
+    clearIncomingEraserPreviewRuntime,
+    scheduleIncomingEraserPreviewExpiry,
+    queueIncomingStrokePreview,
+    finalizeStrokePreview,
+    clearStrokePreviewRuntime,
+    applyLocalBoardObjects,
+    commitInteractiveBoardObjects,
+    queueIncomingPreviewPatch,
+  } = useWorkbookIncomingRuntimeController({
+    boardObjectsRef,
+    setBoardObjects,
+    setIncomingStrokePreviews,
+    setIncomingEraserPreviews,
+    objectUpdateQueuedPatchRef,
+    objectUpdateHistoryBeforeRef,
+    objectUpdateTimersRef,
+    objectUpdateInFlightRef,
+    objectUpdateDispatchOptionsRef,
+    objectPreviewQueuedPatchRef,
+    objectPreviewVersionRef,
+    incomingPreviewQueuedPatchRef,
+    incomingPreviewVersionByAuthorObjectRef,
+    objectLastCommittedEventAtRef,
+    incomingPreviewFrameRef,
+    incomingEraserPreviewTimersRef,
+    eraserPreviewQueuedByGestureRef,
+    strokePreviewQueuedByIdRef,
+    incomingStrokePreviewQueuedRef,
+    incomingStrokePreviewFrameRef,
+    incomingStrokePreviewVersionRef,
+    finalizedStrokePreviewIdsRef,
+    maxIncomingPreviewPatchesPerObject: MAX_INCOMING_PREVIEW_PATCHES_PER_OBJECT,
+  });
 
   const isParticipantBoardToolsEnabled = useCallback(
     (participant: WorkbookSessionParticipant) =>
@@ -3861,7 +3689,7 @@ export default function WorkbookSessionPage() {
       const cutoff = Date.now() - STROKE_PREVIEW_EXPIRY_MS;
       setIncomingStrokePreviews((current) => {
         let changed = false;
-        const next: Record<string, StrokePreviewEntry> = {};
+        const next: Record<string, WorkbookStrokePreviewEntry> = {};
         Object.entries(current).forEach(([strokeId, entry]) => {
           if (entry.updatedAt < cutoff) {
             changed = true;

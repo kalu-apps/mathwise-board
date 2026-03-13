@@ -58,10 +58,9 @@ import {
   clampUnitDot,
   clipPolygonByHalfPlane,
   createPolygonPath,
+  getFigureVertexLabel,
   getLineBasis,
-  getLineControlPoints,
   getLinePathD,
-  getObjectCenter,
   getObjectRect,
   getPointsCentroid,
   getPointObjectCenter,
@@ -142,29 +141,20 @@ import {
 } from "../model/sceneRuntime";
 import {
   buildWorkbookObjectSceneEntries,
-  buildConstraintRenderSegments,
   buildFunctionGraphRenderStateMap,
   buildRenderedWorkbookStrokes,
   prepareWorkbookRenderObject,
-  resolveAreaSelectionPreviewRects,
-  resolveSelectedObjectRect,
   type WorkbookFunctionGraphRenderStateCacheRecord,
   type WorkbookObjectSceneEntryCacheRecord,
   type WorkbookMaskedObjectSceneEntry,
-  type WorkbookConstraintRenderSegment,
   type WorkbookRenderedStrokeCacheRecord,
 } from "../model/sceneRender";
 import {
-} from "../model/sceneCommit";
-import {
   resolveSolid3dPointAtPointer,
-  resolveSolid3dResizeHandles,
   resolveSolid3dResizeHandleHit,
-  resolveSolid3dPickMarkersForObject,
   resolveSolid3dVertexAtPointer,
   resolveSolid3dSectionVertexAtPointer,
   resolveSolid3dSectionAtPointer,
-  type Solid3dResizeHandle,
 } from "../model/sceneSolid3d";
 import {
   isWorkbookPolygonPointTool,
@@ -183,6 +173,7 @@ import {
   WorkbookStrokeLayer,
 } from "./WorkbookCanvasLayers";
 import { useWorkbookCanvasInteractions } from "./useWorkbookCanvasInteractions";
+import { useWorkbookSelectionOverlayController } from "./useWorkbookSelectionOverlayController";
 
 type WorkbookCanvasProps = {
   boardStrokes: WorkbookStroke[];
@@ -346,6 +337,8 @@ type PendingCommittedStrokeBridge = {
   tool: WorkbookTool;
   path: string;
 };
+
+type ActiveStrokeDraft = ReturnType<typeof buildWorkbookActiveStrokeDraft>;
 
 type AreaSelectionDraft = WorkbookAreaSelectionDraft;
 type AreaSelectionResizeState = WorkbookAreaSelectionResizeState;
@@ -3984,113 +3977,31 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     lastRealtimeUpdateAtRef.current.clear();
   }, [isLiveInteractionActive]);
 
-  const selectedRect = useMemo(() => {
-    return resolveSelectedObjectRect(selectedPreviewObject);
-  }, [selectedPreviewObject]);
-  const selectedLineControls = useMemo(() => {
-    if (!selectedPreviewObject) return null;
-    if (selectedPreviewObject.type !== "line" && selectedPreviewObject.type !== "arrow") {
-      return null;
-    }
-    return getLineControlPoints(selectedPreviewObject);
-  }, [selectedPreviewObject]);
-
-  const selectedSolidResizeHandles = useMemo(() => {
-    if (!selectedPreviewObject || selectedPreviewObject.type !== "solid3d") {
-      return [] as Solid3dResizeHandle[];
-    }
-    return resolveSolid3dResizeHandles(selectedPreviewObject);
-  }, [selectedPreviewObject]);
-
-  const constraintRenderSegments = useMemo<WorkbookConstraintRenderSegment[]>(
-    () =>
-      buildConstraintRenderSegments({
-        constraints,
-        objectById,
-        selectedConstraintId,
-        renderViewportRect,
-      }),
-    [constraints, objectById, renderViewportRect, selectedConstraintId]
-  );
+  const {
+    selectedRect,
+    selectedLineControls,
+    selectedSolidResizeHandles,
+    constraintRenderSegments,
+    solid3dMarkerNodes,
+    areaSelectionDraftRect,
+    areaSelectionResizeRect,
+  } = useWorkbookSelectionOverlayController({
+    selectedPreviewObject,
+    constraints,
+    objectById,
+    selectedConstraintId,
+    renderViewportRect,
+    solid3dSectionMarkers,
+    solid3dPreviewMetaById,
+    areaSelectionDraft,
+    areaSelectionResize,
+  });
   const handleSelectConstraint = useCallback(
     (constraintId: string) => {
       onSelectedObjectChange(null);
       onSelectedConstraintChange(constraintId);
     },
     [onSelectedConstraintChange, onSelectedObjectChange]
-  );
-  const solid3dPickMarkers = useMemo(() => {
-    const markerSource = solid3dSectionMarkers;
-    if (!markerSource?.objectId) {
-      return [] as Array<{ index: number; x: number; y: number; label: string }>;
-    }
-    const sourceObject =
-      selectedPreviewObject?.id === markerSource.objectId
-        ? selectedPreviewObject
-        : objectById.get(markerSource.objectId);
-    if (!sourceObject) return [] as Array<{ index: number; x: number; y: number; label: string }>;
-    return resolveSolid3dPickMarkersForObject(
-      sourceObject,
-      markerSource.selectedPoints,
-      solid3dPreviewMetaById
-    );
-  }, [
-    objectById,
-    selectedPreviewObject,
-    solid3dPreviewMetaById,
-    solid3dSectionMarkers,
-  ]);
-
-  const solid3dMarkerNodes = useMemo(() => {
-    if (!solid3dSectionMarkers?.objectId) return null;
-    return solid3dPickMarkers.map((marker) => {
-      const markerObjectId = solid3dSectionMarkers.objectId;
-      const markerObject =
-        selectedPreviewObject?.id === markerObjectId
-          ? selectedPreviewObject
-          : objectById.get(markerObjectId);
-      const showMarkerLabels = markerObject?.meta?.showLabels !== false;
-      const markerCenter = markerObject ? getObjectCenter(markerObject) : marker;
-      const markerPlacement = resolveOutsideVertexLabelPlacement({
-        vertex: marker,
-        center: markerCenter,
-        baseOffset: 13,
-      });
-      return (
-        <g key={`solid3d-pick-${markerObjectId}-${marker.index}`}>
-          <circle
-            cx={marker.x}
-            cy={marker.y}
-            r={2.8}
-            fill="#ff8e3c"
-            stroke="#ffffff"
-            strokeWidth={1}
-          />
-          {showMarkerLabels ? (
-            <text
-              x={markerPlacement.x}
-              y={markerPlacement.y}
-              fill="#ff8e3c"
-              fontSize={8.5}
-              fontWeight={700}
-              textAnchor={markerPlacement.textAnchor}
-              dominantBaseline="central"
-            >
-              {marker.label}
-            </text>
-          ) : null}
-        </g>
-      );
-    });
-  }, [objectById, selectedPreviewObject, solid3dPickMarkers, solid3dSectionMarkers]);
-
-  const { areaSelectionDraftRect, areaSelectionResizeRect } = useMemo(
-    () =>
-      resolveAreaSelectionPreviewRects({
-        areaSelectionDraft,
-        areaSelectionResize,
-      }),
-    [areaSelectionDraft, areaSelectionResize]
   );
 
   const canvasStyle: CSSProperties = {
