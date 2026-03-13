@@ -70,6 +70,8 @@ const AUTH_SESSION_PERSIST_INTERVAL_MS = 60_000;
 const ONLINE_TIMEOUT_MS = 3_500;
 const PRESENCE_PERSIST_INTERVAL_MS = 15_000;
 const PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS = 20_000;
+const PRESENCE_TAB_ID_MAX_LENGTH = 96;
+const PRESENCE_FALLBACK_TAB_ID = "__legacy__";
 const INVITE_TTL_MS = 2 * 60 * 60 * 1000;
 const CLASS_INVITE_PERSISTENT_EXPIRES_AT = "2999-12-31T23:59:59.999Z";
 const WORKBOOK_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -190,6 +192,7 @@ const authSessionPersistAtByToken = new Map<string, number>();
 const presencePersistAtByParticipant = new Map<string, number>();
 const presenceActivityTouchAtBySession = new Map<string, number>();
 const presenceSnapshotHashBySession = new Map<string, string>();
+const presenceActiveTabsByParticipant = new Map<string, Set<string>>();
 const runtimeUnsubscribeBySession = new Map<string, () => Promise<void> | void>();
 const runtimeSubscribeInFlightBySession = new Map<string, Promise<void>>();
 const RUNTIME_NODE_ID = `${os.hostname()}-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
@@ -227,6 +230,132 @@ const persistPresenceIfNeeded = (
   }
   presencePersistAtByParticipant.set(key, now);
   saveDb();
+};
+
+type WorkbookPresenceState = "active" | "inactive";
+
+const resolveParticipantPresenceKey = (sessionId: string, userId: string) => `${sessionId}:${userId}`;
+
+const normalizePresenceState = (value: unknown): WorkbookPresenceState =>
+  value === "inactive" ? "inactive" : "active";
+
+const normalizePresenceTabId = (value: unknown) => {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return PRESENCE_FALLBACK_TAB_ID;
+  return raw.slice(0, PRESENCE_TAB_ID_MAX_LENGTH);
+};
+
+const resolveDurationMinutes = (startedAt: string | null | undefined, endedAt: string) => {
+  const startTs = startedAt ? new Date(startedAt).getTime() : NaN;
+  const endTs = new Date(endedAt).getTime();
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs <= startTs) {
+    return null;
+  }
+  return Math.max(1, Math.round((endTs - startTs) / 60000));
+};
+
+const startParticipantVisit = (
+  participant: WorkbookSessionParticipantRecord,
+  timestamp: string
+) => {
+  if (participant.currentVisitStartedAt) return false;
+  participant.currentVisitStartedAt = timestamp;
+  participant.lastVisitStartedAt = timestamp;
+  participant.lastVisitEndedAt = null;
+  participant.lastVisitDurationMinutes = null;
+  return true;
+};
+
+const finishParticipantVisit = (
+  participant: WorkbookSessionParticipantRecord,
+  timestamp: string
+) => {
+  if (!participant.currentVisitStartedAt) return false;
+  const startedAt = participant.currentVisitStartedAt;
+  participant.currentVisitStartedAt = null;
+  participant.lastVisitStartedAt = startedAt;
+  participant.lastVisitEndedAt = timestamp;
+  participant.lastVisitDurationMinutes = resolveDurationMinutes(startedAt, timestamp);
+  return true;
+};
+
+const applyParticipantPresenceState = (
+  participant: WorkbookSessionParticipantRecord,
+  options: {
+    sessionId: string;
+    state: WorkbookPresenceState;
+    tabId: string;
+    timestamp: string;
+    clearTabs?: boolean;
+  }
+) => {
+  const key = resolveParticipantPresenceKey(options.sessionId, participant.userId);
+  const currentTabs = presenceActiveTabsByParticipant.get(key) ?? new Set<string>();
+  const tabs = new Set(currentTabs);
+  if (options.clearTabs) {
+    tabs.clear();
+  }
+  const wasActive = participant.isActive;
+  const hadCurrentVisit = Boolean(participant.currentVisitStartedAt);
+  let changed = false;
+
+  if (options.state === "active") {
+    if (!tabs.has(options.tabId)) {
+      tabs.add(options.tabId);
+      changed = true;
+    }
+    if (startParticipantVisit(participant, options.timestamp)) {
+      changed = true;
+    }
+    if (!participant.isActive) {
+      participant.isActive = true;
+      changed = true;
+    }
+    if (participant.leftAt) {
+      participant.leftAt = null;
+      changed = true;
+    }
+    participant.lastSeenAt = options.timestamp;
+  } else {
+    if (tabs.delete(options.tabId)) {
+      changed = true;
+    }
+    const hasActiveTabs = tabs.size > 0;
+    if (!hasActiveTabs) {
+      if (participant.isActive) {
+        participant.isActive = false;
+        changed = true;
+      }
+      if (participant.leftAt !== options.timestamp) {
+        participant.leftAt = options.timestamp;
+        changed = true;
+      }
+      if (finishParticipantVisit(participant, options.timestamp)) {
+        changed = true;
+      }
+    } else {
+      if (!participant.isActive) {
+        participant.isActive = true;
+        changed = true;
+      }
+      if (participant.leftAt) {
+        participant.leftAt = null;
+        changed = true;
+      }
+    }
+    participant.lastSeenAt = options.timestamp;
+  }
+
+  if (tabs.size > 0) {
+    presenceActiveTabsByParticipant.set(key, tabs);
+  } else {
+    presenceActiveTabsByParticipant.delete(key);
+  }
+
+  return {
+    changed: changed || wasActive !== participant.isActive || hadCurrentVisit !== Boolean(participant.currentVisitStartedAt),
+    hasActiveTabs: tabs.size > 0,
+  };
 };
 
 const ensureId = () =>
@@ -529,6 +658,7 @@ const getSessionRecord = (db: MockDb, token: string | undefined | null): AuthSes
   const session = getDbIndex(db).authSessionsByToken.get(token);
   if (!session) return null;
   if (new Date(session.expiresAt).getTime() <= nowTs()) {
+    closeUserPresenceAcrossSessions(db, session.userId);
     db.authSessions = db.authSessions.filter((item) => item.token !== token);
     authSessionPersistAtByToken.delete(token);
     saveDb();
@@ -910,15 +1040,30 @@ const serializeSession = (db: MockDb, session: WorkbookSessionRecord, actorUserI
   };
 };
 
-const durationMinutes = (session: WorkbookSessionRecord) => {
-  const startTs = session.startedAt ? new Date(session.startedAt).getTime() : NaN;
-  const endTs = session.endedAt
-    ? new Date(session.endedAt).getTime()
-    : new Date(session.lastActivityAt).getTime();
-  if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs <= startTs) {
+const resolveTeacherLastVisitDurationMinutes = (db: MockDb, session: WorkbookSessionRecord) => {
+  const teacherParticipant = getWorkbookParticipant(db, session.id, session.createdBy);
+  if (!teacherParticipant || teacherParticipant.roleInSession !== "teacher") {
     return null;
   }
-  return Math.max(1, Math.round((endTs - startTs) / 60000));
+  const key = resolveParticipantPresenceKey(session.id, teacherParticipant.userId);
+  const activeTabs = presenceActiveTabsByParticipant.get(key);
+  if (activeTabs?.size && teacherParticipant.currentVisitStartedAt) {
+    return resolveDurationMinutes(teacherParticipant.currentVisitStartedAt, nowIso());
+  }
+  if (
+    typeof teacherParticipant.lastVisitDurationMinutes === "number" &&
+    Number.isFinite(teacherParticipant.lastVisitDurationMinutes) &&
+    teacherParticipant.lastVisitDurationMinutes > 0
+  ) {
+    return teacherParticipant.lastVisitDurationMinutes;
+  }
+  if (teacherParticipant.lastVisitStartedAt && teacherParticipant.lastVisitEndedAt) {
+    return resolveDurationMinutes(
+      teacherParticipant.lastVisitStartedAt,
+      teacherParticipant.lastVisitEndedAt
+    );
+  }
+  return null;
 };
 
 const serializeDraft = (db: MockDb, draft: WorkbookDraftRecord, actorUserId: string) => {
@@ -938,7 +1083,7 @@ const serializeDraft = (db: MockDb, draft: WorkbookDraftRecord, actorUserId: str
     createdAt: draft.createdAt,
     startedAt: session.startedAt ?? null,
     endedAt: session.endedAt ?? null,
-    durationMinutes: durationMinutes(session),
+    durationMinutes: resolveTeacherLastVisitDurationMinutes(db, session),
     canEdit: actorParticipant.permissions.canDraw || actorParticipant.permissions.canSelect,
     canInvite: actorParticipant.permissions.canInvite,
     canDelete: actorParticipant.permissions.canManageSession,
@@ -1251,6 +1396,18 @@ const ensureParticipant = (
   if (existing) {
     existing.isActive = true;
     existing.lastSeenAt = nowIso();
+    if (typeof existing.currentVisitStartedAt === "undefined") {
+      existing.currentVisitStartedAt = null;
+    }
+    if (typeof existing.lastVisitStartedAt === "undefined") {
+      existing.lastVisitStartedAt = null;
+    }
+    if (typeof existing.lastVisitEndedAt === "undefined") {
+      existing.lastVisitEndedAt = null;
+    }
+    if (typeof existing.lastVisitDurationMinutes === "undefined") {
+      existing.lastVisitDurationMinutes = null;
+    }
     existing.permissions = normalizeParticipantPermissions(
       params.roleInSession,
       params.permissions
@@ -1266,6 +1423,10 @@ const ensureParticipant = (
     leftAt: null,
     isActive: true,
     lastSeenAt: nowIso(),
+    currentVisitStartedAt: null,
+    lastVisitStartedAt: null,
+    lastVisitEndedAt: null,
+    lastVisitDurationMinutes: null,
     permissions: normalizeParticipantPermissions(params.roleInSession, params.permissions),
   };
   db.workbookParticipants.push(created);
@@ -1659,6 +1820,37 @@ const applyStudentControls = (session: WorkbookSessionRecord, db: MockDb) => {
   return changed;
 };
 
+const closeUserPresenceAcrossSessions = (db: MockDb, userId: string, timestamp = nowIso()) => {
+  const affectedSessions = new Set<string>();
+  db.workbookParticipants.forEach((participant) => {
+    if (participant.userId !== userId) return;
+    const key = resolveParticipantPresenceKey(participant.sessionId, participant.userId);
+    const tabs = presenceActiveTabsByParticipant.get(key);
+    const hadActiveTabs = Boolean(tabs && tabs.size > 0);
+    if (hadActiveTabs) {
+      presenceActiveTabsByParticipant.delete(key);
+    }
+    const hadCurrentVisit = Boolean(participant.currentVisitStartedAt);
+    const wasActive = participant.isActive;
+    participant.isActive = false;
+    participant.leftAt = timestamp;
+    participant.lastSeenAt = timestamp;
+    finishParticipantVisit(participant, timestamp);
+    if (wasActive || hadCurrentVisit || hadActiveTabs) {
+      affectedSessions.add(participant.sessionId);
+      persistPresenceIfNeeded(participant, { force: true });
+      presenceActivityTouchAtBySession.delete(participant.sessionId);
+    }
+  });
+  affectedSessions.forEach((sessionId) => {
+    const session = getWorkbookSessionById(db, sessionId);
+    if (!session) return;
+    applyStudentControls(session, db);
+    maybePublishPresenceSync(db, sessionId, userId);
+  });
+  return affectedSessions.size > 0;
+};
+
 const requireAuthUser = (req: IncomingMessage, res: ServerResponse, db: MockDb) => {
   const user = resolveAuthUser(req, db);
   if (!user) {
@@ -1785,6 +1977,10 @@ export function setupMockServer(host: MiddlewareHost) {
         const cookies = parseCookies(req);
         const token = cookies[AUTH_COOKIE_NAME];
         if (token) {
+          const authSession = getDbIndex(db).authSessionsByToken.get(token) ?? null;
+          if (authSession) {
+            closeUserPresenceAcrossSessions(db, authSession.userId);
+          }
           db.authSessions = db.authSessions.filter((session) => session.token !== token);
           authSessionPersistAtByToken.delete(token);
           saveDb();
@@ -2046,9 +2242,13 @@ export function setupMockServer(host: MiddlewareHost) {
         }
 
         db.workbookSessions = db.workbookSessions.filter((item) => item.id !== sessionId);
-        db.workbookParticipants = db.workbookParticipants.filter(
-          (item) => item.sessionId !== sessionId
-        );
+        db.workbookParticipants = db.workbookParticipants.filter((item) => {
+          if (item.sessionId !== sessionId) return true;
+          presenceActiveTabsByParticipant.delete(
+            resolveParticipantPresenceKey(item.sessionId, item.userId)
+          );
+          return false;
+        });
         db.workbookDrafts = db.workbookDrafts.filter((item) => item.sessionId !== sessionId);
         db.workbookInvites = db.workbookInvites.filter((item) => item.sessionId !== sessionId);
         await deleteWorkbookSessionArtifacts(sessionId);
@@ -2957,6 +3157,10 @@ export function setupMockServer(host: MiddlewareHost) {
       if (workbookPresenceMatch && method === "POST") {
         const actor = requireAuthUser(req, res, db);
         if (!actor) return;
+        const body = (await readBody(req)) as {
+          state?: WorkbookPresenceState;
+          tabId?: string;
+        } | null;
         const sessionId = decodeURIComponent(workbookPresenceMatch[1]);
         const session = getWorkbookSessionById(db, sessionId);
         if (!session) {
@@ -2969,23 +3173,31 @@ export function setupMockServer(host: MiddlewareHost) {
           return;
         }
 
+        const state = normalizePresenceState(body?.state);
+        const tabId = normalizePresenceTabId(body?.tabId);
         const wasActive = participant.isActive;
         const heartbeatTs = nowTs();
         const heartbeatAt = nowIso();
-        participant.leftAt = null;
-        participant.isActive = true;
-        participant.lastSeenAt = heartbeatAt;
+        const presenceResult = applyParticipantPresenceState(participant, {
+          sessionId,
+          state,
+          tabId,
+          timestamp: heartbeatAt,
+        });
         const lastActivityTouchAt = presenceActivityTouchAtBySession.get(sessionId) ?? 0;
         const shouldTouchSessionActivity =
-          !wasActive || heartbeatTs - lastActivityTouchAt >= PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS;
+          state === "active" &&
+          (!wasActive || heartbeatTs - lastActivityTouchAt >= PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS);
         if (shouldTouchSessionActivity) {
           touchSessionActivity(session, heartbeatAt);
           ensureDraftForOwner(db, session, actor.id).updatedAt = session.lastActivityAt;
           presenceActivityTouchAtBySession.set(sessionId, heartbeatTs);
+        } else if (!presenceResult.hasActiveTabs) {
+          presenceActivityTouchAtBySession.delete(sessionId);
         }
         applyStudentControls(session, db);
         persistPresenceIfNeeded(participant, {
-          force: !wasActive || shouldTouchSessionActivity,
+          force: presenceResult.changed || shouldTouchSessionActivity,
         });
         const participants = maybePublishPresenceSync(db, sessionId, actor.id);
 
@@ -3002,6 +3214,10 @@ export function setupMockServer(host: MiddlewareHost) {
       if (workbookPresenceLeaveMatch && method === "POST") {
         const actor = requireAuthUser(req, res, db);
         if (!actor) return;
+        const body = (await readBody(req)) as {
+          tabId?: string;
+          reason?: string;
+        } | null;
         const sessionId = decodeURIComponent(workbookPresenceLeaveMatch[1]);
         const session = getWorkbookSessionById(db, sessionId);
         if (!session) {
@@ -3013,12 +3229,21 @@ export function setupMockServer(host: MiddlewareHost) {
           forbidden(res);
           return;
         }
-        participant.isActive = false;
-        presenceActivityTouchAtBySession.delete(sessionId);
-        participant.leftAt = nowIso();
-        participant.lastSeenAt = participant.leftAt;
+        const leftAt = nowIso();
+        const hasTabId = typeof body?.tabId === "string" && body.tabId.trim().length > 0;
+        const tabId = normalizePresenceTabId(body?.tabId);
+        const presenceResult = applyParticipantPresenceState(participant, {
+          sessionId,
+          state: "inactive",
+          tabId,
+          timestamp: leftAt,
+          clearTabs: !hasTabId,
+        });
+        if (!presenceResult.hasActiveTabs) {
+          presenceActivityTouchAtBySession.delete(sessionId);
+        }
         applyStudentControls(session, db);
-        persistPresenceIfNeeded(participant, { force: true });
+        persistPresenceIfNeeded(participant, { force: presenceResult.changed });
         const participants = maybePublishPresenceSync(db, sessionId, actor.id);
 
         json(res, 200, {

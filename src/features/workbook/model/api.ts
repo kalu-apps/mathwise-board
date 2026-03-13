@@ -459,18 +459,29 @@ export async function saveWorkbookSnapshot(params: {
   }
 }
 
-export async function heartbeatWorkbookPresence(sessionId: string) {
+type WorkbookPresenceState = "active" | "inactive";
+
+type WorkbookPresencePayload = {
+  tabId?: string;
+  state?: WorkbookPresenceState;
+  reason?: string;
+};
+
+export async function heartbeatWorkbookPresence(
+  sessionId: string,
+  payload?: WorkbookPresencePayload
+) {
   return api.post<{ ok: true; participants: WorkbookSession["participants"] }>(
     `/workbook/sessions/${encodeURIComponent(sessionId)}/presence`,
-    {},
+    payload ?? {},
     { notifyDataUpdate: false }
   );
 }
 
-export async function leaveWorkbookPresence(sessionId: string) {
+export async function leaveWorkbookPresence(sessionId: string, payload?: WorkbookPresencePayload) {
   return api.post<{ ok: true; participants: WorkbookSession["participants"] }>(
     `/workbook/sessions/${encodeURIComponent(sessionId)}/presence/leave`,
-    {},
+    payload ?? {},
     { notifyDataUpdate: false }
   );
 }

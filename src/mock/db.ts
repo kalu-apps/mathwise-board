@@ -63,6 +63,10 @@ export type WorkbookSessionParticipantRecord = {
   leftAt?: string | null;
   isActive: boolean;
   lastSeenAt?: string | null;
+  currentVisitStartedAt?: string | null;
+  lastVisitStartedAt?: string | null;
+  lastVisitEndedAt?: string | null;
+  lastVisitDurationMinutes?: number | null;
   permissions: WorkbookParticipantPermissions;
 };
 

@@ -1590,6 +1590,7 @@ export default function WorkbookSessionPage() {
     offsetY: number;
   } | null>(null);
   const presenceLeaveSentRef = useRef(false);
+  const presenceTabIdRef = useRef(`tab_${generateId()}`);
   const sessionResyncInFlightRef = useRef(false);
   const realtimeDisconnectSinceRef = useRef<number | null>(null);
   const lastForcedResyncAtRef = useRef<number>(0);
@@ -3417,11 +3418,22 @@ export default function WorkbookSessionPage() {
   ]);
 
   useEffect(() => {
-    if (!sessionId || !session) return;
+    if (!sessionId || !session || !user?.id) return;
     let active = true;
+    const presenceTabId = presenceTabIdRef.current;
+    const resolvePresenceState = () => {
+      if (typeof document === "undefined" || typeof window === "undefined") {
+        return "active" as const;
+      }
+      const hasFocus = typeof document.hasFocus === "function" ? document.hasFocus() : true;
+      return document.visibilityState === "visible" && hasFocus ? "active" : "inactive";
+    };
     const heartbeat = async () => {
       try {
-        const response = await heartbeatWorkbookPresence(sessionId);
+        const response = await heartbeatWorkbookPresence(sessionId, {
+          state: resolvePresenceState(),
+          tabId: presenceTabId,
+        });
         if (!active) return;
         setSession((current) =>
           current
@@ -3435,27 +3447,41 @@ export default function WorkbookSessionPage() {
       }
     };
     void heartbeat();
+    const onVisibilityOrFocusChange = () => {
+      void heartbeat();
+    };
+    window.addEventListener("focus", onVisibilityOrFocusChange);
+    window.addEventListener("blur", onVisibilityOrFocusChange);
+    document.addEventListener("visibilitychange", onVisibilityOrFocusChange);
     const intervalId = window.setInterval(() => {
       void heartbeat();
     }, PRESENCE_INTERVAL_MS);
     return () => {
       active = false;
+      window.removeEventListener("focus", onVisibilityOrFocusChange);
+      window.removeEventListener("blur", onVisibilityOrFocusChange);
+      document.removeEventListener("visibilitychange", onVisibilityOrFocusChange);
       window.clearInterval(intervalId);
     };
-  }, [areParticipantsEqual, session, sessionId]);
+  }, [areParticipantsEqual, session, sessionId, user?.id]);
 
   useEffect(() => {
-    if (!sessionId || !showCollaborationPanels || !user?.id) return;
+    if (!sessionId || !user?.id) return;
     presenceLeaveSentRef.current = false;
+    const presenceTabId = presenceTabIdRef.current;
     const leaveUrl = `/api/workbook/sessions/${encodeURIComponent(sessionId)}/presence/leave`;
-    const sendLeave = () => {
+    const sendLeave = (reason: string) => {
       if (presenceLeaveSentRef.current) return;
       presenceLeaveSentRef.current = true;
+      const payload = JSON.stringify({
+        tabId: presenceTabId,
+        reason,
+      });
       if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
-        const payload = new Blob([JSON.stringify({})], {
+        const beaconPayload = new Blob([payload], {
           type: "application/json",
         });
-        navigator.sendBeacon(leaveUrl, payload);
+        navigator.sendBeacon(leaveUrl, beaconPayload);
         return;
       }
       void fetch(leaveUrl, {
@@ -3465,11 +3491,11 @@ export default function WorkbookSessionPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: "{}",
+        body: payload,
       });
     };
     const onPageHide = () => {
-      sendLeave();
+      sendLeave("pagehide");
     };
     window.addEventListener("pagehide", onPageHide);
     window.addEventListener("beforeunload", onPageHide);
@@ -3477,13 +3503,16 @@ export default function WorkbookSessionPage() {
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("beforeunload", onPageHide);
       if (!presenceLeaveSentRef.current) {
-        void leaveWorkbookPresence(sessionId).catch(() => {
+        void leaveWorkbookPresence(sessionId, {
+          tabId: presenceTabId,
+          reason: "cleanup",
+        }).catch(() => {
           // ignore leave errors
         });
       }
       presenceLeaveSentRef.current = false;
     };
-  }, [sessionId, showCollaborationPanels, user?.id]);
+  }, [sessionId, user?.id]);
 
   useEffect(() => {
     if (!sessionChatReadStorageKey) {
