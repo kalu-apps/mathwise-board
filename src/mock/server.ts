@@ -49,6 +49,12 @@ import {
   workbookEventStore,
   workbookSnapshotStore,
 } from "./workbookStores";
+import {
+  getDbIndex,
+  getSessionOwnerKey,
+  getSessionUserKey,
+} from "./dbIndex";
+import { getWorkbookPersistenceReadiness } from "./runtimeReadiness";
 
 const WHITEBOARD_TEACHER_LOGIN = "teacher@axiom.demo";
 const WHITEBOARD_TEACHER_PASSWORD =
@@ -59,8 +65,10 @@ const WHITEBOARD_TEACHER_PASSWORD =
 
 const AUTH_COOKIE_NAME = "math_tutor_session";
 const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const AUTH_SESSION_PERSIST_INTERVAL_MS = 60_000;
 const ONLINE_TIMEOUT_MS = 3_500;
 const PRESENCE_PERSIST_INTERVAL_MS = 15_000;
+const PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS = 20_000;
 const INVITE_TTL_MS = 2 * 60 * 60 * 1000;
 const WORKBOOK_EVENT_LIMIT = 1_200;
 const CORS_ALLOWED_ORIGINS = String(process.env.CORS_ALLOWED_ORIGINS ?? "")
@@ -174,7 +182,9 @@ const workbookLiveSocketClientsBySession = new Map<
   string,
   Map<string, WorkbookLiveSocketClient>
 >();
+const authSessionPersistAtByToken = new Map<string, number>();
 const presencePersistAtByParticipant = new Map<string, number>();
+const presenceActivityTouchAtBySession = new Map<string, number>();
 const presenceSnapshotHashBySession = new Map<string, string>();
 const runtimeUnsubscribeBySession = new Map<string, () => Promise<void> | void>();
 const runtimeSubscribeInFlightBySession = new Map<string, Promise<void>>();
@@ -253,6 +263,13 @@ const badRequest = (res: ServerResponse, message = "Bad request") => {
 
 const serviceUnavailable = (res: ServerResponse, message = "Service unavailable") => {
   json(res, 503, { error: message });
+};
+
+const ensureWorkbookPersistenceReady = (res: ServerResponse) => {
+  const readiness = getWorkbookPersistenceReadiness();
+  if (readiness.ready) return true;
+  serviceUnavailable(res, readiness.reasons[0] ?? "workbook_persistence_unavailable");
+  return false;
 };
 
 const parseCookies = (req: IncomingMessage): Record<string, string> => {
@@ -393,10 +410,11 @@ const safeUser = (user: UserRecord) => ({
 
 const getSessionRecord = (db: MockDb, token: string | undefined | null): AuthSessionRecord | null => {
   if (!token) return null;
-  const session = db.authSessions.find((item) => item.token === token);
+  const session = getDbIndex(db).authSessionsByToken.get(token);
   if (!session) return null;
   if (new Date(session.expiresAt).getTime() <= nowTs()) {
     db.authSessions = db.authSessions.filter((item) => item.token !== token);
+    authSessionPersistAtByToken.delete(token);
     saveDb();
     return null;
   }
@@ -412,11 +430,16 @@ const resolveAuthUser = (
   const token = cookies[AUTH_COOKIE_NAME];
   const session = getSessionRecord(db, token);
   if (!session) return null;
-  const user = db.users.find((item) => item.id === session.userId) ?? null;
+  const user = getDbIndex(db).usersById.get(session.userId) ?? null;
   if (!user) return null;
   if (options?.touchSession !== false) {
+    const now = nowTs();
     session.lastSeenAt = nowIso();
-    saveDb();
+    const lastPersistAt = authSessionPersistAtByToken.get(session.token) ?? 0;
+    if (now - lastPersistAt >= AUTH_SESSION_PERSIST_INTERVAL_MS) {
+      authSessionPersistAtByToken.set(session.token, now);
+      saveDb();
+    }
   }
   return user;
 };
@@ -675,15 +698,13 @@ const writeSessionSettings = (session: WorkbookSessionRecord, settings: Workbook
 };
 
 const getWorkbookSessionById = (db: MockDb, sessionId: string) =>
-  db.workbookSessions.find((session) => session.id === sessionId) ?? null;
+  getDbIndex(db).sessionsById.get(sessionId) ?? null;
 
 const getWorkbookParticipants = (db: MockDb, sessionId: string) =>
-  db.workbookParticipants.filter((participant) => participant.sessionId === sessionId);
+  getDbIndex(db).participantsBySession.get(sessionId) ?? [];
 
 const getWorkbookParticipant = (db: MockDb, sessionId: string, userId: string) =>
-  db.workbookParticipants.find(
-    (participant) => participant.sessionId === sessionId && participant.userId === userId
-  ) ?? null;
+  getDbIndex(db).participantsBySessionUser.get(getSessionUserKey(sessionId, userId)) ?? null;
 
 const isParticipantOnline = (participant: WorkbookSessionParticipantRecord) => {
   if (!participant.isActive || !participant.lastSeenAt) return false;
@@ -705,8 +726,8 @@ const ensureDraftForOwner = (
   session: WorkbookSessionRecord,
   ownerUserId: string
 ): WorkbookDraftRecord => {
-  const existing = db.workbookDrafts.find(
-    (draft) => draft.sessionId === session.id && draft.ownerUserId === ownerUserId
+  const existing = getDbIndex(db).draftsBySessionOwner.get(
+    getSessionOwnerKey(session.id, ownerUserId)
   );
   if (existing) {
     existing.title = session.title;
@@ -733,7 +754,7 @@ const serializeParticipant = (db: MockDb, participant: WorkbookSessionParticipan
     participant.roleInSession,
     participant.permissions
   );
-  const user = db.users.find((item) => item.id === participant.userId);
+  const user = getDbIndex(db).usersById.get(participant.userId);
   const displayName = user
     ? `${user.firstName} ${user.lastName}`.trim() || user.email
     : participant.userId;
@@ -808,7 +829,7 @@ const serializeDraft = (db: MockDb, draft: WorkbookDraftRecord, actorUserId: str
     participantsCount: participants.length,
     isOwner: session.createdBy === actorUserId,
     participants: participants.map((participant) => {
-      const user = db.users.find((item) => item.id === participant.userId);
+      const user = getDbIndex(db).usersById.get(participant.userId);
       return {
         userId: participant.userId,
         displayName: user
@@ -831,10 +852,7 @@ const deliverWorkbookStreamEventsToLocalClients = (
   const chunk = `event: workbook\ndata: ${JSON.stringify(payload)}\n\n`;
   let deliveredClientCount = 0;
   for (const [clientId, client] of sessionClients.entries()) {
-    const hasAccess = db.workbookParticipants.some(
-      (participant) =>
-        participant.sessionId === payload.sessionId && participant.userId === client.userId
-    );
+    const hasAccess = Boolean(getWorkbookParticipant(db, payload.sessionId, client.userId));
     if (!hasAccess) {
       closeWorkbookStreamClient(payload.sessionId, clientId);
       continue;
@@ -875,10 +893,7 @@ const deliverWorkbookLiveEventsToLocalClients = (
   });
   let deliveredClientCount = 0;
   for (const [clientId, client] of sessionClients.entries()) {
-    const hasAccess = db.workbookParticipants.some(
-      (participant) =>
-        participant.sessionId === payload.sessionId && participant.userId === client.userId
-    );
+    const hasAccess = Boolean(getWorkbookParticipant(db, payload.sessionId, client.userId));
     if (!hasAccess || client.socket.readyState !== WebSocket.OPEN) {
       closeWorkbookLiveSocketClient(payload.sessionId, clientId);
       continue;
@@ -1097,7 +1112,7 @@ const applyStudentDisplayName = (user: UserRecord, displayName: string) => {
 };
 
 const getInviteByToken = (db: MockDb, token: string) =>
-  db.workbookInvites.find((invite) => invite.token === token) ?? null;
+  getDbIndex(db).invitesByToken.get(token) ?? null;
 
 const isInviteExpired = (invite: WorkbookInviteRecord) => {
   const expiresAtTs = new Date(invite.expiresAt).getTime();
@@ -1366,7 +1381,7 @@ const sanitizeWorkbookLiveEvents = (
 
 const rejectUpgrade = (
   socket: Duplex,
-  statusCode: 400 | 401 | 403 | 404,
+  statusCode: 400 | 401 | 403 | 404 | 503,
   statusText: string
 ) => {
   try {
@@ -1388,6 +1403,11 @@ const attachWorkbookLiveSocketServer = (host: MiddlewareHost) => {
     const { pathname } = parsePath(req);
     const match = pathname.match(/^\/api\/workbook\/sessions\/([^/]+)\/events\/live$/);
     if (!match) return;
+    const readiness = getWorkbookPersistenceReadiness();
+    if (!readiness.ready) {
+      rejectUpgrade(socket, 503, "Service Unavailable");
+      return;
+    }
     const db = getDb();
     pickTeacher(db);
     normalizeDbParticipantPermissions(db);
@@ -1494,6 +1514,7 @@ const requireAuthUser = (req: IncomingMessage, res: ServerResponse, db: MockDb) 
 const setAuthSession = (db: MockDb, res: ServerResponse, user: UserRecord) => {
   const token = ensureId();
   const createdAt = nowIso();
+  const createdAtTs = nowTs();
   const session: AuthSessionRecord = {
     token,
     userId: user.id,
@@ -1502,6 +1523,7 @@ const setAuthSession = (db: MockDb, res: ServerResponse, user: UserRecord) => {
     expiresAt: new Date(nowTs() + AUTH_SESSION_TTL_MS).toISOString(),
   };
   db.authSessions.push(session);
+  authSessionPersistAtByToken.set(token, createdAtTs);
   writeAuthCookie(res, token);
   return session;
 };
@@ -1581,6 +1603,12 @@ export function setupMockServer(host: MiddlewareHost) {
         return;
       }
 
+      if (pathname === "/api/runtime/readiness" && method === "GET") {
+        const readiness = getWorkbookPersistenceReadiness();
+        json(res, readiness.ready ? 200 : 503, readiness);
+        return;
+      }
+
       if (pathname === "/api/auth/password/login" && method === "POST") {
         const body = (await readBody(req)) as { email?: string; password?: string } | null;
         const email = String(body?.email ?? "").trim().toLowerCase();
@@ -1601,6 +1629,7 @@ export function setupMockServer(host: MiddlewareHost) {
         const token = cookies[AUTH_COOKIE_NAME];
         if (token) {
           db.authSessions = db.authSessions.filter((session) => session.token !== token);
+          authSessionPersistAtByToken.delete(token);
           saveDb();
         }
         clearAuthCookie(res);
@@ -1748,6 +1777,7 @@ export function setupMockServer(host: MiddlewareHost) {
       }
 
       if (workbookSessionMatch && method === "DELETE") {
+        if (!ensureWorkbookPersistenceReady(res)) return;
         const actor = requireAuthUser(req, res, db);
         if (!actor) return;
         const sessionId = decodeURIComponent(workbookSessionMatch[1]);
@@ -1770,6 +1800,9 @@ export function setupMockServer(host: MiddlewareHost) {
         db.workbookInvites = db.workbookInvites.filter((item) => item.sessionId !== sessionId);
         await deleteWorkbookSessionArtifacts(sessionId);
         workbookStreamClientsBySession.delete(sessionId);
+        workbookLiveSocketClientsBySession.delete(sessionId);
+        presenceSnapshotHashBySession.delete(sessionId);
+        presenceActivityTouchAtBySession.delete(sessionId);
         saveDb();
         json(res, 200, {
           ok: true,
@@ -1945,6 +1978,7 @@ export function setupMockServer(host: MiddlewareHost) {
 
       const workbookDuplicateMatch = pathname.match(/^\/api\/workbook\/sessions\/([^/]+)\/duplicate$/);
       if (workbookDuplicateMatch && method === "POST") {
+        if (!ensureWorkbookPersistenceReady(res)) return;
         const actor = requireAuthUser(req, res, db);
         if (!actor) return;
         const sourceId = decodeURIComponent(workbookDuplicateMatch[1]);
@@ -2236,6 +2270,7 @@ export function setupMockServer(host: MiddlewareHost) {
 
       const workbookEventsMatch = pathname.match(/^\/api\/workbook\/sessions\/([^/]+)\/events$/);
       if (workbookEventsMatch && method === "GET") {
+        if (!ensureWorkbookPersistenceReady(res)) return;
         const actor = requireAuthUser(req, res, db);
         if (!actor) return;
         const sessionId = decodeURIComponent(workbookEventsMatch[1]);
@@ -2255,6 +2290,7 @@ export function setupMockServer(host: MiddlewareHost) {
       }
 
       if (workbookEventsMatch && method === "POST") {
+        if (!ensureWorkbookPersistenceReady(res)) return;
         const actor = requireAuthUser(req, res, db);
         if (!actor) return;
         const sessionId = decodeURIComponent(workbookEventsMatch[1]);
@@ -2535,6 +2571,7 @@ export function setupMockServer(host: MiddlewareHost) {
 
       const workbookSnapshotMatch = pathname.match(/^\/api\/workbook\/sessions\/([^/]+)\/snapshot$/);
       if (workbookSnapshotMatch && method === "GET") {
+        if (!ensureWorkbookPersistenceReady(res)) return;
         const actor = requireAuthUser(req, res, db);
         if (!actor) return;
         const sessionId = decodeURIComponent(workbookSnapshotMatch[1]);
@@ -2560,6 +2597,7 @@ export function setupMockServer(host: MiddlewareHost) {
       }
 
       if (workbookSnapshotMatch && method === "PUT") {
+        if (!ensureWorkbookPersistenceReady(res)) return;
         const actor = requireAuthUser(req, res, db);
         if (!actor) return;
         const sessionId = decodeURIComponent(workbookSnapshotMatch[1]);
@@ -2612,12 +2650,22 @@ export function setupMockServer(host: MiddlewareHost) {
         }
 
         const wasActive = participant.isActive;
+        const heartbeatTs = nowTs();
+        const heartbeatAt = nowIso();
         participant.leftAt = null;
         participant.isActive = true;
-        participant.lastSeenAt = nowIso();
-        touchSessionActivity(session);
-        ensureDraftForOwner(db, session, actor.id).updatedAt = session.lastActivityAt;
-        persistPresenceIfNeeded(participant, { force: !wasActive });
+        participant.lastSeenAt = heartbeatAt;
+        const lastActivityTouchAt = presenceActivityTouchAtBySession.get(sessionId) ?? 0;
+        const shouldTouchSessionActivity =
+          !wasActive || heartbeatTs - lastActivityTouchAt >= PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS;
+        if (shouldTouchSessionActivity) {
+          touchSessionActivity(session, heartbeatAt);
+          ensureDraftForOwner(db, session, actor.id).updatedAt = session.lastActivityAt;
+          presenceActivityTouchAtBySession.set(sessionId, heartbeatTs);
+        }
+        persistPresenceIfNeeded(participant, {
+          force: !wasActive || shouldTouchSessionActivity,
+        });
         const participants = maybePublishPresenceSync(db, sessionId, actor.id);
 
         json(res, 200, {
@@ -2640,6 +2688,7 @@ export function setupMockServer(host: MiddlewareHost) {
           return;
         }
         participant.isActive = false;
+        presenceActivityTouchAtBySession.delete(sessionId);
         participant.leftAt = nowIso();
         participant.lastSeenAt = participant.leftAt;
         persistPresenceIfNeeded(participant, { force: true });
@@ -2728,7 +2777,8 @@ export function setupMockServer(host: MiddlewareHost) {
       notFound(res);
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown_error";
-      json(res, 500, {
+      const isRuntimeTimeout = /_timeout$/i.test(message);
+      json(res, isRuntimeTimeout ? 503 : 500, {
         error: message,
       });
     }

@@ -17,6 +17,7 @@ const HOST = process.env.HOST ?? "0.0.0.0";
 const PORT = Number(process.env.PORT ?? 4173);
 const DIST_DIR = resolve(process.cwd(), process.env.WEB_DIST_DIR ?? "dist");
 const INDEX_FILE = resolve(DIST_DIR, "index.html");
+let isShuttingDown = false;
 
 const parseEnvList = (name: string) =>
   String(process.env[name] ?? "")
@@ -83,6 +84,28 @@ const json = (
   res.end(JSON.stringify(payload));
 };
 
+const getReadinessReport = () => {
+  const storage = getStorageDiagnostics();
+  const runtime = getRuntimeServicesStatus();
+  const reasons: string[] = [];
+  if (!storage.ready) {
+    reasons.push("storage_not_ready");
+  }
+  if (storage.required && storage.driver !== "postgres") {
+    reasons.push("storage_driver_degraded");
+  }
+  if (runtime.redis.required && !runtime.redis.connected) {
+    reasons.push("runtime_redis_not_connected");
+  }
+  return {
+    ready: reasons.length === 0 && !isShuttingDown,
+    reasons,
+    shuttingDown: isShuttingDown,
+    storage,
+    runtime,
+  };
+};
+
 const isSafeResolvedPath = (candidate: string) => {
   const relativePrefix = `${DIST_DIR}/`;
   return candidate === DIST_DIR || candidate.startsWith(relativePrefix);
@@ -135,13 +158,34 @@ const staticMiddleware: NextHandleFunction = async (req, res, next) => {
   if (pathname.startsWith("/api/")) {
     return next();
   }
-  if (pathname === "/healthz") {
+  if (pathname === "/livez") {
     return json(res, 200, {
       ok: true,
       service: "mathboard-monolith",
       timestamp: new Date().toISOString(),
-      storage: getStorageDiagnostics(),
-      runtime: getRuntimeServicesStatus(),
+      shuttingDown: isShuttingDown,
+    });
+  }
+  if (pathname === "/readyz") {
+    const readiness = getReadinessReport();
+    return json(res, readiness.ready ? 200 : 503, {
+      ok: readiness.ready,
+      service: "mathboard-monolith",
+      timestamp: new Date().toISOString(),
+      ...readiness,
+      media: getMediaDiagnostics(),
+      telemetry: getTelemetryDiagnostics(),
+    });
+  }
+  if (pathname === "/healthz") {
+    const readiness = getReadinessReport();
+    return json(res, 200, {
+      ok: true,
+      service: "mathboard-monolith",
+      timestamp: new Date().toISOString(),
+      readiness,
+      storage: readiness.storage,
+      runtime: readiness.runtime,
       media: getMediaDiagnostics(),
       telemetry: getTelemetryDiagnostics(),
     });
@@ -182,6 +226,20 @@ const app = connect();
 const server = createServer(app);
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 66_000;
+app.use((req, res, next) => {
+  if (!isShuttingDown) {
+    next();
+    return;
+  }
+  const pathname = req.url ? new URL(req.url, "http://localhost").pathname : "";
+  if (pathname === "/livez" || pathname === "/readyz" || pathname === "/healthz") {
+    next();
+    return;
+  }
+  json(res, 503, {
+    error: "server_shutting_down",
+  });
+});
 setupMockServer({
   middlewares: app as unknown as ViteDevServer["middlewares"],
   httpServer: server,
@@ -243,6 +301,7 @@ const start = async () => {
 };
 
 const stop = () => {
+  isShuttingDown = true;
   server.close(async () => {
     await Promise.allSettled([shutdownDb(), shutdownRuntimeServices()]);
     process.exit(0);
