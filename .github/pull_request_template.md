@@ -11,7 +11,7 @@
   - `main -> next` (mandatory sync after emergency hotfix)
 - [ ] No cherry-pick between `main` and `next`.
 - [ ] No dual manual implementation of one change in both branches.
-- [ ] For hotfix in `main`: incident reason is documented and sync PR `main -> next` is opened/planned.
+- [ ] For hotfix in `main`: incident reason is documented; auto sync PR `main -> next` exists (or created manually if automation failed).
 - [ ] Change is deploy-safe for target branch.
 
 ## Validation

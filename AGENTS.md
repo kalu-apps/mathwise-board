@@ -20,7 +20,7 @@ This repository uses `next-first` flow:
 - Emergency only (rare exception):
   - branch from `main` as `hotfix/<short-name>`
   - PR target: `main`
-  - right after merge: mandatory sync PR `main -> next`
+  - right after merge: sync PR `main -> next` is auto-created by workflow (`hotfix-sync-pr`)
 
 ## Forbidden
 

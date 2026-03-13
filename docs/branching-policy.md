@@ -27,7 +27,8 @@
 
 1. Создать ветку от `main`: `hotfix/<short-name>`.
 2. Открыть PR в `main`.
-3. После merge и деплоя обязательно открыть sync PR `main -> next`.
+3. После merge и деплоя workflow автоматически создаёт sync PR `main -> next`.
+4. Если авто-PR не появился (редкий сбой CI/GitHub), открыть sync PR вручную.
 
 ## Жёсткие правила
 
