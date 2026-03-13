@@ -38,7 +38,7 @@ export async function createWorkbookSession(params: {
   return api.post<{
     session: WorkbookSession;
     draft: WorkbookDraftCard;
-  }>("/workbook/sessions/", params);
+  }>("/workbook/sessions", params);
 }
 
 export async function getWorkbookSession(sessionId: string) {

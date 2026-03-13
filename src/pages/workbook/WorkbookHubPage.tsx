@@ -85,8 +85,8 @@ export default function WorkbookHubPage() {
   const [reloadVersion, setReloadVersion] = useState(0);
   const [creatingClass, setCreatingClass] = useState(false);
   const [creatingPersonal, setCreatingPersonal] = useState(false);
-  const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null);
-  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [copyingDraftId, setCopyingDraftId] = useState<string | null>(null);
+  const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthReady || user) return;
@@ -146,7 +146,19 @@ export default function WorkbookHubPage() {
         openAuthModal();
         return;
       }
-      setError("Не удалось создать индивидуальное занятие.");
+      if (reason instanceof ApiError && reason.status === 503) {
+        setError("Сервис временно недоступен. Попробуйте снова через несколько секунд.");
+        return;
+      }
+      if (reason instanceof ApiError && reason.status === 403) {
+        setError("Недостаточно прав для создания индивидуального занятия.");
+        return;
+      }
+      setError(
+        reason instanceof ApiError && reason.message
+          ? `Не удалось создать индивидуальное занятие: ${reason.message}`
+          : "Не удалось создать индивидуальное занятие."
+      );
     } finally {
       setCreatingClass(false);
     }
@@ -166,7 +178,19 @@ export default function WorkbookHubPage() {
         openAuthModal();
         return;
       }
-      setError("Не удалось создать личную тетрадь.");
+      if (reason instanceof ApiError && reason.status === 503) {
+        setError("Сервис временно недоступен. Попробуйте снова через несколько секунд.");
+        return;
+      }
+      if (reason instanceof ApiError && reason.status === 403) {
+        setError("Недостаточно прав для создания личной тетради.");
+        return;
+      }
+      setError(
+        reason instanceof ApiError && reason.message
+          ? `Не удалось создать личную тетрадь: ${reason.message}`
+          : "Не удалось создать личную тетрадь."
+      );
     } finally {
       setCreatingPersonal(false);
     }
@@ -179,7 +203,7 @@ export default function WorkbookHubPage() {
     );
     if (!confirmed) return;
     try {
-      setDeletingSessionId(card.sessionId);
+      setDeletingDraftId(card.draftId);
       setError(null);
       setSuccess(null);
       await deleteWorkbookSession(card.sessionId);
@@ -188,14 +212,14 @@ export default function WorkbookHubPage() {
     } catch {
       setError("Не удалось удалить карточку.");
     } finally {
-      setDeletingSessionId(null);
+      setDeletingDraftId(null);
     }
   };
 
   const handleCopyInvite = async (card: WorkbookDraftCard) => {
     if (card.kind !== "CLASS") return;
     try {
-      setCopyingSessionId(card.sessionId);
+      setCopyingDraftId(card.draftId);
       setError(null);
       setSuccess(null);
       const invite = await createWorkbookInvite(card.sessionId);
@@ -208,7 +232,7 @@ export default function WorkbookHubPage() {
     } catch {
       setError("Не удалось скопировать ссылку приглашения.");
     } finally {
-      setCopyingSessionId(null);
+      setCopyingDraftId(null);
     }
   };
 
@@ -341,8 +365,8 @@ export default function WorkbookHubPage() {
         ) : (
           <div className="workbook-hub__list">
             {cards.map((card) => {
-              const isCopying = copyingSessionId === card.sessionId;
-              const isDeleting = deletingSessionId === card.sessionId;
+              const isCopying = copyingDraftId === card.draftId;
+              const isDeleting = deletingDraftId === card.draftId;
               return (
                 <article className="workbook-hub__card" key={card.draftId}>
                   {card.canDelete ? (

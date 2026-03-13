@@ -1653,25 +1653,65 @@ export function setupMockServer(host: MiddlewareHost) {
         const actor = requireAuthUser(req, res, db);
         if (!actor) return;
         const scope = searchParams.get("scope") ?? "all";
-
-        const drafts = db.workbookDrafts
-          .filter((draft) => {
-            const session = getWorkbookSessionById(db, draft.sessionId);
-            if (!session) return false;
-            const participant = getWorkbookParticipant(db, session.id, actor.id);
-            if (!participant) return false;
+        const sessions = db.workbookSessions
+          .filter((session) => {
             if (scope === "class" && session.kind !== "CLASS") return false;
             if (scope === "personal" && session.kind !== "PERSONAL") return false;
+            if (actor.role === "teacher" && session.createdBy !== actor.id) return false;
+            const participant = getWorkbookParticipant(db, session.id, actor.id);
+            if (!participant) return false;
             return true;
           })
-          .map((draft) => serializeDraft(db, draft, actor.id))
+          .sort(
+            (left, right) =>
+              new Date(right.lastActivityAt).getTime() - new Date(left.lastActivityAt).getTime()
+          );
+        const latestDraftBySession = new Map<string, WorkbookDraftRecord>();
+        db.workbookDrafts.forEach((draft) => {
+          const current = latestDraftBySession.get(draft.sessionId);
+          if (!current) {
+            latestDraftBySession.set(draft.sessionId, draft);
+            return;
+          }
+          const currentUpdatedAt = new Date(current.updatedAt).getTime();
+          const draftUpdatedAt = new Date(draft.updatedAt).getTime();
+          if (draftUpdatedAt > currentUpdatedAt) {
+            latestDraftBySession.set(draft.sessionId, draft);
+          }
+        });
+
+        const drafts = sessions
+          .map((session) => {
+            const actorDraft =
+              getDbIndex(db).draftsBySessionOwner.get(getSessionOwnerKey(session.id, actor.id)) ??
+              null;
+            const latestSessionDraft = latestDraftBySession.get(session.id) ?? null;
+            const fallbackDraft: WorkbookDraftRecord = {
+              id: `draft_${session.id}_${actor.id}`,
+              ownerUserId: actor.id,
+              sessionId: session.id,
+              title: session.title,
+              statusForCard: session.status,
+              createdAt: session.createdAt,
+              updatedAt: session.lastActivityAt,
+              lastOpenedAt: session.lastActivityAt,
+            };
+            return serializeDraft(
+              db,
+              actorDraft ?? latestSessionDraft ?? fallbackDraft,
+              actor.id
+            );
+          })
           .filter((item) => Boolean(item));
 
         json(res, 200, { items: drafts });
         return;
       }
 
-      if (pathname === "/api/workbook/sessions" && method === "POST") {
+      if (
+        (pathname === "/api/workbook/sessions" || pathname === "/api/workbook/sessions/") &&
+        method === "POST"
+      ) {
         const actor = requireAuthUser(req, res, db);
         if (!actor) return;
         const body = (await readBody(req)) as { kind?: WorkbookSessionKind; title?: string } | null;
