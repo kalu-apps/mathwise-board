@@ -8,9 +8,7 @@ import {
   copyWorkbookSessionSnapshots,
   deleteWorkbookSessionArtifacts,
   getDb,
-  readWorkbookSessionSnapshot,
   saveDb,
-  upsertWorkbookSessionSnapshot,
   type AuthSessionRecord,
   type MockDb,
   type UserRecord,
@@ -47,6 +45,10 @@ import {
   renderWorkbookPdfPagesViaPoppler,
   WORKBOOK_PDF_RENDER_MAX_BYTES,
 } from "./workbookPdfService";
+import {
+  workbookEventStore,
+  workbookSnapshotStore,
+} from "./workbookStores";
 
 const WHITEBOARD_TEACHER_LOGIN = "teacher@axiom.demo";
 const WHITEBOARD_TEACHER_PASSWORD =
@@ -2243,22 +2245,11 @@ export function setupMockServer(host: MiddlewareHost) {
         }
 
         const afterSeq = Number(searchParams.get("afterSeq") ?? "0");
-        const sessionLatestSeq = getWorkbookSessionLatestSeq(db, sessionId);
-        const events = db.workbookEvents
-          .filter((event) => event.sessionId === sessionId && event.seq > (Number.isFinite(afterSeq) ? afterSeq : 0))
-          .sort((a, b) => a.seq - b.seq)
-          .slice(-WORKBOOK_EVENT_LIMIT)
-          .map((event) => ({
-            id: event.id,
-            sessionId: event.sessionId,
-            seq: event.seq,
-            authorUserId: event.authorUserId,
-            type: event.type,
-            payload: safeParseJson(event.payload, null),
-            createdAt: event.createdAt,
-          }));
-
-        const latestSeq = events[events.length - 1]?.seq ?? sessionLatestSeq;
+        const { events, latestSeq } = await workbookEventStore.read({
+          sessionId,
+          afterSeq: Number.isFinite(afterSeq) ? afterSeq : 0,
+          limit: WORKBOOK_EVENT_LIMIT,
+        });
         json(res, 200, { sessionId, latestSeq, events });
         return;
       }
@@ -2324,11 +2315,11 @@ export function setupMockServer(host: MiddlewareHost) {
           };
         }
 
-        const appendResult = await appendWorkbookEvents(db, {
+        const appendResult = await workbookEventStore.append({
           sessionId,
           authorUserId: actor.id,
           events,
-          persist: true,
+          limit: WORKBOOK_EVENT_LIMIT,
         });
 
         touchSessionActivity(session, appendResult.timestamp);
@@ -2552,7 +2543,7 @@ export function setupMockServer(host: MiddlewareHost) {
           return;
         }
         const layer = searchParams.get("layer") === "annotations" ? "annotations" : "board";
-        const snapshot = await readWorkbookSessionSnapshot({ sessionId, layer });
+        const snapshot = await workbookSnapshotStore.read({ sessionId, layer });
         if (!snapshot) {
           json(res, 200, null);
           return;
@@ -2562,10 +2553,7 @@ export function setupMockServer(host: MiddlewareHost) {
           sessionId: snapshot.sessionId,
           layer: snapshot.layer,
           version: snapshot.version,
-          payload:
-            typeof snapshot.payload === "string"
-              ? safeParseJson(snapshot.payload, null)
-              : snapshot.payload,
+          payload: snapshot.payload,
           createdAt: snapshot.createdAt,
         });
         return;
@@ -2587,19 +2575,21 @@ export function setupMockServer(host: MiddlewareHost) {
         const layer = body?.layer === "annotations" ? "annotations" : "board";
         const version = typeof body?.version === "number" && body.version > 0 ? body.version : 1;
         const payload = body?.payload ?? null;
-        const snapshot = await upsertWorkbookSessionSnapshot({
+        const snapshot = await workbookSnapshotStore.upsert({
           sessionId,
           layer,
           version,
           payload,
         });
+        const accepted = version >= snapshot.version;
 
         json(res, 200, {
           id: snapshot.id,
           sessionId: snapshot.sessionId,
           layer: snapshot.layer,
           version: snapshot.version,
-          payload,
+          payload: snapshot.payload,
+          accepted,
           createdAt: snapshot.createdAt,
         });
         return;

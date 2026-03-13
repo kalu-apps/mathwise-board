@@ -180,6 +180,25 @@ type PgPool = {
 
 let pgPool: PgPool | null = null;
 
+type PgWorkbookEventRow = {
+  id: string;
+  session_id: string;
+  seq: string | number;
+  author_user_id: string;
+  type: string;
+  payload: unknown;
+  created_at: Date | string;
+};
+
+type PgWorkbookSnapshotRow = {
+  id: string;
+  session_id: string;
+  layer: "board" | "annotations";
+  version: string | number;
+  payload: unknown;
+  created_at: Date | string;
+};
+
 const defaultTeacherUser = (): UserRecord => ({
   id: "teacher-axiom",
   role: "teacher",
@@ -371,6 +390,25 @@ const mapFileSnapshot = (
   version: snapshot.version,
   payload: safeParseJson(snapshot.payload, null),
   createdAt: snapshot.createdAt,
+});
+
+const mapPgEvent = (row: PgWorkbookEventRow): PersistedWorkbookEvent => ({
+  id: row.id,
+  sessionId: row.session_id,
+  seq: Number(row.seq),
+  authorUserId: row.author_user_id,
+  type: row.type,
+  payload: row.payload ?? null,
+  createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+});
+
+const mapPgSnapshot = (row: PgWorkbookSnapshotRow): PersistedWorkbookSnapshot => ({
+  id: row.id,
+  sessionId: row.session_id,
+  layer: row.layer,
+  version: Number(row.version),
+  payload: row.payload ?? null,
+  createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
 });
 
 const readDbFile = async (): Promise<MockDb> => {
@@ -648,6 +686,13 @@ const normalizeLimit = (value: number | undefined) => {
   return Math.max(1, Math.min(5_000, Math.floor(value ?? WORKBOOK_EVENT_LIMIT)));
 };
 
+const normalizeClientEventId = (value: string | undefined) => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  if (!normalized) return null;
+  return normalized.slice(0, 160);
+};
+
 export const readWorkbookSessionEvents = async (params: {
   sessionId: string;
   afterSeq: number;
@@ -660,15 +705,7 @@ export const readWorkbookSessionEvents = async (params: {
   if (storageDriver === "postgres") {
     const pool = await ensurePgPool();
     const [eventsResult, latestResult] = await Promise.all([
-      pool.query<{
-        id: string;
-        session_id: string;
-        seq: string | number;
-        author_user_id: string;
-        type: string;
-        payload: unknown;
-        created_at: Date | string;
-      }>(
+      pool.query<PgWorkbookEventRow>(
         `
           SELECT id, session_id, seq, author_user_id, type, payload, created_at
           FROM ${EVENT_TABLE}
@@ -684,24 +721,7 @@ export const readWorkbookSessionEvents = async (params: {
       ),
     ]);
 
-    const events = eventsResult.rows.map((row: {
-      id: string;
-      session_id: string;
-      seq: string | number;
-      author_user_id: string;
-      type: string;
-      payload: unknown;
-      created_at: Date | string;
-    }) => ({
-      id: row.id,
-      sessionId: row.session_id,
-      seq: Number(row.seq),
-      authorUserId: row.author_user_id,
-      type: row.type,
-      payload: row.payload ?? null,
-      createdAt:
-        row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
-    }));
+    const events = eventsResult.rows.map(mapPgEvent);
 
     const latestSeq = Math.max(
       afterSeq,
@@ -752,7 +772,12 @@ export const appendWorkbookSessionEvents = async (params: {
 }): Promise<{ events: PersistedWorkbookEvent[]; latestSeq: number; timestamp: string }> => {
   const sessionId = params.sessionId;
   const timestamp = nowIso();
-  const events = params.events.filter((event) => typeof event.type === "string");
+  const events = params.events
+    .filter((event) => typeof event.type === "string")
+    .map((event) => ({
+      ...event,
+      clientEventId: normalizeClientEventId(event.clientEventId),
+    }));
   const limit = normalizeLimit(params.limit);
   if (events.length === 0) {
     const current = await readWorkbookSessionEvents({
@@ -788,40 +813,120 @@ export const appendWorkbookSessionEvents = async (params: {
       const currentMaxSeq = Number(seqResult.rows[0]?.last_seq ?? 0);
 
       const appended: PersistedWorkbookEvent[] = [];
-      for (let index = 0; index < events.length; index += 1) {
-        const event = events[index];
-        const nextSeq = currentMaxSeq + index + 1;
-        const persisted: PersistedWorkbookEvent = {
-          id: ensureId(),
-          sessionId,
-          seq: nextSeq,
-          authorUserId: params.authorUserId,
-          type: event.type,
-          payload: event.payload ?? null,
-          createdAt: timestamp,
-        };
-
-        await client.query(
+      const appendedEventIds = new Set<string>();
+      let latestSeq = currentMaxSeq;
+      for (const event of events) {
+        const eventId = event.clientEventId ?? ensureId();
+        const nextSeq = latestSeq + 1;
+        const insertResult = await client.query<PgWorkbookEventRow>(
           `
             INSERT INTO ${EVENT_TABLE}
               (id, session_id, seq, author_user_id, type, payload, created_at)
             VALUES
               ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz)
+            ON CONFLICT (id) DO NOTHING
+            RETURNING id, session_id, seq, author_user_id, type, payload, created_at
           `,
           [
-            persisted.id,
-            persisted.sessionId,
-            persisted.seq,
-            persisted.authorUserId,
-            persisted.type,
-            JSON.stringify(persisted.payload),
-            persisted.createdAt,
+            eventId,
+            sessionId,
+            nextSeq,
+            params.authorUserId,
+            event.type,
+            JSON.stringify(event.payload ?? null),
+            timestamp,
           ]
         );
-        appended.push(persisted);
-      }
 
-      const latestSeq = currentMaxSeq + events.length;
+        const inserted = insertResult.rows[0];
+        if (inserted) {
+          latestSeq = nextSeq;
+          if (!appendedEventIds.has(inserted.id)) {
+            appended.push(mapPgEvent(inserted));
+            appendedEventIds.add(inserted.id);
+          }
+          continue;
+        }
+
+        if (!event.clientEventId) {
+          // Extremely unlikely id collision fallback for generated ids.
+          const fallbackInsert = await client.query<PgWorkbookEventRow>(
+            `
+              INSERT INTO ${EVENT_TABLE}
+                (id, session_id, seq, author_user_id, type, payload, created_at)
+              VALUES
+                ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz)
+              ON CONFLICT (id) DO NOTHING
+              RETURNING id, session_id, seq, author_user_id, type, payload, created_at
+            `,
+            [
+              ensureId(),
+              sessionId,
+              nextSeq,
+              params.authorUserId,
+              event.type,
+              JSON.stringify(event.payload ?? null),
+              timestamp,
+            ]
+          );
+          const fallbackRow = fallbackInsert.rows[0];
+          if (fallbackRow) {
+            latestSeq = nextSeq;
+            if (!appendedEventIds.has(fallbackRow.id)) {
+              appended.push(mapPgEvent(fallbackRow));
+              appendedEventIds.add(fallbackRow.id);
+            }
+          }
+          continue;
+        }
+
+        const existingResult = await client.query<PgWorkbookEventRow>(
+          `
+            SELECT id, session_id, seq, author_user_id, type, payload, created_at
+            FROM ${EVENT_TABLE}
+            WHERE id = $1
+            LIMIT 1
+          `,
+          [event.clientEventId]
+        );
+        const existing = existingResult.rows[0];
+        if (!existing || existing.session_id !== sessionId) {
+          const fallbackSeq = latestSeq + 1;
+          const fallbackInsert = await client.query<PgWorkbookEventRow>(
+            `
+              INSERT INTO ${EVENT_TABLE}
+                (id, session_id, seq, author_user_id, type, payload, created_at)
+              VALUES
+                ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz)
+              ON CONFLICT (id) DO NOTHING
+              RETURNING id, session_id, seq, author_user_id, type, payload, created_at
+            `,
+            [
+              ensureId(),
+              sessionId,
+              fallbackSeq,
+              params.authorUserId,
+              event.type,
+              JSON.stringify(event.payload ?? null),
+              timestamp,
+            ]
+          );
+          const fallbackRow = fallbackInsert.rows[0];
+          if (fallbackRow) {
+            latestSeq = fallbackSeq;
+            if (!appendedEventIds.has(fallbackRow.id)) {
+              appended.push(mapPgEvent(fallbackRow));
+              appendedEventIds.add(fallbackRow.id);
+            }
+          }
+          continue;
+        }
+        latestSeq = Math.max(latestSeq, Number(existing.seq));
+        if (!appendedEventIds.has(existing.id)) {
+          appended.push(mapPgEvent(existing));
+          appendedEventIds.add(existing.id);
+        }
+      }
 
       await client.query(
         `
@@ -864,14 +969,27 @@ export const appendWorkbookSessionEvents = async (params: {
   }
 
   const localDb = getDb();
-  const currentMaxSeq = localDb.workbookEvents
+  const sessionEvents = localDb.workbookEvents
     .filter((event) => event.sessionId === sessionId)
-    .reduce((max, event) => Math.max(max, event.seq), 0);
-
-  const appended = events.map((event, index) => {
-    const nextSeq = currentMaxSeq + index + 1;
+    .sort((left, right) => left.seq - right.seq);
+  const existingById = new Map(sessionEvents.map((event) => [event.id, event]));
+  let latestSeq = sessionEvents[sessionEvents.length - 1]?.seq ?? 0;
+  const appended: PersistedWorkbookEvent[] = [];
+  const appendedEventIds = new Set<string>();
+  for (const event of events) {
+    const eventId = event.clientEventId ?? ensureId();
+    const existing = existingById.get(eventId);
+    if (existing) {
+      latestSeq = Math.max(latestSeq, existing.seq);
+      if (!appendedEventIds.has(existing.id)) {
+        appended.push(mapFileEvent(existing));
+        appendedEventIds.add(existing.id);
+      }
+      continue;
+    }
+    const nextSeq = latestSeq + 1;
     const record: WorkbookEventRecord = {
-      id: ensureId(),
+      id: eventId,
       sessionId,
       seq: nextSeq,
       authorUserId: params.authorUserId,
@@ -880,15 +998,18 @@ export const appendWorkbookSessionEvents = async (params: {
       createdAt: timestamp,
     };
     localDb.workbookEvents.push(record);
-    return mapFileEvent(record);
-  });
+    existingById.set(eventId, record);
+    latestSeq = nextSeq;
+    appended.push(mapFileEvent(record));
+    appendedEventIds.add(record.id);
+  }
 
-  const sessionEvents = localDb.workbookEvents
+  const sortedSessionEvents = localDb.workbookEvents
     .filter((event) => event.sessionId === sessionId)
     .sort((left, right) => left.seq - right.seq);
-  if (sessionEvents.length > limit) {
-    const overflow = sessionEvents.length - limit;
-    const overflowIds = new Set(sessionEvents.slice(0, overflow).map((event) => event.id));
+  if (sortedSessionEvents.length > limit) {
+    const overflow = sortedSessionEvents.length - limit;
+    const overflowIds = new Set(sortedSessionEvents.slice(0, overflow).map((event) => event.id));
     localDb.workbookEvents = localDb.workbookEvents.filter((event) => !overflowIds.has(event.id));
   }
 
@@ -896,7 +1017,7 @@ export const appendWorkbookSessionEvents = async (params: {
 
   return {
     events: appended,
-    latestSeq: appended[appended.length - 1]?.seq ?? currentMaxSeq,
+    latestSeq,
     timestamp,
   };
 };
@@ -1102,14 +1223,7 @@ export const upsertWorkbookSessionSnapshot = async (params: {
   if (storageDriver === "postgres") {
     const pool = await ensurePgPool();
     const snapshotId = ensureId();
-    const result = await pool.query<{
-      id: string;
-      session_id: string;
-      layer: "board" | "annotations";
-      version: string | number;
-      payload: unknown;
-      created_at: Date | string;
-    }>(
+    const result = await pool.query<PgWorkbookSnapshotRow>(
       `
         INSERT INTO ${SNAPSHOT_TABLE}
           (id, session_id, layer, version, payload, created_at)
@@ -1121,20 +1235,31 @@ export const upsertWorkbookSessionSnapshot = async (params: {
           version = EXCLUDED.version,
           payload = EXCLUDED.payload,
           created_at = EXCLUDED.created_at
+        WHERE EXCLUDED.version >= ${SNAPSHOT_TABLE}.version
         RETURNING id, session_id, layer, version, payload, created_at
       `,
       [snapshotId, sessionId, layer, version, JSON.stringify(payload), timestamp]
     );
 
     const row = result.rows[0];
-    return {
-      id: row.id,
-      sessionId: row.session_id,
-      layer: row.layer,
-      version: Number(row.version),
-      payload: row.payload ?? null,
-      createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
-    };
+    if (row) {
+      return mapPgSnapshot(row);
+    }
+
+    const currentResult = await pool.query<PgWorkbookSnapshotRow>(
+      `
+        SELECT id, session_id, layer, version, payload, created_at
+        FROM ${SNAPSHOT_TABLE}
+        WHERE session_id = $1 AND layer = $2
+        LIMIT 1
+      `,
+      [sessionId, layer]
+    );
+    const current = currentResult.rows[0];
+    if (current) {
+      return mapPgSnapshot(current);
+    }
+    throw new Error("Snapshot upsert failed");
   }
 
   const localDb = getDb();
@@ -1144,6 +1269,9 @@ export const upsertWorkbookSessionSnapshot = async (params: {
 
   let snapshot: WorkbookSnapshotRecord;
   if (existing) {
+    if (version < existing.version) {
+      return mapFileSnapshot(existing);
+    }
     existing.version = version;
     existing.payload = JSON.stringify(payload);
     existing.createdAt = timestamp;
