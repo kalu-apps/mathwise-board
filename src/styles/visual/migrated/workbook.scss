@@ -10,6 +10,40 @@
   position: relative;
   box-sizing: border-box;
   min-width: 0;
+  --workbook-glass-orb-a: color-mix(in srgb, var(--feedback-info) 12%, transparent);
+  --workbook-glass-orb-b: color-mix(in srgb, var(--brand-soft) 14%, transparent);
+  --workbook-panel-border: color-mix(in srgb, var(--border-strong) 62%, var(--card-border));
+  --workbook-panel-bg: linear-gradient(
+    154deg,
+    color-mix(in srgb, var(--surface-elevated) 95%, transparent) 0%,
+    color-mix(in srgb, var(--surface-soft) 90%, transparent) 54%,
+    color-mix(in srgb, var(--surface-elevated) 93%, transparent) 100%
+  );
+  --workbook-panel-shadow: 0 18px 36px color-mix(in srgb, #0f1f40 20%, transparent);
+  --workbook-card-border: color-mix(in srgb, var(--border-subtle) 84%, var(--brand-soft));
+  --workbook-card-hover-border: color-mix(in srgb, var(--feedback-info) 34%, var(--border-strong));
+  --workbook-card-bg: linear-gradient(
+    156deg,
+    color-mix(in srgb, var(--surface-elevated) 92%, transparent) 0%,
+    color-mix(in srgb, var(--surface-soft) 88%, transparent) 56%,
+    color-mix(in srgb, var(--surface-elevated) 90%, transparent) 100%
+  );
+  --workbook-metric-label: color-mix(in srgb, var(--text-secondary) 88%, var(--text-primary));
+  --workbook-metric-value: color-mix(in srgb, var(--text-primary) 90%, var(--feedback-info) 10%);
+  --workbook-btn-primary-bg: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--surface-elevated) 70%, #ffffff 30%) 0%,
+    color-mix(in srgb, var(--surface-soft) 78%, var(--feedback-info) 22%) 100%
+  );
+  --workbook-btn-primary-border: color-mix(in srgb, var(--border-strong) 72%, var(--feedback-info));
+  --workbook-btn-primary-hover: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--surface-elevated) 64%, #ffffff 36%) 0%,
+    color-mix(in srgb, var(--surface-soft) 72%, var(--feedback-info) 28%) 100%
+  );
+  --workbook-btn-secondary-bg: color-mix(in srgb, var(--surface-elevated) 66%, transparent);
+  --workbook-btn-secondary-border: color-mix(in srgb, var(--border-subtle) 84%, var(--border-strong));
+  --workbook-btn-secondary-hover: color-mix(in srgb, var(--surface-soft) 76%, transparent);
 }
 
 .workbook-hub::before,
@@ -21,8 +55,8 @@
   pointer-events: none;
   z-index: -1;
   background:
-    radial-gradient(circle at 14% 12%, color-mix(in srgb, #2cd9c2 10%, transparent), transparent 52%),
-    radial-gradient(circle at 86% 10%, color-mix(in srgb, #5e7eff 12%, transparent), transparent 54%);
+    radial-gradient(circle at 14% 12%, var(--workbook-glass-orb-a), transparent 56%),
+    radial-gradient(circle at 86% 10%, var(--workbook-glass-orb-b), transparent 60%);
 }
 
 .workbook-hub__panel,
@@ -30,12 +64,10 @@
 .workbook-session__workspace,
 .workbook-session__card,
 .workbook-invite__card {
-  border: 1px solid color-mix(in srgb, var(--brand-soft) 32%, var(--card-border));
-  background:
-    radial-gradient(circle at 88% 8%, color-mix(in srgb, #5e7eff 9%, transparent), transparent 58%),
-    color-mix(in srgb, var(--surface-elevated) 96%, transparent);
+  border: 1px solid var(--workbook-panel-border);
+  background: var(--workbook-panel-bg);
   border-radius: 20px;
-  box-shadow: 0 14px 28px color-mix(in srgb, #183162 14%, transparent);
+  box-shadow: var(--workbook-panel-shadow);
 }
 
 .workbook-hub__panel,
@@ -76,15 +108,76 @@
   gap: 10px;
 }
 
+.workbook-hub .MuiButton-root,
+.workbook-session .MuiButton-root,
+.workbook-invite .MuiButton-root {
+  border-radius: 12px;
+  border-width: 1px;
+  backdrop-filter: blur(12px);
+}
+
+.workbook-hub .MuiButton-contained,
+.workbook-session .MuiButton-contained,
+.workbook-invite .MuiButton-contained {
+  background: var(--workbook-btn-primary-bg);
+  border-color: var(--workbook-btn-primary-border);
+  color: var(--text-primary);
+  box-shadow: 0 10px 22px color-mix(in srgb, #132346 20%, transparent);
+}
+
+.workbook-hub .MuiButton-contained:hover,
+.workbook-session .MuiButton-contained:hover,
+.workbook-invite .MuiButton-contained:hover {
+  background: var(--workbook-btn-primary-hover);
+  box-shadow: 0 14px 26px color-mix(in srgb, #12244a 24%, transparent);
+}
+
+.workbook-hub .MuiButton-outlined,
+.workbook-session .MuiButton-outlined,
+.workbook-invite .MuiButton-outlined {
+  background: var(--workbook-btn-secondary-bg);
+  border-color: var(--workbook-btn-secondary-border);
+  color: var(--text-primary);
+}
+
+.workbook-hub .MuiButton-outlined:hover,
+.workbook-session .MuiButton-outlined:hover,
+.workbook-invite .MuiButton-outlined:hover {
+  background: var(--workbook-btn-secondary-hover);
+  border-color: color-mix(in srgb, var(--border-strong) 76%, var(--feedback-info));
+}
+
+.workbook-hub .MuiButton-text,
+.workbook-session .MuiButton-text,
+.workbook-invite .MuiButton-text {
+  color: color-mix(in srgb, var(--text-primary) 92%, var(--feedback-info) 8%);
+}
+
+.workbook-hub .MuiIconButton-root,
+.workbook-session .MuiIconButton-root,
+.workbook-invite .MuiIconButton-root {
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, var(--border-strong));
+  background: color-mix(in srgb, var(--surface-elevated) 72%, transparent);
+  color: var(--text-secondary);
+}
+
+.workbook-hub .MuiIconButton-root:hover,
+.workbook-session .MuiIconButton-root:hover,
+.workbook-invite .MuiIconButton-root:hover {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--feedback-info) 34%, var(--border-strong));
+  background: color-mix(in srgb, var(--surface-soft) 78%, transparent);
+}
+
 .workbook-hub__invite {
   margin-top: 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border: 1px dashed color-mix(in srgb, var(--brand-solid) 46%, var(--border-strong));
+  border: 1px dashed color-mix(in srgb, var(--feedback-info) 36%, var(--border-strong));
   border-radius: 14px;
-  background: color-mix(in srgb, var(--brand-soft) 12%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 72%, transparent);
   padding: 10px 12px;
 }
 
@@ -116,20 +209,21 @@
 }
 
 .workbook-hub__filters button {
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--workbook-btn-secondary-border);
   border-radius: 999px;
-  background: var(--surface-soft);
-  color: var(--text-primary);
+  background: color-mix(in srgb, var(--surface-elevated) 66%, transparent);
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
   padding: 6px 12px;
   cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background-color 0.16s ease;
 }
 
 .workbook-hub__filters button.is-active {
-  border-color: color-mix(in srgb, var(--brand-solid) 62%, var(--border-strong));
-  color: var(--accent-text);
-  background: color-mix(in srgb, var(--brand-soft) 16%, transparent);
+  border-color: color-mix(in srgb, var(--feedback-info) 38%, var(--border-strong));
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--surface-soft) 78%, transparent);
 }
 
 .workbook-hub__list {
@@ -145,10 +239,8 @@
 }
 
 .workbook-hub__card {
-  border: 1px solid color-mix(in srgb, var(--brand-soft) 30%, var(--border-subtle));
-  background:
-    radial-gradient(circle at 88% 10%, color-mix(in srgb, #33dbc4 9%, transparent), transparent 58%),
-    color-mix(in srgb, var(--surface-translucent) 96%, transparent);
+  border: 1px solid var(--workbook-card-border);
+  background: var(--workbook-card-bg);
   border-radius: 16px;
   padding: 12px;
   padding-top: 18px;
@@ -159,8 +251,8 @@
 
 .workbook-hub__card:hover {
   transform: translateY(-1px);
-  border-color: color-mix(in srgb, #62f3e2 40%, var(--brand-soft));
-  box-shadow: 0 12px 22px color-mix(in srgb, #1d3266 16%, transparent);
+  border-color: var(--workbook-card-hover-border);
+  box-shadow: 0 14px 26px color-mix(in srgb, #15294f 18%, transparent);
 }
 
 .workbook-hub__card--skeleton {
@@ -169,7 +261,7 @@
 
 .workbook-hub__card--skeleton:hover {
   transform: none;
-  border-color: color-mix(in srgb, var(--brand-soft) 30%, var(--border-subtle));
+  border-color: var(--workbook-card-border);
   box-shadow: none;
 }
 
@@ -233,14 +325,14 @@
 }
 
 .workbook-hub__card-timeline-label {
-  color: color-mix(in srgb, var(--text-secondary) 78%, #d9ecff);
+  color: var(--workbook-metric-label);
   font-weight: 600;
 }
 
 .workbook-hub__card-timeline-value {
-  color: color-mix(in srgb, #58e9d4 72%, #ffffff);
+  color: var(--workbook-metric-value);
   font-weight: 700;
-  text-shadow: 0 0 10px color-mix(in srgb, #58e9d4 22%, transparent);
+  letter-spacing: 0.01em;
 }
 
 .workbook-hub__details-meta {
