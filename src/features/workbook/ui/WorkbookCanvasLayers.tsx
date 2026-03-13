@@ -96,28 +96,55 @@ export const WorkbookPreviewStrokeRuntimeLayer = memo(function WorkbookPreviewSt
   strokes: WorkbookStroke[];
 }) {
   const groupRef = useRef<SVGGElement | null>(null);
+  const nodesByStrokeIdRef = useRef<Map<string, SVGPathElement>>(new Map());
+  const strokeSnapshotByIdRef = useRef<Map<string, WorkbookStroke>>(new Map());
 
   useLayoutEffect(() => {
     const group = groupRef.current;
     if (!group) return;
-    const ownerSvg = group.ownerSVGElement;
-    if (!ownerSvg) return;
-    const pathNodes = Array.from(group.children) as SVGPathElement[];
-    while (pathNodes.length < strokes.length) {
-      const node = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      group.appendChild(node);
-      pathNodes.push(node);
-    }
-    while (pathNodes.length > strokes.length) {
-      const node = pathNodes.pop();
-      node?.remove();
-    }
-    strokes.forEach((stroke, index) => {
-      const node = pathNodes[index];
-      if (!node) return;
-      syncStrokePathNode(node, stroke, true);
+    const nextIds = new Set(strokes.map((stroke) => stroke.id));
+    nodesByStrokeIdRef.current.forEach((node, strokeId) => {
+      if (nextIds.has(strokeId)) return;
+      node.remove();
+      nodesByStrokeIdRef.current.delete(strokeId);
+      strokeSnapshotByIdRef.current.delete(strokeId);
+    });
+
+    let previousNode: SVGPathElement | null = null;
+    strokes.forEach((stroke) => {
+      let node = nodesByStrokeIdRef.current.get(stroke.id);
+      if (!node) {
+        node = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        nodesByStrokeIdRef.current.set(stroke.id, node);
+      }
+      if (node.parentNode !== group) {
+        group.appendChild(node);
+      }
+      if (previousNode) {
+        if (node.previousSibling !== previousNode) {
+          group.insertBefore(node, previousNode.nextSibling);
+        }
+      } else if (group.firstChild !== node) {
+        group.insertBefore(node, group.firstChild);
+      }
+      previousNode = node;
+
+      const previousStrokeSnapshot = strokeSnapshotByIdRef.current.get(stroke.id);
+      if (previousStrokeSnapshot !== stroke) {
+        syncStrokePathNode(node, stroke, true);
+        strokeSnapshotByIdRef.current.set(stroke.id, stroke);
+      }
     });
   }, [strokes]);
+
+  useLayoutEffect(
+    () => () => {
+      nodesByStrokeIdRef.current.forEach((node) => node.remove());
+      nodesByStrokeIdRef.current.clear();
+      strokeSnapshotByIdRef.current.clear();
+    },
+    []
+  );
 
   return <g ref={groupRef} pointerEvents="none" />;
 });

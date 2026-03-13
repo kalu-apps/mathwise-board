@@ -111,6 +111,7 @@ import {
   observeWorkbookRealtimeReceive,
   observeWorkbookRealtimeSend,
 } from "@/features/workbook/model/realtimeObservability";
+import { createWorkbookRealtimeApplyQueue } from "@/features/workbook/model/realtimeApplyQueue";
 import { startWorkbookPerformanceSession } from "@/features/workbook/model/workbookPerformance";
 import {
   buildWorkbookDocumentAsset,
@@ -1561,10 +1562,15 @@ export default function WorkbookSessionPage() {
   const undoStackRef = useRef<WorkbookHistoryEntry[]>([]);
   const redoStackRef = useRef<WorkbookHistoryEntry[]>([]);
   const latestSeqRef = useRef(0);
+  const sessionIdRef = useRef(sessionId);
   const processedEventIdsRef = useRef<Set<string>>(new Set());
   const applyHistoryOperationsRef = useRef<
     (operations: WorkbookHistoryOperation[]) => void
   >(() => {});
+  const applyIncomingEventsRef = useRef<(events: WorkbookEvent[]) => void>(() => {});
+  const incomingRealtimeApplyQueueRef = useRef<
+    ReturnType<typeof createWorkbookRealtimeApplyQueue> | null
+  >(null);
   const sessionChatListRef = useRef<HTMLDivElement | null>(null);
   const sessionChatRef = useRef<HTMLDivElement | null>(null);
   const contextbarRef = useRef<HTMLDivElement | null>(null);
@@ -2175,6 +2181,10 @@ export default function WorkbookSessionPage() {
   useEffect(() => {
     latestSeqRef.current = latestSeq;
   }, [latestSeq]);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   const persistSessionChatReadAt = useCallback(
     (value: string | null) => {
@@ -2952,9 +2962,70 @@ export default function WorkbookSessionPage() {
     ]
   );
 
+  useEffect(() => {
+    applyIncomingEventsRef.current = applyIncomingEvents;
+  }, [applyIncomingEvents]);
+
+  useEffect(() => {
+    const queue = createWorkbookRealtimeApplyQueue({
+      applyEvents: (events) => {
+        applyIncomingEventsRef.current(events);
+      },
+      onBatchApplied: (batch) => {
+        const currentSessionId = sessionIdRef.current;
+        if (!currentSessionId || batch.events.length === 0) return;
+        observeWorkbookRealtimeApply({
+          sessionId: currentSessionId,
+          channel: batch.channel,
+          latestSeq: batch.latestSeq,
+          events: batch.events,
+        });
+      },
+      frameBudgetMs: 6,
+      maxEventsPerFrame: 120,
+    });
+    incomingRealtimeApplyQueueRef.current = queue;
+    return () => {
+      if (incomingRealtimeApplyQueueRef.current === queue) {
+        incomingRealtimeApplyQueueRef.current = null;
+      }
+      queue.destroy();
+    };
+  }, []);
+
+  const enqueueIncomingRealtimeApply = useCallback(
+    (params: {
+      channel: "persist" | "stream" | "live" | "poll";
+      latestSeq: number;
+      events: WorkbookEvent[];
+    }) => {
+      if (params.events.length === 0) return;
+      const queue = incomingRealtimeApplyQueueRef.current;
+      if (queue) {
+        queue.enqueue({
+          channel: params.channel,
+          latestSeq: params.latestSeq,
+          events: params.events,
+        });
+        return;
+      }
+      applyIncomingEventsRef.current(params.events);
+      const currentSessionId = sessionIdRef.current;
+      if (!currentSessionId) return;
+      observeWorkbookRealtimeApply({
+        sessionId: currentSessionId,
+        channel: params.channel,
+        latestSeq: params.latestSeq,
+        events: params.events,
+      });
+    },
+    []
+  );
+
   const loadSession = useCallback(async (options?: { background?: boolean }) => {
     if (!sessionId) return;
     const isBackground = options?.background === true;
+    incomingRealtimeApplyQueueRef.current?.clear();
     if (!isBackground) {
       setLoading(true);
       setError(null);
@@ -3125,6 +3196,7 @@ export default function WorkbookSessionPage() {
   const triggerSessionResync = useCallback(() => {
     if (sessionResyncInFlightRef.current) return;
     sessionResyncInFlightRef.current = true;
+    incomingRealtimeApplyQueueRef.current?.clear();
     void loadSession({ background: true }).finally(() => {
       sessionResyncInFlightRef.current = false;
     });
@@ -3159,9 +3231,7 @@ export default function WorkbookSessionPage() {
             latestSeq: response.latestSeq,
             events: unseenEvents,
           });
-          applyIncomingEvents(unseenEvents);
-          observeWorkbookRealtimeApply({
-            sessionId,
+          enqueueIncomingRealtimeApply({
             channel: "poll",
             latestSeq: response.latestSeq,
             events: unseenEvents,
@@ -3192,7 +3262,7 @@ export default function WorkbookSessionPage() {
       window.clearInterval(intervalId);
     };
   }, [
-    applyIncomingEvents,
+    enqueueIncomingRealtimeApply,
     filterUnseenWorkbookEvents,
     isWorkbookLiveConnected,
     isWorkbookStreamConnected,
@@ -3225,9 +3295,7 @@ export default function WorkbookSessionPage() {
             latestSeq: payload.latestSeq,
             events: unseenEvents,
           });
-          applyIncomingEvents(unseenEvents);
-          observeWorkbookRealtimeApply({
-            sessionId,
+          enqueueIncomingRealtimeApply({
             channel: "stream",
             latestSeq: payload.latestSeq,
             events: unseenEvents,
@@ -3249,11 +3317,18 @@ export default function WorkbookSessionPage() {
       setIsWorkbookStreamConnected(false);
       unsubscribe();
     };
-  }, [applyIncomingEvents, filterUnseenWorkbookEvents, session, sessionId, triggerSessionResync]);
+  }, [
+    enqueueIncomingRealtimeApply,
+    filterUnseenWorkbookEvents,
+    session,
+    sessionId,
+    triggerSessionResync,
+  ]);
 
   useEffect(() => {
     if (!sessionId || !session) {
       workbookLiveSendRef.current = null;
+      incomingRealtimeApplyQueueRef.current?.clear();
       return;
     }
     const connection = subscribeWorkbookLiveSocket({
@@ -3280,9 +3355,7 @@ export default function WorkbookSessionPage() {
             latestSeq: payload.latestSeq,
             events: unseenEvents,
           });
-          applyIncomingEvents(unseenEvents);
-          observeWorkbookRealtimeApply({
-            sessionId,
+          enqueueIncomingRealtimeApply({
             channel: "live",
             latestSeq: payload.latestSeq,
             events: unseenEvents,
@@ -3306,7 +3379,13 @@ export default function WorkbookSessionPage() {
       setIsWorkbookLiveConnected(false);
       connection.close();
     };
-  }, [applyIncomingEvents, filterUnseenWorkbookEvents, session, sessionId, triggerSessionResync]);
+  }, [
+    enqueueIncomingRealtimeApply,
+    filterUnseenWorkbookEvents,
+    session,
+    sessionId,
+    triggerSessionResync,
+  ]);
 
   useEffect(() => {
     personalBoardSettingsReadyRef.current = false;
@@ -3846,9 +3925,7 @@ export default function WorkbookSessionPage() {
         });
         const unseenEvents = filterUnseenWorkbookEvents(response.events);
         if (unseenEvents.length > 0) {
-          applyIncomingEvents(unseenEvents);
-          observeWorkbookRealtimeApply({
-            sessionId,
+          enqueueIncomingRealtimeApply({
             channel: "persist",
             latestSeq: response.latestSeq,
             events: unseenEvents,
@@ -3877,8 +3954,8 @@ export default function WorkbookSessionPage() {
       }
     },
     [
-      applyIncomingEvents,
       buildHistoryEntryFromEvents,
+      enqueueIncomingRealtimeApply,
       filterUnseenWorkbookEvents,
       markDirty,
       pushHistoryEntry,
@@ -8311,6 +8388,14 @@ export default function WorkbookSessionPage() {
     []
   );
 
+  const yieldToMainThread = useCallback(
+    () =>
+      new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => resolve());
+      }),
+    []
+  );
+
   const switchBoardPageForExport = useCallback(
     async (targetPage: number) => {
       const safePage = Math.max(1, Math.floor(targetPage));
@@ -8572,6 +8657,7 @@ export default function WorkbookSessionPage() {
           height: Math.max(1, Math.round(rendered.height)),
           dataUrl: rendered.canvas.toDataURL("image/png"),
         });
+        await yieldToMainThread();
       }
       if (previousPage !== activePage) {
         await switchBoardPageForExport(previousPage);
