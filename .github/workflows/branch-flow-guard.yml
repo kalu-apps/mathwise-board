@@ -1,0 +1,73 @@
+name: Branch Flow Guard
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  validate-branch-flow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR source/target branches
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+
+          echo "Base: ${BASE_REF}"
+          echo "Head: ${HEAD_REF}"
+
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+
+          allowed="false"
+
+          if [[ "${BASE_REF}" == "main" ]]; then
+            if [[ "${HEAD_REF}" == "next" ]] \
+              || [[ "${HEAD_REF}" =~ ^hotfix/ ]] \
+              || [[ "${HEAD_REF}" =~ ^release/ ]] \
+              || [[ "${HEAD_REF}" =~ ^dependabot/ ]]; then
+              allowed="true"
+            fi
+          elif [[ "${BASE_REF}" == "next" ]]; then
+            if [[ "${HEAD_REF}" == "main" ]] \
+              || [[ "${HEAD_REF}" =~ ^feature/ ]] \
+              || [[ "${HEAD_REF}" =~ ^refactor/ ]] \
+              || [[ "${HEAD_REF}" =~ ^perf/ ]] \
+              || [[ "${HEAD_REF}" =~ ^chore/ ]] \
+              || [[ "${HEAD_REF}" =~ ^fix/ ]] \
+              || [[ "${HEAD_REF}" =~ ^docs/ ]] \
+              || [[ "${HEAD_REF}" =~ ^dependabot/ ]]; then
+              allowed="true"
+            fi
+          fi
+
+          if [[ "${allowed}" != "true" ]]; then
+            fail "Invalid branch flow: '${HEAD_REF}' -> '${BASE_REF}'. See docs/branching-policy.md"
+          fi
+
+          if [[ "${HEAD_REF}" =~ ^hotfix/ ]] && [[ "${BASE_REF}" != "main" ]]; then
+            fail "hotfix/* branches must target 'main'."
+          fi
+
+          if [[ "${HEAD_REF}" == "main" ]] && [[ "${BASE_REF}" != "next" ]]; then
+            fail "'main' as source branch is allowed only for sync PR 'main -> next'."
+          fi
+
+          if [[ "${HEAD_REF}" == "next" ]] && [[ "${BASE_REF}" != "main" ]]; then
+            fail "'next' as source branch is allowed only for release PR 'next -> main'."
+          fi
+
+          echo "Branch flow policy passed."

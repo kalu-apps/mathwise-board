@@ -89,3 +89,7 @@ LiveKit token для подключения к аудио-комнате:
 
 ## Деплой в Timeweb
 См. инструкцию: `TIMEWEB_DEPLOY.md`.
+
+## Git flow (prod + migration)
+
+См. обязательные правила ветвления: `docs/branching-policy.md`.
