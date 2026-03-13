@@ -374,6 +374,17 @@
   max-width: 100%;
 }
 
+.workbook-hub__card-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workbook-hub__card-actions-row > .MuiButton-root {
+  flex-shrink: 0;
+}
+
 .workbook-session__head {
   display: flex;
   align-items: flex-start;
@@ -3753,10 +3764,20 @@
   }
 
   .workbook-hub__card-actions {
-    justify-content: flex-start;
+    justify-content: flex-end;
     align-items: center;
     width: fit-content;
     flex-wrap: nowrap;
+  }
+
+  .workbook-hub__card-actions-row {
+    width: 100%;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .workbook-hub__card-actions-row > .MuiButton-root {
+    min-width: 0;
   }
 
   .workbook-session__head {

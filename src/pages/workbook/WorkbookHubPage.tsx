@@ -189,21 +189,30 @@ export default function WorkbookHubPage() {
 
   const openSessionInNewTab = useCallback(
     (sessionId: string) => {
-      const sessionPath = toSessionPath(sessionId);
       if (typeof window === "undefined") {
-        navigate(sessionPath);
+        navigate(toSessionPath(sessionId));
         return;
       }
+      const fromPath = `${window.location.pathname}${window.location.search}` || "/workbook";
+      const sessionPath = `${toSessionPath(sessionId)}?${new URLSearchParams({ from: fromPath })}`;
       const targetUrl = new URL(sessionPath, window.location.origin).toString();
-      const openedTab = window.open(targetUrl, "_blank", "noopener,noreferrer");
+      const openedTab = window.open(targetUrl, "_blank");
       if (openedTab) {
         openedTab.focus?.();
         return;
       }
-      navigate(sessionPath);
       setError("Браузер заблокировал новую вкладку. Разрешите всплывающие окна и повторите.");
     },
     [navigate]
+  );
+
+  const handleOpenCard = useCallback(
+    (sessionId: string) => {
+      setError(null);
+      openSessionInNewTab(sessionId);
+      triggerDraftCardsReload();
+    },
+    [openSessionInNewTab, triggerDraftCardsReload]
   );
 
   const [classCards, personalCards] = useMemo(() => {
@@ -530,23 +539,6 @@ export default function WorkbookHubPage() {
                         )}
                       </Avatar>
                       <h3 title={card.title}>{card.title}</h3>
-                      {card.canDelete ? (
-                        <Tooltip title="Переименовать карточку">
-                          <span>
-                            <IconButton
-                              size="small"
-                              onClick={() => void handleRenameCard(card)}
-                              disabled={isRenaming}
-                            >
-                              {isRenaming ? (
-                                <CircularProgress size={16} />
-                              ) : (
-                                <EditRoundedIcon fontSize="small" />
-                              )}
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      ) : null}
                     </div>
 
                     <div className="workbook-hub__card-meta">
@@ -578,37 +570,49 @@ export default function WorkbookHubPage() {
                       </div>
                     </div>
 
-                    <div className="workbook-hub__card-timeline-row">
-                      <span />
+                    <div className="workbook-hub__card-actions-row">
+                      <Button
+                        size="small"
+                        variant="text"
+                        startIcon={<OpenInNewRoundedIcon />}
+                        onClick={() => handleOpenCard(card.sessionId)}
+                      >
+                        Открыть
+                      </Button>
                       <div className="workbook-hub__card-actions">
-                        <Button
-                          size="small"
-                          variant="text"
-                          startIcon={<OpenInNewRoundedIcon />}
-                          component="a"
-                          href={toSessionPath(card.sessionId)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={() => triggerDraftCardsReload()}
-                        >
-                          Открыть
-                        </Button>
                         {card.kind === "CLASS" ? (
-                          <Tooltip title="Скопировать ссылку ученику">
-                            <span>
-                              <IconButton
-                                size="small"
-                                onClick={() => void handleCopyInvite(card)}
-                                disabled={isCopying}
-                              >
-                                {isCopying ? (
-                                  <CircularProgress size={16} />
-                                ) : (
-                                  <ContentCopyRoundedIcon fontSize="small" />
-                                )}
-                              </IconButton>
-                            </span>
-                          </Tooltip>
+                          <Button
+                            size="small"
+                            variant="text"
+                            startIcon={
+                              isCopying ? (
+                                <CircularProgress size={14} />
+                              ) : (
+                                <ContentCopyRoundedIcon fontSize="small" />
+                              )
+                            }
+                            onClick={() => void handleCopyInvite(card)}
+                            disabled={isCopying}
+                          >
+                            Ссылка
+                          </Button>
+                        ) : null}
+                        {card.canDelete ? (
+                          <Button
+                            size="small"
+                            variant="text"
+                            startIcon={
+                              isRenaming ? (
+                                <CircularProgress size={14} />
+                              ) : (
+                                <EditRoundedIcon fontSize="small" />
+                              )
+                            }
+                            onClick={() => void handleRenameCard(card)}
+                            disabled={isRenaming}
+                          >
+                            Редактировать
+                          </Button>
                         ) : null}
                       </div>
                     </div>

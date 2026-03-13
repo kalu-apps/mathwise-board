@@ -49,7 +49,7 @@ export default function WorkbookLaunchPage() {
           return;
         }
         const sessionUrl = new URL(toSessionPath(sessionId), window.location.origin).toString();
-        const openedTab = window.open(sessionUrl, "_blank", "noopener,noreferrer");
+        const openedTab = window.open(sessionUrl, "_blank");
         if (!openedTab) {
           navigate(toSessionPath(sessionId), { replace: true });
           return;

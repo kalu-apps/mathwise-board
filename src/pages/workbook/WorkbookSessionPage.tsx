@@ -10071,16 +10071,17 @@ export default function WorkbookSessionPage() {
       try {
         const targetUrl = new URL(fromPath, window.location.origin).toString();
         window.opener.location.assign(targetUrl);
+        window.opener.focus?.();
       } catch {
-        // ignore opener navigation errors; fallback will still close/navigate current tab
+        // ignore opener navigation/focus errors; fallback will still close/navigate current tab
       }
-    }
-    if (typeof window !== "undefined") {
-      window.setTimeout(() => navigate(fromPath), 180);
       window.close();
+      if (!window.closed) {
+        navigate(fromPath, { replace: true });
+      }
       return;
     }
-    navigate(fromPath);
+    navigate(fromPath, { replace: true });
   }, [fromPath, navigate, persistSnapshots]);
 
   if (loading) {
