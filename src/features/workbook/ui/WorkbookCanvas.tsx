@@ -1180,10 +1180,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         getObjectRect,
         isStrokeErasedByCircle,
         isObjectErasedByCircle,
+        resolveObjectForErasing: (object) => getLatestBoardObject?.(object.id) ?? object,
       });
       scheduleEraserPreviewRender();
     },
     [
+      getLatestBoardObject,
       isObjectErasedByCircle,
       isStrokeErasedByCircle,
       scheduleEraserPreviewRender,

@@ -631,6 +631,7 @@ export const applyEraserPointToCollections = (
       center: WorkbookPoint,
       radius: number
     ) => boolean;
+    resolveObjectForErasing?: (object: WorkbookBoardObject) => WorkbookBoardObject;
   }
 ) => {
   const {
@@ -646,6 +647,7 @@ export const applyEraserPointToCollections = (
     getObjectRect,
     isStrokeErasedByCircle,
     isObjectErasedByCircle,
+    resolveObjectForErasing,
   } = params;
   strokes.forEach((stroke) => {
     const key = `${stroke.layer}:${stroke.id}`;
@@ -673,23 +675,25 @@ export const applyEraserPointToCollections = (
     strokeFragmentsMap.set(key, nextFragments);
   });
   objects.forEach((object) => {
-    if (!isObjectErasedByCircle(object, center, radius)) return;
-    const cachedCuts = objectCutsMap.get(object.id) ?? sanitizeObjectEraserCuts(object, getObjectRect);
+    const sourceObject = resolveObjectForErasing?.(object) ?? object;
+    if (!isObjectErasedByCircle(sourceObject, center, radius)) return;
+    const cachedCuts =
+      objectCutsMap.get(sourceObject.id) ?? sanitizeObjectEraserCuts(sourceObject, getObjectRect);
     const nextCuts = appendObjectEraserCut(
-      object,
+      sourceObject,
       cachedCuts,
-      normalizeObjectEraserCut(object, center, radius, getObjectRect),
+      normalizeObjectEraserCut(sourceObject, center, radius, getObjectRect),
       getObjectRect
     );
-    objectCutsMap.set(object.id, nextCuts);
+    objectCutsMap.set(sourceObject.id, nextCuts);
     if (objectPreviewPathsMap) {
-      const currentPaths = objectPreviewPathsMap.get(object.id) ?? [];
+      const currentPaths = objectPreviewPathsMap.get(sourceObject.id) ?? [];
       objectPreviewPathsMap.set(
-        object.id,
+        sourceObject.id,
         appendObjectEraserPreviewPathPoint(currentPaths, center, radius)
       );
     }
-    touchedObjectIds?.add(object.id);
+    touchedObjectIds?.add(sourceObject.id);
   });
 };
 
@@ -765,15 +769,21 @@ export const resolveObjectEraserMaskPathsForRender = (params: {
   } = params;
   const committedStoredPaths =
     storedPaths ?? sanitizeObjectEraserPaths(object, getObjectRect);
-  const basePaths =
+  const committedPaths =
     committedStoredPaths.length > 0
       ? resolveObjectEraserPathsForRender(object, committedStoredPaths, getObjectRect)
-      : resolveObjectEraserCutPathsForRender(
-          object,
-          cuts ?? sanitizeObjectEraserCuts(object, getObjectRect),
-          getObjectRect
-        );
-  return previewPaths && previewPaths.length > 0 ? [...basePaths, ...previewPaths] : basePaths;
+      : [];
+  if (previewPaths && previewPaths.length > 0) {
+    return committedPaths.length > 0 ? [...committedPaths, ...previewPaths] : previewPaths;
+  }
+  if (committedPaths.length > 0) {
+    return committedPaths;
+  }
+  return resolveObjectEraserCutPathsForRender(
+    object,
+    cuts ?? sanitizeObjectEraserCuts(object, getObjectRect),
+    getObjectRect
+  );
 };
 
 export const buildCommittedObjectEraserStoredPaths = (params: {
