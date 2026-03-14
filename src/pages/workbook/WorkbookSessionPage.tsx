@@ -127,8 +127,7 @@ import {
   getStrokeExportBounds,
   mergeExportBounds,
   padExportBounds,
-  resolvePdfPagePlacement,
-  resolveWorkbookPdfExportPlan,
+  splitExportBoundsToA4Tiles,
   type WorkbookExportBounds,
 } from "@/features/workbook/model/export";
 import {
@@ -1558,6 +1557,9 @@ export default function WorkbookSessionPage() {
   const [isStereoDialogOpen, setIsStereoDialogOpen] = useState(false);
   const [isShapesDialogOpen, setIsShapesDialogOpen] = useState(false);
   const [exportingSections, setExportingSections] = useState(false);
+  const [canvasVisibilityMode, setCanvasVisibilityMode] = useState<"viewport" | "full">(
+    "viewport"
+  );
   const [docsWindow, setDocsWindow] = useState<DocsWindowState>({
     open: false,
     pinned: false,
@@ -8809,18 +8811,9 @@ export default function WorkbookSessionPage() {
         .map((stroke) => getStrokeExportBounds(stroke));
       const merged = mergeExportBounds([...objectBounds, ...strokeBounds]);
       if (!merged) return null;
-      const basePadding = Math.max(
-        40,
-        Math.round(
-          Math.max(
-            boardSettings.gridSize || 0,
-            boardSettings.dividerStep ? boardSettings.dividerStep * 0.045 : 0
-          )
-        )
-      );
-      return padExportBounds(merged, basePadding);
+      return padExportBounds(merged, 1);
     },
-    [boardObjects, boardSettings.dividerStep, boardSettings.gridSize, boardStrokes]
+    [boardObjects, boardStrokes]
   );
 
   const renderBoardToCanvas = async (
@@ -8978,14 +8971,17 @@ export default function WorkbookSessionPage() {
       if (!fileName) return;
       const exportPages = resolveExportPageNumbers();
       const previousPage = currentPage;
-      const rawPageBounds = exportPages.map((pageNumber) => ({
-        page: pageNumber,
-        bounds: resolvePageExportBounds(pageNumber),
-      }));
-      const { canonicalSize, fittedBoundsByPage } =
-        resolveWorkbookPdfExportPlan(rawPageBounds);
-      const renderedPages: Array<{ page: number; width: number; height: number; dataUrl: string }> =
-        [];
+      const exportTilesByPage = new Map(
+        exportPages.map((pageNumber) => [
+          pageNumber,
+          splitExportBoundsToA4Tiles({
+            bounds: resolvePageExportBounds(pageNumber),
+          }),
+        ])
+      );
+      const renderedPages: Array<{ dataUrl: string }> = [];
+      setCanvasVisibilityMode("full");
+      await waitForCanvasRender();
       for (const pageNumber of exportPages) {
         if (pageNumber !== activePage) {
           await switchBoardPageForExport(pageNumber);
@@ -8993,16 +8989,17 @@ export default function WorkbookSessionPage() {
         } else {
           await waitForCanvasRender();
         }
-        const rendered = await renderBoardToCanvas(2.2, {
-          bounds: fittedBoundsByPage.get(pageNumber) ?? null,
-        });
-        if (!rendered) continue;
-        renderedPages.push({
-          page: pageNumber,
-          width: Math.max(1, Math.round(rendered.width)),
-          height: Math.max(1, Math.round(rendered.height)),
-          dataUrl: rendered.canvas.toDataURL("image/png"),
-        });
+        const tiles = exportTilesByPage.get(pageNumber) ?? [];
+        for (const tile of tiles) {
+          const rendered = await renderBoardToCanvas(2.2, {
+            bounds: tile.bounds,
+          });
+          if (!rendered) continue;
+          renderedPages.push({
+            dataUrl: rendered.canvas.toDataURL("image/png"),
+          });
+          await yieldToMainThread();
+        }
         await yieldToMainThread();
       }
       if (previousPage !== activePage) {
@@ -9021,23 +9018,17 @@ export default function WorkbookSessionPage() {
       });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const { offsetX, offsetY, drawWidth, drawHeight } = resolvePdfPagePlacement({
-        pageWidth,
-        pageHeight,
-        canonicalWidth: canonicalSize.width,
-        canonicalHeight: canonicalSize.height,
-        margin: 30,
-      });
       renderedPages.forEach((page, index) => {
         if (index > 0) {
           pdf.addPage("a4", "portrait");
         }
-        pdf.addImage(page.dataUrl, "PNG", offsetX, offsetY, drawWidth, drawHeight);
+        pdf.addImage(page.dataUrl, "PNG", 0, 0, pageWidth, pageHeight, undefined, "FAST");
       });
       pdf.save(fileName);
     } catch {
       setError("Не удалось экспортировать PDF.");
     } finally {
+      setCanvasVisibilityMode("viewport");
       if (activePage !== currentPage) {
         setBoardSettings((state) => ({
           ...state,
@@ -10793,6 +10784,7 @@ export default function WorkbookSessionPage() {
               snapToGrid={boardSettings.snapToGrid}
               gridSize={boardSettings.gridSize}
               viewportZoom={viewportZoom}
+              visibilityMode={canvasVisibilityMode}
               showGrid={boardSettings.showGrid}
               gridColor={boardSettings.gridColor}
               backgroundColor={boardSettings.backgroundColor}

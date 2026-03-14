@@ -14,6 +14,7 @@ type UseWorkbookSceneAccessParams = {
   width: number;
   height: number;
   zoom: number;
+  visibilityMode?: "viewport" | "full";
   forcedVisibleObjectIds?: ReadonlySet<string>;
   renderPadding?: number;
   hitPadding?: number;
@@ -41,6 +42,7 @@ export const useWorkbookSceneAccess = (
         width: params.width,
         height: params.height,
         zoom: params.zoom,
+        visibilityMode: params.visibilityMode,
         renderPadding: params.renderPadding,
         hitPadding: params.hitPadding,
         forcedVisibleObjectIds: params.forcedVisibleObjectIds,
@@ -49,6 +51,7 @@ export const useWorkbookSceneAccess = (
       params.forcedVisibleObjectIds,
       params.height,
       params.hitPadding,
+      params.visibilityMode,
       params.renderPadding,
       params.viewportOffset,
       params.width,
