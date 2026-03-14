@@ -9,7 +9,8 @@ export type SmartInkOptions = {
 };
 
 export const DEFAULT_SMART_INK_OPTIONS: SmartInkOptions = {
-  mode: "basic",
+  // By default pen stays a pure pen until user explicitly enables Smart Ink.
+  mode: "off",
   confidenceThreshold: 0.72,
   smartShapes: true,
   smartTextOcr: false,
@@ -56,7 +57,8 @@ export const normalizeSmartInkOptions = (
     return {
       mode,
       confidenceThreshold,
-      smartShapes,
+      // "Only shapes" mode must always keep shape alignment enabled.
+      smartShapes: true,
       smartTextOcr: false,
       smartMathOcr: false,
     };

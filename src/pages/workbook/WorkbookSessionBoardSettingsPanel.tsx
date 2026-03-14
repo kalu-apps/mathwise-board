@@ -180,7 +180,10 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                 Smart Ink
               </h4>
             </div>
-            <p>Распознавание работает только для ваших новых штрихов и сохраняется автоматически.</p>
+            <p>
+              По умолчанию ручка работает как перо. Smart Ink включается только вручную и действует
+              только на ваши новые штрихи.
+            </p>
           </div>
           <div className="workbook-session__board-settings-field">
             <div className="workbook-session__board-settings-field-main">
@@ -234,22 +237,28 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                   </span>
                 </div>
               </div>
-              <div className="workbook-session__board-settings-field">
-                <div className="workbook-session__board-settings-field-main">
-                  <strong>Выравнивать фигуры</strong>
-                  <small>Подменять рукописные прямоугольники, линии и окружности на точные объекты.</small>
+              {smartInkOptions.mode === "full" ? (
+                <div className="workbook-session__board-settings-field">
+                  <div className="workbook-session__board-settings-field-main">
+                    <strong>Выравнивать фигуры</strong>
+                    <small>Подменять рукописные прямоугольники, линии и окружности на точные объекты.</small>
+                  </div>
+                  <Switch
+                    size="small"
+                    className="workbook-session__board-settings-switch"
+                    checked={smartInkOptions.smartShapes}
+                    onChange={(event) =>
+                      updateSmartInk({
+                        smartShapes: event.target.checked,
+                      })
+                    }
+                  />
                 </div>
-                <Switch
-                  size="small"
-                  className="workbook-session__board-settings-switch"
-                  checked={smartInkOptions.smartShapes}
-                  onChange={(event) =>
-                    updateSmartInk({
-                      smartShapes: event.target.checked,
-                    })
-                  }
-                />
-              </div>
+              ) : (
+                <div className="workbook-session__board-settings-note">
+                  В режиме «Только фигуры» выравнивание фигур всегда включено.
+                </div>
+              )}
             </>
           ) : (
             <div className="workbook-session__board-settings-note">
