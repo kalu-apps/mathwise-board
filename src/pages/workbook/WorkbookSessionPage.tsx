@@ -230,7 +230,7 @@ import {
 import { PageLoader } from "@/shared/ui/loading";
 import { generateId } from "@/shared/lib/id";
 import { readStorage, writeStorage } from "@/shared/lib/localDb";
-import { ApiError } from "@/shared/api/client";
+import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import { useWorkbookLivekit } from "./useWorkbookLivekit";
 import { useWorkbookVisibleScene } from "./useWorkbookVisibleScene";
 import {
@@ -292,6 +292,9 @@ const ERASER_RADIUS_MIN = 4;
 const ERASER_RADIUS_MAX = 160;
 const MAX_EXPORT_CANVAS_SIDE = 8192;
 const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
+const PARTICIPANT_VISIBILITY_GRACE_MS = 30_000;
+const TAB_LOCK_HEARTBEAT_MS = 2_000;
+const TAB_LOCK_TTL_MS = 8_000;
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
 const WORKBOOK_CHAT_EMOJIS = [
@@ -332,6 +335,39 @@ const parseChatTimestamp = (value: string | null | undefined) => {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
 };
+
+type WorkbookTabLockRecord = {
+  tabId: string;
+  updatedAt: number;
+  acquiredAt: number;
+};
+
+const parseWorkbookTabLockRecord = (raw: string | null): WorkbookTabLockRecord | null => {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<WorkbookTabLockRecord>;
+    const tabId = typeof parsed.tabId === "string" ? parsed.tabId.trim() : "";
+    const updatedAt =
+      typeof parsed.updatedAt === "number" && Number.isFinite(parsed.updatedAt)
+        ? parsed.updatedAt
+        : 0;
+    const acquiredAt =
+      typeof parsed.acquiredAt === "number" && Number.isFinite(parsed.acquiredAt)
+        ? parsed.acquiredAt
+        : 0;
+    if (!tabId || updatedAt <= 0) return null;
+    return {
+      tabId,
+      updatedAt,
+      acquiredAt: acquiredAt > 0 ? acquiredAt : updatedAt,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const isWorkbookTabLockStale = (record: WorkbookTabLockRecord | null, nowTs = Date.now()) =>
+  !record || nowTs - record.updatedAt > TAB_LOCK_TTL_MS;
 
 const defaultColorByLayer: Record<WorkbookLayer, string> = {
   board: "#4f63ff",
@@ -1515,6 +1551,8 @@ export default function WorkbookSessionPage() {
   const [error, setError] = useState<string | null>(null);
   const [saveSyncWarning, setSaveSyncWarning] = useState<string | null>(null);
   const [realtimeSyncWarning, setRealtimeSyncWarning] = useState<string | null>(null);
+  const [isSessionTabPassive, setIsSessionTabPassive] = useState(false);
+  const [activeSessionTabId, setActiveSessionTabId] = useState<string | null>(null);
   const [copyingInviteLink, setCopyingInviteLink] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [isStereoDialogOpen, setIsStereoDialogOpen] = useState(false);
@@ -1609,6 +1647,9 @@ export default function WorkbookSessionPage() {
   } | null>(null);
   const presenceLeaveSentRef = useRef(false);
   const presenceTabIdRef = useRef(`tab_${generateId()}`);
+  const tabLockBroadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  const tabLockHeartbeatTimerRef = useRef<number | null>(null);
+  const tabLockClaimTimerRef = useRef<number | null>(null);
   const sessionResyncInFlightRef = useRef(false);
   const realtimeDisconnectSinceRef = useRef<number | null>(null);
   const lastForcedResyncAtRef = useRef<number>(0);
@@ -1694,7 +1735,7 @@ export default function WorkbookSessionPage() {
     [session?.participants, user?.id]
   );
   const actorPermissions = actorParticipant?.permissions ?? FALLBACK_PERMISSIONS;
-  const canManageSession = Boolean(actorPermissions.canManageSession);
+  const canManageSession = Boolean(actorPermissions.canManageSession && !isSessionTabPassive);
   const hasParticipantBoardToolsAccess = Boolean(
     actorPermissions.canDraw &&
       actorPermissions.canAnnotate &&
@@ -1704,15 +1745,19 @@ export default function WorkbookSessionPage() {
       actorPermissions.canClear &&
       actorPermissions.canUseLaser
   );
-  const canDraw = Boolean(actorPermissions.canDraw && !isEnded && !awaitingClearRequest);
-  const canSelect = Boolean(actorPermissions.canSelect && !isEnded);
-  const canInsertImage = Boolean(actorPermissions.canInsertImage && !isEnded);
-  const canDelete = Boolean(actorPermissions.canDelete && !isEnded);
-  const canClear = Boolean(actorPermissions.canClear && !isEnded);
-  const canUseLaser = Boolean(actorPermissions.canUseLaser && !isEnded);
+  const canDraw = Boolean(
+    actorPermissions.canDraw && !isEnded && !awaitingClearRequest && !isSessionTabPassive
+  );
+  const canSelect = Boolean(actorPermissions.canSelect && !isEnded && !isSessionTabPassive);
+  const canInsertImage = Boolean(
+    actorPermissions.canInsertImage && !isEnded && !isSessionTabPassive
+  );
+  const canDelete = Boolean(actorPermissions.canDelete && !isEnded && !isSessionTabPassive);
+  const canClear = Boolean(actorPermissions.canClear && !isEnded && !isSessionTabPassive);
+  const canUseLaser = Boolean(actorPermissions.canUseLaser && !isEnded && !isSessionTabPassive);
   const canUseMedia = Boolean(actorPermissions.canUseMedia);
   const canUseSessionChat = Boolean(actorPermissions.canUseChat);
-  const canSendSessionChat = canUseSessionChat && !isEnded;
+  const canSendSessionChat = canUseSessionChat && !isEnded && !isSessionTabPassive;
   const isClassSession = session?.kind === "CLASS";
   const canAccessBoardSettingsPanel = Boolean(
     !isClassSession || canManageSession || hasParticipantBoardToolsAccess
@@ -2014,7 +2059,15 @@ export default function WorkbookSessionPage() {
       [...deferredParticipants]
         .filter(
           (participant) =>
-            participant.roleInSession === "teacher" || participant.isOnline
+            participant.roleInSession === "teacher" ||
+            participant.isOnline ||
+            (() => {
+              const lastSeenAtTs = Date.parse(String(participant.lastSeenAt ?? ""));
+              return (
+                Number.isFinite(lastSeenAtTs) &&
+                Date.now() - lastSeenAtTs <= PARTICIPANT_VISIBILITY_GRACE_MS
+              );
+            })()
         )
         .sort((left, right) => {
           if (left.roleInSession !== right.roleInSession) {
@@ -2033,6 +2086,14 @@ export default function WorkbookSessionPage() {
   );
   const contextbarStorageKey = useMemo(
     () => (sessionId && user?.id ? `workbook:contextbar:${sessionId}:${user.id}` : ""),
+    [sessionId, user?.id]
+  );
+  const sessionTabLockStorageKey = useMemo(
+    () => (sessionId && user?.id ? `workbook:tab-lock:${sessionId}:${user.id}` : ""),
+    [sessionId, user?.id]
+  );
+  const sessionTabLockChannelName = useMemo(
+    () => (sessionId && user?.id ? `workbook-tab-lock:${sessionId}:${user.id}` : ""),
     [sessionId, user?.id]
   );
   const personalBoardSettingsStorageKey = useMemo(() => {
@@ -2922,8 +2983,21 @@ export default function WorkbookSessionPage() {
           annotationSnapshotResult.status === "fulfilled"
             ? annotationSnapshotResult.value
             : null;
-        const shouldApplyBoardSnapshot = !isBackground || boardSnapshot !== null;
-        const shouldApplyAnnotationSnapshot = !isBackground || annotationSnapshot !== null;
+        const currentLatestSeq = latestSeqRef.current;
+        const boardSnapshotVersion =
+          boardSnapshot && typeof boardSnapshot.version === "number"
+            ? Math.max(0, Math.trunc(boardSnapshot.version))
+            : 0;
+        const annotationSnapshotVersion =
+          annotationSnapshot && typeof annotationSnapshot.version === "number"
+            ? Math.max(0, Math.trunc(annotationSnapshot.version))
+            : 0;
+        const shouldApplyBoardSnapshot = !isBackground
+          ? true
+          : boardSnapshot !== null && boardSnapshotVersion >= currentLatestSeq;
+        const shouldApplyAnnotationSnapshot = !isBackground
+          ? true
+          : annotationSnapshot !== null && annotationSnapshotVersion >= currentLatestSeq;
         setSession(sessionData);
         queuedBoardSettingsCommitRef.current = null;
         queuedBoardSettingsHistoryBeforeRef.current = null;
@@ -3110,7 +3184,7 @@ export default function WorkbookSessionPage() {
   }, [loadSession]);
 
   useEffect(() => {
-    if (!sessionId || !session) return;
+    if (!sessionId) return;
     let active = true;
     const poll = async () => {
       try {
@@ -3169,13 +3243,12 @@ export default function WorkbookSessionPage() {
     filterUnseenWorkbookEvents,
     isWorkbookLiveConnected,
     isWorkbookStreamConnected,
-    session,
     sessionId,
     triggerSessionResync,
   ]);
 
   useEffect(() => {
-    if (!sessionId || !session) {
+    if (!sessionId) {
       realtimeDisconnectSinceRef.current = null;
       setRealtimeSyncWarning(null);
       return;
@@ -3208,13 +3281,12 @@ export default function WorkbookSessionPage() {
   }, [
     isWorkbookLiveConnected,
     isWorkbookStreamConnected,
-    session,
     sessionId,
     triggerSessionResync,
   ]);
 
   useEffect(() => {
-    if (!sessionId || !session) return;
+    if (!sessionId) return;
     const unsubscribe = subscribeWorkbookEventsStream({
       sessionId,
       onEvents: (payload) => {
@@ -3263,13 +3335,12 @@ export default function WorkbookSessionPage() {
     clearIncomingRealtimeApplyQueue,
     enqueueIncomingRealtimeApply,
     filterUnseenWorkbookEvents,
-    session,
     sessionId,
     triggerSessionResync,
   ]);
 
   useEffect(() => {
-    if (!sessionId || !session) {
+    if (!sessionId) {
       workbookLiveSendRef.current = null;
       clearIncomingRealtimeApplyQueue();
       return;
@@ -3325,10 +3396,160 @@ export default function WorkbookSessionPage() {
     clearIncomingRealtimeApplyQueue,
     enqueueIncomingRealtimeApply,
     filterUnseenWorkbookEvents,
-    session,
     sessionId,
     triggerSessionResync,
   ]);
+
+  useEffect(() => {
+    if (
+      !sessionTabLockStorageKey ||
+      !sessionTabLockChannelName ||
+      typeof window === "undefined"
+    ) {
+      setIsSessionTabPassive(false);
+      setActiveSessionTabId(null);
+      return;
+    }
+    let effectActive = true;
+    const tabId = presenceTabIdRef.current;
+
+    const readLock = () =>
+      parseWorkbookTabLockRecord(window.localStorage.getItem(sessionTabLockStorageKey));
+
+    const clearClaimTimer = () => {
+      if (tabLockClaimTimerRef.current === null) return;
+      window.clearTimeout(tabLockClaimTimerRef.current);
+      tabLockClaimTimerRef.current = null;
+    };
+
+    const postLockSignal = (type: "claim" | "release") => {
+      tabLockBroadcastChannelRef.current?.postMessage({
+        type,
+        tabId,
+        timestamp: Date.now(),
+      });
+    };
+
+    const claimLock = () => {
+      if (!effectActive) return;
+      const now = Date.now();
+      const current = readLock();
+      const nextLock: WorkbookTabLockRecord = {
+        tabId,
+        acquiredAt:
+          current?.tabId === tabId && Number.isFinite(current.acquiredAt)
+            ? current.acquiredAt
+            : now,
+        updatedAt: now,
+      };
+      try {
+        window.localStorage.setItem(sessionTabLockStorageKey, JSON.stringify(nextLock));
+      } catch {
+        // ignore storage write failures in restricted environments
+      }
+      setActiveSessionTabId(tabId);
+      setIsSessionTabPassive(false);
+      postLockSignal("claim");
+    };
+
+    const scheduleClaim = (delayMs = 120) => {
+      if (!effectActive || tabLockClaimTimerRef.current !== null) return;
+      tabLockClaimTimerRef.current = window.setTimeout(() => {
+        tabLockClaimTimerRef.current = null;
+        const current = readLock();
+        if (!current || isWorkbookTabLockStale(current) || current.tabId === tabId) {
+          claimLock();
+        }
+      }, delayMs + Math.floor(Math.random() * 140));
+    };
+
+    const applyLockState = (record: WorkbookTabLockRecord | null) => {
+      if (!effectActive) return;
+      if (isWorkbookTabLockStale(record)) {
+        setActiveSessionTabId(null);
+        setIsSessionTabPassive(false);
+        scheduleClaim(80);
+        return;
+      }
+      setActiveSessionTabId(record.tabId);
+      const shouldBePassive = record.tabId !== tabId;
+      setIsSessionTabPassive((current) => {
+        if (shouldBePassive && !current) {
+          void persistSnapshotsRef.current?.({ silent: true, force: true });
+          void flushWorkbookPersistenceQueue();
+        }
+        return shouldBePassive;
+      });
+    };
+
+    const releaseLockIfOwned = () => {
+      const current = readLock();
+      if (!current || current.tabId !== tabId) return;
+      try {
+        window.localStorage.removeItem(sessionTabLockStorageKey);
+      } catch {
+        // ignore storage remove failures in restricted environments
+      }
+      postLockSignal("release");
+    };
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== sessionTabLockStorageKey) return;
+      applyLockState(parseWorkbookTabLockRecord(event.newValue));
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      applyLockState(readLock());
+    };
+
+    const onPageHide = () => {
+      releaseLockIfOwned();
+    };
+
+    if (typeof BroadcastChannel !== "undefined") {
+      try {
+        const channel = new BroadcastChannel(sessionTabLockChannelName);
+        tabLockBroadcastChannelRef.current = channel;
+        channel.onmessage = () => {
+          applyLockState(readLock());
+        };
+      } catch {
+        tabLockBroadcastChannelRef.current = null;
+      }
+    }
+
+    claimLock();
+    tabLockHeartbeatTimerRef.current = window.setInterval(() => {
+      const current = readLock();
+      if (!current || isWorkbookTabLockStale(current) || current.tabId === tabId) {
+        claimLock();
+        return;
+      }
+      applyLockState(current);
+    }, TAB_LOCK_HEARTBEAT_MS);
+
+    window.addEventListener("storage", onStorage);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onPageHide);
+
+    return () => {
+      effectActive = false;
+      window.removeEventListener("storage", onStorage);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onPageHide);
+      clearClaimTimer();
+      if (tabLockHeartbeatTimerRef.current !== null) {
+        window.clearInterval(tabLockHeartbeatTimerRef.current);
+        tabLockHeartbeatTimerRef.current = null;
+      }
+      tabLockBroadcastChannelRef.current?.close();
+      tabLockBroadcastChannelRef.current = null;
+      releaseLockIfOwned();
+    };
+  }, [sessionTabLockChannelName, sessionTabLockStorageKey]);
 
   useEffect(() => {
     personalBoardSettingsReadyRef.current = false;
@@ -3369,11 +3590,15 @@ export default function WorkbookSessionPage() {
   ]);
 
   useEffect(() => {
-    if (!sessionId || !session || !user?.id) return;
+    if (!sessionId || !user?.id) return;
     let active = true;
     const presenceTabId = presenceTabIdRef.current;
     const resolvePresenceState = () => {
       if (typeof document === "undefined" || typeof window === "undefined") {
+        return "active" as const;
+      }
+      if (!isTeacherActor) {
+        // Students should stay "present" while the tab is open to avoid noisy presence flicker.
         return "active" as const;
       }
       const hasFocus = typeof document.hasFocus === "function" ? document.hasFocus() : true;
@@ -3416,7 +3641,7 @@ export default function WorkbookSessionPage() {
       document.removeEventListener("visibilitychange", onVisibilityOrFocusChange);
       window.clearInterval(intervalId);
     };
-  }, [areParticipantsEqual, session, sessionId, user?.id]);
+  }, [areParticipantsEqual, isTeacherActor, sessionId, user?.id]);
 
   useEffect(() => {
     if (!sessionId || !user?.id) return;
@@ -4224,16 +4449,74 @@ export default function WorkbookSessionPage() {
 
   const clearLayerNow = useCallback(
     async (target: WorkbookLayer) => {
-      await appendEventsAndApply([
-        {
-          type: target === "board" ? "board.clear" : "annotations.clear",
-          payload: {},
-        },
-      ]);
+      const previousSnapshot: WorkbookSceneSnapshot = {
+        boardStrokes: cloneSerializable(boardStrokesRef.current),
+        boardObjects: cloneSerializable(boardObjectsRef.current),
+        constraints: cloneSerializable(constraintsRef.current),
+        annotationStrokes: cloneSerializable(annotationStrokesRef.current),
+        chatMessages: cloneSerializable(chatMessages),
+        comments: cloneSerializable(comments),
+        timerState: cloneSerializable(timerState),
+        boardSettings: cloneSerializable(boardSettingsRef.current),
+        libraryState: cloneSerializable(libraryState),
+        documentState: cloneSerializable(documentStateRef.current),
+      };
+
+      if (target === "board") {
+        setBoardStrokes([]);
+        applyLocalBoardObjects(() => []);
+        clearObjectSyncRuntime();
+        clearStrokePreviewRuntime();
+        clearIncomingEraserPreviewRuntime();
+        setFocusPoint(null);
+        setPointerPoint(null);
+        setFocusPointsByUser({});
+        setPointerPointsByUser({});
+        focusResetTimersByUserRef.current.forEach((timerId) => {
+          window.clearTimeout(timerId);
+        });
+        focusResetTimersByUserRef.current.clear();
+        setConstraints([]);
+        setSelectedObjectId(null);
+        setSelectedConstraintId(null);
+      } else {
+        clearStrokePreviewRuntime({ clearFinalized: false });
+        clearIncomingEraserPreviewRuntime();
+        setAnnotationStrokes([]);
+      }
+
       setPendingClearRequest(null);
       setAwaitingClearRequest(null);
+
+      try {
+        await appendEventsAndApply([
+          {
+            type: target === "board" ? "board.clear" : "annotations.clear",
+            payload: {},
+          },
+        ]);
+      } catch (error) {
+        if (isRecoverableApiError(error)) {
+          markDirty();
+          return;
+        }
+        restoreSceneSnapshot(previousSnapshot);
+        throw error;
+      }
     },
-    [appendEventsAndApply]
+    [
+      appendEventsAndApply,
+      applyLocalBoardObjects,
+      chatMessages,
+      clearIncomingEraserPreviewRuntime,
+      clearObjectSyncRuntime,
+      clearStrokePreviewRuntime,
+      comments,
+      libraryState,
+      markDirty,
+      restoreSceneSnapshot,
+      timerState,
+    ]
   );
 
   const flushQueuedBoardSettingsCommit = useCallback(async () => {
@@ -10487,8 +10770,8 @@ export default function WorkbookSessionPage() {
             </div>
           </div>
 
-          <div className="workbook-session__board-shell">
-            <WorkbookCanvas
+	          <div className="workbook-session__board-shell">
+	            <WorkbookCanvas
               boardStrokes={visibleBoardStrokes}
               annotationStrokes={visibleAnnotationStrokes}
               previewStrokes={previewStrokes}
@@ -10565,10 +10848,25 @@ export default function WorkbookSessionPage() {
               onRequestSelectTool={handleCanvasRequestSelectTool}
               onLaserPoint={handleCanvasLaserPoint}
               onLaserClear={handleCanvasLaserClear}
-              solid3dInsertPreset={pendingSolid3dInsertPreset}
-              onSolid3dInsertConsumed={clearPendingSolid3dInsertPreset}
-            />
-            <aside className="workbook-session__tools">
+	              solid3dInsertPreset={pendingSolid3dInsertPreset}
+	              onSolid3dInsertConsumed={clearPendingSolid3dInsertPreset}
+	            />
+	            {isSessionTabPassive ? (
+	              <div className="workbook-session__tab-passive-overlay" role="status" aria-live="polite">
+	                <div className="workbook-session__tab-passive-overlay-card">
+	                  <h4>Сессия уже открыта в другой вкладке</h4>
+	                  <p>
+	                    Эта вкладка работает в режиме просмотра, чтобы избежать расхождения данных.
+	                  </p>
+	                  {activeSessionTabId && activeSessionTabId !== presenceTabIdRef.current ? (
+	                    <p className="workbook-session__tab-passive-overlay-meta">
+	                      Вернитесь в активную вкладку или закройте ее, чтобы продолжить работу здесь.
+	                    </p>
+	                  ) : null}
+	                </div>
+	              </div>
+	            ) : null}
+	            <aside className="workbook-session__tools">
               {toolButtonsBeforeCatalog.map(renderToolButton)}
               <Tooltip title="Каталог 2D-фигур" placement="left" arrow>
                 <span>

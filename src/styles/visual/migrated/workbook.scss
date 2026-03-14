@@ -717,6 +717,49 @@
   gap: 10px;
   min-width: 0;
   max-width: 100%;
+  position: relative;
+}
+
+.workbook-session__tab-passive-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 16;
+  display: grid;
+  place-items: center;
+  padding: clamp(14px, 2vw, 24px);
+  border-radius: 18px;
+  background: color-mix(in srgb, #06122e 46%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.workbook-session__tab-passive-overlay-card {
+  width: min(420px, calc(100% - 24px));
+  padding: clamp(14px, 2vw, 20px);
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--brand-soft) 42%, var(--border-subtle));
+  background:
+    radial-gradient(circle at 12% 8%, color-mix(in srgb, #5d7dff 12%, transparent), transparent 62%),
+    color-mix(in srgb, var(--surface-elevated) 92%, transparent);
+  box-shadow: 0 18px 30px color-mix(in srgb, #081229 32%, transparent);
+}
+
+.workbook-session__tab-passive-overlay-card h4 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.25;
+  color: var(--text-primary);
+}
+
+.workbook-session__tab-passive-overlay-card p {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.workbook-session__tab-passive-overlay-meta {
+  margin-top: 10px !important;
+  color: var(--text-primary) !important;
+  font-weight: 600;
 }
 
 .workbook-session__tools {
