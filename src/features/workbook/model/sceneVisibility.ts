@@ -312,6 +312,50 @@ const appendForcedVisibleObjects = (params: {
 const isStrokeInsideRect = (stroke: WorkbookStroke, rect: WorkbookSceneRect) =>
   stroke.points.some((point) => isPointInsideSceneRect(point, rect));
 
+const resolveSceneContentRect = (params: {
+  sceneIndex: WorkbookSceneIndex;
+  fallbackRect: WorkbookSceneRect;
+}): WorkbookSceneRect => {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  const includeRect = (rect: WorkbookSceneRect | null | undefined) => {
+    if (!rect) return;
+    minX = Math.min(minX, rect.x);
+    minY = Math.min(minY, rect.y);
+    maxX = Math.max(maxX, rect.x + rect.width);
+    maxY = Math.max(maxY, rect.y + rect.height);
+  };
+
+  params.sceneIndex.boardObjects.forEach((object) => {
+    includeRect(params.sceneIndex.getObjectRect(object));
+  });
+  params.sceneIndex.strokes.forEach((stroke) => {
+    const strokeRect = getStrokeRect(stroke);
+    if (strokeRect) {
+      includeRect(strokeRect);
+      return;
+    }
+    stroke.points.forEach((point) => {
+      minX = Math.min(minX, point.x);
+      minY = Math.min(minY, point.y);
+      maxX = Math.max(maxX, point.x);
+      maxY = Math.max(maxY, point.y);
+    });
+  });
+
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return params.fallbackRect;
+  }
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+};
+
 export type WorkbookSceneIndex = {
   boardObjects: WorkbookBoardObject[];
   strokes: WorkbookStroke[];
@@ -374,6 +418,7 @@ export const buildWorkbookSceneAccessFromIndex = (params: {
   width: number;
   height: number;
   zoom: number;
+  visibilityMode?: "viewport" | "full";
   renderPadding?: number;
   hitPadding?: number;
   forcedVisibleObjectIds?: ReadonlySet<string>;
@@ -386,40 +431,70 @@ export const buildWorkbookSceneAccessFromIndex = (params: {
   });
   const renderPadding = params.renderPadding ?? 360;
   const hitPadding = params.hitPadding ?? 96;
-  const renderViewportRect = expandSceneRect(viewportRect, renderPadding);
-  const hitViewportRect = expandSceneRect(viewportRect, hitPadding);
-  const visibleBoardObjects = appendForcedVisibleObjects({
-    objects: collectSceneIndexItemsInRect({
-      index: params.sceneIndex.allObjectIndex,
-      rect: renderViewportRect,
-      getKey: (object) => object.id,
-    }),
-    index: params.sceneIndex.allObjectIndex,
-    objectById: params.sceneIndex.objectById,
-    forcedVisibleObjectIds: params.forcedVisibleObjectIds,
-  });
-  const visibleHitObjects = appendForcedVisibleObjects({
-    objects: collectSceneIndexItemsInRect({
-      index: params.sceneIndex.allObjectIndex,
-      rect: hitViewportRect,
-      getKey: (object) => object.id,
-    }),
-    index: params.sceneIndex.allObjectIndex,
-    objectById: params.sceneIndex.objectById,
-    forcedVisibleObjectIds: params.forcedVisibleObjectIds,
-  });
-  const visibleStrokes = collectSceneIndexItemsInRect({
-    index: params.sceneIndex.allStrokeIndex,
-    rect: renderViewportRect,
-    getKey: (stroke) => `${stroke.layer}:${stroke.id}`,
-    nonIndexedPredicate: isStrokeInsideRect,
-  });
-  const visibleHitStrokes = collectSceneIndexItemsInRect({
-    index: params.sceneIndex.allStrokeIndex,
-    rect: hitViewportRect,
-    getKey: (stroke) => `${stroke.layer}:${stroke.id}`,
-    nonIndexedPredicate: isStrokeInsideRect,
-  });
+  const visibilityMode = params.visibilityMode ?? "viewport";
+  const sceneContentRect =
+    visibilityMode === "full"
+      ? resolveSceneContentRect({
+          sceneIndex: params.sceneIndex,
+          fallbackRect: viewportRect,
+        })
+      : viewportRect;
+  const renderViewportRect = expandSceneRect(sceneContentRect, renderPadding);
+  const hitViewportRect = expandSceneRect(sceneContentRect, hitPadding);
+  const visibleBoardObjects =
+    visibilityMode === "full"
+      ? appendForcedVisibleObjects({
+          objects: params.sceneIndex.boardObjects,
+          index: params.sceneIndex.allObjectIndex,
+          objectById: params.sceneIndex.objectById,
+          forcedVisibleObjectIds: params.forcedVisibleObjectIds,
+        })
+      : appendForcedVisibleObjects({
+          objects: collectSceneIndexItemsInRect({
+            index: params.sceneIndex.allObjectIndex,
+            rect: renderViewportRect,
+            getKey: (object) => object.id,
+          }),
+          index: params.sceneIndex.allObjectIndex,
+          objectById: params.sceneIndex.objectById,
+          forcedVisibleObjectIds: params.forcedVisibleObjectIds,
+        });
+  const visibleHitObjects =
+    visibilityMode === "full"
+      ? appendForcedVisibleObjects({
+          objects: params.sceneIndex.boardObjects,
+          index: params.sceneIndex.allObjectIndex,
+          objectById: params.sceneIndex.objectById,
+          forcedVisibleObjectIds: params.forcedVisibleObjectIds,
+        })
+      : appendForcedVisibleObjects({
+          objects: collectSceneIndexItemsInRect({
+            index: params.sceneIndex.allObjectIndex,
+            rect: hitViewportRect,
+            getKey: (object) => object.id,
+          }),
+          index: params.sceneIndex.allObjectIndex,
+          objectById: params.sceneIndex.objectById,
+          forcedVisibleObjectIds: params.forcedVisibleObjectIds,
+        });
+  const visibleStrokes =
+    visibilityMode === "full"
+      ? params.sceneIndex.strokes
+      : collectSceneIndexItemsInRect({
+          index: params.sceneIndex.allStrokeIndex,
+          rect: renderViewportRect,
+          getKey: (stroke) => `${stroke.layer}:${stroke.id}`,
+          nonIndexedPredicate: isStrokeInsideRect,
+        });
+  const visibleHitStrokes =
+    visibilityMode === "full"
+      ? params.sceneIndex.strokes
+      : collectSceneIndexItemsInRect({
+          index: params.sceneIndex.allStrokeIndex,
+          rect: hitViewportRect,
+          getKey: (stroke) => `${stroke.layer}:${stroke.id}`,
+          nonIndexedPredicate: isStrokeInsideRect,
+        });
   const objectHitIndex = buildWorkbookSceneRectIndex({
     items: visibleHitObjects,
     getKey: (object) => object.id,
@@ -473,6 +548,7 @@ export const buildWorkbookSceneAccess = (params: {
   width: number;
   height: number;
   zoom: number;
+  visibilityMode?: "viewport" | "full";
   renderPadding?: number;
   hitPadding?: number;
   forcedVisibleObjectIds?: ReadonlySet<string>;
@@ -488,6 +564,7 @@ export const buildWorkbookSceneAccess = (params: {
     width: params.width,
     height: params.height,
     zoom: params.zoom,
+    visibilityMode: params.visibilityMode,
     renderPadding: params.renderPadding,
     hitPadding: params.hitPadding,
     forcedVisibleObjectIds: params.forcedVisibleObjectIds,

@@ -12,6 +12,8 @@ export type WorkbookExportBounds = {
 const EXPORT_PAGE_PORTRAIT_RATIO = 210 / 297;
 const EXPORT_PAGE_MIN_WIDTH = 960;
 const EXPORT_PAGE_MIN_HEIGHT = Math.round(EXPORT_PAGE_MIN_WIDTH / EXPORT_PAGE_PORTRAIT_RATIO);
+const EXPORT_PDF_TILE_DEFAULT_WIDTH = EXPORT_PAGE_MIN_WIDTH;
+const EXPORT_PDF_TILE_DEFAULT_OVERLAP = 2;
 
 const getPointsBounds = (points: WorkbookPoint[]): WorkbookExportBounds => {
   if (points.length === 0) {
@@ -234,4 +236,131 @@ export const resolvePdfPagePlacement = (params: {
     drawWidth,
     drawHeight,
   };
+};
+
+export type WorkbookPdfExportTile = {
+  row: number;
+  column: number;
+  index: number;
+  bounds: WorkbookExportBounds;
+};
+
+const resolveSafeExportBounds = (
+  bounds: WorkbookExportBounds | null | undefined
+): WorkbookExportBounds => {
+  if (!bounds) {
+    return {
+      minX: 0,
+      minY: 0,
+      maxX: 1,
+      maxY: 1,
+      width: 1,
+      height: 1,
+    };
+  }
+  const width = Math.max(1, bounds.width);
+  const height = Math.max(1, bounds.height);
+  const minX = Number.isFinite(bounds.minX) ? bounds.minX : 0;
+  const minY = Number.isFinite(bounds.minY) ? bounds.minY : 0;
+  return {
+    minX,
+    minY,
+    maxX: minX + width,
+    maxY: minY + height,
+    width,
+    height,
+  };
+};
+
+const fitExportBoundsToAspectRatio = (
+  bounds: WorkbookExportBounds,
+  ratio: number
+): WorkbookExportBounds => {
+  const safeRatio = Math.max(0.001, ratio);
+  const currentRatio = bounds.width / bounds.height;
+  if (Math.abs(currentRatio - safeRatio) <= 1e-6) {
+    return bounds;
+  }
+  if (currentRatio > safeRatio) {
+    const targetHeight = bounds.width / safeRatio;
+    const delta = targetHeight - bounds.height;
+    const minY = bounds.minY - delta / 2;
+    return {
+      minX: bounds.minX,
+      minY,
+      maxX: bounds.maxX,
+      maxY: minY + targetHeight,
+      width: bounds.width,
+      height: targetHeight,
+    };
+  }
+  const targetWidth = bounds.height * safeRatio;
+  const delta = targetWidth - bounds.width;
+  const minX = bounds.minX - delta / 2;
+  return {
+    minX,
+    minY: bounds.minY,
+    maxX: minX + targetWidth,
+    maxY: bounds.maxY,
+    width: targetWidth,
+    height: bounds.height,
+  };
+};
+
+export const splitExportBoundsToA4Tiles = (params: {
+  bounds: WorkbookExportBounds | null | undefined;
+  tileWidth?: number;
+  overlap?: number;
+}): WorkbookPdfExportTile[] => {
+  const source = resolveSafeExportBounds(params.bounds);
+  const tileWidth = Math.max(1, Math.round(params.tileWidth ?? EXPORT_PDF_TILE_DEFAULT_WIDTH));
+  const tileHeight = Math.max(1, Math.round(tileWidth / EXPORT_PAGE_PORTRAIT_RATIO));
+  const overlap = Math.max(
+    0,
+    Math.min(
+      Math.round(params.overlap ?? EXPORT_PDF_TILE_DEFAULT_OVERLAP),
+      Math.min(tileWidth - 1, tileHeight - 1)
+    )
+  );
+
+  if (source.width <= tileWidth && source.height <= tileHeight) {
+    return [
+      {
+        row: 0,
+        column: 0,
+        index: 0,
+        bounds: fitExportBoundsToAspectRatio(source, EXPORT_PAGE_PORTRAIT_RATIO),
+      },
+    ];
+  }
+
+  const stepX = Math.max(1, tileWidth - overlap);
+  const stepY = Math.max(1, tileHeight - overlap);
+  const columns = Math.max(1, Math.ceil((source.width - tileWidth) / stepX) + 1);
+  const rows = Math.max(1, Math.ceil((source.height - tileHeight) / stepY) + 1);
+  const tiles: WorkbookPdfExportTile[] = [];
+  for (let row = 0; row < rows; row += 1) {
+    const minY =
+      row === rows - 1 ? source.maxY - tileHeight : source.minY + row * stepY;
+    for (let column = 0; column < columns; column += 1) {
+      const minX =
+        column === columns - 1 ? source.maxX - tileWidth : source.minX + column * stepX;
+      const width = tileWidth;
+      const height = tileHeight;
+      tiles.push({
+        row,
+        column,
+        index: row * columns + column,
+        bounds: {
+          minX,
+          minY,
+          maxX: minX + width,
+          maxY: minY + height,
+          width,
+          height,
+        },
+      });
+    }
+  }
+  return tiles;
 };
