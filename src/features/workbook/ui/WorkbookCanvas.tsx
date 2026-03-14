@@ -203,6 +203,7 @@ type WorkbookCanvasProps = {
   snapToGrid?: boolean;
   gridSize?: number;
   viewportZoom?: number;
+  visibilityMode?: "viewport" | "full";
   showGrid?: boolean;
   gridColor?: string;
   backgroundColor?: string;
@@ -441,6 +442,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   snapToGrid = false,
   gridSize = 22,
   viewportZoom = 1,
+  visibilityMode = "viewport",
   showGrid = true,
   gridColor = "rgba(92, 129, 192, 0.32)",
   backgroundColor = "#ffffff",
@@ -863,6 +865,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     width: size.width,
     height: size.height,
     zoom: safeZoom,
+    visibilityMode,
     renderPadding: 360,
     hitPadding: 96,
     forcedVisibleObjectIds,
