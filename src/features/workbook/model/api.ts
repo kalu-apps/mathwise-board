@@ -252,6 +252,13 @@ export function subscribeWorkbookLiveSocket(params: {
   let reconnectTimer: number | null = null;
   let socket: WebSocket | null = null;
   let reconnectAttempt = 0;
+  let fastFailureCount = 0;
+  let fastFailureWindowStartedAt = 0;
+  let reconnectCooldownUntil = 0;
+  const FAST_FAILURE_WINDOW_MS = 15_000;
+  const FAST_FAILURE_CONNECT_MAX_MS = 1_200;
+  const FAST_FAILURE_THRESHOLD = 6;
+  const RECONNECT_COOLDOWN_MS = 20_000;
 
   const handlePayload = (raw: unknown) => {
     if (!raw || typeof raw !== "object") return;
@@ -276,9 +283,36 @@ export function subscribeWorkbookLiveSocket(params: {
     reconnectTimer = null;
   };
 
+  const resetFastFailureWindow = () => {
+    fastFailureCount = 0;
+    fastFailureWindowStartedAt = 0;
+    reconnectCooldownUntil = 0;
+  };
+
+  const noteFastFailure = () => {
+    const now = Date.now();
+    if (
+      fastFailureWindowStartedAt === 0 ||
+      now - fastFailureWindowStartedAt > FAST_FAILURE_WINDOW_MS
+    ) {
+      fastFailureWindowStartedAt = now;
+      fastFailureCount = 0;
+    }
+    fastFailureCount += 1;
+    if (fastFailureCount < FAST_FAILURE_THRESHOLD) return;
+    reconnectCooldownUntil = now + RECONNECT_COOLDOWN_MS;
+    fastFailureCount = 0;
+    fastFailureWindowStartedAt = now;
+    params.onError?.(new Event("workbook_live_socket_cooldown"));
+  };
+
   const scheduleReconnect = () => {
     if (closed || reconnectTimer !== null) return;
-    const delay = Math.min(4_000, 250 * 2 ** reconnectAttempt);
+    const now = Date.now();
+    const backoffDelay = Math.min(6_000, 250 * 2 ** reconnectAttempt);
+    const cooldownDelay =
+      reconnectCooldownUntil > now ? reconnectCooldownUntil - now : 0;
+    const delay = Math.max(backoffDelay, cooldownDelay);
     reconnectAttempt += 1;
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = null;
@@ -289,11 +323,15 @@ export function subscribeWorkbookLiveSocket(params: {
   const connectSocket = () => {
     if (closed) return;
     clearReconnectTimer();
+    const connectedStartedAt = Date.now();
+    let wasOpened = false;
     const nextSocket = new WebSocket(socketUrl);
     socket = nextSocket;
 
     nextSocket.onopen = () => {
+      wasOpened = true;
       reconnectAttempt = 0;
+      resetFastFailureWindow();
       params.onConnectionChange?.(true);
     };
 
@@ -312,6 +350,9 @@ export function subscribeWorkbookLiveSocket(params: {
     nextSocket.onclose = () => {
       if (socket === nextSocket) {
         socket = null;
+      }
+      if (!wasOpened && Date.now() - connectedStartedAt <= FAST_FAILURE_CONNECT_MAX_MS) {
+        noteFastFailure();
       }
       params.onConnectionChange?.(false);
       scheduleReconnect();
@@ -342,7 +383,8 @@ export function subscribeWorkbookLiveSocket(params: {
     close: () => {
       if (closed) return;
       closed = true;
-       clearReconnectTimer();
+      clearReconnectTimer();
+      resetFastFailureWindow();
       params.onConnectionChange?.(false);
       socket?.close();
       socket = null;

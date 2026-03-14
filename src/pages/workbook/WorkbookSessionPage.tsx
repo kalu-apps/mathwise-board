@@ -225,6 +225,7 @@ import {
   type SmartInkOptions,
 } from "./workbookBoardSettingsModel";
 import {
+  dropWorkbookPersistenceTasksForSession,
   flushWorkbookPersistenceQueue,
 } from "@/features/workbook/model/persistenceQueue";
 import {
@@ -257,8 +258,9 @@ const WorkbookSessionTransformPanel = lazy(async () => ({
   default: (await import("./WorkbookSessionTransformPanel")).WorkbookSessionTransformPanel,
 }));
 
-const POLL_INTERVAL_MS = 220;
-const POLL_INTERVAL_STREAM_CONNECTED_MS = 180;
+const POLL_INTERVAL_MS = 500;
+const POLL_INTERVAL_STREAM_CONNECTED_MS = 320;
+const RESYNC_MIN_INTERVAL_MS = 4_000;
 const PRESENCE_INTERVAL_MS = 1_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const CONTEXTBAR_DOCKED_VIEWPORT_MAX_WIDTH = 1024;
@@ -1577,6 +1579,7 @@ export default function WorkbookSessionPage() {
   const sessionResyncInFlightRef = useRef(false);
   const realtimeDisconnectSinceRef = useRef<number | null>(null);
   const lastForcedResyncAtRef = useRef<number>(0);
+  const loadSessionRequestIdRef = useRef(0);
   const boardObjectsRef = useRef<WorkbookBoardObject[]>([]);
   const boardStrokesRef = useRef<WorkbookStroke[]>([]);
   const annotationStrokesRef = useRef<WorkbookStroke[]>([]);
@@ -2794,6 +2797,9 @@ export default function WorkbookSessionPage() {
   const loadSession = useCallback(async (options?: { background?: boolean }) => {
     if (!sessionId) return;
     const isBackground = options?.background === true;
+    const loadRequestId = loadSessionRequestIdRef.current + 1;
+    loadSessionRequestIdRef.current = loadRequestId;
+    const isStaleLoadRequest = () => loadSessionRequestIdRef.current !== loadRequestId;
     clearIncomingRealtimeApplyQueue();
     if (!isBackground) {
       setLoading(true);
@@ -2805,16 +2811,20 @@ export default function WorkbookSessionPage() {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         const sessionData = await getWorkbookSession(sessionId);
+        if (isStaleLoadRequest()) return;
         const [boardSnapshotResult, annotationSnapshotResult] = await Promise.allSettled([
           getWorkbookSnapshot(sessionId, "board"),
           getWorkbookSnapshot(sessionId, "annotations"),
         ]);
+        if (isStaleLoadRequest()) return;
         const boardSnapshot =
           boardSnapshotResult.status === "fulfilled" ? boardSnapshotResult.value : null;
         const annotationSnapshot =
           annotationSnapshotResult.status === "fulfilled"
             ? annotationSnapshotResult.value
             : null;
+        const shouldApplyBoardSnapshot = !isBackground || boardSnapshot !== null;
+        const shouldApplyAnnotationSnapshot = !isBackground || annotationSnapshot !== null;
         setSession(sessionData);
         queuedBoardSettingsCommitRef.current = null;
         queuedBoardSettingsHistoryBeforeRef.current = null;
@@ -2823,73 +2833,83 @@ export default function WorkbookSessionPage() {
           boardSettingsCommitTimerRef.current = null;
         }
 
-        const normalizedBoard = normalizeScenePayload(
-          boardSnapshot?.payload ?? createEmptyScene()
-        );
-        const normalizedAnnotations = normalizeScenePayload(
-          annotationSnapshot?.payload ?? createEmptyScene()
-        );
+        const normalizedBoard = shouldApplyBoardSnapshot
+          ? normalizeScenePayload(boardSnapshot?.payload ?? createEmptyScene())
+          : null;
+        const normalizedAnnotations = shouldApplyAnnotationSnapshot
+          ? normalizeScenePayload(annotationSnapshot?.payload ?? createEmptyScene())
+          : null;
 
-        const nextBoardObjects = normalizedBoard.objects.filter((item) => item.layer === "board");
-        setBoardStrokes(normalizedBoard.strokes.filter((stroke) => stroke.layer === "board"));
-        boardObjectsRef.current = nextBoardObjects;
-        setBoardObjects(nextBoardObjects);
-        setConstraints(normalizedBoard.constraints);
-        setChatMessages(normalizedBoard.chat);
-        setComments(normalizedBoard.comments);
-        setTimerState(normalizedBoard.timer);
-        setBoardSettings(() => {
-          const normalizedLayers = normalizeSceneLayersForBoard(
-            normalizedBoard.boardSettings.sceneLayers,
-            normalizedBoard.boardSettings.activeSceneLayerId
+        if (normalizedBoard) {
+          const nextBoardObjects = normalizedBoard.objects.filter((item) => item.layer === "board");
+          setBoardStrokes(normalizedBoard.strokes.filter((stroke) => stroke.layer === "board"));
+          boardObjectsRef.current = nextBoardObjects;
+          setBoardObjects(nextBoardObjects);
+          setConstraints(normalizedBoard.constraints);
+          setChatMessages(normalizedBoard.chat);
+          setComments(normalizedBoard.comments);
+          setTimerState(normalizedBoard.timer);
+          setBoardSettings(() => {
+            const normalizedLayers = normalizeSceneLayersForBoard(
+              normalizedBoard.boardSettings.sceneLayers,
+              normalizedBoard.boardSettings.activeSceneLayerId
+            );
+            return {
+              ...DEFAULT_BOARD_SETTINGS,
+              ...normalizedBoard.boardSettings,
+              ...normalizedLayers,
+              smartInk: DEFAULT_SMART_INK_OPTIONS,
+              title:
+                normalizedBoard.boardSettings.title ||
+                sessionData.title ||
+                DEFAULT_BOARD_SETTINGS.title,
+            };
+          });
+          setLibraryState({
+            ...DEFAULT_LIBRARY,
+            ...normalizedBoard.library,
+          });
+          setDocumentState(normalizedBoard.document);
+        }
+        if (normalizedAnnotations) {
+          setAnnotationStrokes(
+            normalizedAnnotations.strokes.filter((stroke) => stroke.layer === "annotations")
           );
-          return {
-            ...DEFAULT_BOARD_SETTINGS,
-            ...normalizedBoard.boardSettings,
-            ...normalizedLayers,
-            smartInk: DEFAULT_SMART_INK_OPTIONS,
-            title:
-              normalizedBoard.boardSettings.title ||
-              sessionData.title ||
-              DEFAULT_BOARD_SETTINGS.title,
-          };
-        });
-        setLibraryState({
-          ...DEFAULT_LIBRARY,
-          ...normalizedBoard.library,
-        });
-        setDocumentState(normalizedBoard.document);
-        setAnnotationStrokes(
-          normalizedAnnotations.strokes.filter((stroke) => stroke.layer === "annotations")
-        );
-        const loadedLatestSeq = Math.max(
-          boardSnapshot?.version ?? 0,
-          annotationSnapshot?.version ?? 0
-        );
-        setLatestSeq(loadedLatestSeq);
-        latestSeqRef.current = loadedLatestSeq;
-        processedEventIdsRef.current.clear();
-        smartInkStrokeBufferRef.current = [];
-        smartInkProcessedStrokeIdsRef.current = new Set();
-        clearObjectSyncRuntime();
-        clearStrokePreviewRuntime();
-        clearIncomingEraserPreviewRuntime();
-        dirtyRef.current = false;
-        undoStackRef.current = [];
-        redoStackRef.current = [];
-        setUndoDepth(0);
-        setRedoDepth(0);
-        setSaveState("saved");
-        setFocusPoint(null);
-        setPointerPoint(null);
-        setFocusPointsByUser({});
-        setPointerPointsByUser({});
-        focusResetTimersByUserRef.current.forEach((timerId) => {
-          window.clearTimeout(timerId);
-        });
-        focusResetTimersByUserRef.current.clear();
+        }
+        if (normalizedBoard || normalizedAnnotations) {
+          const loadedLatestSeq = Math.max(
+            latestSeqRef.current,
+            shouldApplyBoardSnapshot ? boardSnapshot?.version ?? latestSeqRef.current : latestSeqRef.current,
+            shouldApplyAnnotationSnapshot
+              ? annotationSnapshot?.version ?? latestSeqRef.current
+              : latestSeqRef.current
+          );
+          setLatestSeq(loadedLatestSeq);
+          latestSeqRef.current = loadedLatestSeq;
+          processedEventIdsRef.current.clear();
+          smartInkStrokeBufferRef.current = [];
+          smartInkProcessedStrokeIdsRef.current = new Set();
+          clearObjectSyncRuntime();
+          clearStrokePreviewRuntime();
+          clearIncomingEraserPreviewRuntime();
+          dirtyRef.current = false;
+          undoStackRef.current = [];
+          redoStackRef.current = [];
+          setUndoDepth(0);
+          setRedoDepth(0);
+          setSaveState("saved");
+          setFocusPoint(null);
+          setPointerPoint(null);
+          setFocusPointsByUser({});
+          setPointerPointsByUser({});
+          focusResetTimersByUserRef.current.forEach((timerId) => {
+            window.clearTimeout(timerId);
+          });
+          focusResetTimersByUserRef.current.clear();
+        }
         try {
           await openWorkbookSession(sessionId);
+          if (isStaleLoadRequest()) return;
         } catch (openError) {
           if (
             openError instanceof ApiError &&
@@ -2900,9 +2920,10 @@ export default function WorkbookSessionPage() {
             throw openError;
           }
         }
-        if (normalizedBoard.chat.length === 0) {
+        if (normalizedBoard && normalizedBoard.chat.length === 0) {
           try {
             const history = await getWorkbookEvents(sessionId, 0);
+            if (isStaleLoadRequest()) return;
             const recoveredChat = recoverChatMessagesFromEvents(history.events);
             if (recoveredChat.length > 0) {
               setChatMessages(recoveredChat);
@@ -2916,6 +2937,7 @@ export default function WorkbookSessionPage() {
         }
         return;
       } catch (error) {
+        if (isStaleLoadRequest()) return;
         const recoverable =
           error instanceof ApiError &&
           (error.code === "server_unavailable" ||
@@ -2927,7 +2949,14 @@ export default function WorkbookSessionPage() {
             error.status === 504);
         if (recoverable && attempt < maxAttempts) {
           await new Promise((resolve) => window.setTimeout(resolve, attempt * 250));
+          if (isStaleLoadRequest()) return;
           continue;
+        }
+        if (
+          error instanceof ApiError &&
+          (error.status === 401 || error.status === 403 || error.status === 404)
+        ) {
+          dropWorkbookPersistenceTasksForSession(sessionId);
         }
         if (isBackground) {
           setError("Связь с доской нестабильна. Продолжаем работу и повторяем синхронизацию.");
@@ -2964,8 +2993,11 @@ export default function WorkbookSessionPage() {
   ]);
 
   const triggerSessionResync = useCallback(() => {
+    const now = Date.now();
     if (sessionResyncInFlightRef.current) return;
+    if (now - lastForcedResyncAtRef.current < RESYNC_MIN_INTERVAL_MS) return;
     sessionResyncInFlightRef.current = true;
+    lastForcedResyncAtRef.current = now;
     clearIncomingRealtimeApplyQueue();
     void loadSession({ background: true }).finally(() => {
       sessionResyncInFlightRef.current = false;
@@ -3066,7 +3098,6 @@ export default function WorkbookSessionPage() {
         );
       }
       if (elapsed >= 30_000 && Date.now() - lastForcedResyncAtRef.current >= 20_000) {
-        lastForcedResyncAtRef.current = Date.now();
         triggerSessionResync();
       }
     }, 2_500);
@@ -3156,7 +3187,6 @@ export default function WorkbookSessionPage() {
             latestSeq: latestSeqRef.current,
             nextSeq: unseenEvents[0]?.seq ?? payload.latestSeq,
           });
-          triggerSessionResync();
           return;
         }
         if (unseenEvents.length > 0) {
