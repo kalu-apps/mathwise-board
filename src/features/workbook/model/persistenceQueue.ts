@@ -1,4 +1,4 @@
-import { api, isRecoverableApiError } from "@/shared/api/client";
+import { ApiError, api, isRecoverableApiError } from "@/shared/api/client";
 import { readStorage, writeStorage } from "@/shared/lib/localDb";
 import { generateId } from "@/shared/lib/id";
 import { buildIdempotencyHeaders } from "@/shared/lib/idempotency";
@@ -80,6 +80,13 @@ const emit = () => {
       // noop
     }
   });
+};
+
+const removeTasksBySessionId = (sessionId: string) => {
+  if (!sessionId) return 0;
+  const before = queue.length;
+  queue = queue.filter((task) => task.sessionId !== sessionId);
+  return before - queue.length;
 };
 
 const clampQueueLength = () => {
@@ -219,6 +226,17 @@ export const subscribeWorkbookPersistenceQueue = (listener: () => void) => {
   };
 };
 
+export const dropWorkbookPersistenceTasksForSession = (sessionId: string) => {
+  ensureRuntime();
+  normalizeQueue();
+  const dropped = removeTasksBySessionId(sessionId);
+  if (dropped > 0) {
+    persistQueue();
+    emit();
+  }
+  return dropped;
+};
+
 export const enqueueWorkbookEventsPersistence = (params: {
   sessionId: string;
   events: WorkbookClientEventInput[];
@@ -294,6 +312,18 @@ export const flushWorkbookPersistenceQueue = async () => {
         persistQueue();
         emit();
       } catch (error) {
+        if (
+          error instanceof ApiError &&
+          (error.status === 401 || error.status === 403 || error.status === 404)
+        ) {
+          const dropped = removeTasksBySessionId(task.sessionId);
+          if (dropped === 0) {
+            queue.shift();
+          }
+          persistQueue();
+          emit();
+          continue;
+        }
         if (isRecoverableApiError(error)) {
           const attempts = task.attempts + 1;
           const nextRetryAt = new Date(
