@@ -1,10 +1,11 @@
 import {
   useCallback,
+  useEffect,
+  useRef,
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
 } from "react";
-import { flushSync } from "react-dom";
 import { mergeBoardObjectWithPatch } from "./runtime";
 import type {
   WorkbookBoardObject,
@@ -108,6 +109,54 @@ export const useWorkbookIncomingRuntimeController = (
     finalizedStrokePreviewIdsRef,
     maxIncomingPreviewPatchesPerObject,
   } = params;
+
+  const queuedBoardObjectsRef = useRef<WorkbookBoardObject[] | null>(null);
+  const boardObjectsFrameRef = useRef<number | null>(null);
+
+  const flushQueuedBoardObjectsCommit = useCallback(() => {
+    boardObjectsFrameRef.current = null;
+    const queued = queuedBoardObjectsRef.current;
+    if (!queued) return;
+    queuedBoardObjectsRef.current = null;
+    setBoardObjects(queued);
+  }, [setBoardObjects]);
+
+  const scheduleBoardObjectsCommit = useCallback(
+    (next: WorkbookBoardObject[], mode: "defer" | "sync") => {
+      boardObjectsRef.current = next;
+      queuedBoardObjectsRef.current = next;
+      if (mode === "sync" || typeof window === "undefined") {
+        if (
+          boardObjectsFrameRef.current !== null &&
+          typeof window !== "undefined"
+        ) {
+          window.cancelAnimationFrame(boardObjectsFrameRef.current);
+          boardObjectsFrameRef.current = null;
+        }
+        flushQueuedBoardObjectsCommit();
+        return;
+      }
+      if (boardObjectsFrameRef.current !== null) return;
+      boardObjectsFrameRef.current = window.requestAnimationFrame(() => {
+        flushQueuedBoardObjectsCommit();
+      });
+    },
+    [boardObjectsRef, flushQueuedBoardObjectsCommit]
+  );
+
+  useEffect(
+    () => () => {
+      if (
+        boardObjectsFrameRef.current !== null &&
+        typeof window !== "undefined"
+      ) {
+        window.cancelAnimationFrame(boardObjectsFrameRef.current);
+        boardObjectsFrameRef.current = null;
+      }
+      queuedBoardObjectsRef.current = null;
+    },
+    []
+  );
 
   const clearObjectSyncRuntime = useCallback((options?: { cancelIncomingFrame?: boolean }) => {
     objectUpdateQueuedPatchRef.current.clear();
@@ -264,20 +313,18 @@ export const useWorkbookIncomingRuntimeController = (
   const applyLocalBoardObjects = useCallback(
     (updater: (current: WorkbookBoardObject[]) => WorkbookBoardObject[]) => {
       const next = updater(boardObjectsRef.current);
-      boardObjectsRef.current = next;
-      setBoardObjects(next);
+      if (next === boardObjectsRef.current) return;
+      scheduleBoardObjectsCommit(next, "defer");
     },
-    [boardObjectsRef, setBoardObjects]
+    [boardObjectsRef, scheduleBoardObjectsCommit]
   );
 
   const commitInteractiveBoardObjects = useCallback(
     (next: WorkbookBoardObject[]) => {
-      boardObjectsRef.current = next;
-      flushSync(() => {
-        setBoardObjects(next);
-      });
+      if (next === boardObjectsRef.current) return;
+      scheduleBoardObjectsCommit(next, "sync");
     },
-    [boardObjectsRef, setBoardObjects]
+    [boardObjectsRef, scheduleBoardObjectsCommit]
   );
 
   const flushIncomingPreviewQueue = useCallback(() => {

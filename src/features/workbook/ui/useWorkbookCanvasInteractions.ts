@@ -624,18 +624,21 @@ export const useWorkbookCanvasInteractions = (
       }
 
       if (startMode === "shape" && isWorkbookShapeCreationTool(data.tool, data.polygonMode)) {
-        const target = callbacks.resolveTopObject(point);
-        if (target && target.id !== data.selectedObjectId) {
-          api.onSelectedConstraintChange(null);
-          api.onSelectedObjectChange(target.id);
-          api.onRequestSelectTool?.();
-          return;
-        }
-        if (!target && data.selectedObjectId) {
-          api.onSelectedConstraintChange(null);
-          api.onSelectedObjectChange(null);
-          api.onRequestSelectTool?.();
-          return;
+        const bypassSelectOnHit = data.tool === "line" || data.tool === "arrow";
+        if (!bypassSelectOnHit) {
+          const target = callbacks.resolveTopObject(point);
+          if (target && target.id !== data.selectedObjectId) {
+            api.onSelectedConstraintChange(null);
+            api.onSelectedObjectChange(target.id);
+            api.onRequestSelectTool?.();
+            return;
+          }
+          if (!target && data.selectedObjectId) {
+            api.onSelectedConstraintChange(null);
+            api.onSelectedObjectChange(null);
+            api.onRequestSelectTool?.();
+            return;
+          }
         }
         api.onSelectedConstraintChange(null);
         callbacks.startShape(data.tool as ShapeDraft["tool"], event, svg);

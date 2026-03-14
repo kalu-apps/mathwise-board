@@ -1,7 +1,9 @@
 import {
   Suspense,
   lazy,
+  startTransition,
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -140,8 +142,19 @@ import {
   WORKBOOK_IMAGE_IMPORT_MAX_BYTES,
   WORKBOOK_PDF_IMPORT_MAX_BYTES,
 } from "@/features/workbook/model/media";
+import {
+  buildWorkbookImageCropRestoreUpdate,
+  buildWorkbookImageCropUpdate,
+  isWorkbookImageCropActive,
+  resolveWorkbookObjectAxisAlignedRect,
+} from "@/features/workbook/model/imageCrop";
 import { applyWorkbookIncomingRealtimeEvent } from "@/features/workbook/model/incomingRealtime";
 import { applyWorkbookIncomingSessionMetaEvent } from "@/features/workbook/model/incomingSessionMeta";
+import {
+  applyWorkbookBoardObjectPatchById,
+  buildWorkbookBoardObjectIndex,
+  resolveWorkbookBoardObjectPosition,
+} from "@/features/workbook/model/boardObjectStore";
 import type {
   WorkbookBoardSettings,
   WorkbookBoardObject,
@@ -219,6 +232,7 @@ import { generateId } from "@/shared/lib/id";
 import { readStorage, writeStorage } from "@/shared/lib/localDb";
 import { ApiError } from "@/shared/api/client";
 import { useWorkbookLivekit } from "./useWorkbookLivekit";
+import { useWorkbookVisibleScene } from "./useWorkbookVisibleScene";
 import {
   DEFAULT_SMART_INK_OPTIONS,
   normalizeSmartInkOptions,
@@ -515,6 +529,23 @@ const normalizeMetaRecord = (value: unknown) =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+
+const applyBoardObjectGeometryPatch = (
+  object: WorkbookBoardObject,
+  patch: Partial<WorkbookBoardObject>
+) => ({
+  ...object,
+  x: typeof patch.x === "number" && Number.isFinite(patch.x) ? patch.x : object.x,
+  y: typeof patch.y === "number" && Number.isFinite(patch.y) ? patch.y : object.y,
+  width:
+    typeof patch.width === "number" && Number.isFinite(patch.width)
+      ? patch.width
+      : object.width,
+  height:
+    typeof patch.height === "number" && Number.isFinite(patch.height)
+      ? patch.height
+      : object.height,
+});
 
 const buildBoardObjectDiffPatch = (
   previous: WorkbookBoardObject,
@@ -1583,6 +1614,7 @@ export default function WorkbookSessionPage() {
   const lastForcedResyncAtRef = useRef<number>(0);
   const loadSessionRequestIdRef = useRef(0);
   const boardObjectsRef = useRef<WorkbookBoardObject[]>([]);
+  const boardObjectIndexByIdRef = useRef<Map<string, number>>(new Map());
   const boardStrokesRef = useRef<WorkbookStroke[]>([]);
   const annotationStrokesRef = useRef<WorkbookStroke[]>([]);
   const constraintsRef = useRef<WorkbookConstraint[]>([]);
@@ -1642,6 +1674,10 @@ export default function WorkbookSessionPage() {
   const finalizedStrokePreviewIdsRef = useRef<Set<string>>(new Set());
   const objectLastCommittedEventAtRef = useRef<Map<string, number>>(new Map());
   const incomingPreviewFrameRef = useRef<number | null>(null);
+  const localPreviewQueuedPatchRef = useRef<Map<string, Partial<WorkbookBoardObject>>>(
+    new Map()
+  );
+  const localPreviewFrameRef = useRef<number | null>(null);
   const workbookLiveSendRef = useRef<
     ((events: Array<{ type: WorkbookEvent["type"]; payload: unknown }>) => boolean) | null
   >(null);
@@ -1836,7 +1872,64 @@ export default function WorkbookSessionPage() {
 
   useEffect(() => {
     boardObjectsRef.current = boardObjects;
+    boardObjectIndexByIdRef.current = buildWorkbookBoardObjectIndex(boardObjects);
   }, [boardObjects]);
+
+  const flushLocalPreviewBoardObjectPatches = useCallback(() => {
+    localPreviewFrameRef.current = null;
+    if (localPreviewQueuedPatchRef.current.size === 0) return;
+    const queuedEntries = Array.from(localPreviewQueuedPatchRef.current.entries());
+    localPreviewQueuedPatchRef.current.clear();
+    let nextObjects = boardObjectsRef.current;
+    let changed = false;
+    queuedEntries.forEach(([objectId, patch]) => {
+      const applied = applyWorkbookBoardObjectPatchById({
+        objects: nextObjects,
+        objectId,
+        patch,
+        index: boardObjectIndexByIdRef.current,
+      });
+      if (applied.nextObjects !== nextObjects) {
+        nextObjects = applied.nextObjects;
+        changed = true;
+      }
+    });
+    if (!changed) return;
+    boardObjectsRef.current = nextObjects;
+    boardObjectIndexByIdRef.current = buildWorkbookBoardObjectIndex(nextObjects);
+    startTransition(() => {
+      setBoardObjects(nextObjects);
+    });
+  }, []);
+
+  const scheduleLocalPreviewBoardObjectPatch = useCallback(
+    (objectId: string, patch: Partial<WorkbookBoardObject>) => {
+      const pendingPatch = localPreviewQueuedPatchRef.current.get(objectId) ?? {};
+      localPreviewQueuedPatchRef.current.set(
+        objectId,
+        mergeBoardObjectPatches(pendingPatch, patch)
+      );
+      if (localPreviewFrameRef.current !== null) return;
+      if (typeof window === "undefined") {
+        flushLocalPreviewBoardObjectPatches();
+        return;
+      }
+      localPreviewFrameRef.current = window.requestAnimationFrame(() => {
+        flushLocalPreviewBoardObjectPatches();
+      });
+    },
+    [flushLocalPreviewBoardObjectPatches]
+  );
+
+  const clearLocalPreviewPatchRuntime = useCallback(() => {
+    localPreviewQueuedPatchRef.current.clear();
+    if (localPreviewFrameRef.current === null || typeof window === "undefined") {
+      localPreviewFrameRef.current = null;
+      return;
+    }
+    window.cancelAnimationFrame(localPreviewFrameRef.current);
+    localPreviewFrameRef.current = null;
+  }, []);
 
   useEffect(() => {
     annotationStrokesRef.current = annotationStrokes;
@@ -1915,9 +2008,10 @@ export default function WorkbookSessionPage() {
     []
   );
 
+  const deferredParticipants = useDeferredValue(session?.participants ?? []);
   const participantCards = useMemo(
     () =>
-      [...(session?.participants ?? [])]
+      [...deferredParticipants]
         .filter(
           (participant) =>
             participant.roleInSession === "teacher" || participant.isOnline
@@ -1931,7 +2025,7 @@ export default function WorkbookSessionPage() {
           }
           return left.displayName.localeCompare(right.displayName, "ru");
         }),
-    [session?.participants]
+    [deferredParticipants]
   );
   const sessionChatReadStorageKey = useMemo(
     () => (sessionId && user?.id ? `workbook:chat-read:${sessionId}:${user.id}` : ""),
@@ -1947,25 +2041,26 @@ export default function WorkbookSessionPage() {
       ? `workbook:personal-board-settings:${sessionId}:${actorUserId}`
       : "";
   }, [actorParticipant?.userId, sessionId, user?.id]);
+  const deferredChatMessages = useDeferredValue(chatMessages);
   const unreadSessionChatMessages = useMemo(() => {
     if (!user?.id) return [];
     let readIndex = sessionChatReadAt
-      ? chatMessages.findIndex((message) => message.id === sessionChatReadAt)
+      ? deferredChatMessages.findIndex((message) => message.id === sessionChatReadAt)
       : -1;
     if (readIndex < 0 && sessionChatReadAt) {
       const readTimestamp = parseChatTimestamp(sessionChatReadAt);
       if (readTimestamp > 0) {
-        chatMessages.forEach((message, index) => {
+        deferredChatMessages.forEach((message, index) => {
           if (parseChatTimestamp(message.createdAt) <= readTimestamp) {
             readIndex = index;
           }
         });
       }
     }
-    return chatMessages
+    return deferredChatMessages
       .slice(readIndex + 1)
       .filter((message) => message.authorUserId !== user.id);
-  }, [chatMessages, sessionChatReadAt, user?.id]);
+  }, [deferredChatMessages, sessionChatReadAt, user?.id]);
   const sessionChatUnreadCount = unreadSessionChatMessages.length;
   const firstUnreadSessionChatMessageId = unreadSessionChatMessages[0]?.id ?? null;
 
@@ -2403,6 +2498,7 @@ export default function WorkbookSessionPage() {
   const restoreSceneSnapshot = useCallback((snapshot: WorkbookSceneSnapshot) => {
     setBoardStrokes(snapshot.boardStrokes);
     boardObjectsRef.current = snapshot.boardObjects;
+    boardObjectIndexByIdRef.current = buildWorkbookBoardObjectIndex(snapshot.boardObjects);
     setBoardObjects(snapshot.boardObjects);
     setConstraints(snapshot.constraints);
     setAnnotationStrokes(snapshot.annotationStrokes);
@@ -2803,6 +2899,7 @@ export default function WorkbookSessionPage() {
     loadSessionRequestIdRef.current = loadRequestId;
     const isStaleLoadRequest = () => loadSessionRequestIdRef.current !== loadRequestId;
     clearIncomingRealtimeApplyQueue();
+    clearLocalPreviewPatchRuntime();
     if (!isBackground) {
       setLoading(true);
       setError(null);
@@ -2846,6 +2943,7 @@ export default function WorkbookSessionPage() {
           const nextBoardObjects = normalizedBoard.objects.filter((item) => item.layer === "board");
           setBoardStrokes(normalizedBoard.strokes.filter((stroke) => stroke.layer === "board"));
           boardObjectsRef.current = nextBoardObjects;
+          boardObjectIndexByIdRef.current = buildWorkbookBoardObjectIndex(nextBoardObjects);
           setBoardObjects(nextBoardObjects);
           setConstraints(normalizedBoard.constraints);
           setChatMessages(normalizedBoard.chat);
@@ -2988,6 +3086,7 @@ export default function WorkbookSessionPage() {
   }, [
     clearIncomingRealtimeApplyQueue,
     clearIncomingEraserPreviewRuntime,
+    clearLocalPreviewPatchRuntime,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
     recoverChatMessagesFromEvents,
@@ -3287,13 +3386,15 @@ export default function WorkbookSessionPage() {
           tabId: presenceTabId,
         });
         if (!active) return;
-        setSession((current) =>
-          current
-            ? areParticipantsEqual(current.participants, response.participants)
-              ? current
-              : { ...current, participants: response.participants }
-            : current
-        );
+        startTransition(() => {
+          setSession((current) =>
+            current
+              ? areParticipantsEqual(current.participants, response.participants)
+                ? current
+                : { ...current, participants: response.participants }
+              : current
+          );
+        });
       } catch {
         // ignore transient presence errors
       }
@@ -3697,6 +3798,13 @@ export default function WorkbookSessionPage() {
 
   useEffect(
     () => () => {
+      clearLocalPreviewPatchRuntime();
+    },
+    [clearLocalPreviewPatchRuntime]
+  );
+
+  useEffect(
+    () => () => {
       clearObjectSyncRuntime();
     },
     [clearObjectSyncRuntime]
@@ -4056,6 +4164,7 @@ export default function WorkbookSessionPage() {
               objectUpdateQueuedPatchRef.current.delete(objectId);
               objectUpdateDispatchOptionsRef.current.delete(objectId);
               objectUpdateHistoryBeforeRef.current.delete(objectId);
+              localPreviewQueuedPatchRef.current.delete(objectId);
               incomingPreviewQueuedPatchRef.current.delete(objectId);
               return;
             }
@@ -4070,6 +4179,7 @@ export default function WorkbookSessionPage() {
               objectUpdateDispatchOptionsRef.current.delete(objectId);
               objectUpdateHistoryBeforeRef.current.delete(objectId);
               objectPreviewQueuedPatchRef.current.delete(objectId);
+              localPreviewQueuedPatchRef.current.delete(objectId);
               incomingPreviewQueuedPatchRef.current.delete(objectId);
               return;
             }
@@ -5222,8 +5332,13 @@ export default function WorkbookSessionPage() {
     ) => {
       if (!sessionId || !canSelect) return;
       const objectsSnapshot = boardObjectsRef.current;
-      const currentObject = objectsSnapshot.find((item) => item.id === objectId);
-      if (!currentObject) return;
+      const currentObjectPosition = resolveWorkbookBoardObjectPosition(
+        objectsSnapshot,
+        objectId,
+        boardObjectIndexByIdRef.current
+      );
+      if (currentObjectPosition < 0) return;
+      const currentObject = objectsSnapshot[currentObjectPosition];
       const isPreviewOnly =
         options?.trackHistory === false && options?.markDirty === false;
       const merged = mergeBoardObjectWithPatch(currentObject, patch);
@@ -5243,13 +5358,14 @@ export default function WorkbookSessionPage() {
           }
         : patch;
       const applyPatchToBoardObjects = (source: WorkbookBoardObject[]) =>
-        source.map((item) =>
-          item.id === objectId ? mergeBoardObjectWithPatch(item, normalizedPatch) : item
-        );
+        applyWorkbookBoardObjectPatchById({
+          objects: source,
+          objectId,
+          patch: normalizedPatch,
+          index: boardObjectIndexByIdRef.current,
+        }).nextObjects;
       if (isPreviewOnly) {
-        const optimisticBoardObjects = applyPatchToBoardObjects(boardObjectsRef.current);
-        boardObjectsRef.current = optimisticBoardObjects;
-        setBoardObjects(optimisticBoardObjects);
+        scheduleLocalPreviewBoardObjectPatch(objectId, normalizedPatch);
         const pendingPatch = objectPreviewQueuedPatchRef.current.get(objectId) ?? {};
         objectPreviewQueuedPatchRef.current.set(
           objectId,
@@ -5282,10 +5398,10 @@ export default function WorkbookSessionPage() {
     },
     [
       applyConstraintsForObject,
-      boardObjectsRef,
       canSelect,
       commitInteractiveBoardObjects,
       flushQueuedObjectUpdate,
+      scheduleLocalPreviewBoardObjectPatch,
       scheduleVolatileSyncFlush,
       sessionId,
     ]
@@ -5297,6 +5413,7 @@ export default function WorkbookSessionPage() {
     objectUpdateDispatchOptionsRef.current.delete(objectId);
     objectUpdateHistoryBeforeRef.current.delete(objectId);
     objectPreviewQueuedPatchRef.current.delete(objectId);
+    localPreviewQueuedPatchRef.current.delete(objectId);
     objectPreviewVersionRef.current.delete(objectId);
     Array.from(incomingPreviewVersionByAuthorObjectRef.current.keys()).forEach((key) => {
       if (key.endsWith(`:${objectId}`)) {
@@ -5708,6 +5825,61 @@ export default function WorkbookSessionPage() {
     copyAreaSelectionObjects,
     deleteAreaSelectionObjects,
   ]);
+
+  const cropImageByAreaSelection = useCallback(() => {
+    if (!canSelect || !areaSelection || !areaSelectionHasContent) return;
+    if (areaSelection.objectIds.length !== 1 || areaSelection.strokeIds.length > 0) {
+      setError("Для обрезки выделите один объект-изображение.");
+      return;
+    }
+    const targetId = areaSelection.objectIds[0];
+    const target = boardObjectsRef.current.find((item) => item.id === targetId) ?? null;
+    if (!target || target.type !== "image" || target.pinned || target.locked) {
+      setError("Обрезка доступна только для одного незакрепленного изображения.");
+      return;
+    }
+    const patch = buildWorkbookImageCropUpdate({
+      object: target,
+      selectionRect: areaSelection.rect,
+    });
+    if (!patch) {
+      setError("Выделенная область не подходит для обрезки изображения.");
+      return;
+    }
+    commitObjectUpdate(target.id, patch);
+    const nextRect = resolveWorkbookObjectAxisAlignedRect(
+      applyBoardObjectGeometryPatch(target, patch)
+    );
+    setAreaSelection({
+      objectIds: [target.id],
+      strokeIds: [],
+      rect: nextRect,
+    });
+    setSelectedObjectId(target.id);
+    setAreaSelectionContextMenu(null);
+  }, [areaSelection, areaSelectionHasContent, canSelect, commitObjectUpdate, setError]);
+
+  const restoreImageOriginalView = useCallback(
+    (objectId: string) => {
+      if (!canSelect) return;
+      const target = boardObjectsRef.current.find((item) => item.id === objectId) ?? null;
+      if (!target || target.type !== "image" || target.pinned || target.locked) return;
+      const patch = buildWorkbookImageCropRestoreUpdate(target);
+      if (!patch) return;
+      commitObjectUpdate(target.id, patch);
+      if (areaSelection?.objectIds.includes(target.id)) {
+        const nextRect = resolveWorkbookObjectAxisAlignedRect(
+          applyBoardObjectGeometryPatch(target, patch)
+        );
+        setAreaSelection({
+          objectIds: [target.id],
+          strokeIds: [],
+          rect: nextRect,
+        });
+      }
+    },
+    [areaSelection, canSelect, commitObjectUpdate]
+  );
 
   const createCompositionFromAreaSelection = useCallback(async () => {
     if (!canSelect || !areaSelection || areaSelection.objectIds.length === 0) return;
@@ -6229,9 +6401,12 @@ export default function WorkbookSessionPage() {
         return;
       }
       applyLocalBoardObjects((current) =>
-        current.map((item) =>
-          item.id === selectedObjectId ? mergeBoardObjectWithPatch(item, { text: normalizedValue }) : item
-        )
+        applyWorkbookBoardObjectPatchById({
+          objects: current,
+          objectId: selectedObjectId,
+          patch: { text: normalizedValue },
+          index: boardObjectIndexByIdRef.current,
+        }).nextObjects
       );
       selectedTextDraftCommitTimerRef.current = window.setTimeout(() => {
         void flushSelectedTextDraftCommit(normalizedValue, {
@@ -8601,6 +8776,7 @@ export default function WorkbookSessionPage() {
       const normalized = normalizeScenePayload(parsed);
       setBoardStrokes(normalized.strokes.filter((stroke) => stroke.layer === "board"));
       boardObjectsRef.current = normalized.objects;
+      boardObjectIndexByIdRef.current = buildWorkbookBoardObjectIndex(normalized.objects);
       setBoardObjects(normalized.objects);
       setConstraints(normalized.constraints);
       setChatMessages(normalized.chat);
@@ -9758,6 +9934,30 @@ export default function WorkbookSessionPage() {
         : null,
     [boardObjects, objectContextMenu]
   );
+  const areaSelectionImageCropPatch = useMemo(() => {
+    if (!areaSelection || !areaSelectionHasContent) return null;
+    if (areaSelection.objectIds.length !== 1 || areaSelection.strokeIds.length > 0) {
+      return null;
+    }
+    const targetId = areaSelection.objectIds[0];
+    const target = boardObjects.find((item) => item.id === targetId) ?? null;
+    if (!target || target.type !== "image" || target.pinned || target.locked) {
+      return null;
+    }
+    return buildWorkbookImageCropUpdate({
+      object: target,
+      selectionRect: areaSelection.rect,
+    });
+  }, [areaSelection, areaSelectionHasContent, boardObjects]);
+  const canCropAreaSelectionImage = Boolean(canSelect && areaSelectionImageCropPatch);
+  const canRestoreContextMenuImage = Boolean(
+    contextMenuObject &&
+      contextMenuObject.type === "image" &&
+      !contextMenuObject.pinned &&
+      !contextMenuObject.locked &&
+      canSelect &&
+      isWorkbookImageCropActive(contextMenuObject)
+  );
   const contextMenuShapeVertexObject = useMemo(() => {
     if (!shapeVertexContextMenu) return null;
     const object = boardObjects.find((item) => item.id === shapeVertexContextMenu.objectId) ?? null;
@@ -9842,60 +10042,20 @@ export default function WorkbookSessionPage() {
       ),
     [documentState.assets]
   );
-  const visibleIncomingEraserPreviews = useMemo(
-    () =>
-      Object.values(incomingEraserPreviews).filter(
-        (preview) => preview.page === Math.max(1, boardSettings.currentPage || 1)
-      ),
-    [boardSettings.currentPage, incomingEraserPreviews]
-  );
-
-  const activeFrameObject = useMemo(
-    () =>
-      boardObjects.find(
-        (object) => object.id === boardSettings.activeFrameId && object.type === "frame"
-      ) ?? null,
-    [boardObjects, boardSettings.activeFrameId]
-  );
-  const visibleBoardStrokes = useMemo(
-    () =>
-      boardStrokes.filter((stroke) => (stroke.page ?? 1) === (boardSettings.currentPage || 1)),
-    [boardSettings.currentPage, boardStrokes]
-  );
-  const visibleAnnotationStrokes = useMemo(
-    () =>
-      annotationStrokes.filter(
-        (stroke) => (stroke.page ?? 1) === (boardSettings.currentPage || 1)
-      ),
-    [annotationStrokes, boardSettings.currentPage]
-  );
-
-  const visibleBoardObjects = useMemo(() => {
-    const byPage = boardObjects.filter(
-      (object) => (object.page ?? 1) === (boardSettings.currentPage || 1)
-    );
-    if (frameFocusMode !== "active" || !activeFrameObject) return byPage;
-    const frameLeft = activeFrameObject.x;
-    const frameTop = activeFrameObject.y;
-    const frameRight = activeFrameObject.x + activeFrameObject.width;
-    const frameBottom = activeFrameObject.y + activeFrameObject.height;
-    return byPage.filter((object) => {
-      if (object.id === activeFrameObject.id) return true;
-      const centerX = object.x + object.width / 2;
-      const centerY = object.y + object.height / 2;
-      return (
-        centerX >= frameLeft &&
-        centerX <= frameRight &&
-        centerY >= frameTop &&
-        centerY <= frameBottom
-      );
-    });
-  }, [
-    activeFrameObject,
+  const {
+    visibleIncomingEraserPreviews,
+    visibleBoardStrokes,
+    visibleAnnotationStrokes,
+    visibleBoardObjects,
+  } = useWorkbookVisibleScene({
     boardObjects,
-    boardSettings.currentPage,
+    boardStrokes,
+    annotationStrokes,
+    incomingEraserPreviews,
+    currentPage: boardSettings.currentPage,
+    activeFrameId: boardSettings.activeFrameId,
     frameFocusMode,
-  ]);
+  });
 
   useEffect(() => {
     if (!selectedObjectId) return;
@@ -11471,6 +11631,16 @@ export default function WorkbookSessionPage() {
                 >
                   Уменьшить на 10%
                 </MenuItem>
+                {canRestoreContextMenuImage ? (
+                  <MenuItem
+                    onClick={() => {
+                      restoreImageOriginalView(contextMenuObject.id);
+                      setObjectContextMenu(null);
+                    }}
+                  >
+                    Восстановить исходный вид
+                  </MenuItem>
+                ) : null}
               </>
             ) : null}
             {contextMenuObject &&
@@ -11510,6 +11680,12 @@ export default function WorkbookSessionPage() {
               disabled={!canDelete || !areaSelectionHasContent}
             >
               Вырезать область
+            </MenuItem>
+            <MenuItem
+              onClick={() => cropImageByAreaSelection()}
+              disabled={!canCropAreaSelectionImage}
+            >
+              Обрезать изображение по выделению
             </MenuItem>
             <MenuItem
               onClick={() => void createCompositionFromAreaSelection()}

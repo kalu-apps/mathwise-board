@@ -38,6 +38,10 @@ import {
 import type { ProjectedSolidVertex } from "../model/solid3dGeometry";
 import { resolveBoardObjectImageAssetId } from "../model/scene";
 import {
+  resolveWorkbookImageCropProjection,
+  resolveWorkbookImageCropState,
+} from "../model/imageCrop";
+import {
   buildForcedVisibleObjectIdSet,
   resolveWorkbookObjectSceneLayerId,
   resolveTopVisibleBoardObject,
@@ -2563,6 +2567,39 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           })()
         : undefined;
     if (object.type === "image" && imageSource) {
+      const cropState = resolveWorkbookImageCropState(object);
+      if (cropState.hasCrop && cropState.crop) {
+        const safeObjectId = object.id.replace(/[^a-zA-Z0-9_-]/g, "-");
+        const clipPathId = `workbook-image-crop-${safeObjectId}`;
+        const projection = resolveWorkbookImageCropProjection({
+          frame: normalized,
+          crop: cropState.crop,
+        });
+        return (
+          <g transform={transform}>
+            <defs>
+              <clipPath id={clipPathId}>
+                <rect
+                  x={normalized.x}
+                  y={normalized.y}
+                  width={normalized.width}
+                  height={normalized.height}
+                />
+              </clipPath>
+            </defs>
+            <image
+              href={imageSource}
+              x={projection.x}
+              y={projection.y}
+              width={projection.width}
+              height={projection.height}
+              preserveAspectRatio="none"
+              clipPath={`url(#${clipPathId})`}
+              opacity={object.opacity ?? 1}
+            />
+          </g>
+        );
+      }
       return (
         <image
           href={imageSource}
