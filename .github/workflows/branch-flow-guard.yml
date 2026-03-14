@@ -21,11 +21,14 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
           HEAD_REF: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
 
           echo "Base: ${BASE_REF}"
           echo "Head: ${HEAD_REF}"
+          echo "Title: ${PR_TITLE}"
 
           fail() {
             echo "::error::$1"
@@ -36,9 +39,7 @@ jobs:
 
           if [[ "${BASE_REF}" == "main" ]]; then
             if [[ "${HEAD_REF}" == "next" ]] \
-              || [[ "${HEAD_REF}" =~ ^hotfix/ ]] \
-              || [[ "${HEAD_REF}" =~ ^release/ ]] \
-              || [[ "${HEAD_REF}" =~ ^dependabot/ ]]; then
+              || [[ "${HEAD_REF}" =~ ^hotfix/ ]]; then
               allowed="true"
             fi
           elif [[ "${BASE_REF}" == "next" ]]; then
@@ -55,7 +56,7 @@ jobs:
           fi
 
           if [[ "${allowed}" != "true" ]]; then
-            fail "Invalid branch flow: '${HEAD_REF}' -> '${BASE_REF}'. See docs/branching-policy.md"
+            fail "Invalid branch flow: '${HEAD_REF}' -> '${BASE_REF}'. Expected next-first flow. See docs/branching-policy.md"
           fi
 
           if [[ "${HEAD_REF}" =~ ^hotfix/ ]] && [[ "${BASE_REF}" != "main" ]]; then
@@ -63,11 +64,20 @@ jobs:
           fi
 
           if [[ "${HEAD_REF}" == "main" ]] && [[ "${BASE_REF}" != "next" ]]; then
-            fail "'main' as source branch is allowed only for sync PR 'main -> next'."
+            fail "'main' as source branch is allowed only for emergency sync PR 'main -> next'."
           fi
 
           if [[ "${HEAD_REF}" == "next" ]] && [[ "${BASE_REF}" != "main" ]]; then
             fail "'next' as source branch is allowed only for release PR 'next -> main'."
+          fi
+
+          if [[ "${HEAD_REF}" =~ ^hotfix/ ]] && [[ "${BASE_REF}" == "main" ]]; then
+            if [[ ! "${PR_TITLE}" =~ [Ee][Mm][Ee][Rr][Gg][Ee][Nn][Cc][Yy] ]] \
+              && [[ ! "${PR_TITLE}" =~ [Pp]0 ]] \
+              && [[ ! "${PR_BODY}" =~ [Ee][Mm][Ee][Rr][Gg][Ee][Nn][Cc][Yy] ]] \
+              && [[ ! "${PR_BODY}" =~ [Pp]0 ]]; then
+              fail "Emergency hotfix PR must include 'EMERGENCY' or 'P0' in title/body."
+            fi
           fi
 
           echo "Branch flow policy passed."
