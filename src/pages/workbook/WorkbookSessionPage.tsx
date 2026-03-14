@@ -1548,6 +1548,8 @@ export default function WorkbookSessionPage() {
   const smartInkDebounceRef = useRef<number | null>(null);
   const smartInkStrokeBufferRef = useRef<WorkbookStroke[]>([]);
   const smartInkProcessedStrokeIdsRef = useRef<Set<string>>(new Set());
+  const smartInkOptionsRef = useRef<SmartInkOptions>(smartInkOptions);
+  const smartInkConfigVersionRef = useRef(0);
   const dirtyRevisionRef = useRef(0);
   const pendingAutosaveAfterSaveRef = useRef(false);
   const persistSnapshotsRef = useRef<
@@ -3736,13 +3738,14 @@ export default function WorkbookSessionPage() {
   }, []);
 
   useEffect(() => {
-    if (smartInkOptions.mode !== "off") return;
+    smartInkOptionsRef.current = smartInkOptions;
+    smartInkConfigVersionRef.current += 1;
     smartInkStrokeBufferRef.current = [];
     if (smartInkDebounceRef.current !== null) {
       window.clearTimeout(smartInkDebounceRef.current);
       smartInkDebounceRef.current = null;
     }
-  }, [smartInkOptions.mode]);
+  }, [smartInkOptions]);
 
   const sendWorkbookLiveEvents = useCallback(
     (events: WorkbookClientEventInput[]) => {
@@ -4661,10 +4664,10 @@ export default function WorkbookSessionPage() {
   }, [clearLayerNow, confirmedClearRequest]);
 
   const requestSmartInkAdapter = useCallback(
-    async (strokes: WorkbookStroke[]) => {
+    async (strokes: WorkbookStroke[], options: SmartInkOptions) => {
       if (!sessionId) return null;
-      if (smartInkOptions.mode !== "full") return null;
-      if (!smartInkOptions.smartTextOcr && !smartInkOptions.smartMathOcr) return null;
+      if (options.mode !== "full") return null;
+      if (!options.smartTextOcr && !options.smartMathOcr) return null;
       try {
         const response = await recognizeWorkbookInk({
           sessionId,
@@ -4674,7 +4677,7 @@ export default function WorkbookSessionPage() {
             width: stroke.width,
             color: stroke.color,
           })),
-          preferMath: smartInkOptions.smartMathOcr,
+          preferMath: options.smartMathOcr,
         });
         if (!response || !response.result) return null;
         return {
@@ -4689,25 +4692,27 @@ export default function WorkbookSessionPage() {
         return null;
       }
     },
-    [
-      sessionId,
-      smartInkOptions.mode,
-      smartInkOptions.smartMathOcr,
-      smartInkOptions.smartTextOcr,
-    ]
+    [sessionId]
   );
 
-  const processSmartInkBuffer = useCallback(async () => {
-    if (smartInkOptions.mode === "off") return;
+  const processSmartInkBuffer = useCallback(async (expectedConfigVersion?: number) => {
+    if (
+      typeof expectedConfigVersion === "number" &&
+      expectedConfigVersion !== smartInkConfigVersionRef.current
+    ) {
+      return;
+    }
+    const options = smartInkOptionsRef.current;
+    if (options.mode === "off") return;
     const buffer = smartInkStrokeBufferRef.current.filter(
       (stroke) => !smartInkProcessedStrokeIdsRef.current.has(stroke.id)
     );
     if (!buffer.length) return;
 
     const recognitionConfig = {
-      smartShapes: smartInkOptions.smartShapes,
-      smartTextOcr: smartInkOptions.smartTextOcr,
-      smartMathOcr: smartInkOptions.smartMathOcr,
+      smartShapes: options.smartShapes,
+      smartTextOcr: options.smartTextOcr,
+      smartMathOcr: options.smartMathOcr,
       handwritingAdapter: async (input: {
         stroke: WorkbookStroke;
         points: WorkbookPoint[];
@@ -4716,7 +4721,7 @@ export default function WorkbookSessionPage() {
           buffer.length > 1 && input.points.length > input.stroke.points.length + 2
             ? buffer
             : [input.stroke];
-        return requestSmartInkAdapter(sourceStrokes);
+        return requestSmartInkAdapter(sourceStrokes, options);
       },
     };
 
@@ -4762,9 +4767,9 @@ export default function WorkbookSessionPage() {
       }
     };
 
-    const threshold = smartInkOptions.confidenceThreshold;
+    const threshold = options.confidenceThreshold;
 
-    if (smartInkOptions.mode === "full" && buffer.length >= 2) {
+    if (options.mode === "full" && buffer.length >= 2) {
       const batchResult = await recognizeSmartInkBatch(buffer, recognitionConfig);
       if (batchResult.kind !== "none" && batchResult.confidence >= threshold) {
         await applyRecognized(buffer, batchResult);
@@ -4784,11 +4789,6 @@ export default function WorkbookSessionPage() {
     }
   }, [
     requestSmartInkAdapter,
-    smartInkOptions.confidenceThreshold,
-    smartInkOptions.mode,
-    smartInkOptions.smartMathOcr,
-    smartInkOptions.smartShapes,
-    smartInkOptions.smartTextOcr,
     activeSceneLayerId,
     appendEventsAndApply,
     boardSettings.currentPage,
@@ -4796,17 +4796,20 @@ export default function WorkbookSessionPage() {
 
   const queueSmartInkStroke = useCallback(
     (stroke: WorkbookStroke) => {
-      if (smartInkOptions.mode === "off") return;
+      const options = smartInkOptionsRef.current;
+      if (options.mode === "off") return;
       smartInkStrokeBufferRef.current = [...smartInkStrokeBufferRef.current, stroke];
       if (smartInkDebounceRef.current !== null) {
         window.clearTimeout(smartInkDebounceRef.current);
       }
+      const configVersion = smartInkConfigVersionRef.current;
       smartInkDebounceRef.current = window.setTimeout(() => {
         smartInkDebounceRef.current = null;
-        void processSmartInkBuffer();
-      }, smartInkOptions.mode === "full" ? 620 : 360);
+        if (configVersion !== smartInkConfigVersionRef.current) return;
+        void processSmartInkBuffer(configVersion);
+      }, options.mode === "full" ? 620 : 360);
     },
-    [processSmartInkBuffer, smartInkOptions.mode]
+    [processSmartInkBuffer]
   );
 
   const applyLocalStrokeCollection = useCallback(

@@ -51,6 +51,25 @@ const distance = (a: WorkbookPoint, b: WorkbookPoint) => Math.hypot(a.x - b.x, a
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
+const SMART_INK_SHAPE_CONFIDENCE = {
+  triangle: 0.78,
+  rectangle: 0.82,
+  ellipse: 0.8,
+  polygon: 0.68,
+} as const;
+
+const SMART_INK_OCR_CONFIDENCE_FALLBACK = {
+  formula: 0.6,
+  text: 0.56,
+} as const;
+
+const resolveConfidence = (source: unknown, fallback: number) => {
+  if (typeof source === "number" && Number.isFinite(source)) {
+    return clamp(source, 0.01, 0.99);
+  }
+  return fallback;
+};
+
 const getBounds = (points: WorkbookPoint[]): StrokeBounds => {
   let minX = points[0]?.x ?? 0;
   let minY = points[0]?.y ?? 0;
@@ -284,7 +303,7 @@ const detectSmartShape = (stroke: WorkbookStroke): SmartInkRecognitionResult => 
             smartInk: true,
           },
         }),
-        confidence: 0.78,
+        confidence: SMART_INK_SHAPE_CONFIDENCE.triangle,
       };
     }
     if (simplified.length === 4 && isRectangleLike(simplified, bounds)) {
@@ -301,7 +320,7 @@ const detectSmartShape = (stroke: WorkbookStroke): SmartInkRecognitionResult => 
             smartInk: true,
           },
         }),
-        confidence: 0.82,
+        confidence: SMART_INK_SHAPE_CONFIDENCE.rectangle,
       };
     }
     if (isEllipseLike(deduped, bounds)) {
@@ -318,7 +337,7 @@ const detectSmartShape = (stroke: WorkbookStroke): SmartInkRecognitionResult => 
             smartInk: true,
           },
         }),
-        confidence: 0.8,
+        confidence: SMART_INK_SHAPE_CONFIDENCE.ellipse,
       };
     }
     if (simplified.length >= 5 && simplified.length <= 8) {
@@ -338,7 +357,7 @@ const detectSmartShape = (stroke: WorkbookStroke): SmartInkRecognitionResult => 
             smartInk: true,
           },
         }),
-        confidence: 0.68,
+        confidence: SMART_INK_SHAPE_CONFIDENCE.polygon,
       };
     }
   }
@@ -353,7 +372,8 @@ const buildTextOrFormulaObject = (
   stroke: WorkbookStroke,
   bounds: StrokeBounds,
   text: string,
-  latex?: string
+  latex?: string,
+  adapterConfidence?: number
 ): SmartInkRecognitionResult => {
   const trimmed = text.trim();
   if (!trimmed && !latex?.trim()) return { kind: "none" };
@@ -361,7 +381,10 @@ const buildTextOrFormulaObject = (
   if (isFormula) {
     return {
       kind: "formula",
-      confidence: 0.6,
+      confidence: resolveConfidence(
+        adapterConfidence,
+        SMART_INK_OCR_CONFIDENCE_FALLBACK.formula
+      ),
       object: createBaseObject(stroke, {
         type: "formula",
         x: bounds.minX,
@@ -378,7 +401,7 @@ const buildTextOrFormulaObject = (
   }
   return {
     kind: "text",
-    confidence: 0.56,
+    confidence: resolveConfidence(adapterConfidence, SMART_INK_OCR_CONFIDENCE_FALLBACK.text),
     object: createBaseObject(stroke, {
       type: "text",
       x: bounds.minX,
@@ -422,7 +445,8 @@ export async function recognizeSmartInkStroke(
           stroke,
           bounds,
           ocr.text ?? "",
-          smartMathOcr ? ocr.latex : undefined
+          smartMathOcr ? ocr.latex : undefined,
+          ocr.confidence
         );
       }
     } catch {
@@ -464,7 +488,8 @@ export async function recognizeSmartInkBatch(
           strokes[strokes.length - 1],
           bounds,
           ocr.text ?? "",
-          smartMathOcr ? ocr.latex : undefined
+          smartMathOcr ? ocr.latex : undefined,
+          ocr.confidence
         );
       }
     } catch {
