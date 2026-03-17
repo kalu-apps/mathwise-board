@@ -187,7 +187,10 @@ import {
   normalizeScenePayload,
   normalizeStrokePayload,
 } from "@/features/workbook/model/scene";
-import { WorkbookCanvas } from "@/features/workbook/ui/WorkbookCanvas";
+import {
+  WorkbookCanvas,
+  type WorkbookEraserCommitPayload,
+} from "@/features/workbook/ui/WorkbookCanvas";
 import {
   SOLID3D_PRESETS,
   getSolid3dTemplate,
@@ -5797,6 +5800,167 @@ export default function WorkbookSessionPage() {
     }
   };
 
+  const commitEraserBatch = useCallback(
+    async (payload: WorkbookEraserCommitPayload) => {
+      if (!sessionId || !canDelete) return;
+      const deleteBoardStrokeIds = new Set<string>();
+      const deleteAnnotationStrokeIds = new Set<string>();
+      const replacementBoardStrokes: WorkbookStroke[] = [];
+      const replacementAnnotationStrokes: WorkbookStroke[] = [];
+      const createStrokeEvents: WorkbookClientEventInput[] = [];
+      const objectPatchById = new Map<string, Partial<WorkbookBoardObject>>();
+      const nowIso = new Date().toISOString();
+
+      payload.strokeReplacements.forEach((entry) => {
+        const sourceStroke = entry.stroke;
+        const sourceId =
+          sourceStroke && typeof sourceStroke.id === "string"
+            ? sourceStroke.id.trim()
+            : "";
+        const sourceLayer: WorkbookLayer =
+          sourceStroke?.layer === "annotations" ? "annotations" : "board";
+        if (!sourceId) return;
+        if (sourceLayer === "annotations") {
+          deleteAnnotationStrokeIds.add(sourceId);
+        } else {
+          deleteBoardStrokeIds.add(sourceId);
+        }
+        const sanitizedFragments = entry.fragments
+          .map((fragment) =>
+            fragment.filter(
+              (point) =>
+                Number.isFinite(point?.x) && Number.isFinite(point?.y)
+            )
+          )
+          .filter((fragment) => fragment.length > 0);
+        if (sanitizedFragments.length === 0) return;
+        const replacements = sanitizedFragments.map((points) => ({
+          ...sourceStroke,
+          id: generateId(),
+          points,
+          createdAt: nowIso,
+          page: Math.max(1, sourceStroke.page ?? boardSettings.currentPage),
+        }));
+        replacements.forEach((stroke) => {
+          createStrokeEvents.push({
+            type:
+              sourceLayer === "annotations"
+                ? "annotations.stroke"
+                : "board.stroke",
+            payload: { stroke },
+          });
+        });
+        if (sourceLayer === "annotations") {
+          replacementAnnotationStrokes.push(...replacements);
+        } else {
+          replacementBoardStrokes.push(...replacements);
+        }
+      });
+
+      payload.strokeDeletes.forEach((entry) => {
+        const strokeId = typeof entry.strokeId === "string" ? entry.strokeId.trim() : "";
+        if (!strokeId) return;
+        if (entry.layer === "annotations") {
+          deleteAnnotationStrokeIds.add(strokeId);
+        } else {
+          deleteBoardStrokeIds.add(strokeId);
+        }
+      });
+
+      payload.objectUpdates.forEach((entry) => {
+        const objectId = typeof entry.objectId === "string" ? entry.objectId.trim() : "";
+        const patch =
+          entry.patch && typeof entry.patch === "object"
+            ? (entry.patch as Partial<WorkbookBoardObject>)
+            : null;
+        if (!objectId || !patch) return;
+        const currentPatch = objectPatchById.get(objectId) ?? {};
+        objectPatchById.set(objectId, mergeBoardObjectPatches(currentPatch, patch));
+      });
+
+      const events: WorkbookClientEventInput[] = [
+        ...Array.from(deleteBoardStrokeIds.values()).map((strokeId) => ({
+          type: "board.stroke.delete" as const,
+          payload: { strokeId },
+        })),
+        ...Array.from(deleteAnnotationStrokeIds.values()).map((strokeId) => ({
+          type: "annotations.stroke.delete" as const,
+          payload: { strokeId },
+        })),
+        ...createStrokeEvents,
+        ...Array.from(objectPatchById.entries()).map(([objectId, patch]) => ({
+          type: "board.object.update" as const,
+          payload: { objectId, patch },
+        })),
+      ];
+
+      if (events.length === 0) return;
+
+      const previousBoardStrokes = boardStrokesRef.current;
+      const previousAnnotationStrokes = annotationStrokesRef.current;
+      const previousBoardObjects = boardObjectsRef.current;
+
+      if (deleteBoardStrokeIds.size > 0 || replacementBoardStrokes.length > 0) {
+        setBoardStrokes((current) => {
+          const filtered = current.filter((stroke) => !deleteBoardStrokeIds.has(stroke.id));
+          if (replacementBoardStrokes.length === 0) return filtered;
+          const existingIds = new Set(filtered.map((stroke) => stroke.id));
+          const additions = replacementBoardStrokes.filter(
+            (stroke) => !existingIds.has(stroke.id)
+          );
+          return additions.length > 0 ? [...filtered, ...additions] : filtered;
+        });
+      }
+      if (deleteAnnotationStrokeIds.size > 0 || replacementAnnotationStrokes.length > 0) {
+        setAnnotationStrokes((current) => {
+          const filtered = current.filter(
+            (stroke) => !deleteAnnotationStrokeIds.has(stroke.id)
+          );
+          if (replacementAnnotationStrokes.length === 0) return filtered;
+          const existingIds = new Set(filtered.map((stroke) => stroke.id));
+          const additions = replacementAnnotationStrokes.filter(
+            (stroke) => !existingIds.has(stroke.id)
+          );
+          return additions.length > 0 ? [...filtered, ...additions] : filtered;
+        });
+      }
+      if (objectPatchById.size > 0) {
+        applyLocalBoardObjects((current) =>
+          current.map((object) => {
+            const patch = objectPatchById.get(object.id);
+            return patch ? mergeBoardObjectWithPatch(object, patch) : object;
+          })
+        );
+      }
+
+      try {
+        await appendEventsAndApply(events);
+      } catch (error) {
+        if (isRecoverableApiError(error)) {
+          markDirty();
+          setSaveSyncWarning(
+            "Связь нестабильна. Продолжаем синхронизацию изменений доски."
+          );
+          return;
+        }
+        setBoardStrokes(previousBoardStrokes);
+        setAnnotationStrokes(previousAnnotationStrokes);
+        commitInteractiveBoardObjects(previousBoardObjects);
+        setError("Не удалось синхронизировать изменения ластика.");
+      }
+    },
+    [
+      appendEventsAndApply,
+      applyLocalBoardObjects,
+      boardSettings.currentPage,
+      canDelete,
+      commitInteractiveBoardObjects,
+      markDirty,
+      sessionId,
+      setSaveSyncWarning,
+    ]
+  );
+
   const commitObjectCreate = useCallback(
     async (
       object: WorkbookBoardObject,
@@ -9427,6 +9591,9 @@ export default function WorkbookSessionPage() {
   const commitStrokeReplaceRef = useRef(commitStrokeReplace);
   commitStrokeReplaceRef.current = commitStrokeReplace;
 
+  const commitEraserBatchRef = useRef(commitEraserBatch);
+  commitEraserBatchRef.current = commitEraserBatch;
+
   const handleCanvasObjectUpdate = useCallback(
     (
       objectId: string,
@@ -9452,6 +9619,13 @@ export default function WorkbookSessionPage() {
   const handleCanvasStrokeReplace = useCallback(
     (payload: Parameters<typeof commitStrokeReplace>[0]) => {
       void commitStrokeReplaceRef.current(payload);
+    },
+    []
+  );
+
+  const handleCanvasEraserCommit = useCallback(
+    (payload: WorkbookEraserCommitPayload) => {
+      void commitEraserBatchRef.current(payload);
     },
     []
   );
@@ -11188,6 +11362,7 @@ export default function WorkbookSessionPage() {
               onStrokeCommit={handleCanvasStrokeCommit}
               onStrokePreview={commitStrokePreview}
               onEraserPreview={handleCanvasEraserPreview}
+              onEraserCommit={handleCanvasEraserCommit}
               onStrokeDelete={handleCanvasStrokeDelete}
               onStrokeReplace={handleCanvasStrokeReplace}
               onObjectCreate={handleCanvasObjectCreate}
