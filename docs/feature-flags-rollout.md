@@ -17,6 +17,11 @@
 | `ff_board_canvas_committed_layer` | `false` | Rendering | Committed scene слой на Canvas2D | Вернуть SVG committed path |
 | `ff_board_worker_compute` | `false` | Rendering/runtime | Off-main-thread вычисления тяжелых derive задач | Вернуть inline main-thread compute |
 
+Runtime env mapping:
+
+1. `ff_frontend_zustand_store` -> `VITE_FF_ZUSTAND_STORE=1` (основной ключ)
+2. alias для совместимости: `VITE_FF_FRONTEND_ZUSTAND_STORE=1`
+
 ## Политика включения
 
 1. По умолчанию все флаги выключены.
@@ -60,4 +65,3 @@ Rollback выполняется немедленно, если:
 2. есть fallback-path;
 3. обновлены docs (owner + KPI + rollback);
 4. пройден `npm run verify` и `npm run phase0:verify`.
-
