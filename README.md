@@ -90,6 +90,28 @@ LiveKit token для подключения к аудио-комнате:
 ## Деплой в Timeweb
 См. инструкцию: `TIMEWEB_DEPLOY.md`.
 
+## Phase 0 (migration foundation)
+
+Перед работами по миграции `frontend -> zustand` и `backend -> nest` используйте Phase 0 артефакты:
+
+- roadmap и Definition of Done: `docs/phase-0-foundation.md`
+- KPI и go/no-go ворота: `docs/phase-0-kpi-gates.md`
+- фичефлаги и rollout/rollback: `docs/feature-flags-rollout.md`
+- target architecture ADR: `docs/adr/ADR-001-zustand-nest-target-architecture.md`
+
+Команды:
+
+```bash
+npm run phase0:verify
+npm run phase0:baseline
+```
+
+С runtime baseline (production/staging):
+
+```bash
+PHASE0_BASE_URL=https://api.board.mathwise.ru npm run phase0:baseline
+```
+
 ## Git flow (prod + migration)
 
 См. обязательные правила ветвления: `docs/branching-policy.md`.
