@@ -1,10 +1,12 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
 } from "react";
+import { ApiError } from "@/shared/api/client";
 import {
   getWorkbookEvents,
   subscribeWorkbookEventsStream,
@@ -58,6 +60,7 @@ type UseWorkbookRealtimeTransportParams = {
   adaptivePollingMinMs: number;
   adaptivePollingMaxMs: number;
   isMediaAudioConnected: boolean;
+  onAuthRequired?: () => void;
 };
 
 export const useWorkbookRealtimeTransport = ({
@@ -84,9 +87,30 @@ export const useWorkbookRealtimeTransport = ({
   adaptivePollingMinMs,
   adaptivePollingMaxMs,
   isMediaAudioConnected,
+  onAuthRequired,
 }: UseWorkbookRealtimeTransportParams) => {
+  const authBlockedRef = useRef(false);
+  const authRequiredNotifiedRef = useRef(false);
+  const clearAuthBlock = useCallback(() => {
+    authBlockedRef.current = false;
+    authRequiredNotifiedRef.current = false;
+  }, []);
+  const notifyAuthRequired = useCallback(() => {
+    if (!authRequiredNotifiedRef.current) {
+      authRequiredNotifiedRef.current = true;
+      onAuthRequired?.();
+    }
+    setRealtimeSyncWarning("Сессия недоступна: требуется повторная авторизация.");
+  }, [onAuthRequired, setRealtimeSyncWarning]);
+
+  useEffect(() => {
+    if (sessionId) return;
+    clearAuthBlock();
+  }, [clearAuthBlock, sessionId]);
+
   const triggerSessionResync = useCallback(() => {
     const now = Date.now();
+    if (authBlockedRef.current) return;
     if (sessionResyncInFlightRef.current) return;
     if (now - lastForcedResyncAtRef.current < resyncMinIntervalMs) return;
     sessionResyncInFlightRef.current = true;
@@ -121,15 +145,17 @@ export const useWorkbookRealtimeTransport = ({
       pollTimerId = null;
     };
 
-    const schedulePoll = (reason: "event" | "idle" | "error" | "bootstrap") => {
+    const schedulePoll = (reason: "event" | "idle" | "error" | "auth_error" | "bootstrap") => {
       if (!active) return;
       const connected = isWorkbookStreamConnected || isWorkbookLiveConnected;
       const baseInterval = connected ? pollIntervalStreamConnectedMs : pollIntervalMs;
       if (!adaptivePollingEnabled) {
+        const fallbackDelay =
+          reason === "auth_error" ? Math.max(15_000, baseInterval) : Math.max(40, baseInterval);
         clearPollTimer();
         pollTimerId = window.setTimeout(() => {
           void poll();
-        }, Math.max(40, baseInterval));
+        }, fallbackDelay);
         return;
       }
 
@@ -145,6 +171,10 @@ export const useWorkbookRealtimeTransport = ({
           Math.floor(baseInterval * 1.5 ** Math.max(1, pollErrorStreak))
         );
         nextInterval = Math.max(adaptivePollingMinMs, backoff);
+      } else if (reason === "auth_error") {
+        pollErrorStreak = 0;
+        idlePollStreak = 0;
+        nextInterval = Math.max(15_000, Math.min(adaptivePollingMaxMs, baseInterval * 4));
       } else if (reason === "idle") {
         pollErrorStreak = 0;
         idlePollStreak += 1;
@@ -174,6 +204,7 @@ export const useWorkbookRealtimeTransport = ({
       inFlight = true;
       try {
         const response = await getWorkbookEvents(sessionId, latestSeqRef.current);
+        clearAuthBlock();
         if (!active) return;
         const unseenEvents = filterUnseenWorkbookEvents(response.events);
         if (hasWorkbookEventGap(latestSeqRef.current, unseenEvents)) {
@@ -210,7 +241,16 @@ export const useWorkbookRealtimeTransport = ({
           setLatestSeq(nextLatest);
         }
         schedulePoll(unseenEvents.length > 0 ? "event" : "idle");
-      } catch {
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          (error.status === 401 || error.status === 403 || error.status === 404)
+        ) {
+          authBlockedRef.current = true;
+          notifyAuthRequired();
+          schedulePoll("auth_error");
+          return;
+        }
         schedulePoll("error");
       } finally {
         inFlight = false;
@@ -226,12 +266,14 @@ export const useWorkbookRealtimeTransport = ({
     adaptivePollingEnabled,
     adaptivePollingMaxMs,
     adaptivePollingMinMs,
+    clearAuthBlock,
     enqueueIncomingRealtimeApply,
     filterUnseenWorkbookEvents,
     isMediaAudioConnected,
     isWorkbookLiveConnected,
     isWorkbookStreamConnected,
     latestSeqRef,
+    notifyAuthRequired,
     pollIntervalMs,
     pollIntervalStreamConnectedMs,
     sessionId,
@@ -259,11 +301,19 @@ export const useWorkbookRealtimeTransport = ({
       if (!startedAt) return;
       const elapsed = Date.now() - startedAt;
       if (elapsed >= 12_000) {
-        setRealtimeSyncWarning(
-          "Realtime-канал нестабилен. Продолжаем синхронизацию через резервные механизмы."
-        );
+        if (authBlockedRef.current) {
+          notifyAuthRequired();
+        } else {
+          setRealtimeSyncWarning(
+            "Realtime-канал нестабилен. Продолжаем синхронизацию через резервные механизмы."
+          );
+        }
       }
-      if (elapsed >= 30_000 && Date.now() - lastForcedResyncAtRef.current >= 20_000) {
+      if (
+        !authBlockedRef.current &&
+        elapsed >= 30_000 &&
+        Date.now() - lastForcedResyncAtRef.current >= 20_000
+      ) {
         triggerSessionResync();
       }
     }, 2_500);
@@ -274,6 +324,7 @@ export const useWorkbookRealtimeTransport = ({
     isWorkbookLiveConnected,
     isWorkbookStreamConnected,
     lastForcedResyncAtRef,
+    notifyAuthRequired,
     realtimeDisconnectSinceRef,
     sessionId,
     setRealtimeSyncWarning,
@@ -320,19 +371,26 @@ export const useWorkbookRealtimeTransport = ({
           setLatestSeq(nextLatest);
         }
       },
-      onConnectionChange: setIsWorkbookStreamConnected,
+      onConnectionChange: (connected) => {
+        setIsWorkbookStreamConnected(connected);
+        if (!connected) return;
+        clearAuthBlock();
+        setRealtimeSyncWarning(null);
+      },
     });
     return () => {
       setIsWorkbookStreamConnected(false);
       unsubscribe();
     };
   }, [
+    clearAuthBlock,
     enqueueIncomingRealtimeApply,
     filterUnseenWorkbookEvents,
     latestSeqRef,
     sessionId,
     setIsWorkbookStreamConnected,
     setLatestSeq,
+    setRealtimeSyncWarning,
     triggerSessionResync,
   ]);
 
@@ -381,7 +439,12 @@ export const useWorkbookRealtimeTransport = ({
           setLatestSeq(nextLatest);
         }
       },
-      onConnectionChange: setIsWorkbookLiveConnected,
+      onConnectionChange: (connected) => {
+        setIsWorkbookLiveConnected(connected);
+        if (!connected) return;
+        clearAuthBlock();
+        setRealtimeSyncWarning(null);
+      },
     });
     workbookLiveSendRef.current = connection.sendEvents;
     return () => {
@@ -390,6 +453,7 @@ export const useWorkbookRealtimeTransport = ({
       connection.close();
     };
   }, [
+    clearAuthBlock,
     clearIncomingRealtimeApplyQueue,
     enqueueIncomingRealtimeApply,
     filterUnseenWorkbookEvents,
@@ -397,6 +461,7 @@ export const useWorkbookRealtimeTransport = ({
     sessionId,
     setIsWorkbookLiveConnected,
     setLatestSeq,
+    setRealtimeSyncWarning,
     workbookLiveSendRef,
   ]);
 };
