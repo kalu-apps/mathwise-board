@@ -17,8 +17,6 @@ const readFeatureFlagValue = (...keys: string[]) => {
   return "";
 };
 
-export const isWorkbookZustandStoreEnabled = () => true;
-
 export const isWorkbookNewRendererEnabled = () =>
   toBooleanFlag(
     readFeatureFlagValue(

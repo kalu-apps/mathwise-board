@@ -13,6 +13,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import "./workbookRouteStyles";
 import {
@@ -113,6 +114,7 @@ import {
   observeWorkbookRealtimeVolatileDrop,
 } from "@/features/workbook/model/realtimeObservability";
 import { useWorkbookRealtimeApplyQueue } from "@/features/workbook/model/useWorkbookRealtimeApplyQueue";
+import { useWorkbookSessionStore } from "@/features/workbook/model/workbookSessionStore";
 import { startWorkbookPerformanceSession } from "@/features/workbook/model/workbookPerformance";
 import {
   buildWorkbookDocumentAsset,
@@ -233,7 +235,6 @@ import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import { useWorkbookLivekit } from "./useWorkbookLivekit";
 import { useWorkbookPersistenceLifecycle } from "./useWorkbookPersistenceLifecycle";
 import { useWorkbookRealtimeTransport } from "./useWorkbookRealtimeTransport";
-import { useWorkbookSessionStateAdapters } from "./useWorkbookSessionStateAdapters";
 import { useWorkbookVisibleScene } from "./useWorkbookVisibleScene";
 import {
   DEFAULT_SMART_INK_OPTIONS,
@@ -1471,46 +1472,64 @@ export default function WorkbookSessionPage() {
     objectId: string;
     points: Solid3dSectionPoint[];
   } | null>(null);
+  const workbookSessionUi = useWorkbookSessionStore(useShallow((state) => state.ui));
+  const workbookSessionCollab = useWorkbookSessionStore(useShallow((state) => state.collab));
+  const workbookSessionScene = useWorkbookSessionStore(useShallow((state) => state.scene));
+  const workbookSessionRuntime = useWorkbookSessionStore(useShallow((state) => state.runtime));
+  const workbookSessionActions = useWorkbookSessionStore(useShallow((state) => state.actions));
+
+  useEffect(() => {
+    workbookSessionActions.resetForSession();
+  }, [sessionId, workbookSessionActions]);
+
   const {
     latestSeq,
-    setLatestSeq,
     realtimeSyncWarning,
-    setRealtimeSyncWarning,
     isWorkbookStreamConnected,
-    setIsWorkbookStreamConnected,
     isWorkbookLiveConnected,
-    setIsWorkbookLiveConnected,
+  } = workbookSessionCollab;
+  const {
     isSessionChatOpen,
-    setIsSessionChatOpen,
     isSessionChatMinimized,
-    setIsSessionChatMinimized,
     isSessionChatMaximized,
-    setIsSessionChatMaximized,
     isParticipantsCollapsed,
-    setIsParticipantsCollapsed,
     sessionChatPosition,
-    setSessionChatPosition,
     contextbarPosition,
-    setContextbarPosition,
     floatingPanelsTop,
-    setFloatingPanelsTop,
+  } = workbookSessionUi;
+  const {
     selectedObjectId,
-    setSelectedObjectId,
     selectedConstraintId,
-    setSelectedConstraintId,
     canvasViewport,
-    setCanvasViewport,
     viewportZoom,
-    setViewportZoom,
+  } = workbookSessionScene;
+  const {
     focusPoint,
-    setFocusPoint,
     pointerPoint,
-    setPointerPoint,
     focusPointsByUser,
-    setFocusPointsByUser,
     pointerPointsByUser,
+  } = workbookSessionRuntime;
+  const {
+    setLatestSeq,
+    setRealtimeSyncWarning,
+    setIsWorkbookStreamConnected,
+    setIsWorkbookLiveConnected,
+    setIsSessionChatOpen,
+    setIsSessionChatMinimized,
+    setIsSessionChatMaximized,
+    setIsParticipantsCollapsed,
+    setSessionChatPosition,
+    setContextbarPosition,
+    setFloatingPanelsTop,
+    setSelectedObjectId,
+    setSelectedConstraintId,
+    setCanvasViewport,
+    setViewportZoom,
+    setFocusPoint,
+    setPointerPoint,
+    setFocusPointsByUser,
     setPointerPointsByUser,
-  } = useWorkbookSessionStateAdapters(sessionId);
+  } = workbookSessionActions;
   const [spacePanActive, setSpacePanActive] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isCompactViewport, setIsCompactViewport] = useState(() =>
