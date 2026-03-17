@@ -3241,17 +3241,31 @@ export default function WorkbookSessionPage() {
           (error.status === 401 || error.status === 403 || error.status === 404)
         ) {
           dropWorkbookPersistenceTasksForSession(sessionId);
-          if (error.status === 401) {
-            authRequiredRef.current = true;
-          }
+          authRequiredRef.current = true;
         }
         if (isBackground) {
-          if (error instanceof ApiError && error.status === 401) {
-            setError("Сессия недоступна: требуется повторная авторизация.");
-            setSaveSyncWarning(
-              "Сессия авторизации истекла. Войдите снова и не закрывайте вкладку до восстановления синхронизации."
-            );
-            return;
+          if (error instanceof ApiError) {
+            if (error.status === 401) {
+              setError("Сессия недоступна: требуется повторная авторизация.");
+              setSaveSyncWarning(
+                "Сессия авторизации истекла. Войдите снова и не закрывайте вкладку до восстановления синхронизации."
+              );
+              return;
+            }
+            if (error.status === 403) {
+              setError("Нет доступа к этой сессии. Запросите новую ссылку у преподавателя.");
+              setSaveSyncWarning(
+                "Нет доступа к этой сессии. Запросите новую ссылку и дождитесь восстановления синхронизации."
+              );
+              return;
+            }
+            if (error.status === 404) {
+              setError("Сессия не найдена. Возможно, урок завершен или ссылка устарела.");
+              setSaveSyncWarning(
+                "Сессия не найдена. Откройте актуальную ссылку и не закрывайте вкладку до восстановления синхронизации."
+              );
+              return;
+            }
           }
           setError("Связь с доской нестабильна. Продолжаем работу и повторяем синхронизацию.");
           return;
@@ -3287,18 +3301,56 @@ export default function WorkbookSessionPage() {
     sessionId,
   ]);
 
-  const handleRealtimeAuthRequired = useCallback(() => {
+  const handleRealtimeAuthRequired = useCallback((status: 401 | 403 | 404 = 401) => {
     if (authRequiredRef.current) return;
     authRequiredRef.current = true;
     if (sessionId) {
       dropWorkbookPersistenceTasksForSession(sessionId);
     }
     setSaveState("error");
+    if (status === 401) {
+      setSaveSyncWarning(
+        "Сессия авторизации истекла. Войдите снова и не закрывайте вкладку до восстановления синхронизации."
+      );
+      setError("Сессия недоступна: требуется повторная авторизация.");
+      return;
+    }
+    if (status === 403) {
+      setSaveSyncWarning(
+        "Нет доступа к этой сессии. Запросите новую ссылку и дождитесь восстановления синхронизации."
+      );
+      setError("Нет доступа к этой сессии. Запросите новую ссылку у преподавателя.");
+      return;
+    }
     setSaveSyncWarning(
-      "Сессия авторизации истекла. Войдите снова и не закрывайте вкладку до восстановления синхронизации."
+      "Сессия не найдена. Откройте актуальную ссылку и не закрывайте вкладку до восстановления синхронизации."
     );
-    setError("Сессия недоступна: требуется повторная авторизация.");
+    setError("Сессия не найдена. Возможно, урок завершен или ссылка устарела.");
   }, [sessionId]);
+
+  const handleRealtimeConflict = useCallback(() => {
+    if (!sessionId || authRequiredRef.current) return;
+    if (sessionResyncInFlightRef.current) return;
+    const now = Date.now();
+    if (now - lastForcedResyncAtRef.current < 5_000) return;
+    sessionResyncInFlightRef.current = true;
+    lastForcedResyncAtRef.current = now;
+    dropWorkbookPersistenceTasksForSession(sessionId);
+    clearIncomingRealtimeApplyQueue();
+    setRealtimeSyncWarning(
+      "Обнаружен конфликт синхронизации. Повторно загружаем состояние доски."
+    );
+    void Promise.resolve(loadSession({ background: true })).finally(() => {
+      sessionResyncInFlightRef.current = false;
+    });
+  }, [
+    clearIncomingRealtimeApplyQueue,
+    loadSession,
+    sessionId,
+    setRealtimeSyncWarning,
+    sessionResyncInFlightRef,
+    lastForcedResyncAtRef,
+  ]);
 
   useWorkbookRealtimeTransport({
     sessionId,
@@ -3818,8 +3870,11 @@ export default function WorkbookSessionPage() {
 
       return true;
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        handleRealtimeAuthRequired();
+      if (
+        error instanceof ApiError &&
+        (error.status === 401 || error.status === 403 || error.status === 404)
+      ) {
+        handleRealtimeAuthRequired(error.status);
         return false;
       }
       setSaveState("error");
@@ -4065,8 +4120,18 @@ export default function WorkbookSessionPage() {
           markDirty();
         }
       } catch (error) {
-        if (error instanceof ApiError && error.status === 401) {
-          handleRealtimeAuthRequired();
+        if (
+          error instanceof ApiError &&
+          (error.status === 401 || error.status === 403 || error.status === 404)
+        ) {
+          handleRealtimeAuthRequired(error.status);
+        }
+        if (
+          error instanceof ApiError &&
+          error.code === "conflict" &&
+          error.status === 409
+        ) {
+          handleRealtimeConflict();
         }
         optimisticEventIds.forEach((eventId) => {
           processedEventIdsRef.current.delete(eventId);
@@ -4083,6 +4148,7 @@ export default function WorkbookSessionPage() {
       filterUnseenWorkbookEvents,
       markDirty,
       handleRealtimeAuthRequired,
+      handleRealtimeConflict,
       pushHistoryEntry,
       rollbackHistoryEntry,
       sessionId,
@@ -6021,6 +6087,23 @@ export default function WorkbookSessionPage() {
         return;
       } catch (error) {
         if (error instanceof ApiError && error.code === "not_found") {
+          return;
+        }
+        if (
+          error instanceof ApiError &&
+          error.code === "conflict" &&
+          error.status === 409
+        ) {
+          commitInteractiveBoardObjects(currentBoardObjects);
+          constraintsRef.current = currentConstraints;
+          setConstraints(currentConstraints);
+          if (nextSettings) {
+            boardSettingsRef.current = currentBoardSettings;
+            setBoardSettings(currentBoardSettings);
+          }
+          setSelectedObjectId(currentSelectedObjectId);
+          setSelectedConstraintId(currentSelectedConstraintId);
+          handleRealtimeConflict();
           return;
         }
         const transient =
