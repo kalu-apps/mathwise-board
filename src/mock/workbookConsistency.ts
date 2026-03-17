@@ -309,6 +309,71 @@ const deriveObjectVersionStateFromEvents = (
   return state;
 };
 
+const readSnapshotPayloadObject = (value: unknown): Record<string, unknown> | null => {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const parsed = safeParsePayload(value);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  }
+  if (typeof value === "object") {
+    return value as Record<string, unknown>;
+  }
+  return null;
+};
+
+const deriveObjectVersionStateFromSnapshotAndEvents = (params: {
+  snapshotVersion: number | null;
+  snapshotPayload: unknown;
+  events: WorkbookEventRecord[];
+}) => {
+  const state = new Map<string, ObjectVersionState>();
+  const payload = readSnapshotPayloadObject(params.snapshotPayload);
+  const objects = Array.isArray(payload?.objects) ? payload.objects : [];
+  const baseVersion =
+    typeof params.snapshotVersion === "number" && Number.isFinite(params.snapshotVersion)
+      ? Math.max(1, Math.trunc(params.snapshotVersion))
+      : 1;
+
+  objects.forEach((rawObject) => {
+    if (!rawObject || typeof rawObject !== "object") return;
+    const object = rawObject as Record<string, unknown>;
+    const objectId = typeof object.id === "string" ? object.id.trim() : "";
+    if (!objectId) return;
+    const objectVersion = readVersion(object.objectVersion) ?? baseVersion;
+    state.set(objectId, {
+      version: Math.max(1, objectVersion),
+      deleted: false,
+      updatedAt: nowIso(),
+    });
+  });
+
+  const replayFromSeq =
+    typeof params.snapshotVersion === "number" && Number.isFinite(params.snapshotVersion)
+      ? Math.max(0, Math.trunc(params.snapshotVersion))
+      : 0;
+  const ordered = params.events
+    .filter((event) => event.seq > replayFromSeq)
+    .sort((left, right) => left.seq - right.seq);
+  ordered.forEach((event) => {
+    const mutation = parseMutationFromPersistedEvent(event);
+    if (!mutation) return;
+    const current = state.get(mutation.objectId) ?? null;
+    const currentVersion = current?.version ?? 0;
+    const explicitVersion =
+      readVersion(mutation.payload.objectVersion) ??
+      readVersion(mutation.objectPayload?.objectVersion) ??
+      null;
+    const resolvedVersion = explicitVersion ?? Math.max(1, currentVersion + 1);
+    state.set(mutation.objectId, {
+      version: resolvedVersion,
+      deleted: mutation.type === "board.object.delete",
+      updatedAt: typeof event.createdAt === "string" ? event.createdAt : nowIso(),
+    });
+  });
+
+  return state;
+};
+
 const buildVersionPlan = (params: {
   current: ObjectVersionState | null;
   expectedVersion: number | null;
@@ -348,7 +413,16 @@ export const applyWorkbookObjectVersionGuard = (params: {
   const persistedSessionEvents = params.db.workbookEvents.filter(
     (event) => event.sessionId === params.sessionId
   );
-  const state = deriveObjectVersionStateFromEvents(persistedSessionEvents);
+  const latestBoardSnapshot = params.db.workbookSnapshots
+    .filter((snapshot) => snapshot.sessionId === params.sessionId && snapshot.layer === "board")
+    .sort((left, right) => right.version - left.version)[0];
+  const state = latestBoardSnapshot
+    ? deriveObjectVersionStateFromSnapshotAndEvents({
+        snapshotVersion: latestBoardSnapshot.version,
+        snapshotPayload: latestBoardSnapshot.payload,
+        events: persistedSessionEvents,
+      })
+    : deriveObjectVersionStateFromEvents(persistedSessionEvents);
   registerObjectVersionCoverage(params.sessionId, state.size);
 
   const conflicts: ObjectVersionConflict[] = [];
