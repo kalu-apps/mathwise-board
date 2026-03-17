@@ -24,9 +24,11 @@ Runtime env mapping:
 3. `ff_backend_nest_read_api` -> `FF_NEST_API=1` (запуск Nest read-path контура)
 4. `ff_backend_nest_read_api` (shadow mode) -> `FF_NEST_API_SHADOW=1` + `NEST_API_BASE_URL=http://127.0.0.1:4180`
 5. `ff_backend_nest_write_api` -> `FF_NEST_API=1` (mutate routes проксируются в Nest gateway)
-6. `ff_backend_nest_write_api` consistency controls:
-1. `NEST_OBJECT_VERSION_STRICT=1` (обязательный `expectedVersion` для object mutations)
-2. `NEST_IDEMPOTENCY_*` (дедуп/повтор запросов на mutate path)
+6. `ff_backend_nest_write_api` consistency controls -> `NEST_OBJECT_VERSION_STRICT=1` + `NEST_IDEMPOTENCY_*`
+7. `ff_realtime_adaptive_polling` -> `VITE_FF_REALTIME_ADAPTIVE_POLLING=1` (alias: `VITE_FF_ADAPTIVE_POLLING=1`)
+8. `ff_realtime_backpressure_v2` -> `VITE_FF_REALTIME_BACKPRESSURE_V2=1` (alias: `VITE_FF_BACKPRESSURE_V2=1`)
+9. `ff_board_canvas_committed_layer` -> `VITE_FF_NEW_RENDERER=1` (aliases: `VITE_FF_BOARD_CANVAS_COMMITTED_LAYER=1`, `VITE_FF_FRONTEND_NEW_RENDERER=1`)
+10. `ff_board_worker_compute` -> включается вместе с `ff_board_canvas_committed_layer` в текущей реализации (worker-path активируется внутри new renderer path)
 
 ## Политика включения
 

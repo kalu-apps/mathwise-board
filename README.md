@@ -127,6 +127,10 @@ PHASE3_BASE_URL=http://127.0.0.1:4173 npm run phase3:parity
 
 Документация: `docs/phase-4-nest-write-consistency.md`.
 
+## Phase 5 (Render + latency optimization)
+
+Документация: `docs/phase-5-render-latency.md`.
+
 ## Git flow (prod + migration)
 
 См. обязательные правила ветвления: `docs/branching-policy.md`.

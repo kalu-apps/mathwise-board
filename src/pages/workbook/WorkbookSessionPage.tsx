@@ -104,8 +104,13 @@ import {
   withWorkbookClientEventIds,
 } from "@/features/workbook/model/runtime";
 import {
+  isWorkbookAdaptivePollingEnabled,
+  isWorkbookRealtimeBackpressureV2Enabled,
+} from "@/features/workbook/model/featureFlags";
+import {
   observeWorkbookRealtimePersistAck,
   observeWorkbookRealtimeSend,
+  observeWorkbookRealtimeVolatileDrop,
 } from "@/features/workbook/model/realtimeObservability";
 import { useWorkbookRealtimeApplyQueue } from "@/features/workbook/model/useWorkbookRealtimeApplyQueue";
 import { startWorkbookPerformanceSession } from "@/features/workbook/model/workbookPerformance";
@@ -272,11 +277,15 @@ const WorkbookSessionTransformPanel = lazy(async () => ({
 const POLL_INTERVAL_MS = 500;
 const POLL_INTERVAL_STREAM_CONNECTED_MS = 320;
 const RESYNC_MIN_INTERVAL_MS = 4_000;
+const ADAPTIVE_POLLING_MIN_MS = 90;
+const ADAPTIVE_POLLING_MAX_MS = 2_400;
 const PRESENCE_INTERVAL_MS = 1_000;
 const AUTOSAVE_INTERVAL_MS = 15_000;
 const CONTEXTBAR_DOCKED_VIEWPORT_MAX_WIDTH = 1024;
 const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
 const VOLATILE_SYNC_FLUSH_INTERVAL_MS = 16;
+const VOLATILE_PREVIEW_MAX_PER_FLUSH = 24;
+const VOLATILE_PREVIEW_QUEUE_MAX = 120;
 const STROKE_PREVIEW_EXPIRY_MS = 3_000;
 const ERASER_PREVIEW_EXPIRY_MS = 600;
 const ERASER_PREVIEW_END_EXPIRY_MS = 900;
@@ -1702,6 +1711,7 @@ export default function WorkbookSessionPage() {
   const objectPreviewQueuedPatchRef = useRef<
     Map<string, Partial<WorkbookBoardObject>>
   >(new Map());
+  const objectPreviewQueuedAtRef = useRef<Map<string, number>>(new Map());
   const objectPreviewVersionRef = useRef<Map<string, number>>(new Map());
   const incomingPreviewQueuedPatchRef = useRef<
     Map<string, Partial<WorkbookBoardObject>[]>
@@ -1710,6 +1720,7 @@ export default function WorkbookSessionPage() {
   const strokePreviewQueuedByIdRef = useRef<
     Map<string, { stroke: WorkbookStroke; previewVersion: number }>
   >(new Map());
+  const strokePreviewQueuedAtRef = useRef<Map<string, number>>(new Map());
   const eraserPreviewQueuedByGestureRef = useRef<
     Map<
       string,
@@ -1723,6 +1734,7 @@ export default function WorkbookSessionPage() {
       }
     >
   >(new Map());
+  const eraserPreviewQueuedAtRef = useRef<Map<string, number>>(new Map());
   const incomingStrokePreviewQueuedRef = useRef<Map<string, WorkbookStrokePreviewEntry | null>>(
     new Map()
   );
@@ -1781,7 +1793,18 @@ export default function WorkbookSessionPage() {
   );
   const canManageSharedBoardSettings = Boolean(!isClassSession || canManageSession);
   const showCollaborationPanels = Boolean(isClassSession);
-  const { micEnabled, setMicEnabled } = useWorkbookLivekit({
+  const adaptivePollingEnabled = useMemo(() => isWorkbookAdaptivePollingEnabled(), []);
+  const realtimeBackpressureV2Enabled = useMemo(
+    () => isWorkbookRealtimeBackpressureV2Enabled(),
+    []
+  );
+  const volatilePreviewMaxPerFlush = realtimeBackpressureV2Enabled
+    ? VOLATILE_PREVIEW_MAX_PER_FLUSH
+    : Number.MAX_SAFE_INTEGER;
+  const volatilePreviewQueueMax = realtimeBackpressureV2Enabled
+    ? VOLATILE_PREVIEW_QUEUE_MAX
+    : Number.MAX_SAFE_INTEGER;
+  const { isLivekitConnected, micEnabled, setMicEnabled } = useWorkbookLivekit({
     sessionId,
     sessionKind: session?.kind,
     canUseMedia,
@@ -2460,12 +2483,12 @@ export default function WorkbookSessionPage() {
   }, []);
 
   const {
-    clearObjectSyncRuntime,
-    clearIncomingEraserPreviewRuntime,
+    clearObjectSyncRuntime: clearObjectSyncRuntimeRaw,
+    clearIncomingEraserPreviewRuntime: clearIncomingEraserPreviewRuntimeRaw,
     scheduleIncomingEraserPreviewExpiry,
     queueIncomingStrokePreview,
-    finalizeStrokePreview,
-    clearStrokePreviewRuntime,
+    finalizeStrokePreview: finalizeStrokePreviewRaw,
+    clearStrokePreviewRuntime: clearStrokePreviewRuntimeRaw,
     applyLocalBoardObjects,
     commitInteractiveBoardObjects,
     queueIncomingPreviewPatch,
@@ -2494,6 +2517,35 @@ export default function WorkbookSessionPage() {
     finalizedStrokePreviewIdsRef,
     maxIncomingPreviewPatchesPerObject: MAX_INCOMING_PREVIEW_PATCHES_PER_OBJECT,
   });
+
+  const clearObjectSyncRuntime = useCallback(
+    (options?: { cancelIncomingFrame?: boolean }) => {
+      clearObjectSyncRuntimeRaw(options);
+      objectPreviewQueuedAtRef.current.clear();
+    },
+    [clearObjectSyncRuntimeRaw]
+  );
+
+  const clearIncomingEraserPreviewRuntime = useCallback(() => {
+    clearIncomingEraserPreviewRuntimeRaw();
+    eraserPreviewQueuedAtRef.current.clear();
+  }, [clearIncomingEraserPreviewRuntimeRaw]);
+
+  const clearStrokePreviewRuntime = useCallback(
+    (options?: { clearFinalized?: boolean; cancelIncomingFrame?: boolean }) => {
+      clearStrokePreviewRuntimeRaw(options);
+      strokePreviewQueuedAtRef.current.clear();
+    },
+    [clearStrokePreviewRuntimeRaw]
+  );
+
+  const finalizeStrokePreview = useCallback(
+    (strokeId: string) => {
+      strokePreviewQueuedAtRef.current.delete(strokeId);
+      finalizeStrokePreviewRaw(strokeId);
+    },
+    [finalizeStrokePreviewRaw]
+  );
 
   const isParticipantBoardToolsEnabled = useCallback(
     (participant: WorkbookSessionParticipant) =>
@@ -3204,6 +3256,10 @@ export default function WorkbookSessionPage() {
     pollIntervalMs: POLL_INTERVAL_MS,
     pollIntervalStreamConnectedMs: POLL_INTERVAL_STREAM_CONNECTED_MS,
     resyncMinIntervalMs: RESYNC_MIN_INTERVAL_MS,
+    adaptivePollingEnabled,
+    adaptivePollingMinMs: ADAPTIVE_POLLING_MIN_MS,
+    adaptivePollingMaxMs: ADAPTIVE_POLLING_MAX_MS,
+    isMediaAudioConnected: isLivekitConnected,
   });
 
   useEffect(() => {
@@ -3770,6 +3826,7 @@ export default function WorkbookSessionPage() {
       }
       viewportSyncQueuedOffsetRef.current = null;
       eraserPreviewQueuedByGestureRef.current.clear();
+      eraserPreviewQueuedAtRef.current.clear();
     },
     []
   );
@@ -3843,11 +3900,30 @@ export default function WorkbookSessionPage() {
       });
       const sent = workbookLiveSendRef.current?.(events) ?? false;
       if (sent) return;
+      const volatileOnly = events.every((event) => isVolatileWorkbookEventType(event.type));
+      if (volatileOnly && realtimeBackpressureV2Enabled && !isWorkbookLiveConnected) {
+        observeWorkbookRealtimeVolatileDrop({
+          sessionId,
+          channel: "live",
+          droppedCount: events.length,
+          reason: "live_socket_disconnected",
+          eventTypes: events.map((event) => event.type),
+        });
+        return;
+      }
       void appendWorkbookLiveEvents({ sessionId, events }).catch(() => {
-        // ignore volatile delivery failures: the next local frame will resend a fresher preview
+        if (volatileOnly && realtimeBackpressureV2Enabled) {
+          observeWorkbookRealtimeVolatileDrop({
+            sessionId,
+            channel: "live",
+            droppedCount: events.length,
+            reason: "volatile_fallback_failed",
+            eventTypes: events.map((event) => event.type),
+          });
+        }
       });
     },
-    [sessionId]
+    [isWorkbookLiveConnected, realtimeBackpressureV2Enabled, sessionId]
   );
 
   const appendEventsAndApply = useCallback(
@@ -3939,10 +4015,16 @@ export default function WorkbookSessionPage() {
   );
 
   const flushQueuedVolatileSync = useCallback(() => {
+    const droppedEventTypes = new Set<string>();
+    let droppedCount = 0;
     if (!sessionId || !session || isEnded) {
       viewportSyncQueuedOffsetRef.current = null;
       objectPreviewQueuedPatchRef.current.clear();
+      objectPreviewQueuedAtRef.current.clear();
       strokePreviewQueuedByIdRef.current.clear();
+      strokePreviewQueuedAtRef.current.clear();
+      eraserPreviewQueuedByGestureRef.current.clear();
+      eraserPreviewQueuedAtRef.current.clear();
       return;
     }
 
@@ -3967,8 +4049,30 @@ export default function WorkbookSessionPage() {
     }
 
     if (canSelect) {
-      objectPreviewQueuedPatchRef.current.forEach((patch, objectId) => {
-        objectPreviewQueuedPatchRef.current.delete(objectId);
+      const queuedObjectPreviews = Array.from(objectPreviewQueuedPatchRef.current.entries())
+        .map(([objectId, patch]) => ({
+          objectId,
+          patch,
+          queuedAt: objectPreviewQueuedAtRef.current.get(objectId) ?? 0,
+        }));
+      objectPreviewQueuedPatchRef.current.clear();
+      objectPreviewQueuedAtRef.current.clear();
+      if (queuedObjectPreviews.length > volatilePreviewMaxPerFlush) {
+        const orderedByRecency = queuedObjectPreviews
+          .slice()
+          .sort((left, right) => right.queuedAt - left.queuedAt);
+        const keep = orderedByRecency.slice(0, volatilePreviewMaxPerFlush);
+        const overflow = orderedByRecency.length - keep.length;
+        if (overflow > 0) {
+          droppedCount += overflow;
+          droppedEventTypes.add("board.object.preview");
+        }
+        queuedObjectPreviews.length = 0;
+        queuedObjectPreviews.push(...keep);
+      }
+      queuedObjectPreviews
+        .sort((left, right) => left.queuedAt - right.queuedAt)
+        .forEach(({ objectId, patch }) => {
         const nextPreviewVersion = (objectPreviewVersionRef.current.get(objectId) ?? 0) + 1;
         objectPreviewVersionRef.current.set(objectId, nextPreviewVersion);
         events.push({
@@ -3982,15 +4086,44 @@ export default function WorkbookSessionPage() {
       });
     } else {
       objectPreviewQueuedPatchRef.current.clear();
+      objectPreviewQueuedAtRef.current.clear();
     }
 
     if (canDraw) {
-      strokePreviewQueuedByIdRef.current.forEach((entry, strokeId) => {
+      const queuedStrokePreviews = Array.from(strokePreviewQueuedByIdRef.current.entries())
+        .map(([strokeId, entry]) => ({
+          strokeId,
+          entry,
+          queuedAt: strokePreviewQueuedAtRef.current.get(strokeId) ?? 0,
+        }));
+      strokePreviewQueuedByIdRef.current.clear();
+      strokePreviewQueuedAtRef.current.clear();
+      if (queuedStrokePreviews.length > volatilePreviewMaxPerFlush) {
+        const orderedByRecency = queuedStrokePreviews
+          .slice()
+          .sort((left, right) => right.queuedAt - left.queuedAt);
+        const keep = orderedByRecency.slice(0, volatilePreviewMaxPerFlush);
+        const overflow = orderedByRecency.length - keep.length;
+        if (overflow > 0) {
+          droppedCount += overflow;
+          droppedEventTypes.add("board.stroke.preview");
+          droppedEventTypes.add("annotations.stroke.preview");
+        }
+        queuedStrokePreviews.length = 0;
+        queuedStrokePreviews.push(...keep);
+      }
+      queuedStrokePreviews
+        .sort((left, right) => left.queuedAt - right.queuedAt)
+        .forEach(({ entry, strokeId }) => {
         if (finalizedStrokePreviewIdsRef.current.has(strokeId)) {
-          strokePreviewQueuedByIdRef.current.delete(strokeId);
+          droppedCount += 1;
+          droppedEventTypes.add(
+            entry.stroke.layer === "annotations"
+              ? "annotations.stroke.preview"
+              : "board.stroke.preview"
+          );
           return;
         }
-        strokePreviewQueuedByIdRef.current.delete(strokeId);
         events.push({
           type:
             entry.stroke.layer === "annotations"
@@ -4002,8 +4135,30 @@ export default function WorkbookSessionPage() {
           },
         });
       });
-      eraserPreviewQueuedByGestureRef.current.forEach((entry, gestureId) => {
-        eraserPreviewQueuedByGestureRef.current.delete(gestureId);
+      const queuedEraserPreviews = Array.from(eraserPreviewQueuedByGestureRef.current.entries())
+        .map(([gestureId, entry]) => ({
+          gestureId,
+          entry,
+          queuedAt: eraserPreviewQueuedAtRef.current.get(gestureId) ?? 0,
+        }));
+      eraserPreviewQueuedByGestureRef.current.clear();
+      eraserPreviewQueuedAtRef.current.clear();
+      if (queuedEraserPreviews.length > volatilePreviewMaxPerFlush) {
+        const orderedByRecency = queuedEraserPreviews
+          .slice()
+          .sort((left, right) => right.queuedAt - left.queuedAt);
+        const keep = orderedByRecency.slice(0, volatilePreviewMaxPerFlush);
+        const overflow = orderedByRecency.length - keep.length;
+        if (overflow > 0) {
+          droppedCount += overflow;
+          droppedEventTypes.add("board.eraser.preview");
+        }
+        queuedEraserPreviews.length = 0;
+        queuedEraserPreviews.push(...keep);
+      }
+      queuedEraserPreviews
+        .sort((left, right) => left.queuedAt - right.queuedAt)
+        .forEach(({ entry }) => {
         events.push({
           type: "board.eraser.preview",
           payload: {
@@ -4018,13 +4173,33 @@ export default function WorkbookSessionPage() {
       });
     } else {
       strokePreviewQueuedByIdRef.current.clear();
+      strokePreviewQueuedAtRef.current.clear();
       eraserPreviewQueuedByGestureRef.current.clear();
+      eraserPreviewQueuedAtRef.current.clear();
     }
 
     if (events.length > 0) {
       sendWorkbookLiveEvents(events);
     }
-  }, [canDraw, canSelect, isEnded, sendWorkbookLiveEvents, session, sessionId]);
+    if (realtimeBackpressureV2Enabled && droppedCount > 0) {
+      observeWorkbookRealtimeVolatileDrop({
+        sessionId,
+        channel: "live",
+        droppedCount,
+        reason: "backpressure_trim",
+        eventTypes: Array.from(droppedEventTypes),
+      });
+    }
+  }, [
+    canDraw,
+    canSelect,
+    isEnded,
+    realtimeBackpressureV2Enabled,
+    sendWorkbookLiveEvents,
+    session,
+    sessionId,
+    volatilePreviewMaxPerFlush,
+  ]);
 
   const scheduleVolatileSyncFlush = useCallback(
     (delay = VOLATILE_SYNC_FLUSH_INTERVAL_MS) => {
@@ -4060,10 +4235,31 @@ export default function WorkbookSessionPage() {
     (payload: { stroke: WorkbookStroke; previewVersion: number }) => {
       const strokeId = payload.stroke.id;
       if (!strokeId || finalizedStrokePreviewIdsRef.current.has(strokeId)) return;
+      const now = Date.now();
       strokePreviewQueuedByIdRef.current.set(strokeId, payload);
+      strokePreviewQueuedAtRef.current.set(strokeId, now);
+      if (strokePreviewQueuedByIdRef.current.size > volatilePreviewQueueMax) {
+        const overflow = strokePreviewQueuedByIdRef.current.size - volatilePreviewQueueMax;
+        const ordered = Array.from(strokePreviewQueuedAtRef.current.entries())
+          .sort((left, right) => left[1] - right[1])
+          .slice(0, overflow);
+        if (overflow > 0 && sessionId && realtimeBackpressureV2Enabled) {
+          observeWorkbookRealtimeVolatileDrop({
+            sessionId,
+            channel: "live",
+            droppedCount: overflow,
+            reason: "stroke_preview_queue_trim",
+            eventTypes: ["board.stroke.preview", "annotations.stroke.preview"],
+          });
+        }
+        ordered.forEach(([expiredStrokeId]) => {
+          strokePreviewQueuedAtRef.current.delete(expiredStrokeId);
+          strokePreviewQueuedByIdRef.current.delete(expiredStrokeId);
+        });
+      }
       scheduleVolatileSyncFlush();
     },
-    [scheduleVolatileSyncFlush]
+    [realtimeBackpressureV2Enabled, scheduleVolatileSyncFlush, sessionId, volatilePreviewQueueMax]
   );
 
   const queueEraserPreview = useCallback(
@@ -4076,6 +4272,7 @@ export default function WorkbookSessionPage() {
       ended?: boolean;
     }) => {
       if (!payload.gestureId) return;
+      const now = Date.now();
       const current = eraserPreviewQueuedByGestureRef.current.get(payload.gestureId);
       const mergedPoints = mergePreviewPathPoints(
         current?.points ?? [],
@@ -4090,9 +4287,29 @@ export default function WorkbookSessionPage() {
         points: mergedPoints,
         ended: Boolean(current?.ended || payload.ended),
       });
+      eraserPreviewQueuedAtRef.current.set(payload.gestureId, now);
+      if (eraserPreviewQueuedByGestureRef.current.size > volatilePreviewQueueMax) {
+        const overflow = eraserPreviewQueuedByGestureRef.current.size - volatilePreviewQueueMax;
+        const ordered = Array.from(eraserPreviewQueuedAtRef.current.entries())
+          .sort((left, right) => left[1] - right[1])
+          .slice(0, overflow);
+        if (overflow > 0 && sessionId && realtimeBackpressureV2Enabled) {
+          observeWorkbookRealtimeVolatileDrop({
+            sessionId,
+            channel: "live",
+            droppedCount: overflow,
+            reason: "eraser_preview_queue_trim",
+            eventTypes: ["board.eraser.preview"],
+          });
+        }
+        ordered.forEach(([expiredGestureId]) => {
+          eraserPreviewQueuedAtRef.current.delete(expiredGestureId);
+          eraserPreviewQueuedByGestureRef.current.delete(expiredGestureId);
+        });
+      }
       scheduleVolatileSyncFlush(payload.ended ? 0 : undefined);
     },
-    [scheduleVolatileSyncFlush]
+    [realtimeBackpressureV2Enabled, scheduleVolatileSyncFlush, sessionId, volatilePreviewQueueMax]
   );
 
   const flushQueuedObjectUpdate = useCallback(
@@ -4157,6 +4374,7 @@ export default function WorkbookSessionPage() {
               objectUpdateDispatchOptionsRef.current.delete(objectId);
               objectUpdateHistoryBeforeRef.current.delete(objectId);
               objectPreviewQueuedPatchRef.current.delete(objectId);
+              objectPreviewQueuedAtRef.current.delete(objectId);
               localPreviewQueuedPatchRef.current.delete(objectId);
               incomingPreviewQueuedPatchRef.current.delete(objectId);
               return;
@@ -5018,6 +5236,7 @@ export default function WorkbookSessionPage() {
           objectUpdateDispatchOptionsRef.current.delete(objectId);
           objectUpdateHistoryBeforeRef.current.delete(objectId);
           objectPreviewQueuedPatchRef.current.delete(objectId);
+          objectPreviewQueuedAtRef.current.delete(objectId);
           objectPreviewVersionRef.current.delete(objectId);
           incomingPreviewQueuedPatchRef.current.delete(objectId);
           objectUpdateInFlightRef.current.delete(objectId);
@@ -5402,11 +5621,32 @@ export default function WorkbookSessionPage() {
         }).nextObjects;
       if (isPreviewOnly) {
         scheduleLocalPreviewBoardObjectPatch(objectId, normalizedPatch);
+        const now = Date.now();
         const pendingPatch = objectPreviewQueuedPatchRef.current.get(objectId) ?? {};
         objectPreviewQueuedPatchRef.current.set(
           objectId,
           mergeBoardObjectPatches(pendingPatch, normalizedPatch)
         );
+        objectPreviewQueuedAtRef.current.set(objectId, now);
+        if (objectPreviewQueuedPatchRef.current.size > volatilePreviewQueueMax) {
+          const overflow = objectPreviewQueuedPatchRef.current.size - volatilePreviewQueueMax;
+          const ordered = Array.from(objectPreviewQueuedAtRef.current.entries())
+            .sort((left, right) => left[1] - right[1])
+            .slice(0, overflow);
+          if (overflow > 0 && sessionId && realtimeBackpressureV2Enabled) {
+            observeWorkbookRealtimeVolatileDrop({
+              sessionId,
+              channel: "live",
+              droppedCount: overflow,
+              reason: "object_preview_queue_trim",
+              eventTypes: ["board.object.preview"],
+            });
+          }
+          ordered.forEach(([expiredObjectId]) => {
+            objectPreviewQueuedAtRef.current.delete(expiredObjectId);
+            objectPreviewQueuedPatchRef.current.delete(expiredObjectId);
+          });
+        }
         scheduleVolatileSyncFlush();
         return;
       }
@@ -5437,9 +5677,11 @@ export default function WorkbookSessionPage() {
       canSelect,
       commitInteractiveBoardObjects,
       flushQueuedObjectUpdate,
+      realtimeBackpressureV2Enabled,
       scheduleLocalPreviewBoardObjectPatch,
       scheduleVolatileSyncFlush,
       sessionId,
+      volatilePreviewQueueMax,
     ]
   );
 
@@ -5449,6 +5691,7 @@ export default function WorkbookSessionPage() {
     objectUpdateDispatchOptionsRef.current.delete(objectId);
     objectUpdateHistoryBeforeRef.current.delete(objectId);
     objectPreviewQueuedPatchRef.current.delete(objectId);
+    objectPreviewQueuedAtRef.current.delete(objectId);
     localPreviewQueuedPatchRef.current.delete(objectId);
     objectPreviewVersionRef.current.delete(objectId);
     Array.from(incomingPreviewVersionByAuthorObjectRef.current.keys()).forEach((key) => {
@@ -8575,6 +8818,12 @@ export default function WorkbookSessionPage() {
     if (!svg) return null;
     const bounds = options?.bounds ?? null;
     const svgClone = svg.cloneNode(true) as SVGSVGElement;
+    svgClone
+      .querySelectorAll<SVGGElement>('[data-workbook-export-only="true"]')
+      .forEach((node) => {
+        node.style.display = "";
+        node.removeAttribute("aria-hidden");
+      });
     if (bounds) {
       svgClone.setAttribute(
         "viewBox",
