@@ -36,6 +36,7 @@ import {
   collectUrgentWorkbookLiveEvents,
   getWorkbookSessionLatestSeq,
   mergeRuntimeWorkbookEventsIntoDb,
+  trimWorkbookEventsOverflow,
   type WorkbookRealtimeEnvelope,
 } from "./workbookEventService";
 import {
@@ -72,6 +73,19 @@ import {
   extractWorkbookSessionIdFromPath,
   getWorkbookSessionAffinityDiagnostics,
 } from "./sessionAffinity";
+import {
+  applyWorkbookObjectVersionGuard,
+  hashWorkbookOperationFingerprint,
+  isWorkbookWriteOperationScope,
+  registerWorkbookIdempotencyConflict,
+  registerWorkbookIdempotencyEvictions,
+  registerWorkbookIdempotencyHit,
+  registerWorkbookIdempotencyMiss,
+  registerWorkbookIdempotencyWrite,
+  resolveWorkbookSnapshotBarrier,
+  resolveWorkbookWriteIdempotencyKey,
+  workbookConsistencyConfig,
+} from "./workbookConsistency";
 
 const WHITEBOARD_TEACHER_LOGIN = "teacher@axiom.demo";
 const WHITEBOARD_TEACHER_PASSWORD =
@@ -588,6 +602,21 @@ const readIdempotencyKey = (req: IncomingMessage) => {
   return raw.slice(0, 240);
 };
 
+const resolveWriteIdempotencyKey = (params: {
+  req: IncomingMessage;
+  scope: WorkbookOperationRecord["scope"];
+  actorUserId: string;
+  sessionId: string;
+  payloadFingerprint: unknown;
+}) =>
+  resolveWorkbookWriteIdempotencyKey({
+    headerKey: readIdempotencyKey(params.req),
+    scope: params.scope,
+    actorUserId: params.actorUserId,
+    sessionId: params.sessionId,
+    payloadFingerprint: params.payloadFingerprint,
+  });
+
 const normalizeOperationFingerprint = (value: unknown) => {
   try {
     return JSON.stringify(value ?? null);
@@ -596,23 +625,69 @@ const normalizeOperationFingerprint = (value: unknown) => {
   }
 };
 
+const resolveOperationStorageLimits = (scope: WorkbookOperationRecord["scope"]) => {
+  if (isWorkbookWriteOperationScope(scope)) {
+    return {
+      ttlMs: workbookConsistencyConfig.idempotencyTtlMs,
+      maxRecords: workbookConsistencyConfig.idempotencyMaxRecords,
+    };
+  }
+  return {
+    ttlMs: WORKBOOK_IDEMPOTENCY_TTL_MS,
+    maxRecords: WORKBOOK_IDEMPOTENCY_MAX_RECORDS,
+  };
+};
+
 const cleanupWorkbookIdempotencyOperations = (db: MockDb) => {
+  const before = db.workbookOperations.length;
   const now = nowTs();
+  const writeLimit = resolveOperationStorageLimits("workbook_events_append").maxRecords;
+  const writeScopes = db.workbookOperations.filter((entry) =>
+    isWorkbookWriteOperationScope(entry.scope)
+  );
+  const writeOverflowThreshold = Math.max(0, writeScopes.length - writeLimit);
+
   let operations = db.workbookOperations.filter(
     (entry) => new Date(entry.expiresAt).getTime() > now
   );
-  if (operations.length > WORKBOOK_IDEMPOTENCY_MAX_RECORDS) {
-    operations = operations
+  if (operations.length > WORKBOOK_IDEMPOTENCY_MAX_RECORDS || writeOverflowThreshold > 0) {
+    const sorted = operations
       .slice()
       .sort(
         (left, right) =>
           new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
-      )
-      .slice(0, WORKBOOK_IDEMPOTENCY_MAX_RECORDS);
+      );
+    let globalTrimmed = sorted.slice(0, WORKBOOK_IDEMPOTENCY_MAX_RECORDS);
+    if (writeOverflowThreshold > 0) {
+      const keepWrite = new Set(
+        globalTrimmed
+          .filter((entry) => isWorkbookWriteOperationScope(entry.scope))
+          .slice(0, writeLimit)
+          .map((entry) => entry.id)
+      );
+      globalTrimmed = globalTrimmed.filter(
+        (entry) =>
+          !isWorkbookWriteOperationScope(entry.scope) || keepWrite.has(entry.id)
+      );
+    }
+    operations = globalTrimmed;
   }
-  if (operations.length === db.workbookOperations.length) return;
+  if (operations.length === db.workbookOperations.length) return 0;
+
+  const writeBefore = db.workbookOperations.filter((entry) =>
+    isWorkbookWriteOperationScope(entry.scope)
+  ).length;
+  const writeAfter = operations.filter((entry) =>
+    isWorkbookWriteOperationScope(entry.scope)
+  ).length;
+
   db.workbookOperations = operations;
   saveDb();
+  const writeEvictions = Math.max(0, writeBefore - writeAfter);
+  if (writeEvictions > 0) {
+    registerWorkbookIdempotencyEvictions(writeEvictions);
+  }
+  return Math.max(0, before - operations.length);
 };
 
 const readWorkbookIdempotentOperation = <TPayload>(
@@ -624,14 +699,31 @@ const readWorkbookIdempotentOperation = <TPayload>(
     requestFingerprint: string;
   }
 ) => {
-  if (!params.idempotencyKey) return null;
+  const writeScope = isWorkbookWriteOperationScope(params.scope);
+  if (!params.idempotencyKey) {
+    if (writeScope) {
+      registerWorkbookIdempotencyMiss();
+    }
+    return null;
+  }
   cleanupWorkbookIdempotencyOperations(db);
   const key = `${params.actorUserId}:${params.idempotencyKey}`;
   const operation =
     getDbIndex(db).operationsByScopeKey.get(`${params.scope}:${key}`) ?? null;
-  if (!operation) return null;
+  if (!operation) {
+    if (writeScope) {
+      registerWorkbookIdempotencyMiss();
+    }
+    return null;
+  }
   if (operation.requestFingerprint !== params.requestFingerprint) {
+    if (writeScope) {
+      registerWorkbookIdempotencyConflict();
+    }
     return { conflict: true } as const;
+  }
+  if (writeScope) {
+    registerWorkbookIdempotencyHit();
   }
   return {
     conflict: false as const,
@@ -655,7 +747,9 @@ const saveWorkbookIdempotentOperation = (
   cleanupWorkbookIdempotencyOperations(db);
   const key = `${params.actorUserId}:${params.idempotencyKey}`;
   const timestamp = nowIso();
-  const expiresAt = new Date(nowTs() + WORKBOOK_IDEMPOTENCY_TTL_MS).toISOString();
+  const expiresAt = new Date(
+    nowTs() + resolveOperationStorageLimits(params.scope).ttlMs
+  ).toISOString();
   const payloadRaw = normalizeOperationFingerprint(params.payload);
   const existingIndex = db.workbookOperations.findIndex(
     (entry) => entry.scope === params.scope && entry.key === key
@@ -679,6 +773,9 @@ const saveWorkbookIdempotentOperation = (
     db.workbookOperations.push(record);
   }
   saveDb();
+  if (isWorkbookWriteOperationScope(params.scope)) {
+    registerWorkbookIdempotencyWrite();
+  }
 };
 
 const writeAuthCookie = (res: ServerResponse, token: string) => {
@@ -3147,6 +3244,37 @@ export function setupMockServer(host: MiddlewareHost) {
           badRequest(res, "Нет событий для сохранения.");
           return;
         }
+        const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_events_append";
+        const requestFingerprint = hashWorkbookOperationFingerprint({
+          sessionId,
+          events,
+        });
+        const idempotencyKey = resolveWriteIdempotencyKey({
+          req,
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          sessionId,
+          payloadFingerprint: {
+            events,
+          },
+        });
+        const existingOperation = readWorkbookIdempotentOperation<{
+          events: unknown[];
+          latestSeq: number;
+        }>(db, {
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+        });
+        if (existingOperation?.conflict) {
+          conflict(res, "idempotency_key_reused_with_different_payload");
+          return;
+        }
+        if (existingOperation) {
+          json(res, existingOperation.statusCode, existingOperation.payload);
+          return;
+        }
 
         for (const event of events) {
           if (event.type === "media.signal" && !participant.permissions.canUseMedia) {
@@ -3189,11 +3317,23 @@ export function setupMockServer(host: MiddlewareHost) {
           }
           participant = getWorkbookParticipant(db, sessionId, actor.id) ?? participant;
         }
+        const versionGuardResult = applyWorkbookObjectVersionGuard({
+          db,
+          sessionId,
+          events,
+        });
+        if (!versionGuardResult.ok) {
+          json(res, 409, {
+            error: "object_version_conflict",
+            conflicts: versionGuardResult.conflicts,
+          });
+          return;
+        }
 
         const appendResult = await workbookEventStore.append({
           sessionId,
           authorUserId: actor.id,
-          events,
+          events: versionGuardResult.events,
           limit: WORKBOOK_EVENT_LIMIT,
         });
 
@@ -3215,11 +3355,19 @@ export function setupMockServer(host: MiddlewareHost) {
           events: appendResult.events,
         });
         saveDb();
-
-        json(res, 200, {
+        const responsePayload = {
           events: appendResult.events,
           latestSeq: appendResult.latestSeq,
+        };
+        saveWorkbookIdempotentOperation(db, {
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+          statusCode: 200,
+          payload: responsePayload,
         });
+        json(res, 200, responsePayload);
         return;
       }
 
@@ -3244,6 +3392,34 @@ export function setupMockServer(host: MiddlewareHost) {
         }
         const body = (await readBody(req)) as { events?: unknown[] } | null;
         const events = Array.isArray(body?.events) ? body.events : [];
+        const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_events_live";
+        const requestFingerprint = hashWorkbookOperationFingerprint({
+          sessionId,
+          events,
+        });
+        const idempotencyKey = resolveWriteIdempotencyKey({
+          req,
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          sessionId,
+          payloadFingerprint: {
+            events,
+          },
+        });
+        const existingOperation = readWorkbookIdempotentOperation<{ ok: true }>(db, {
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+        });
+        if (existingOperation?.conflict) {
+          conflict(res, "idempotency_key_reused_with_different_payload");
+          return;
+        }
+        if (existingOperation) {
+          json(res, existingOperation.statusCode, existingOperation.payload);
+          return;
+        }
         const sanitizedEvents = sanitizeWorkbookLiveEvents(participant, events);
         if (sanitizedEvents.length === 0) {
           json(res, 200, { ok: true });
@@ -3262,7 +3438,16 @@ export function setupMockServer(host: MiddlewareHost) {
           events: appendResult.events,
           channel: "live",
         });
-        json(res, 200, { ok: true });
+        const responsePayload = { ok: true as const };
+        saveWorkbookIdempotentOperation(db, {
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+          statusCode: 200,
+          payload: responsePayload,
+        });
+        json(res, 200, responsePayload);
         return;
       }
 
@@ -3295,6 +3480,32 @@ export function setupMockServer(host: MiddlewareHost) {
           stroke?: Record<string, unknown>;
           previewVersion?: unknown;
         } | null;
+        const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_events_preview";
+        const requestFingerprint = hashWorkbookOperationFingerprint({
+          sessionId,
+          body,
+        });
+        const idempotencyKey = resolveWriteIdempotencyKey({
+          req,
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          sessionId,
+          payloadFingerprint: body ?? {},
+        });
+        const existingOperation = readWorkbookIdempotentOperation<{ ok: true }>(db, {
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+        });
+        if (existingOperation?.conflict) {
+          conflict(res, "idempotency_key_reused_with_different_payload");
+          return;
+        }
+        if (existingOperation) {
+          json(res, existingOperation.statusCode, existingOperation.payload);
+          return;
+        }
 
         const previewVersion =
           typeof body?.previewVersion === "number" && Number.isFinite(body.previewVersion)
@@ -3358,8 +3569,16 @@ export function setupMockServer(host: MiddlewareHost) {
           events: appendResult.events,
           channel: "live",
         });
-
-        json(res, 200, { ok: true });
+        const responsePayload = { ok: true as const };
+        saveWorkbookIdempotentOperation(db, {
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+          statusCode: 200,
+          payload: responsePayload,
+        });
+        json(res, 200, responsePayload);
         return;
       }
 
@@ -3457,8 +3676,50 @@ export function setupMockServer(host: MiddlewareHost) {
           version?: number;
           payload?: unknown;
         } | null;
+        const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_snapshot_upsert";
+        const requestFingerprint = hashWorkbookOperationFingerprint({
+          sessionId,
+          body,
+        });
+        const idempotencyKey = resolveWriteIdempotencyKey({
+          req,
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          sessionId,
+          payloadFingerprint: body ?? {},
+        });
+        const existingOperation = readWorkbookIdempotentOperation<{
+          id: string;
+          sessionId: string;
+          layer: "board" | "annotations";
+          version: number;
+          payload: unknown;
+          accepted: boolean;
+          requestedVersion: number;
+          barrierSeq: number;
+          createdAt: string;
+        }>(db, {
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+        });
+        if (existingOperation?.conflict) {
+          conflict(res, "idempotency_key_reused_with_different_payload");
+          return;
+        }
+        if (existingOperation) {
+          json(res, existingOperation.statusCode, existingOperation.payload);
+          return;
+        }
         const layer = body?.layer === "annotations" ? "annotations" : "board";
-        const version = typeof body?.version === "number" && body.version > 0 ? body.version : 1;
+        const requestedVersion =
+          typeof body?.version === "number" && body.version > 0 ? Math.trunc(body.version) : 1;
+        const latestSeq = getWorkbookSessionLatestSeq(db, sessionId);
+        const version =
+          latestSeq > 0
+            ? Math.max(1, Math.min(requestedVersion, latestSeq))
+            : Math.max(1, requestedVersion);
         const payload = body?.payload ?? null;
         const snapshot = await workbookSnapshotStore.upsert({
           sessionId,
@@ -3466,17 +3727,39 @@ export function setupMockServer(host: MiddlewareHost) {
           version,
           payload,
         });
-        const accepted = version >= snapshot.version;
-
-        json(res, 200, {
+        const barrier = resolveWorkbookSnapshotBarrier(db, sessionId);
+        const beforeTrimCount = db.workbookEvents.filter((event) => event.sessionId === sessionId).length;
+        const accepted =
+          requestedVersion === version && version >= snapshot.version;
+        if (beforeTrimCount > WORKBOOK_EVENT_LIMIT && barrier.confirmed) {
+          const before = db.workbookEvents.length;
+          // Snapshot barrier confirms recovery point; now overflow trim is safe.
+          trimWorkbookEventsOverflow(db, sessionId);
+          if (db.workbookEvents.length !== before) {
+            saveDb();
+          }
+        }
+        const responsePayload = {
           id: snapshot.id,
           sessionId: snapshot.sessionId,
           layer: snapshot.layer,
           version: snapshot.version,
           payload: snapshot.payload,
           accepted,
+          requestedVersion,
+          barrierSeq: barrier.barrierSeq,
           createdAt: snapshot.createdAt,
+        };
+        saveWorkbookIdempotentOperation(db, {
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+          statusCode: 200,
+          payload: responsePayload,
         });
+
+        json(res, 200, responsePayload);
         return;
       }
 
@@ -3497,6 +3780,35 @@ export function setupMockServer(host: MiddlewareHost) {
         const participant = getWorkbookParticipant(db, sessionId, actor.id);
         if (!participant) {
           forbidden(res);
+          return;
+        }
+        const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_presence_heartbeat";
+        const requestFingerprint = hashWorkbookOperationFingerprint({
+          sessionId,
+          body,
+        });
+        const idempotencyKey = resolveWriteIdempotencyKey({
+          req,
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          sessionId,
+          payloadFingerprint: body ?? {},
+        });
+        const existingOperation = readWorkbookIdempotentOperation<{
+          ok: true;
+          participants: ReturnType<typeof maybePublishPresenceSync>;
+        }>(db, {
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+        });
+        if (existingOperation?.conflict) {
+          conflict(res, "idempotency_key_reused_with_different_payload");
+          return;
+        }
+        if (existingOperation) {
+          json(res, existingOperation.statusCode, existingOperation.payload);
           return;
         }
 
@@ -3552,11 +3864,19 @@ export function setupMockServer(host: MiddlewareHost) {
             },
           });
         }
-
-        json(res, 200, {
+        const responsePayload = {
           ok: true,
           participants,
+        } as const;
+        saveWorkbookIdempotentOperation(db, {
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+          statusCode: 200,
+          payload: responsePayload,
         });
+        json(res, 200, responsePayload);
         return;
       }
 
@@ -3579,6 +3899,35 @@ export function setupMockServer(host: MiddlewareHost) {
         const participant = getWorkbookParticipant(db, sessionId, actor.id);
         if (!participant) {
           forbidden(res);
+          return;
+        }
+        const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_presence_leave";
+        const requestFingerprint = hashWorkbookOperationFingerprint({
+          sessionId,
+          body,
+        });
+        const idempotencyKey = resolveWriteIdempotencyKey({
+          req,
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          sessionId,
+          payloadFingerprint: body ?? {},
+        });
+        const existingOperation = readWorkbookIdempotentOperation<{
+          ok: true;
+          participants: ReturnType<typeof maybePublishPresenceSync>;
+        }>(db, {
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+        });
+        if (existingOperation?.conflict) {
+          conflict(res, "idempotency_key_reused_with_different_payload");
+          return;
+        }
+        if (existingOperation) {
+          json(res, existingOperation.statusCode, existingOperation.payload);
           return;
         }
         const leftAt = nowIso();
@@ -3612,11 +3961,19 @@ export function setupMockServer(host: MiddlewareHost) {
             },
           });
         }
-
-        json(res, 200, {
+        const responsePayload = {
           ok: true,
           participants,
+        } as const;
+        saveWorkbookIdempotentOperation(db, {
+          scope: idempotencyScope,
+          actorUserId: actor.id,
+          idempotencyKey,
+          requestFingerprint,
+          statusCode: 200,
+          payload: responsePayload,
         });
+        json(res, 200, responsePayload);
         return;
       }
 
