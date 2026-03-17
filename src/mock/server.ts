@@ -127,7 +127,7 @@ const readPositiveInt = (name: string, fallback: number) => {
 };
 const WORKBOOK_DEVICE_ID_HEADER = "x-workbook-device-id";
 const WORKBOOK_ACCESS_LOG_HASH_SALT = String(process.env.WORKBOOK_ACCESS_LOG_HASH_SALT ?? "").trim();
-const WORKBOOK_REQUEST_BODY_MAX_BYTES = readPositiveInt("WORKBOOK_REQUEST_BODY_MAX_BYTES", 768_000);
+const WORKBOOK_REQUEST_BODY_MAX_BYTES = readPositiveInt("WORKBOOK_REQUEST_BODY_MAX_BYTES", 2_097_152);
 const WORKBOOK_VOLATILE_RATE_LIMIT_CAPACITY = readPositiveInt(
   "WORKBOOK_VOLATILE_RATE_LIMIT_CAPACITY",
   120
