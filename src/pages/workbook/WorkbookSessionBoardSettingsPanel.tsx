@@ -1,8 +1,10 @@
 import { memo, type Dispatch, type SetStateAction } from "react";
 import { Select, Switch, TextField, useMediaQuery } from "@mui/material";
 import AutoFixHighRoundedIcon from "@mui/icons-material/AutoFixHighRounded";
+import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import BrushRoundedIcon from "@mui/icons-material/BrushRounded";
 import CropFreeRoundedIcon from "@mui/icons-material/CropFreeRounded";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import type { WorkbookBoardSettings } from "@/features/workbook/model/types";
 import {
@@ -15,9 +17,20 @@ type ToolPaintSettings = {
   width: number;
 };
 
+export type WorkbookBoardPageOption = {
+  page: number;
+  hasContent: boolean;
+  label: string;
+};
+
 type WorkbookSessionBoardSettingsPanelProps = {
   sharedBoardSettings: WorkbookBoardSettings;
   onSharedBoardSettingsChange: (patch: Partial<WorkbookBoardSettings>) => void;
+  pageOptions: WorkbookBoardPageOption[];
+  onSelectBoardPage: (page: number) => void;
+  onAddBoardPage: () => void;
+  onDeleteBoardPage: (page: number) => void;
+  isBoardPageMutationPending?: boolean;
   smartInkOptions: SmartInkOptions;
   setSmartInkOptions: Dispatch<SetStateAction<SmartInkOptions>>;
   penToolSettings: ToolPaintSettings;
@@ -34,6 +47,11 @@ type WorkbookSessionBoardSettingsPanelProps = {
 export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBoardSettingsPanel({
   sharedBoardSettings,
   onSharedBoardSettingsChange,
+  pageOptions,
+  onSelectBoardPage,
+  onAddBoardPage,
+  onDeleteBoardPage,
+  isBoardPageMutationPending = false,
   smartInkOptions,
   setSmartInkOptions,
   penToolSettings,
@@ -55,6 +73,29 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
       })
     );
   };
+  const safePageOptions =
+    pageOptions.length > 0
+      ? pageOptions
+      : [
+          {
+            page: Math.max(1, Math.round(sharedBoardSettings.currentPage || 1)),
+            hasContent: false,
+            label: "Страница 1",
+          },
+        ];
+  const safeCurrentPage = Math.max(1, Math.round(sharedBoardSettings.currentPage || 1));
+  const currentPageOptionExists = safePageOptions.some((option) => option.page === safeCurrentPage);
+  const selectedPage = currentPageOptionExists ? safeCurrentPage : safePageOptions[0]?.page ?? 1;
+  const totalPages = Math.max(
+    1,
+    Math.round(sharedBoardSettings.pagesCount || 1),
+    safePageOptions[safePageOptions.length - 1]?.page ?? 1
+  );
+  const pagesWithContent = safePageOptions.reduce(
+    (count, option) => count + (option.hasContent ? 1 : 0),
+    0
+  );
+  const canMutatePages = canManageSharedBoardSettings && !isBoardPageMutationPending;
 
   return (
     <div className="workbook-session__card workbook-session__board-settings">
@@ -426,10 +467,13 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                 <div className="workbook-session__board-settings-card-title">
                   <h4>
                     <MenuRoundedIcon fontSize="small" />
-                    Страницы и секции
+                    Страницы
                   </h4>
                 </div>
-                <p>Структура страниц синхронизируется автоматически и не требует отдельного сохранения.</p>
+                <p>
+                  Управляйте страницами доски в одном месте: переключение, добавление и удаление
+                  с синхронизацией для всех участников.
+                </p>
               </div>
               <div className="workbook-session__board-settings-field">
                 <div className="workbook-session__board-settings-field-main">
@@ -446,67 +490,59 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                   }
                 />
               </div>
-              <div className="workbook-session__board-settings-two-cols">
-                <label className="workbook-session__board-settings-number-field">
-                  <span>Текущая страница</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={Math.max(1, sharedBoardSettings.pagesCount)}
-                    value={sharedBoardSettings.currentPage}
+              <div className="workbook-session__board-settings-page-panel">
+                <div className="workbook-session__board-settings-page-main">
+                  <strong>Текущая страница</strong>
+                  <small>Выберите страницу из списка, затем добавьте новую или удалите активную.</small>
+                </div>
+                <div className="workbook-session__board-settings-page-actions">
+                  <Select
+                    native
+                    size="small"
+                    className="workbook-session__board-settings-select workbook-session__board-settings-page-select"
+                    value={selectedPage}
                     onChange={(event) => {
                       const nextPage = Math.max(1, Number(event.target.value) || 1);
-                      onSharedBoardSettingsChange({
-                        currentPage: Math.min(nextPage, Math.max(1, sharedBoardSettings.pagesCount)),
-                      });
+                      onSelectBoardPage(nextPage);
                     }}
-                  />
-                </label>
-                <label className="workbook-session__board-settings-number-field">
-                  <span>Всего страниц</span>
-                  <input
-                    type="number"
-                    min={1}
-                    value={sharedBoardSettings.pagesCount}
-                    onChange={(event) => {
-                      const nextPagesCount = Math.max(1, Number(event.target.value) || 1);
-                      onSharedBoardSettingsChange({
-                        pagesCount: nextPagesCount,
-                        currentPage: Math.min(sharedBoardSettings.currentPage, nextPagesCount),
-                      });
-                    }}
-                  />
-                </label>
-              </div>
-              <div className="workbook-session__board-settings-field">
-                <div className="workbook-session__board-settings-field-main">
-                  <strong>Авторазделители</strong>
-                  <small>Автоматическое деление длинного полотна на секции тетради.</small>
+                    disabled={!canMutatePages}
+                  >
+                    {safePageOptions.map((option) => (
+                      <option key={option.page} value={option.page}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                  <button
+                    type="button"
+                    className="workbook-session__board-settings-page-btn is-add"
+                    onClick={() => onAddBoardPage()}
+                    disabled={!canMutatePages}
+                    title="Добавить страницу"
+                    aria-label="Добавить страницу"
+                  >
+                    <AddRoundedIcon fontSize="small" />
+                  </button>
+                  <button
+                    type="button"
+                    className="workbook-session__board-settings-page-btn is-danger"
+                    onClick={() => onDeleteBoardPage(selectedPage)}
+                    disabled={!canMutatePages || totalPages <= 1}
+                    title="Удалить текущую страницу"
+                    aria-label="Удалить текущую страницу"
+                  >
+                    <DeleteOutlineRoundedIcon fontSize="small" />
+                  </button>
                 </div>
-                <Switch
-                  checked={sharedBoardSettings.autoSectionDividers}
-                  className="workbook-session__board-settings-switch"
-                  onChange={(event) =>
-                    onSharedBoardSettingsChange({
-                      autoSectionDividers: event.target.checked,
-                    })
-                  }
-                />
               </div>
-              <label className="workbook-session__board-settings-number-field">
-                <span>Шаг разделителей</span>
-                <input
-                  type="number"
-                  min={320}
-                  max={2400}
-                  value={sharedBoardSettings.dividerStep}
-                  onChange={(event) =>
-                    onSharedBoardSettingsChange({
-                      dividerStep: Math.max(320, Number(event.target.value) || 320),
-                    })
-                  }
-                />
-              </label>
+              <div className="workbook-session__board-settings-page-meta">
+                <span>Всего страниц: {totalPages}</span>
+                <span>Страниц с контентом: {pagesWithContent}</span>
+              </div>
+              <div className="workbook-session__board-settings-note">
+                При удалении страницы ее объекты и штрихи удаляются, а все последующие страницы
+                автоматически сдвигаются на один шаг вверх.
+              </div>
             </section>
           </>
         ) : (
