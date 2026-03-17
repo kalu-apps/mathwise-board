@@ -10,7 +10,8 @@ export class WorkbookWriteDiagnosticsController {
   @Get("/diagnostics")
   getDiagnostics() {
     return {
-      mode: "nest-write-gateway",
+      mode: "nest-native-api",
+      writeGuardActive: false,
       strictObjectVersion: nestEnv.objectVersionStrict,
       idempotency: this.idempotency.getDiagnostics(),
       objectVersions: this.objectVersions.getDiagnostics(),
