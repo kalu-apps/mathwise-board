@@ -54,6 +54,10 @@ type UseWorkbookRealtimeTransportParams = {
   pollIntervalMs: number;
   pollIntervalStreamConnectedMs: number;
   resyncMinIntervalMs: number;
+  adaptivePollingEnabled: boolean;
+  adaptivePollingMinMs: number;
+  adaptivePollingMaxMs: number;
+  isMediaAudioConnected: boolean;
 };
 
 export const useWorkbookRealtimeTransport = ({
@@ -76,6 +80,10 @@ export const useWorkbookRealtimeTransport = ({
   pollIntervalMs,
   pollIntervalStreamConnectedMs,
   resyncMinIntervalMs,
+  adaptivePollingEnabled,
+  adaptivePollingMinMs,
+  adaptivePollingMaxMs,
+  isMediaAudioConnected,
 }: UseWorkbookRealtimeTransportParams) => {
   const triggerSessionResync = useCallback(() => {
     const now = Date.now();
@@ -102,7 +110,68 @@ export const useWorkbookRealtimeTransport = ({
   useEffect(() => {
     if (!sessionId) return;
     let active = true;
+    let pollTimerId: number | null = null;
+    let pollErrorStreak = 0;
+    let idlePollStreak = 0;
+    let inFlight = false;
+
+    const clearPollTimer = () => {
+      if (pollTimerId === null) return;
+      window.clearTimeout(pollTimerId);
+      pollTimerId = null;
+    };
+
+    const schedulePoll = (reason: "event" | "idle" | "error" | "bootstrap") => {
+      if (!active) return;
+      const connected = isWorkbookStreamConnected || isWorkbookLiveConnected;
+      const baseInterval = connected ? pollIntervalStreamConnectedMs : pollIntervalMs;
+      if (!adaptivePollingEnabled) {
+        clearPollTimer();
+        pollTimerId = window.setTimeout(() => {
+          void poll();
+        }, Math.max(40, baseInterval));
+        return;
+      }
+
+      let nextInterval = baseInterval;
+      if (reason === "event") {
+        idlePollStreak = 0;
+        pollErrorStreak = 0;
+        nextInterval = Math.max(adaptivePollingMinMs, Math.floor(baseInterval * 0.6));
+      } else if (reason === "error") {
+        pollErrorStreak += 1;
+        const backoff = Math.min(
+          adaptivePollingMaxMs,
+          Math.floor(baseInterval * 1.5 ** Math.max(1, pollErrorStreak))
+        );
+        nextInterval = Math.max(adaptivePollingMinMs, backoff);
+      } else if (reason === "idle") {
+        pollErrorStreak = 0;
+        idlePollStreak += 1;
+        const idleMultiplier = connected
+          ? Math.min(8, 1 + idlePollStreak * 0.55)
+          : Math.min(4, 1 + idlePollStreak * 0.35);
+        nextInterval = Math.min(adaptivePollingMaxMs, Math.floor(baseInterval * idleMultiplier));
+      } else {
+        pollErrorStreak = 0;
+        idlePollStreak = 0;
+        nextInterval = Math.max(adaptivePollingMinMs, baseInterval);
+      }
+
+      if (isMediaAudioConnected && connected) {
+        nextInterval = Math.min(adaptivePollingMaxMs, Math.floor(nextInterval * 1.25));
+      }
+
+      const jitter = Math.floor(nextInterval * 0.12 * Math.random());
+      clearPollTimer();
+      pollTimerId = window.setTimeout(() => {
+        void poll();
+      }, Math.max(adaptivePollingMinMs, nextInterval + jitter));
+    };
+
     const poll = async () => {
+      if (!active || inFlight) return;
+      inFlight = true;
       try {
         const response = await getWorkbookEvents(sessionId, latestSeqRef.current);
         if (!active) return;
@@ -115,6 +184,7 @@ export const useWorkbookRealtimeTransport = ({
             nextSeq: unseenEvents[0]?.seq ?? response.latestSeq,
           });
           triggerSessionResync();
+          schedulePoll("event");
           return;
         }
         if (unseenEvents.length > 0) {
@@ -139,24 +209,26 @@ export const useWorkbookRealtimeTransport = ({
           latestSeqRef.current = nextLatest;
           setLatestSeq(nextLatest);
         }
+        schedulePoll(unseenEvents.length > 0 ? "event" : "idle");
       } catch {
-        // ignore transient polling errors
+        schedulePoll("error");
+      } finally {
+        inFlight = false;
       }
     };
     void poll();
-    const intervalMs = isWorkbookStreamConnected || isWorkbookLiveConnected
-      ? pollIntervalStreamConnectedMs
-      : pollIntervalMs;
-    const intervalId = window.setInterval(() => {
-      void poll();
-    }, intervalMs);
+    schedulePoll("bootstrap");
     return () => {
       active = false;
-      window.clearInterval(intervalId);
+      clearPollTimer();
     };
   }, [
+    adaptivePollingEnabled,
+    adaptivePollingMaxMs,
+    adaptivePollingMinMs,
     enqueueIncomingRealtimeApply,
     filterUnseenWorkbookEvents,
+    isMediaAudioConnected,
     isWorkbookLiveConnected,
     isWorkbookStreamConnected,
     latestSeqRef,

@@ -166,6 +166,7 @@ import {
   resolveWorkbookStrokeVisual,
 } from "../model/sceneTools";
 import { useAnimationFrameState } from "@/shared/lib/useAnimationFrameState";
+import { isWorkbookNewRendererEnabled } from "../model/featureFlags";
 import {
   WorkbookAutoDividerLayer,
   WorkbookConstraintLayer,
@@ -176,6 +177,7 @@ import {
   WorkbookSelectionOverlayLayer,
   WorkbookStrokeLayer,
 } from "./WorkbookCanvasLayers";
+import { WorkbookCommittedCanvasLayer } from "./WorkbookCommittedCanvasLayer";
 import { useWorkbookCanvasInteractions } from "./useWorkbookCanvasInteractions";
 import { useWorkbookSelectionOverlayController } from "./useWorkbookSelectionOverlayController";
 
@@ -4098,6 +4100,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const { panModeEnabled, graphModeEnabled, eraserModeEnabled } =
     resolveWorkbookCanvasModeFlags(tool, forcePanMode);
   const strokeVisual = resolveWorkbookStrokeVisual(tool, color, width);
+  const newRendererEnabled = useMemo(() => isWorkbookNewRendererEnabled(), []);
 
   return (
     <div
@@ -4107,6 +4110,16 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       ref={setContainerNode}
       style={canvasStyle}
     >
+      {newRendererEnabled ? (
+        <WorkbookCommittedCanvasLayer
+          strokes={renderedStrokes}
+          viewportOffset={viewportOffset}
+          zoom={safeZoom}
+          width={size.width}
+          height={size.height}
+          currentPage={currentPage}
+        />
+      ) : null}
       <svg
         className="workbook-session__canvas-svg"
         viewBox={`0 0 ${Math.max(1, size.width)} ${Math.max(1, size.height)}`}
@@ -4306,7 +4319,17 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           tool={tool}
           onSelectConstraint={handleSelectConstraint}
         />
-        <WorkbookStrokeLayer strokes={renderedStrokes} />
+        {newRendererEnabled ? (
+          <g
+            data-workbook-export-only="true"
+            style={{ display: "none" }}
+            aria-hidden="true"
+          >
+            <WorkbookStrokeLayer strokes={renderedStrokes} />
+          </g>
+        ) : (
+          <WorkbookStrokeLayer strokes={renderedStrokes} />
+        )}
         <WorkbookPreviewStrokeRuntimeLayer strokes={previewStrokes} />
         <WorkbookDraftOverlayLayer
           shapeDraft={shapeDraft}

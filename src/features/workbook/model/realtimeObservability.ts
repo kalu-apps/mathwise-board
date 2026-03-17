@@ -191,3 +191,23 @@ export const observeWorkbookRealtimeGap = (params: {
     gapToSeq: params.nextSeq,
   });
 };
+
+export const observeWorkbookRealtimeVolatileDrop = (params: {
+  sessionId: string;
+  channel: Extract<RealtimeMetricChannel, "live" | "poll">;
+  droppedCount: number;
+  reason: string;
+  eventTypes: string[];
+}) => {
+  if (!params.sessionId || params.droppedCount <= 0) return;
+  emitRealtimeMetric({
+    scope: "workbook",
+    phase: "drop",
+    channel: params.channel,
+    sessionId: params.sessionId,
+    eventCount: params.droppedCount,
+    eventTypes: summarizeEventTypes(params.eventTypes),
+    timestamp: new Date().toISOString(),
+    dropReason: params.reason,
+  });
+};
