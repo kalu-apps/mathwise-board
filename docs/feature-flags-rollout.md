@@ -8,7 +8,6 @@
 
 | Flag | Default | Область | Назначение | Rollback |
 |---|---|---|---|---|
-| `ff_frontend_zustand_store` | `false` | Frontend state | Переключение на zustand-слайсы | Вернуть `false`, откат к legacy state adapters |
 | `ff_backend_nest_read_api` | `false` | Backend API | Переключение read endpoint'ов на Nest | Вернуть `false`, трафик на legacy handlers |
 | `ff_backend_nest_write_api` | `false` | Backend API | Переключение write endpoint'ов на Nest | Вернуть `false`, трафик на legacy write path |
 | `ff_backend_nest_realtime_gateway` | `false` | Realtime | Переключение stream/live realtime транспорта на Nest gateway | Вернуть `false`, вернуть legacy WS/SSE path |
@@ -19,20 +18,20 @@
 
 Runtime env mapping:
 
-1. `ff_frontend_zustand_store` -> `VITE_FF_ZUSTAND_STORE=1` (основной ключ)
-2. alias для совместимости: `VITE_FF_FRONTEND_ZUSTAND_STORE=1`
-3. `ff_backend_nest_read_api` -> `FF_NEST_API=1` (запуск Nest read-path контура)
-4. `ff_backend_nest_read_api` (shadow mode) -> `FF_NEST_API_SHADOW=1` + `NEST_API_BASE_URL=http://127.0.0.1:4180`
-5. `ff_backend_nest_write_api` -> `FF_NEST_API=1` (mutate routes проксируются в Nest gateway)
-6. `ff_backend_nest_write_api` consistency controls -> `NEST_OBJECT_VERSION_STRICT=1` + `NEST_IDEMPOTENCY_*`
-7. `ff_realtime_adaptive_polling` -> `VITE_FF_REALTIME_ADAPTIVE_POLLING=1` (alias: `VITE_FF_ADAPTIVE_POLLING=1`)
-8. `ff_realtime_backpressure_v2` -> `VITE_FF_REALTIME_BACKPRESSURE_V2=1` (alias: `VITE_FF_BACKPRESSURE_V2=1`)
-9. `ff_board_canvas_committed_layer` -> `VITE_FF_NEW_RENDERER=1` (aliases: `VITE_FF_BOARD_CANVAS_COMMITTED_LAYER=1`, `VITE_FF_FRONTEND_NEW_RENDERER=1`)
-10. `ff_board_worker_compute` -> включается вместе с `ff_board_canvas_committed_layer` в текущей реализации (worker-path активируется внутри new renderer path)
+1. `ff_backend_nest_read_api` -> `FF_NEST_API=1` (запуск Nest read-path контура)
+2. `ff_backend_nest_read_api` (shadow mode) -> `FF_NEST_API_SHADOW=1` + `NEST_API_BASE_URL=http://127.0.0.1:4180`
+3. `ff_backend_nest_write_api` -> `FF_NEST_API=1` (mutate routes проксируются в Nest gateway)
+4. `ff_backend_nest_write_api` consistency controls -> `NEST_OBJECT_VERSION_STRICT=1` + `NEST_IDEMPOTENCY_*`
+5. `ff_realtime_adaptive_polling` -> `VITE_FF_REALTIME_ADAPTIVE_POLLING=1` (alias: `VITE_FF_ADAPTIVE_POLLING=1`)
+6. `ff_realtime_backpressure_v2` -> `VITE_FF_REALTIME_BACKPRESSURE_V2=1` (alias: `VITE_FF_BACKPRESSURE_V2=1`)
+7. `ff_board_canvas_committed_layer` -> `VITE_FF_NEW_RENDERER=1` (aliases: `VITE_FF_BOARD_CANVAS_COMMITTED_LAYER=1`, `VITE_FF_FRONTEND_NEW_RENDERER=1`)
+8. `ff_board_worker_compute` -> включается вместе с `ff_board_canvas_committed_layer` в текущей реализации (worker-path активируется внутри new renderer path)
+
+`ff_frontend_zustand_store` выведен из эксплуатации в фазе B: фронтовый hot-path работает только через Zustand slices.
 
 ## Политика включения
 
-1. По умолчанию все флаги выключены.
+1. По умолчанию все новые флаги выключены.
 2. Один флаг включается отдельно, без пакетного переключения.
 3. Для каждого флага обязательны:
 1. owner (доменная команда);
