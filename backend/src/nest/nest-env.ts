@@ -17,22 +17,10 @@ const readFloat = (value: string | undefined, fallback: number, min: number, max
   return Math.min(max, Math.max(min, parsed));
 };
 
-const readProxyMode = (value: string | undefined): "write" | "all" => {
-  const normalized = String(value ?? "").trim().toLowerCase();
-  if (normalized === "all") return "all";
-  return "write";
-};
-
 export const nestEnv = {
   host: String(process.env.NEST_HOST ?? "0.0.0.0").trim() || "0.0.0.0",
   port: readPositiveInt(process.env.NEST_PORT, 4180, 65_535),
   bodyLimitMb: readPositiveInt(process.env.NEST_BODY_LIMIT_MB, 4, 64),
-  featureEnabled: readBool(process.env.FF_NEST_API, false),
-  featureShadowEnabled: readBool(process.env.FF_NEST_API_SHADOW, false),
-  proxyMode: readProxyMode(process.env.NEST_PROXY_MODE),
-  legacyBaseUrl: String(process.env.NEST_LEGACY_BASE_URL ?? "http://127.0.0.1:4173")
-    .trim()
-    .replace(/\/+$/, ""),
   apiBaseUrl: String(process.env.NEST_API_BASE_URL ?? "http://127.0.0.1:4180")
     .trim()
     .replace(/\/+$/, ""),
@@ -44,5 +32,3 @@ export const nestEnv = {
   idempotencyBodyFallback: readBool(process.env.NEST_IDEMPOTENCY_BODY_FALLBACK, true),
   idempotencySampleRate: readFloat(process.env.NEST_IDEMPOTENCY_SAMPLE_RATE, 1, 0.01, 1),
 };
-
-export const shadowRequestHeader = "x-shadow-probe";

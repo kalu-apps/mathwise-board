@@ -79,7 +79,6 @@ npm run backend:start:board
 - `WORKBOOK_SESSION_AFFINITY_COOKIE_SECURE=1`
 - `WORKBOOK_SESSION_AFFINITY_COOKIE_HTTP_ONLY=0`
 - `WORKBOOK_SESSION_AFFINITY_COOKIE_DOMAIN=.your-domain.tld`
-- `NEST_PROXY_MODE=write|all` (`all` для phase-7 cutover: 100% API ingress через Nest gateway)
 - `MEDIA_STUN_URLS=stun:stun.l.google.com:19302`
 - `MEDIA_TURN_URLS=turn:turn.your-domain.tld:3478?transport=udp,turns:turn.your-domain.tld:5349?transport=tcp`
 - `MEDIA_TURN_SECRET=<coturn static-auth-secret>` (предпочтительно)  
@@ -148,7 +147,7 @@ npm run phase0:baseline
 PHASE0_BASE_URL=https://api.board.mathwise.ru npm run phase0:baseline
 ```
 
-## Phase 3 (Nest read-path shadow)
+## Phase 3 (Nest read-path shadow, archived)
 
 Документация и go/no-go: `docs/phase-3-nest-read-path.md`.
 
@@ -156,7 +155,6 @@ PHASE0_BASE_URL=https://api.board.mathwise.ru npm run phase0:baseline
 
 ```bash
 npm run backend:start:nest
-PHASE3_BASE_URL=http://127.0.0.1:4173 npm run phase3:parity
 ```
 
 ## Phase 4 (Nest write consistency gateway)
@@ -189,6 +187,8 @@ npm run phase6:check
 npm run phase7:cutover
 npm run phase7:report
 ```
+
+Phase E cleanup артефакт: `docs/phase-e-legacy-cleanup.md`.
 
 ## Git flow (prod + migration)
 
