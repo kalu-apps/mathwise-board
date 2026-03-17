@@ -95,7 +95,12 @@ const WHITEBOARD_TEACHER_PASSWORD =
     : "magic";
 
 const AUTH_COOKIE_NAME = "math_tutor_session";
-const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const AUTH_SESSION_TTL_MS = (() => {
+  const fallback = 12 * 60 * 60 * 1000;
+  const parsed = Number.parseInt(String(process.env.AUTH_SESSION_TTL_MS ?? "").trim(), 10);
+  if (!Number.isFinite(parsed) || parsed < 5 * 60_000) return fallback;
+  return parsed;
+})();
 const AUTH_SESSION_PERSIST_INTERVAL_MS = 60_000;
 const ONLINE_TIMEOUT_MS = 15_000;
 const PRESENCE_PERSIST_INTERVAL_MS = 15_000;
@@ -913,11 +918,16 @@ const getSessionRecord = (db: MockDb, token: string | undefined | null): AuthSes
   return session;
 };
 
-const resolveAuthUser = (
+type ResolvedAuthSession = {
+  user: UserRecord;
+  session: AuthSessionRecord;
+};
+
+const resolveAuthSession = (
   req: IncomingMessage,
   db: MockDb,
   options?: { touchSession?: boolean }
-): UserRecord | null => {
+): ResolvedAuthSession | null => {
   const cookies = parseCookies(req);
   const token = cookies[AUTH_COOKIE_NAME];
   const session = getSessionRecord(db, token);
@@ -927,13 +937,22 @@ const resolveAuthUser = (
   if (options?.touchSession !== false) {
     const now = nowTs();
     session.lastSeenAt = nowIso();
+    session.expiresAt = new Date(now + AUTH_SESSION_TTL_MS).toISOString();
     const lastPersistAt = authSessionPersistAtByToken.get(session.token) ?? 0;
     if (now - lastPersistAt >= AUTH_SESSION_PERSIST_INTERVAL_MS) {
       authSessionPersistAtByToken.set(session.token, now);
       saveDb();
     }
   }
-  return user;
+  return { user, session };
+};
+
+const resolveAuthUser = (
+  req: IncomingMessage,
+  db: MockDb,
+  options?: { touchSession?: boolean }
+): UserRecord | null => {
+  return resolveAuthSession(req, db, options)?.user ?? null;
 };
 
 const defaultPermissions = (role: "teacher" | "student"): WorkbookParticipantPermissions => {
@@ -2183,12 +2202,13 @@ const closeUserPresenceAcrossSessions = (db: MockDb, userId: string, timestamp =
 };
 
 const requireAuthUser = (req: IncomingMessage, res: ServerResponse, db: MockDb) => {
-  const user = resolveAuthUser(req, db);
-  if (!user) {
+  const auth = resolveAuthSession(req, db);
+  if (!auth) {
     unauthorized(res);
     return null;
   }
-  return user;
+  writeAuthCookie(res, auth.session.token);
+  return auth.user;
 };
 
 const setAuthSession = (db: MockDb, res: ServerResponse, user: UserRecord) => {
