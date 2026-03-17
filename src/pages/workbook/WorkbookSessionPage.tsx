@@ -86,8 +86,6 @@ import {
   recognizeWorkbookInk,
   renderWorkbookPdfPages,
   saveWorkbookSnapshot,
-  subscribeWorkbookEventsStream,
-  subscribeWorkbookLiveSocket,
 } from "@/features/workbook/model/api";
 import {
   type WorkbookClientEventInput,
@@ -99,7 +97,6 @@ import {
 } from "@/features/workbook/model/events";
 import {
   compactWorkbookObjectUpdateEvents,
-  hasWorkbookEventGap,
   mergeBoardObjectWithPatch,
   mergeBoardObjectPatches,
   mergePreviewPathPoints,
@@ -107,9 +104,7 @@ import {
   withWorkbookClientEventIds,
 } from "@/features/workbook/model/runtime";
 import {
-  observeWorkbookRealtimeGap,
   observeWorkbookRealtimePersistAck,
-  observeWorkbookRealtimeReceive,
   observeWorkbookRealtimeSend,
 } from "@/features/workbook/model/realtimeObservability";
 import { useWorkbookRealtimeApplyQueue } from "@/features/workbook/model/useWorkbookRealtimeApplyQueue";
@@ -231,6 +226,8 @@ import { generateId } from "@/shared/lib/id";
 import { readStorage, writeStorage } from "@/shared/lib/localDb";
 import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import { useWorkbookLivekit } from "./useWorkbookLivekit";
+import { useWorkbookPersistenceLifecycle } from "./useWorkbookPersistenceLifecycle";
+import { useWorkbookRealtimeTransport } from "./useWorkbookRealtimeTransport";
 import { useWorkbookVisibleScene } from "./useWorkbookVisibleScene";
 import {
   DEFAULT_SMART_INK_OPTIONS,
@@ -3169,238 +3166,27 @@ export default function WorkbookSessionPage() {
     sessionId,
   ]);
 
-  const triggerSessionResync = useCallback(() => {
-    const now = Date.now();
-    if (sessionResyncInFlightRef.current) return;
-    if (now - lastForcedResyncAtRef.current < RESYNC_MIN_INTERVAL_MS) return;
-    sessionResyncInFlightRef.current = true;
-    lastForcedResyncAtRef.current = now;
-    clearIncomingRealtimeApplyQueue();
-    void loadSession({ background: true }).finally(() => {
-      sessionResyncInFlightRef.current = false;
-    });
-  }, [clearIncomingRealtimeApplyQueue, loadSession]);
-
-  useEffect(() => {
-    void loadSession();
-  }, [loadSession]);
-
-  useEffect(() => {
-    if (!sessionId) return;
-    let active = true;
-    const poll = async () => {
-      try {
-        const response = await getWorkbookEvents(sessionId, latestSeqRef.current);
-        if (!active) return;
-        const unseenEvents = filterUnseenWorkbookEvents(response.events);
-        if (hasWorkbookEventGap(latestSeqRef.current, unseenEvents)) {
-          observeWorkbookRealtimeGap({
-            sessionId,
-            channel: "poll",
-            latestSeq: latestSeqRef.current,
-            nextSeq: unseenEvents[0]?.seq ?? response.latestSeq,
-          });
-          triggerSessionResync();
-          return;
-        }
-        if (unseenEvents.length > 0) {
-          observeWorkbookRealtimeReceive({
-            sessionId,
-            channel: "poll",
-            latestSeq: response.latestSeq,
-            events: unseenEvents,
-          });
-          enqueueIncomingRealtimeApply({
-            channel: "poll",
-            latestSeq: response.latestSeq,
-            events: unseenEvents,
-          });
-        }
-        const nextLatest = resolveNextLatestSeq(
-          latestSeqRef.current,
-          response.latestSeq,
-          unseenEvents
-        );
-        if (nextLatest > latestSeqRef.current) {
-          latestSeqRef.current = nextLatest;
-          setLatestSeq(nextLatest);
-        }
-      } catch {
-        // ignore transient polling errors
-      }
-    };
-    void poll();
-    const intervalMs = isWorkbookStreamConnected || isWorkbookLiveConnected
-      ? POLL_INTERVAL_STREAM_CONNECTED_MS
-      : POLL_INTERVAL_MS;
-    const intervalId = window.setInterval(() => {
-      void poll();
-    }, intervalMs);
-    return () => {
-      active = false;
-      window.clearInterval(intervalId);
-    };
-  }, [
-    enqueueIncomingRealtimeApply,
-    filterUnseenWorkbookEvents,
-    isWorkbookLiveConnected,
-    isWorkbookStreamConnected,
+  useWorkbookRealtimeTransport({
     sessionId,
-    triggerSessionResync,
-  ]);
-
-  useEffect(() => {
-    if (!sessionId) {
-      realtimeDisconnectSinceRef.current = null;
-      setRealtimeSyncWarning(null);
-      return;
-    }
-    const disconnected = !isWorkbookStreamConnected && !isWorkbookLiveConnected;
-    if (!disconnected) {
-      realtimeDisconnectSinceRef.current = null;
-      setRealtimeSyncWarning(null);
-      return;
-    }
-    if (!realtimeDisconnectSinceRef.current) {
-      realtimeDisconnectSinceRef.current = Date.now();
-    }
-    const timerId = window.setInterval(() => {
-      const startedAt = realtimeDisconnectSinceRef.current;
-      if (!startedAt) return;
-      const elapsed = Date.now() - startedAt;
-      if (elapsed >= 12_000) {
-        setRealtimeSyncWarning(
-          "Realtime-канал нестабилен. Продолжаем синхронизацию через резервные механизмы."
-        );
-      }
-      if (elapsed >= 30_000 && Date.now() - lastForcedResyncAtRef.current >= 20_000) {
-        triggerSessionResync();
-      }
-    }, 2_500);
-    return () => {
-      window.clearInterval(timerId);
-    };
-  }, [
-    isWorkbookLiveConnected,
-    isWorkbookStreamConnected,
-    sessionId,
-    triggerSessionResync,
-  ]);
-
-  useEffect(() => {
-    if (!sessionId) return;
-    const unsubscribe = subscribeWorkbookEventsStream({
-      sessionId,
-      onEvents: (payload) => {
-        if (payload.sessionId !== sessionId) return;
-        const unseenEvents = filterUnseenWorkbookEvents(payload.events);
-        if (hasWorkbookEventGap(latestSeqRef.current, unseenEvents)) {
-          observeWorkbookRealtimeGap({
-            sessionId,
-            channel: "stream",
-            latestSeq: latestSeqRef.current,
-            nextSeq: unseenEvents[0]?.seq ?? payload.latestSeq,
-          });
-          triggerSessionResync();
-          return;
-        }
-        if (unseenEvents.length > 0) {
-          observeWorkbookRealtimeReceive({
-            sessionId,
-            channel: "stream",
-            latestSeq: payload.latestSeq,
-            events: unseenEvents,
-          });
-          enqueueIncomingRealtimeApply({
-            channel: "stream",
-            latestSeq: payload.latestSeq,
-            events: unseenEvents,
-          });
-        }
-        const nextLatest = resolveNextLatestSeq(
-          latestSeqRef.current,
-          payload.latestSeq,
-          unseenEvents
-        );
-        if (nextLatest > latestSeqRef.current) {
-          latestSeqRef.current = nextLatest;
-          setLatestSeq(nextLatest);
-        }
-      },
-      onConnectionChange: setIsWorkbookStreamConnected,
-    });
-    return () => {
-      setIsWorkbookStreamConnected(false);
-      unsubscribe();
-    };
-  }, [
+    loadSession,
     clearIncomingRealtimeApplyQueue,
     enqueueIncomingRealtimeApply,
     filterUnseenWorkbookEvents,
-    sessionId,
-    triggerSessionResync,
-  ]);
-
-  useEffect(() => {
-    if (!sessionId) {
-      workbookLiveSendRef.current = null;
-      clearIncomingRealtimeApplyQueue();
-      return;
-    }
-    const connection = subscribeWorkbookLiveSocket({
-      sessionId,
-      onEvents: (payload) => {
-        if (payload.sessionId !== sessionId) return;
-        const unseenEvents = filterUnseenWorkbookEvents(payload.events, {
-          allowLiveReplay: true,
-        });
-        if (hasWorkbookEventGap(latestSeqRef.current, unseenEvents)) {
-          observeWorkbookRealtimeGap({
-            sessionId,
-            channel: "live",
-            latestSeq: latestSeqRef.current,
-            nextSeq: unseenEvents[0]?.seq ?? payload.latestSeq,
-          });
-          return;
-        }
-        if (unseenEvents.length > 0) {
-          observeWorkbookRealtimeReceive({
-            sessionId,
-            channel: "live",
-            latestSeq: payload.latestSeq,
-            events: unseenEvents,
-          });
-          enqueueIncomingRealtimeApply({
-            channel: "live",
-            latestSeq: payload.latestSeq,
-            events: unseenEvents,
-          });
-        }
-        const nextLatest = resolveNextLatestSeq(
-          latestSeqRef.current,
-          payload.latestSeq,
-          unseenEvents
-        );
-        if (nextLatest > latestSeqRef.current) {
-          latestSeqRef.current = nextLatest;
-          setLatestSeq(nextLatest);
-        }
-      },
-      onConnectionChange: setIsWorkbookLiveConnected,
-    });
-    workbookLiveSendRef.current = connection.sendEvents;
-    return () => {
-      workbookLiveSendRef.current = null;
-      setIsWorkbookLiveConnected(false);
-      connection.close();
-    };
-  }, [
-    clearIncomingRealtimeApplyQueue,
-    enqueueIncomingRealtimeApply,
-    filterUnseenWorkbookEvents,
-    sessionId,
-    triggerSessionResync,
-  ]);
+    latestSeqRef,
+    sessionResyncInFlightRef,
+    realtimeDisconnectSinceRef,
+    lastForcedResyncAtRef,
+    workbookLiveSendRef,
+    setLatestSeq,
+    setRealtimeSyncWarning,
+    isWorkbookStreamConnected,
+    isWorkbookLiveConnected,
+    setIsWorkbookStreamConnected,
+    setIsWorkbookLiveConnected,
+    pollIntervalMs: POLL_INTERVAL_MS,
+    pollIntervalStreamConnectedMs: POLL_INTERVAL_STREAM_CONNECTED_MS,
+    resyncMinIntervalMs: RESYNC_MIN_INTERVAL_MS,
+  });
 
   useEffect(() => {
     if (
@@ -3919,67 +3705,14 @@ export default function WorkbookSessionPage() {
     sessionId,
   ]);
 
-  useEffect(() => {
-    persistSnapshotsRef.current = persistSnapshots;
-    return () => {
-      persistSnapshotsRef.current = null;
-    };
-  }, [persistSnapshots]);
-
-  useEffect(() => {
-    if (!sessionId || !session) return;
-    void flushWorkbookPersistenceQueue();
-    const intervalId = window.setInterval(() => {
-      void flushWorkbookPersistenceQueue();
-    }, 4_000);
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [session, sessionId]);
-
-  useEffect(() => {
-    const onBeforeUnload = () => {
-      void persistSnapshots({ silent: true, force: true });
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [persistSnapshots]);
-
-  useEffect(() => {
-    const flushPendingChanges = () => {
-      if (!dirtyRef.current) return;
-      void persistSnapshotsRef.current?.({ silent: true, force: true });
-    };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        flushPendingChanges();
-      }
-    };
-    window.addEventListener("pagehide", flushPendingChanges);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      window.removeEventListener("pagehide", flushPendingChanges);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!sessionId || !session) return;
-    const intervalId = window.setInterval(() => {
-      if (!dirtyRef.current) return;
-      void persistSnapshots({ force: true });
-    }, AUTOSAVE_INTERVAL_MS);
-    return () => window.clearInterval(intervalId);
-  }, [persistSnapshots, session, sessionId]);
-
-  useEffect(
-    () => () => {
-      if (dirtyRef.current) {
-        void persistSnapshots({ silent: true, force: true });
-      }
-    },
-    [persistSnapshots]
-  );
+  useWorkbookPersistenceLifecycle({
+    sessionId,
+    sessionReady: Boolean(session),
+    persistSnapshots,
+    persistSnapshotsRef,
+    dirtyRef,
+    autosaveIntervalMs: AUTOSAVE_INTERVAL_MS,
+  });
 
   useEffect(
     () => () => {
