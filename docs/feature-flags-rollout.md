@@ -21,6 +21,8 @@ Runtime env mapping:
 
 1. `ff_frontend_zustand_store` -> `VITE_FF_ZUSTAND_STORE=1` (основной ключ)
 2. alias для совместимости: `VITE_FF_FRONTEND_ZUSTAND_STORE=1`
+3. `ff_backend_nest_read_api` -> `FF_NEST_API=1` (запуск Nest read-path контура)
+4. `ff_backend_nest_read_api` (shadow mode) -> `FF_NEST_API_SHADOW=1` + `NEST_API_BASE_URL=http://127.0.0.1:4180`
 
 ## Политика включения
 

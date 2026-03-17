@@ -12,6 +12,10 @@ import {
   shutdownRuntimeServices,
 } from "../../src/mock/runtimeServices";
 import { setupMockServer } from "../../src/mock/server";
+import {
+  createNestShadowParityMiddleware,
+  getNestShadowParityDiagnostics,
+} from "./nest/shadowParity";
 
 const HOST = process.env.HOST ?? "0.0.0.0";
 const PORT = Number(process.env.PORT ?? 4173);
@@ -239,6 +243,20 @@ app.use((req, res, next) => {
   json(res, 503, {
     error: "server_shutting_down",
   });
+});
+app.use(createNestShadowParityMiddleware());
+app.use((req, res, next) => {
+  const method = String(req.method ?? "GET").toUpperCase();
+  if (method !== "GET" || !req.url) {
+    next();
+    return;
+  }
+  const pathname = new URL(req.url, "http://localhost").pathname;
+  if (pathname !== "/api/nest/shadow/parity") {
+    next();
+    return;
+  }
+  json(res, 200, getNestShadowParityDiagnostics());
 });
 setupMockServer({
   middlewares: app as unknown as ViteDevServer["middlewares"],
