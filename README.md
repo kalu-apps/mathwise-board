@@ -190,6 +190,18 @@ npm run phase7:report
 
 Phase E cleanup артефакт: `docs/phase-e-legacy-cleanup.md`.
 
+## Phase F (Cutover verification + stabilization)
+
+Документация: `docs/phase-f-cutover-stabilization.md`.
+
+Команды:
+
+```bash
+npm run phasef:stabilize
+npm run phasef:report
+npm run phasef:check
+```
+
 ## Git flow (prod + migration)
 
 См. обязательные правила ветвления: `docs/branching-policy.md`.
