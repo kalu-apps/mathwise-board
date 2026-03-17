@@ -22,7 +22,8 @@
     "backend:start": "node --import tsx backend/src/server.ts",
     "backend:start:board": "VITE_BOARD_MODE=realtime VITE_WHITEBOARD_ONLY=1 node --import tsx backend/src/server.ts",
     "backend:start:nest": "TSX_TSCONFIG_PATH=backend/tsconfig.nest.json node --import tsx backend/src/nest/main.ts",
-    "phase3:parity": "node scripts/phase3-shadow-parity-check.mjs"
+    "phase3:parity": "node scripts/phase3-shadow-parity-check.mjs",
+    "phase4:consistency": "node scripts/phase4-write-consistency-check.mjs"
   },
   "browserslist": {
     "production": [

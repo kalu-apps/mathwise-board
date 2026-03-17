@@ -80,8 +80,23 @@ export const trimWorkbookEventsOverflow = (db: MockDb, sessionId: string) => {
     .filter((event) => event.sessionId === sessionId)
     .sort((a, b) => a.seq - b.seq);
   if (sessionEvents.length <= WORKBOOK_EVENT_LIMIT) return;
+  const boardSnapshot = db.workbookSnapshots
+    .filter((snapshot) => snapshot.sessionId === sessionId && snapshot.layer === "board")
+    .sort((left, right) => right.version - left.version)[0];
+  const annotationsSnapshot = db.workbookSnapshots
+    .filter((snapshot) => snapshot.sessionId === sessionId && snapshot.layer === "annotations")
+    .sort((left, right) => right.version - left.version)[0];
+  const barrierSeq =
+    boardSnapshot && annotationsSnapshot
+      ? Math.max(0, Math.min(boardSnapshot.version, annotationsSnapshot.version))
+      : 0;
   const overflow = sessionEvents.length - WORKBOOK_EVENT_LIMIT;
-  const overflowIds = new Set(sessionEvents.slice(0, overflow).map((event) => event.id));
+  const overflowIds = new Set(
+    sessionEvents
+      .slice(0, overflow)
+      .filter((event) => event.seq <= barrierSeq)
+      .map((event) => event.id)
+  );
   db.workbookEvents = db.workbookEvents.filter((event) => !overflowIds.has(event.id));
 };
 

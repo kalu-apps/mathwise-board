@@ -499,7 +499,21 @@ const schedulePostgresEventTrim = (sessionId: string, limit: number) => {
         const pool = await ensurePgPool();
         await pool.query(
           `
-            WITH boundary AS (
+            WITH barrier AS (
+              SELECT
+                CASE
+                  WHEN COUNT(*) FILTER (WHERE layer = 'board') > 0
+                    AND COUNT(*) FILTER (WHERE layer = 'annotations') > 0
+                  THEN LEAST(
+                    MAX(CASE WHEN layer = 'board' THEN version END),
+                    MAX(CASE WHEN layer = 'annotations' THEN version END)
+                  )
+                  ELSE 0
+                END AS safe_seq
+              FROM ${SNAPSHOT_TABLE}
+              WHERE session_id = $1
+            ),
+            boundary AS (
               SELECT seq
               FROM ${EVENT_TABLE}
               WHERE session_id = $1
@@ -510,6 +524,7 @@ const schedulePostgresEventTrim = (sessionId: string, limit: number) => {
             DELETE FROM ${EVENT_TABLE}
             WHERE session_id = $1
               AND seq < COALESCE((SELECT seq FROM boundary), -1)
+              AND seq <= COALESCE((SELECT safe_seq FROM barrier), 0)
           `,
           [sessionId, Math.max(0, normalizedLimit - 1)]
         );
@@ -1098,6 +1113,17 @@ const normalizeLimit = (value: number | undefined) => {
   return Math.max(1, Math.min(5_000, Math.floor(value ?? WORKBOOK_EVENT_LIMIT)));
 };
 
+const resolveSnapshotTrimBarrierSeq = (localDb: MockDb, sessionId: string) => {
+  const boardSnapshot = localDb.workbookSnapshots
+    .filter((snapshot) => snapshot.sessionId === sessionId && snapshot.layer === "board")
+    .sort((left, right) => right.version - left.version)[0];
+  const annotationsSnapshot = localDb.workbookSnapshots
+    .filter((snapshot) => snapshot.sessionId === sessionId && snapshot.layer === "annotations")
+    .sort((left, right) => right.version - left.version)[0];
+  if (!boardSnapshot || !annotationsSnapshot) return 0;
+  return Math.max(0, Math.min(boardSnapshot.version, annotationsSnapshot.version));
+};
+
 const normalizeClientEventId = (value: string | undefined) => {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
@@ -1509,8 +1535,14 @@ export const appendWorkbookSessionEvents = async (params: {
     .filter((event) => event.sessionId === sessionId)
     .sort((left, right) => left.seq - right.seq);
   if (sortedSessionEvents.length > limit) {
+    const barrierSeq = resolveSnapshotTrimBarrierSeq(localDb, sessionId);
     const overflow = sortedSessionEvents.length - limit;
-    const overflowIds = new Set(sortedSessionEvents.slice(0, overflow).map((event) => event.id));
+    const overflowIds = new Set(
+      sortedSessionEvents
+        .slice(0, overflow)
+        .filter((event) => event.seq <= barrierSeq)
+        .map((event) => event.id)
+    );
     localDb.workbookEvents = localDb.workbookEvents.filter((event) => !overflowIds.has(event.id));
   }
   setWorkbookSessionLatestSeqCached(sessionId, latestSeq);
@@ -1655,8 +1687,14 @@ export const appendWorkbookSessionEventsWithKnownSeq = async (params: {
     .filter((event) => event.sessionId === sessionId)
     .sort((left, right) => left.seq - right.seq);
   if (sessionEvents.length > limit) {
+    const barrierSeq = resolveSnapshotTrimBarrierSeq(localDb, sessionId);
     const overflow = sessionEvents.length - limit;
-    const overflowIds = new Set(sessionEvents.slice(0, overflow).map((event) => event.id));
+    const overflowIds = new Set(
+      sessionEvents
+        .slice(0, overflow)
+        .filter((event) => event.seq <= barrierSeq)
+        .map((event) => event.id)
+    );
     localDb.workbookEvents = localDb.workbookEvents.filter((event) => !overflowIds.has(event.id));
   }
   setWorkbookSessionLatestSeqCached(sessionId, computedLatestSeq);
