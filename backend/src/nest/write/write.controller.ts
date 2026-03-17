@@ -1,19 +1,13 @@
 import { Body, Controller, Param, Post, Put, Req, Res } from "@nestjs/common";
-import { LegacyReadProxyService } from "../legacy-read-proxy.service";
+import { LegacyReadProxyService, type ProxiedPayload } from "../legacy-read-proxy.service";
 import { nestEnv } from "../nest-env";
+import { applyProxiedSetCookie, type ProxyResponseLike } from "../proxy-response";
 import { workbookObjectVersionGuard, workbookWriteIdempotency } from "./write-shared";
 
 type ProxyRequestLike = {
   headers?: Record<string, string | string[] | undefined>;
   originalUrl?: string;
   url?: string;
-};
-
-type ProxyResponseLike = {
-  status: (code: number) => ProxyResponseLike;
-  json: (payload: unknown) => void;
-  setHeader: (name: string, value: string) => void;
-  send: (payload: string) => void;
 };
 
 @Controller("/api/workbook/sessions/:sessionId")
@@ -52,7 +46,7 @@ export class WorkbookWriteController {
         });
       })
     );
-    writeProxyResult(res, result.statusCode, result.contentType, result.body);
+    writeProxyResult(res, result);
   }
 
   @Post("/events/live")
@@ -72,7 +66,7 @@ export class WorkbookWriteController {
         body,
       })
     );
-    writeProxyResult(res, result.statusCode, result.contentType, result.body);
+    writeProxyResult(res, result);
   }
 
   @Post("/events/preview")
@@ -92,7 +86,7 @@ export class WorkbookWriteController {
         body,
       })
     );
-    writeProxyResult(res, result.statusCode, result.contentType, result.body);
+    writeProxyResult(res, result);
   }
 
   @Put("/snapshot")
@@ -111,7 +105,7 @@ export class WorkbookWriteController {
         body,
       })
     );
-    writeProxyResult(res, result.statusCode, result.contentType, result.body);
+    writeProxyResult(res, result);
   }
 
   @Post("/presence")
@@ -130,7 +124,7 @@ export class WorkbookWriteController {
         body,
       })
     );
-    writeProxyResult(res, result.statusCode, result.contentType, result.body);
+    writeProxyResult(res, result);
   }
 
   @Post("/presence/leave")
@@ -150,7 +144,7 @@ export class WorkbookWriteController {
         body,
       })
     );
-    writeProxyResult(res, result.statusCode, result.contentType, result.body);
+    writeProxyResult(res, result);
   }
 
   private resolveIdempotencyKey(
@@ -173,10 +167,10 @@ export class WorkbookWriteController {
 
 const writeProxyResult = (
   res: ProxyResponseLike,
-  statusCode: number,
-  contentType: string,
-  body: unknown
+  proxied: ProxiedPayload
 ) => {
+  applyProxiedSetCookie(res, proxied);
+  const { statusCode, contentType, body } = proxied;
   if (contentType.toLowerCase().includes("application/json")) {
     res.status(statusCode).json(body);
     return;

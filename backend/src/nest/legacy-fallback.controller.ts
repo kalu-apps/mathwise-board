@@ -1,5 +1,6 @@
 import { All, Body, Controller, Req, Res } from "@nestjs/common";
 import { LegacyReadProxyService } from "./legacy-read-proxy.service";
+import { applyProxiedSetCookie, type ProxyResponseLike } from "./proxy-response";
 
 type ProxyRequestLike = {
   method?: string;
@@ -9,11 +10,7 @@ type ProxyRequestLike = {
   on?: (event: string, listener: () => void) => void;
 };
 
-type ProxyResponseLike = {
-  status: (code: number) => ProxyResponseLike;
-  json: (payload: unknown) => void;
-  setHeader: (name: string, value: string) => void;
-  send: (payload: string) => void;
+type ProxyResponseWithEnd = ProxyResponseLike & {
   end: (chunk?: string) => void;
 };
 
@@ -25,14 +22,21 @@ export class LegacyFallbackController {
   async forwardUnknownApi(
     @Body() body: unknown,
     @Req() req: ProxyRequestLike,
-    @Res() res: ProxyResponseLike
+    @Res() res: ProxyResponseWithEnd
   ) {
     const method = String(req.method ?? "GET").toUpperCase();
     const pathAndQuery = req.originalUrl ?? req.url ?? "/api";
 
     if (method === "GET" || method === "HEAD") {
       const response = await this.proxy.forwardGet(pathAndQuery, req);
-      this.writeResponse(res, response.statusCode, response.contentType, response.body, method === "HEAD");
+      this.writeResponse(
+        res,
+        response.statusCode,
+        response.contentType,
+        response.body,
+        response.setCookie,
+        method === "HEAD"
+      );
       return;
     }
 
@@ -43,7 +47,14 @@ export class LegacyFallbackController {
         req,
         body,
       });
-      this.writeResponse(res, response.statusCode, response.contentType, response.body, false);
+      this.writeResponse(
+        res,
+        response.statusCode,
+        response.contentType,
+        response.body,
+        response.setCookie,
+        false
+      );
       return;
     }
 
@@ -55,12 +66,14 @@ export class LegacyFallbackController {
   }
 
   private writeResponse(
-    res: ProxyResponseLike,
+    res: ProxyResponseWithEnd,
     statusCode: number,
     contentType: string,
     body: unknown,
+    setCookie: string[],
     headOnly: boolean
   ) {
+    applyProxiedSetCookie(res, { setCookie });
     if (headOnly) {
       res.status(statusCode);
       res.end();

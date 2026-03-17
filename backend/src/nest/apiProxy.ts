@@ -14,8 +14,12 @@ const proxyHeaders = [
   "authorization",
   "accept",
   "accept-language",
+  "origin",
+  "referer",
   "content-type",
   "user-agent",
+  "access-control-request-method",
+  "access-control-request-headers",
   "x-request-id",
   "x-idempotency-key",
   "x-workbook-device-id",
@@ -47,6 +51,48 @@ const readRawBody = async (req: IncomingMessage) => {
   return Buffer.concat(chunks);
 };
 
+const readRequestHeader = (
+  req: IncomingMessage,
+  name: string
+): string | null => {
+  const raw = req.headers[name];
+  if (typeof raw === "string" && raw.length > 0) return raw;
+  if (Array.isArray(raw) && raw.length > 0) return raw[0] ?? null;
+  return null;
+};
+
+const applyCorsHeadersFromRequest = (req: IncomingMessage, res: {
+  setHeader: (name: string, value: string) => void;
+}) => {
+  const origin = readRequestHeader(req, "origin");
+  if (!origin) return;
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Vary", "Origin");
+  const requestedHeaders = readRequestHeader(req, "access-control-request-headers");
+  if (requestedHeaders) {
+    res.setHeader("Access-Control-Allow-Headers", requestedHeaders);
+  }
+  const requestedMethod = readRequestHeader(req, "access-control-request-method");
+  if (requestedMethod) {
+    res.setHeader("Access-Control-Allow-Methods", requestedMethod);
+  }
+};
+
+const getResponseSetCookies = (response: Response): string[] => {
+  const typedHeaders = response.headers as Headers & {
+    getSetCookie?: () => string[];
+  };
+  if (typeof typedHeaders.getSetCookie === "function") {
+    const cookies = typedHeaders.getSetCookie().filter((value) => value.length > 0);
+    if (cookies.length > 0) {
+      return cookies;
+    }
+  }
+  const single = response.headers.get("set-cookie");
+  return typeof single === "string" && single.length > 0 ? [single] : [];
+};
+
 const createForwardHeaders = (req: IncomingMessage) => {
   const headers = new Headers();
   for (const headerName of proxyHeaders) {
@@ -62,7 +108,10 @@ const createForwardHeaders = (req: IncomingMessage) => {
   return headers;
 };
 
-const shouldProxyRoute = (method: "GET" | "POST" | "PUT" | "DELETE", pathname: string) => {
+const shouldProxyRoute = (
+  method: "GET" | "POST" | "PUT" | "DELETE" | "OPTIONS" | "HEAD",
+  pathname: string
+) => {
   if (nestEnv.proxyMode === "all") {
     if (!pathname.startsWith("/api/")) return false;
     if (ALL_PROXY_SKIP_PATTERNS.some((pattern) => pattern.test(pathname))) return false;
@@ -87,7 +136,13 @@ export const createNestApiProxyMiddleware = (): NextHandleFunction => {
       next();
       return;
     }
-    const method = String(req.method ?? "GET").toUpperCase() as "GET" | "POST" | "PUT" | "DELETE";
+    const method = String(req.method ?? "GET").toUpperCase() as
+      | "GET"
+      | "POST"
+      | "PUT"
+      | "DELETE"
+      | "OPTIONS"
+      | "HEAD";
     const pathname = new URL(req.url, "http://localhost").pathname;
     const shouldProxy = shouldProxyRoute(method, pathname);
     if (!shouldProxy) {
@@ -119,8 +174,13 @@ export const createNestApiProxyMiddleware = (): NextHandleFunction => {
 
       res.statusCode = response.status;
       for (const [name, value] of response.headers.entries()) {
-        if (name.toLowerCase() === "transfer-encoding") continue;
+        const lower = name.toLowerCase();
+        if (lower === "transfer-encoding" || lower === "set-cookie") continue;
         res.setHeader(name, value);
+      }
+      const setCookies = getResponseSetCookies(response);
+      if (setCookies.length > 0) {
+        res.setHeader("Set-Cookie", setCookies);
       }
       if (sessionId) {
         const affinity = resolveWorkbookSessionAffinity(sessionId);
@@ -137,6 +197,7 @@ export const createNestApiProxyMiddleware = (): NextHandleFunction => {
     } catch (error) {
       clearTimeout(timeoutId);
       res.statusCode = 503;
+      applyCorsHeadersFromRequest(req, res);
       res.setHeader("Content-Type", "application/json; charset=utf-8");
       res.end(
         JSON.stringify({

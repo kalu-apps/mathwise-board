@@ -2,10 +2,11 @@ import { Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { Readable } from "node:stream";
 import { nestEnv, shadowRequestHeader } from "./nest-env";
 
-type ProxiedPayload = {
+export type ProxiedPayload = {
   statusCode: number;
   contentType: string;
   body: unknown;
+  setCookie: string[];
 };
 
 const passthroughRequestHeaders = [
@@ -13,6 +14,10 @@ const passthroughRequestHeaders = [
   "authorization",
   "accept",
   "accept-language",
+  "origin",
+  "referer",
+  "access-control-request-method",
+  "access-control-request-headers",
   "user-agent",
   "x-request-id",
   "x-idempotency-key",
@@ -31,6 +36,20 @@ const toText = async (response: Response) => {
   } catch {
     return "";
   }
+};
+
+const readSetCookieHeaders = (response: Response): string[] => {
+  const typedHeaders = response.headers as Headers & {
+    getSetCookie?: () => string[];
+  };
+  if (typeof typedHeaders.getSetCookie === "function") {
+    const cookies = typedHeaders.getSetCookie().filter((value) => value.length > 0);
+    if (cookies.length > 0) {
+      return cookies;
+    }
+  }
+  const single = response.headers.get("set-cookie");
+  return typeof single === "string" && single.length > 0 ? [single] : [];
 };
 
 @Injectable()
@@ -104,6 +123,7 @@ export class LegacyReadProxyService {
         statusCode: response.status,
         contentType,
         body,
+        setCookie: readSetCookieHeaders(response),
       } satisfies ProxiedPayload;
     } catch (error) {
       const message = error instanceof Error ? error.message : "legacy_proxy_fetch_failed";
@@ -125,6 +145,7 @@ export class LegacyReadProxyService {
         statusCode: response.status,
         contentType,
         body: text,
+        setCookie: readSetCookieHeaders(response),
       } satisfies ProxiedPayload;
     }
     const parsed = text.length > 0 ? safeParseJson(text) : null;
@@ -132,6 +153,7 @@ export class LegacyReadProxyService {
       statusCode: response.status,
       contentType,
       body: parsed,
+      setCookie: readSetCookieHeaders(response),
     } satisfies ProxiedPayload;
   }
 
