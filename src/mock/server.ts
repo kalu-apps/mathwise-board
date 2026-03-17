@@ -2136,6 +2136,10 @@ export function setupMockServer(host: MiddlewareHost) {
       next();
       return;
     }
+    if (pathname.startsWith("/api/nest/")) {
+      next();
+      return;
+    }
 
     const sessionIdFromPath = extractWorkbookSessionIdFromPath(pathname);
     if (sessionIdFromPath && method !== "OPTIONS") {
