@@ -258,11 +258,9 @@ app.use((req, res, next) => {
     return;
   }
   json(res, 200, {
-    ffNestApi: nestEnv.featureEnabled,
-    ffNestApiShadow: nestEnv.featureShadowEnabled,
-    proxyMode: nestEnv.proxyMode,
+    mode: "nest-api-only",
+    proxyMode: "all",
     apiBaseUrl: nestEnv.apiBaseUrl,
-    legacyBaseUrl: nestEnv.legacyBaseUrl,
     requestTimeoutMs: nestEnv.requestTimeoutMs,
     writeProxyTimeoutMs: nestEnv.writeProxyTimeoutMs,
   });

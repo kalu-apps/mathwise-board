@@ -8,9 +8,6 @@
 
 | Flag | Default | Область | Назначение | Rollback |
 |---|---|---|---|---|
-| `ff_backend_nest_read_api` | `false` | Backend API | Переключение read endpoint'ов на Nest | Вернуть `false`, трафик на legacy handlers |
-| `ff_backend_nest_write_api` | `false` | Backend API | Переключение write endpoint'ов на Nest | Вернуть `false`, трафик на legacy write path |
-| `ff_backend_nest_realtime_gateway` | `false` | Realtime | Переключение stream/live realtime транспорта на Nest gateway | Вернуть `false`, вернуть legacy WS/SSE path |
 | `ff_realtime_adaptive_polling` | `false` | Frontend realtime | Адаптивный poll/backoff вместо фиксированного polling цикла | Вернуть фиксированные интервалы |
 | `ff_realtime_backpressure_v2` | `false` | Realtime pipeline | Новый backpressure и drop-stale policy для preview | Вернуть старый runtime apply/send policy |
 | `ff_board_canvas_committed_layer` | `false` | Rendering | Committed scene слой на Canvas2D | Вернуть SVG committed path |
@@ -18,14 +15,11 @@
 
 Runtime env mapping:
 
-1. `ff_backend_nest_read_api` -> `FF_NEST_API=1` (запуск Nest read-path контура)
-2. `ff_backend_nest_read_api` (shadow mode) -> `FF_NEST_API_SHADOW=1` + `NEST_API_BASE_URL=http://127.0.0.1:4180`
-3. `ff_backend_nest_write_api` -> `FF_NEST_API=1` (mutate routes проксируются в Nest gateway)
-4. `ff_backend_nest_write_api` consistency controls -> `NEST_OBJECT_VERSION_STRICT=1` + `NEST_IDEMPOTENCY_*`
-5. `ff_realtime_adaptive_polling` -> `VITE_FF_REALTIME_ADAPTIVE_POLLING=1` (alias: `VITE_FF_ADAPTIVE_POLLING=1`)
-6. `ff_realtime_backpressure_v2` -> `VITE_FF_REALTIME_BACKPRESSURE_V2=1` (alias: `VITE_FF_BACKPRESSURE_V2=1`)
-7. `ff_board_canvas_committed_layer` -> `VITE_FF_NEW_RENDERER=1` (aliases: `VITE_FF_BOARD_CANVAS_COMMITTED_LAYER=1`, `VITE_FF_FRONTEND_NEW_RENDERER=1`)
-8. `ff_board_worker_compute` -> включается вместе с `ff_board_canvas_committed_layer` в текущей реализации (worker-path активируется внутри new renderer path)
+1. `ff_realtime_adaptive_polling` -> `VITE_FF_REALTIME_ADAPTIVE_POLLING=1` (alias: `VITE_FF_ADAPTIVE_POLLING=1`)
+2. `ff_realtime_backpressure_v2` -> `VITE_FF_REALTIME_BACKPRESSURE_V2=1` (alias: `VITE_FF_BACKPRESSURE_V2=1`)
+3. `ff_board_canvas_committed_layer` -> `VITE_FF_NEW_RENDERER=1` (aliases: `VITE_FF_BOARD_CANVAS_COMMITTED_LAYER=1`, `VITE_FF_FRONTEND_NEW_RENDERER=1`)
+4. `ff_board_worker_compute` -> включается вместе с `ff_board_canvas_committed_layer` в текущей реализации (worker-path активируется внутри new renderer path)
+5. consistency controls на Nest-path управляются env-параметрами `NEST_OBJECT_VERSION_STRICT` и `NEST_IDEMPOTENCY_*` без migration-флагов.
 
 `ff_frontend_zustand_store` выведен из эксплуатации в фазе B: фронтовый hot-path работает только через Zustand slices.
 
@@ -55,11 +49,7 @@ Runtime env mapping:
 2. нет P0/P1 инцидентов;
 3. нет роста gap/failure rate.
 
-Phase-7 cutover режим:
-
-1. `FF_NEST_API=1`
-2. `NEST_PROXY_MODE=all`
-3. `FF_NEST_API_SHADOW=0` после подтвержденного полного cutover.
+Phase-7 cutover завершен: backend работает в always-on Nest ingress режиме без migration-флагов `FF_NEST_API*` и `NEST_PROXY_MODE`.
 
 ## Автоматические rollback-триггеры
 

@@ -1,12 +1,8 @@
 import { Controller, Get } from "@nestjs/common";
-import { nestEnv } from "../nest-env";
+const NEST_MODE = "nest-native-api" as const;
 
 @Controller()
 export class HealthController {
-  private getMode() {
-    return nestEnv.proxyMode === "all" ? "cutover-all-api" : "write-gateway";
-  }
-
   @Get("/livez")
   getLivez() {
     return {
@@ -25,9 +21,7 @@ export class HealthController {
       ready: true,
       reasons: [],
       shuttingDown: false,
-      mode: this.getMode(),
-      proxyMode: nestEnv.proxyMode,
-      ffNestApi: nestEnv.featureEnabled,
+      mode: NEST_MODE,
     };
   }
 
@@ -37,9 +31,7 @@ export class HealthController {
       ok: true,
       service: "mathboard-nest",
       timestamp: new Date().toISOString(),
-      mode: this.getMode(),
-      proxyMode: nestEnv.proxyMode,
-      ffNestApi: nestEnv.featureEnabled,
+      mode: NEST_MODE,
     };
   }
 }

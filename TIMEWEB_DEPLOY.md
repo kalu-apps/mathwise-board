@@ -62,8 +62,6 @@ WORKBOOK_SESSION_AFFINITY_COOKIE_SAME_SITE=Lax
 WORKBOOK_SESSION_AFFINITY_COOKIE_SECURE=1
 WORKBOOK_SESSION_AFFINITY_COOKIE_HTTP_ONLY=0
 WORKBOOK_SESSION_AFFINITY_COOKIE_DOMAIN=.your-domain.tld
-FF_NEST_API=1
-NEST_PROXY_MODE=all
 
 MEDIA_STUN_URLS=stun:stun.l.google.com:19302
 MEDIA_TURN_URLS=turn:turn.your-domain.tld:3478?transport=udp,turns:turn.your-domain.tld:5349?transport=tcp
@@ -74,6 +72,8 @@ MEDIA_LIVEKIT_API_KEY=<livekit-api-key>
 MEDIA_LIVEKIT_API_SECRET=<livekit-api-secret>
 MEDIA_LIVEKIT_TOKEN_TTL_SECONDS=3600
 ```
+
+Примечание: migration-флаги `FF_NEST_API*` и `NEST_PROXY_MODE` выведены из эксплуатации; API ingress в Nest работает всегда.
 
 После изменений:
 ```bash

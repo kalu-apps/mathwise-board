@@ -29,7 +29,7 @@ Remove backend dependency on `legacy proxy/fallback` for primary `api/*` traffic
 
 ## Go/No-Go for Phase C
 Go when production confirms:
-1. `FF_NEST_API=1` + `NEST_PROXY_MODE=all` stays stable.
+1. 100% API ingress через Nest gateway stays stable.
 2. Core API paths (`/api/auth/*`, `/api/workbook/*`, `/api/runtime/*`, `/api/telemetry/*`) return success from Nest path.
 3. No `legacy_proxy_unavailable` / `nest_api_proxy_unavailable` spikes in logs.
 

@@ -7,7 +7,7 @@ import {
   getWorkbookSessionAffinityNodeHeaderName,
   resolveWorkbookSessionAffinity,
 } from "../../../src/mock/sessionAffinity";
-import { nestEnv, shadowRequestHeader } from "./nest-env";
+import { nestEnv } from "./nest-env";
 
 const proxyHeaders = [
   "cookie",
@@ -28,16 +28,7 @@ const proxyHeaders = [
   "x-workbook-session-affinity",
 ] as const;
 
-const PROXY_ROUTES: Array<{ method: "GET" | "POST" | "PUT"; pattern: RegExp }> = [
-  { method: "POST", pattern: /^\/api\/workbook\/sessions\/[^/]+\/events$/ },
-  { method: "POST", pattern: /^\/api\/workbook\/sessions\/[^/]+\/events\/live$/ },
-  { method: "POST", pattern: /^\/api\/workbook\/sessions\/[^/]+\/events\/preview$/ },
-  { method: "PUT", pattern: /^\/api\/workbook\/sessions\/[^/]+\/snapshot$/ },
-  { method: "POST", pattern: /^\/api\/workbook\/sessions\/[^/]+\/presence$/ },
-  { method: "POST", pattern: /^\/api\/workbook\/sessions\/[^/]+\/presence\/leave$/ },
-  { method: "GET", pattern: /^\/api\/nest\/write\/diagnostics$/ },
-];
-const ALL_PROXY_SKIP_PATTERNS = [/^\/api\/nest\/shadow\/parity$/, /^\/api\/nest\/proxy\/diagnostics$/];
+const PROXY_SKIP_PATTERNS = [/^\/api\/nest\/proxy\/diagnostics$/];
 
 const readRawBody = async (req: IncomingMessage) => {
   const chunks: Buffer[] = [];
@@ -108,31 +99,13 @@ const createForwardHeaders = (req: IncomingMessage) => {
   return headers;
 };
 
-const shouldProxyRoute = (
-  method: "GET" | "POST" | "PUT" | "DELETE" | "OPTIONS" | "HEAD",
-  pathname: string
-) => {
-  if (nestEnv.proxyMode === "all") {
-    if (!pathname.startsWith("/api/")) return false;
-    if (ALL_PROXY_SKIP_PATTERNS.some((pattern) => pattern.test(pathname))) return false;
-    return true;
-  }
-  return PROXY_ROUTES.some(
-    (route) => route.method === method && route.pattern.test(pathname)
-  );
-};
+const shouldProxyRoute = (pathname: string) =>
+  pathname.startsWith("/api/") &&
+  !PROXY_SKIP_PATTERNS.some((pattern) => pattern.test(pathname));
 
 export const createNestApiProxyMiddleware = (): NextHandleFunction => {
-  if (!nestEnv.featureEnabled) {
-    return (_req, _res, next) => next();
-  }
-
   return async (req, res, next) => {
     if (!req.url) {
-      next();
-      return;
-    }
-    if (req.headers[shadowRequestHeader] === "1") {
       next();
       return;
     }
@@ -144,7 +117,7 @@ export const createNestApiProxyMiddleware = (): NextHandleFunction => {
       | "OPTIONS"
       | "HEAD";
     const pathname = new URL(req.url, "http://localhost").pathname;
-    const shouldProxy = shouldProxyRoute(method, pathname);
+    const shouldProxy = shouldProxyRoute(pathname);
     if (!shouldProxy) {
       next();
       return;
