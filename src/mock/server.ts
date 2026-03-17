@@ -3337,7 +3337,7 @@ export function setupMockServer(host: MiddlewareHost) {
           }
           participant = getWorkbookParticipant(db, sessionId, actor.id) ?? participant;
         }
-        const versionGuardResult = applyWorkbookObjectVersionGuard({
+        const versionGuardResult = await applyWorkbookObjectVersionGuard({
           db,
           sessionId,
           events,
