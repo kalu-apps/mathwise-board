@@ -13,10 +13,6 @@ import {
   shutdownRuntimeServices,
 } from "../../src/mock/runtimeServices";
 import { setupMockServer } from "../../src/mock/server";
-import {
-  createNestShadowParityMiddleware,
-  getNestShadowParityDiagnostics,
-} from "./nest/shadowParity";
 import { createNestApiProxyMiddleware } from "./nest/apiProxy";
 import { nestEnv } from "./nest/nest-env";
 
@@ -250,7 +246,6 @@ app.use((req, res, next) => {
   });
 });
 app.use(createNestApiProxyMiddleware());
-app.use(createNestShadowParityMiddleware());
 app.use((req, res, next) => {
   const method = String(req.method ?? "GET").toUpperCase();
   if (method !== "GET" || !req.url) {
@@ -258,23 +253,19 @@ app.use((req, res, next) => {
     return;
   }
   const pathname = new URL(req.url, "http://localhost").pathname;
-  if (pathname !== "/api/nest/shadow/parity" && pathname !== "/api/nest/proxy/diagnostics") {
+  if (pathname !== "/api/nest/proxy/diagnostics") {
     next();
     return;
   }
-  if (pathname === "/api/nest/proxy/diagnostics") {
-    json(res, 200, {
-      ffNestApi: nestEnv.featureEnabled,
-      ffNestApiShadow: nestEnv.featureShadowEnabled,
-      proxyMode: nestEnv.proxyMode,
-      apiBaseUrl: nestEnv.apiBaseUrl,
-      legacyBaseUrl: nestEnv.legacyBaseUrl,
-      requestTimeoutMs: nestEnv.requestTimeoutMs,
-      writeProxyTimeoutMs: nestEnv.writeProxyTimeoutMs,
-    });
-    return;
-  }
-  json(res, 200, getNestShadowParityDiagnostics());
+  json(res, 200, {
+    ffNestApi: nestEnv.featureEnabled,
+    ffNestApiShadow: nestEnv.featureShadowEnabled,
+    proxyMode: nestEnv.proxyMode,
+    apiBaseUrl: nestEnv.apiBaseUrl,
+    legacyBaseUrl: nestEnv.legacyBaseUrl,
+    requestTimeoutMs: nestEnv.requestTimeoutMs,
+    writeProxyTimeoutMs: nestEnv.writeProxyTimeoutMs,
+  });
 });
 setupMockServer({
   middlewares: app as unknown as ViteDevServer["middlewares"],

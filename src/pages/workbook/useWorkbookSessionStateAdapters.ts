@@ -4,7 +4,6 @@ import {
   type StateUpdater,
   useWorkbookSessionStore,
 } from "@/features/workbook/model/workbookSessionStore";
-import { isWorkbookZustandStoreEnabled } from "@/features/workbook/model/featureFlags";
 import type { WorkbookPoint } from "@/features/workbook/model/types";
 
 const resolveStateUpdater = <T>(updater: StateUpdater<T>, current: T): T =>
@@ -34,7 +33,7 @@ const useDualState = <T>(params: {
 };
 
 export const useWorkbookSessionStateAdapters = (sessionId: string) => {
-  const zustandStoreEnabled = isWorkbookZustandStoreEnabled();
+  const zustandStoreEnabled = true;
   const uiStore = useWorkbookSessionStore(useShallow((state) => state.ui));
   const collabStore = useWorkbookSessionStore(useShallow((state) => state.collab));
   const sceneStore = useWorkbookSessionStore(useShallow((state) => state.scene));
@@ -42,9 +41,8 @@ export const useWorkbookSessionStateAdapters = (sessionId: string) => {
   const actions = useWorkbookSessionStore(useShallow((state) => state.actions));
 
   useEffect(() => {
-    if (!zustandStoreEnabled) return;
     actions.resetForSession();
-  }, [actions, sessionId, zustandStoreEnabled]);
+  }, [actions, sessionId]);
 
   const [latestSeq, setLatestSeq] = useDualState({
     enabled: zustandStoreEnabled,

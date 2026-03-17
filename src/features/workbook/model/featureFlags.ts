@@ -17,14 +17,7 @@ const readFeatureFlagValue = (...keys: string[]) => {
   return "";
 };
 
-export const isWorkbookZustandStoreEnabled = () =>
-  toBooleanFlag(
-    readFeatureFlagValue(
-      "VITE_FF_ZUSTAND_STORE",
-      "VITE_FF_FRONTEND_ZUSTAND_STORE",
-      "VITE_FF_FRONTEND_ZUSTAND"
-    )
-  );
+export const isWorkbookZustandStoreEnabled = () => true;
 
 export const isWorkbookNewRendererEnabled = () =>
   toBooleanFlag(
