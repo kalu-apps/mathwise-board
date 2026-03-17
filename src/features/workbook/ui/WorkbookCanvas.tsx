@@ -244,6 +244,7 @@ type WorkbookCanvasProps = {
     points: WorkbookPoint[];
     ended?: boolean;
   }) => void;
+  onEraserCommit?: (payload: WorkbookEraserCommitPayload) => void;
   onStrokeDelete: (strokeId: string, layer: WorkbookLayer) => void;
   onStrokeReplace: (payload: {
     stroke: WorkbookStroke;
@@ -313,6 +314,12 @@ type WorkbookCanvasProps = {
 };
 
 type WorkbookCanvasAreaSelection = WorkbookAreaSelection;
+
+export type WorkbookEraserCommitPayload = {
+  strokeDeletes: Array<{ strokeId: string; layer: WorkbookLayer }>;
+  strokeReplacements: Array<{ stroke: WorkbookStroke; fragments: WorkbookPoint[][] }>;
+  objectUpdates: Array<{ objectId: string; patch: Partial<WorkbookBoardObject> }>;
+};
 
 type ShapeDraft = {
   tool:
@@ -472,6 +479,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   onStrokeCommit,
   onStrokePreview,
   onEraserPreview,
+  onEraserCommit,
   onStrokeDelete,
   onStrokeReplace,
   onObjectCreate,
@@ -1208,6 +1216,16 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   );
 
   const commitEraserGesture = useCallback(() => {
+    const strokeDeletes: Array<{ strokeId: string; layer: WorkbookLayer }> = [];
+    const strokeReplacements: Array<{
+      stroke: WorkbookStroke;
+      fragments: WorkbookPoint[][];
+    }> = [];
+    const objectUpdates: Array<{
+      objectId: string;
+      patch: Partial<WorkbookBoardObject>;
+    }> = [];
+
     erasedStrokeIdsRef.current.forEach((key) => {
       const [targetLayer, strokeId] = key.split(":");
       if (!strokeId) return;
@@ -1215,64 +1233,95 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       if (!sourceStroke) return;
       const fragments = eraserStrokeFragmentsRef.current.get(key) ?? [];
       if (fragments.length === 0) {
-        onStrokeDelete(
+        strokeDeletes.push({
           strokeId,
-          targetLayer === "annotations" ? "annotations" : "board"
-        );
+          layer: targetLayer === "annotations" ? "annotations" : "board",
+        });
         return;
       }
-      onStrokeReplace({
+      strokeReplacements.push({
         stroke: sourceStroke,
         fragments,
       });
     });
-    if (eraserTouchedObjectIdsRef.current.size === 0) return;
-    const touchedIds = Array.from(eraserTouchedObjectIdsRef.current);
-    touchedIds.forEach((objectId) => {
-      const sourceObject =
-        getLatestBoardObject?.(objectId) ??
-        objectById.get(objectId) ??
-        null;
-      const cuts = eraserObjectCutsRef.current.get(objectId);
-      if (!cuts || cuts.length === 0) return;
-      const nextStoredPaths = (
-        eraserObjectPreviewPathsRef.current.get(objectId) ?? []
-      ).reduce<ObjectEraserStoredPath[]>((acc, path) => {
-        const normalized = sourceObject
-          ? normalizeObjectEraserPreviewPath(sourceObject, path, getObjectRect)
-          : null;
-        if (normalized) {
-          acc.push(normalized);
+    if (eraserTouchedObjectIdsRef.current.size > 0) {
+      const touchedIds = Array.from(eraserTouchedObjectIdsRef.current);
+      touchedIds.forEach((objectId) => {
+        const sourceObject =
+          getLatestBoardObject?.(objectId) ??
+          objectById.get(objectId) ??
+          null;
+        const cuts = eraserObjectCutsRef.current.get(objectId);
+        if (!cuts || cuts.length === 0) return;
+        const nextStoredPaths = (
+          eraserObjectPreviewPathsRef.current.get(objectId) ?? []
+        ).reduce<ObjectEraserStoredPath[]>((acc, path) => {
+          const normalized = sourceObject
+            ? normalizeObjectEraserPreviewPath(sourceObject, path, getObjectRect)
+            : null;
+          if (normalized) {
+            acc.push(normalized);
+          }
+          return acc;
+        }, []);
+        const existingStoredPaths = sourceObject
+          ? sanitizeObjectEraserPaths(sourceObject, getObjectRect)
+          : [];
+        const persistedPaths = sourceObject
+          ? buildCommittedObjectEraserStoredPaths({
+              object: sourceObject,
+              getObjectRect,
+              nextStoredPaths,
+            })
+          : [];
+        const currentCuts = sourceObject
+          ? sanitizeObjectEraserCuts(sourceObject, getObjectRect)
+          : [];
+        if (
+          currentCuts.length === 0 &&
+          areObjectEraserStoredPathsEquivalent(existingStoredPaths, persistedPaths)
+        ) {
+          return;
         }
-        return acc;
-      }, []);
-      const existingStoredPaths = sourceObject
-        ? sanitizeObjectEraserPaths(sourceObject, getObjectRect)
-        : [];
-      const persistedPaths = sourceObject
-        ? buildCommittedObjectEraserStoredPaths({
-            object: sourceObject,
-            getObjectRect,
-            nextStoredPaths,
-          })
-        : [];
-      const currentCuts = sourceObject
-        ? sanitizeObjectEraserCuts(sourceObject, getObjectRect)
-        : [];
-      if (
-        currentCuts.length === 0 &&
-        areObjectEraserStoredPathsEquivalent(existingStoredPaths, persistedPaths)
-      ) {
-        return;
-      }
-      onObjectUpdate(
-        objectId,
-        {
-          meta: {
-            eraserCuts: [],
-            eraserPaths: persistedPaths,
+        objectUpdates.push({
+          objectId,
+          patch: {
+            meta: {
+              eraserCuts: [],
+              eraserPaths: persistedPaths,
+            },
           },
-        },
+        });
+      });
+    }
+
+    if (
+      strokeDeletes.length === 0 &&
+      strokeReplacements.length === 0 &&
+      objectUpdates.length === 0
+    ) {
+      return;
+    }
+
+    if (onEraserCommit) {
+      onEraserCommit({
+        strokeDeletes,
+        strokeReplacements,
+        objectUpdates,
+      });
+      return;
+    }
+
+    strokeDeletes.forEach((entry) => {
+      onStrokeDelete(entry.strokeId, entry.layer);
+    });
+    strokeReplacements.forEach((entry) => {
+      onStrokeReplace(entry);
+    });
+    objectUpdates.forEach((entry) => {
+      onObjectUpdate(
+        entry.objectId,
+        entry.patch,
         {
           trackHistory: true,
           markDirty: true,
@@ -1280,6 +1329,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       );
     });
   }, [
+    onEraserCommit,
     getLatestBoardObject,
     objectById,
     onObjectUpdate,
