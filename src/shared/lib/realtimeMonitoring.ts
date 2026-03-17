@@ -5,7 +5,8 @@ export type RealtimeMetricPhase =
   | "persist_ack"
   | "receive"
   | "apply"
-  | "gap";
+  | "gap"
+  | "drop";
 
 export type RealtimeMetricChannel = "persist" | "live" | "stream" | "poll";
 
@@ -22,6 +23,7 @@ export type RealtimeMetricEventDetail = {
   maxLatencyMs?: number;
   gapFromSeq?: number;
   gapToSeq?: number;
+  dropReason?: string;
 };
 
 const IS_DEV = typeof import.meta !== "undefined" && Boolean(import.meta.env?.DEV);
@@ -39,7 +41,7 @@ export const emitRealtimeMetric = (detail: RealtimeMetricEventDetail) => {
   }
 
   if (!IS_DEV) return;
-  if (detail.phase === "gap" || (detail.maxLatencyMs ?? 0) >= 800) {
+  if (detail.phase === "gap" || detail.phase === "drop" || (detail.maxLatencyMs ?? 0) >= 800) {
     console.warn("[realtime]", detail);
     return;
   }
