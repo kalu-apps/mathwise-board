@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -49,6 +49,31 @@ const withTimeout = async (task, timeoutMs) => {
   }
 };
 
+const getJsonViaCurl = (url) => {
+  const response = execFileSync(
+    "curl",
+    ["-sS", "--max-time", String(Math.max(1, Math.ceil(timeoutMs / 1000))), "-w", "\n%{http_code}", url],
+    { encoding: "utf-8" }
+  );
+  const lines = response.replace(/\r/g, "").split("\n");
+  const statusRaw = lines.pop() ?? "0";
+  const bodyRaw = lines.join("\n");
+  const status = Number.parseInt(statusRaw.trim(), 10);
+  let payload = null;
+  try {
+    payload = bodyRaw.length > 0 ? JSON.parse(bodyRaw) : null;
+  } catch {
+    payload = { raw: bodyRaw };
+  }
+  return {
+    status: Number.isFinite(status) ? status : 0,
+    ok: status >= 200 && status < 300,
+    payload,
+    url,
+    transport: "curl",
+  };
+};
+
 const baseUrl = String(process.env.PHASE7_BASE_URL ?? "https://api.board.mathwise.ru")
   .trim()
   .replace(/\/+$/, "");
@@ -74,20 +99,29 @@ const reportFile =
 
 const getJson = async (urlPath) => {
   const url = `${baseUrl}${urlPath}`;
-  const response = await withTimeout((signal) => fetch(url, { method: "GET", signal }), timeoutMs);
-  const text = await response.text();
-  let payload = null;
   try {
-    payload = text.length > 0 ? JSON.parse(text) : null;
-  } catch {
-    payload = { raw: text };
+    const response = await withTimeout((signal) => fetch(url, { method: "GET", signal }), timeoutMs);
+    const text = await response.text();
+    let payload = null;
+    try {
+      payload = text.length > 0 ? JSON.parse(text) : null;
+    } catch {
+      payload = { raw: text };
+    }
+    return {
+      status: response.status,
+      ok: response.ok,
+      payload,
+      url,
+      transport: "fetch",
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/fetch failed|ENOTFOUND|getaddrinfo/i.test(message)) {
+      return getJsonViaCurl(url);
+    }
+    throw error;
   }
-  return {
-    status: response.status,
-    ok: response.ok,
-    payload,
-    url,
-  };
 };
 
 const evaluateGate = (health, infra) => {

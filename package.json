@@ -27,7 +27,10 @@
     "phase6:load": "node scripts/phase6-load-chaos-check.mjs",
     "phase6:check": "npm run phase6:infra && npm run phase6:load",
     "phase7:cutover": "node scripts/phase7-cutover.mjs",
-    "phase7:report": "node scripts/phase7-cutover-report.mjs"
+    "phase7:report": "node scripts/phase7-cutover-report.mjs",
+    "phasef:stabilize": "node scripts/phasef-stabilize-check.mjs",
+    "phasef:report": "node scripts/phasef-stabilize-report.mjs",
+    "phasef:check": "npm run phase7:cutover && npm run phasef:stabilize && npm run phase7:report && npm run phasef:report"
   },
   "browserslist": {
     "production": [
