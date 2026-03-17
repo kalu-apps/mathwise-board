@@ -49,6 +49,37 @@ npm run backend:start:board
 - `AUTH_COOKIE_SECURE=1`
 - `REDIS_URL=redis://...` (runtime connectivity/ping)
 - `BOARD_RUNTIME_REDIS_REQUIRED=1` (для production multi-node контура; не даёт тихо стартовать без Redis)
+- `BOARD_RUNTIME_REDIS_CONNECT_TIMEOUT_MS=4000`
+- `BOARD_RUNTIME_REDIS_INIT_TIMEOUT_MS=8000`
+- `BOARD_RUNTIME_REDIS_COMMAND_TIMEOUT_MS=1500`
+- `BOARD_RUNTIME_REDIS_RECONNECT_BASE_DELAY_MS=150`
+- `BOARD_RUNTIME_REDIS_RECONNECT_MAX_DELAY_MS=5000`
+- `BOARD_RUNTIME_REDIS_RECONNECT_MAX_ATTEMPTS=0` (`0` = без hard-limit, controlled retry)
+- `BOARD_RUNTIME_REDIS_INIT_MAX_ATTEMPTS=3`
+- `BOARD_RUNTIME_REDIS_INIT_RETRY_DELAY_MS=600`
+- `BOARD_RUNTIME_REDIS_COMMAND_RETRIES=1`
+- `BOARD_RUNTIME_REDIS_PUBLISH_RETRIES=2`
+- `BOARD_RUNTIME_REDIS_KEEPALIVE_MS=30000`
+- `BOARD_RUNTIME_REDIS_DISABLE_OFFLINE_QUEUE=0`
+- `BOARD_PG_POOL_MAX=20`
+- `BOARD_PG_POOL_MIN=2`
+- `BOARD_PG_POOL_IDLE_TIMEOUT_MS=30000`
+- `BOARD_PG_POOL_CONNECTION_TIMEOUT_MS=5000`
+- `BOARD_PG_POOL_MAX_USES=0`
+- `BOARD_PG_QUERY_TIMEOUT_MS=15000`
+- `BOARD_PG_INIT_RETRIES=3`
+- `BOARD_PG_INIT_RETRY_DELAY_MS=750`
+- `BOARD_PG_SSL_REJECT_UNAUTHORIZED=0`
+- `WORKBOOK_SESSION_AFFINITY_BUCKETS=128`
+- `WORKBOOK_SESSION_AFFINITY_SALT=<random-affinity-salt>`
+- `WORKBOOK_SESSION_AFFINITY_COOKIE_ENABLED=1`
+- `WORKBOOK_SESSION_AFFINITY_COOKIE_NAME=mw_session_affinity`
+- `WORKBOOK_SESSION_AFFINITY_COOKIE_TTL_SECONDS=28800`
+- `WORKBOOK_SESSION_AFFINITY_COOKIE_SAME_SITE=Lax|None|Strict`
+- `WORKBOOK_SESSION_AFFINITY_COOKIE_SECURE=1`
+- `WORKBOOK_SESSION_AFFINITY_COOKIE_HTTP_ONLY=0`
+- `WORKBOOK_SESSION_AFFINITY_COOKIE_DOMAIN=.your-domain.tld`
+- `NEST_PROXY_MODE=write|all` (`all` для phase-7 cutover: 100% API ingress через Nest gateway)
 - `MEDIA_STUN_URLS=stun:stun.l.google.com:19302`
 - `MEDIA_TURN_URLS=turn:turn.your-domain.tld:3478?transport=udp,turns:turn.your-domain.tld:5349?transport=tcp`
 - `MEDIA_TURN_SECRET=<coturn static-auth-secret>` (предпочтительно)  
@@ -75,6 +106,11 @@ npm run backend:start:board
 - состояние подключения к Redis (если `REDIS_URL` задан);
 - медиа-конфиг (`media.turnAuthMode`, количество STUN/TURN URL, статус `media.livekit.configured`).
 - telemetry summary (`telemetry.rumBuffered`, `telemetry.workbookServerTracesBuffered`, `telemetry.recentSlowWorkbookTraceCount`).
+- session affinity diagnostics (`affinity.headers/buckets/nodeId/stats`).
+
+Инфраструктурный runtime срез (phase 6):
+- `GET /api/runtime/infra`
+- включает `readiness`, `storage.postgresPool`, `runtime.redis`, `telemetry`, `affinity`.
 
 Auth-protected runtime telemetry:
 - `GET /api/telemetry/runtime?limit=50`
@@ -130,6 +166,29 @@ PHASE3_BASE_URL=http://127.0.0.1:4173 npm run phase3:parity
 ## Phase 5 (Render + latency optimization)
 
 Документация: `docs/phase-5-render-latency.md`.
+
+## Phase 6 (Scaling + infra hardening)
+
+Документация: `docs/phase-6-infra-hardening.md`.
+
+Команды:
+
+```bash
+npm run phase6:infra
+npm run phase6:load
+npm run phase6:check
+```
+
+## Phase 7 (Cutover + legacy cleanup)
+
+Документация: `docs/phase-7-cutover.md`.
+
+Команды:
+
+```bash
+npm run phase7:cutover
+npm run phase7:report
+```
 
 ## Git flow (prod + migration)
 

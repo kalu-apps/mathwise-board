@@ -32,3 +32,9 @@ jobs:
       - name: Verify phase-0 artifacts
         run: npm run phase0:verify
 
+      - name: Validate phase6/phase7 script syntax
+        run: |
+          node --check scripts/phase6-infra-check.mjs
+          node --check scripts/phase6-load-chaos-check.mjs
+          node --check scripts/phase7-cutover.mjs
+          node --check scripts/phase7-cutover-report.mjs

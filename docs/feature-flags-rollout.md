@@ -45,7 +45,7 @@ Runtime env mapping:
 Порядок rollout для production:
 
 1. `0%` (shadow-only/disabled)
-2. `5%` (canary)
+2. `10%` (canary)
 3. `25%`
 4. `50%`
 5. `100%`
@@ -55,6 +55,12 @@ Runtime env mapping:
 1. KPI из [phase-0-kpi-gates](/Users/ivankalugin/Documents/New project/mathwise-board/docs/phase-0-kpi-gates.md) в целевой зоне;
 2. нет P0/P1 инцидентов;
 3. нет роста gap/failure rate.
+
+Phase-7 cutover режим:
+
+1. `FF_NEST_API=1`
+2. `NEST_PROXY_MODE=all`
+3. `FF_NEST_API_SHADOW=0` после подтвержденного полного cutover.
 
 ## Автоматические rollback-триггеры
 
