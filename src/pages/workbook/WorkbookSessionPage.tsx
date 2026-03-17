@@ -228,6 +228,7 @@ import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import { useWorkbookLivekit } from "./useWorkbookLivekit";
 import { useWorkbookPersistenceLifecycle } from "./useWorkbookPersistenceLifecycle";
 import { useWorkbookRealtimeTransport } from "./useWorkbookRealtimeTransport";
+import { useWorkbookSessionStateAdapters } from "./useWorkbookSessionStateAdapters";
 import { useWorkbookVisibleScene } from "./useWorkbookVisibleScene";
 import {
   DEFAULT_SMART_INK_OPTIONS,
@@ -1443,9 +1444,47 @@ export default function WorkbookSessionPage() {
     objectId: string;
     points: Solid3dSectionPoint[];
   } | null>(null);
-  const [canvasViewport, setCanvasViewport] = useState<WorkbookPoint>({ x: 0, y: 0 });
+  const {
+    latestSeq,
+    setLatestSeq,
+    realtimeSyncWarning,
+    setRealtimeSyncWarning,
+    isWorkbookStreamConnected,
+    setIsWorkbookStreamConnected,
+    isWorkbookLiveConnected,
+    setIsWorkbookLiveConnected,
+    isSessionChatOpen,
+    setIsSessionChatOpen,
+    isSessionChatMinimized,
+    setIsSessionChatMinimized,
+    isSessionChatMaximized,
+    setIsSessionChatMaximized,
+    isParticipantsCollapsed,
+    setIsParticipantsCollapsed,
+    sessionChatPosition,
+    setSessionChatPosition,
+    contextbarPosition,
+    setContextbarPosition,
+    floatingPanelsTop,
+    setFloatingPanelsTop,
+    selectedObjectId,
+    setSelectedObjectId,
+    selectedConstraintId,
+    setSelectedConstraintId,
+    canvasViewport,
+    setCanvasViewport,
+    viewportZoom,
+    setViewportZoom,
+    focusPoint,
+    setFocusPoint,
+    pointerPoint,
+    setPointerPoint,
+    focusPointsByUser,
+    setFocusPointsByUser,
+    pointerPointsByUser,
+    setPointerPointsByUser,
+  } = useWorkbookSessionStateAdapters(sessionId);
   const [spacePanActive, setSpacePanActive] = useState(false);
-  const [viewportZoom, setViewportZoom] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isCompactViewport, setIsCompactViewport] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth <= 760 : false
@@ -1466,16 +1505,6 @@ export default function WorkbookSessionPage() {
     startTop: number;
   } | null>(null);
   const [frameFocusMode] = useState<"all" | "active">("all");
-  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
-  const [selectedConstraintId, setSelectedConstraintId] = useState<string | null>(null);
-  const [focusPoint, setFocusPoint] = useState<WorkbookPoint | null>(null);
-  const [pointerPoint, setPointerPoint] = useState<WorkbookPoint | null>(null);
-  const [focusPointsByUser, setFocusPointsByUser] = useState<
-    Record<string, WorkbookPoint>
-  >({});
-  const [pointerPointsByUser, setPointerPointsByUser] = useState<
-    Record<string, WorkbookPoint>
-  >({});
   const [objectContextMenu, setObjectContextMenu] = useState<{
     objectId: string;
     x: number;
@@ -1542,11 +1571,9 @@ export default function WorkbookSessionPage() {
   const graphDraftObjectIdRef = useRef<string | null>(null);
   const graphCatalogCursorTimeoutRef = useRef<number | null>(null);
   const suppressAutoPanelSelectionRef = useRef<string | null>(null);
-  const [latestSeq, setLatestSeq] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveSyncWarning, setSaveSyncWarning] = useState<string | null>(null);
-  const [realtimeSyncWarning, setRealtimeSyncWarning] = useState<string | null>(null);
   const [isSessionTabPassive, setIsSessionTabPassive] = useState(false);
   const [activeSessionTabId, setActiveSessionTabId] = useState<string | null>(null);
   const [copyingInviteLink, setCopyingInviteLink] = useState(false);
@@ -1577,18 +1604,9 @@ export default function WorkbookSessionPage() {
   const [incomingEraserPreviews, setIncomingEraserPreviews] = useState<
     Record<string, WorkbookIncomingEraserPreviewEntry>
   >({});
-  const [isSessionChatOpen, setIsSessionChatOpen] = useState(false);
-  const [isSessionChatMinimized, setIsSessionChatMinimized] = useState(false);
-  const [isSessionChatMaximized, setIsSessionChatMaximized] = useState(false);
-  const [isParticipantsCollapsed, setIsParticipantsCollapsed] = useState(false);
   const [isSessionChatAtBottom, setIsSessionChatAtBottom] = useState(true);
-  const [isWorkbookStreamConnected, setIsWorkbookStreamConnected] = useState(false);
-  const [isWorkbookLiveConnected, setIsWorkbookLiveConnected] = useState(false);
   const [sessionChatDraft, setSessionChatDraft] = useState("");
   const [isSessionChatEmojiOpen, setIsSessionChatEmojiOpen] = useState(false);
-  const [sessionChatPosition, setSessionChatPosition] = useState({ x: 24, y: 96 });
-  const [contextbarPosition, setContextbarPosition] = useState({ x: 24, y: 18 });
-  const [floatingPanelsTop, setFloatingPanelsTop] = useState(86);
   const [sessionChatReadAt, setSessionChatReadAt] = useState<string | null>(null);
   const [isClearSessionChatDialogOpen, setIsClearSessionChatDialogOpen] = useState(false);
   const [areaSelection, setAreaSelection] = useState<WorkbookAreaSelection | null>(null);
