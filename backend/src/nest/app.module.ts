@@ -4,8 +4,9 @@ import { HealthModule } from "./health/health.module";
 import { MediaModule } from "./media/media.module";
 import { SessionsModule } from "./sessions/sessions.module";
 import { TelemetryModule } from "./telemetry/telemetry.module";
+import { WorkbookWriteModule } from "./write/write.module";
 
 @Module({
-  imports: [HealthModule, AuthModule, SessionsModule, MediaModule, TelemetryModule],
+  imports: [HealthModule, AuthModule, SessionsModule, MediaModule, TelemetryModule, WorkbookWriteModule],
 })
 export class AppModule {}

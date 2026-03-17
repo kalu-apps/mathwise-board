@@ -16,6 +16,7 @@ import {
   createNestShadowParityMiddleware,
   getNestShadowParityDiagnostics,
 } from "./nest/shadowParity";
+import { createNestApiProxyMiddleware } from "./nest/apiProxy";
 
 const HOST = process.env.HOST ?? "0.0.0.0";
 const PORT = Number(process.env.PORT ?? 4173);
@@ -244,6 +245,7 @@ app.use((req, res, next) => {
     error: "server_shutting_down",
   });
 });
+app.use(createNestApiProxyMiddleware());
 app.use(createNestShadowParityMiddleware());
 app.use((req, res, next) => {
   const method = String(req.method ?? "GET").toUpperCase();
