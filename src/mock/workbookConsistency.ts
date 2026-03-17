@@ -1,5 +1,12 @@
 import crypto from "node:crypto";
-import type { MockDb, WorkbookEventRecord, WorkbookOperationScope } from "./db";
+import {
+  readWorkbookSessionEvents,
+  readWorkbookSessionSnapshot,
+  type MockDb,
+  type PersistedWorkbookEvent,
+  type WorkbookEventRecord,
+  type WorkbookOperationScope,
+} from "./db";
 import type { WorkbookClientEventInput } from "../features/workbook/model/events";
 
 const readBool = (value: string | undefined, fallback: boolean) => {
@@ -237,12 +244,11 @@ const parseMutationFromIncomingEvent = (
 };
 
 const parseMutationFromPersistedEvent = (
-  event: WorkbookEventRecord
+  event: { type: string; payload: unknown }
 ): ParsedMutation | null => {
-  const payloadRaw = safeParsePayload(event.payload);
   const payload =
-    payloadRaw && typeof payloadRaw === "object"
-      ? (payloadRaw as Record<string, unknown>)
+    event.payload && typeof event.payload === "object"
+      ? (event.payload as Record<string, unknown>)
       : null;
   if (!payload) return null;
   if (
@@ -285,7 +291,7 @@ const readVersion = (value: unknown): number | null => {
 };
 
 const deriveObjectVersionStateFromEvents = (
-  events: WorkbookEventRecord[]
+  events: PersistedWorkbookEvent[]
 ) => {
   const state = new Map<string, ObjectVersionState>();
   const ordered = events.slice().sort((left, right) => left.seq - right.seq);
@@ -324,7 +330,7 @@ const readSnapshotPayloadObject = (value: unknown): Record<string, unknown> | nu
 const deriveObjectVersionStateFromSnapshotAndEvents = (params: {
   snapshotVersion: number | null;
   snapshotPayload: unknown;
-  events: WorkbookEventRecord[];
+  events: PersistedWorkbookEvent[];
 }) => {
   const state = new Map<string, ObjectVersionState>();
   const payload = readSnapshotPayloadObject(params.snapshotPayload);
@@ -398,7 +404,64 @@ const buildVersionPlan = (params: {
   return { ok: true as const, nextVersion: currentVersion + 1, actualVersion: currentVersion };
 };
 
-export const applyWorkbookObjectVersionGuard = (params: {
+const mapLocalEventsToPersisted = (events: WorkbookEventRecord[]): PersistedWorkbookEvent[] =>
+  events.map((event) => ({
+    id: event.id,
+    sessionId: event.sessionId,
+    seq: event.seq,
+    authorUserId: event.authorUserId,
+    type: event.type,
+    payload: safeParsePayload(event.payload),
+    createdAt: event.createdAt,
+  }));
+
+const loadObjectVersionState = async (params: {
+  db: MockDb;
+  sessionId: string;
+}) => {
+  try {
+    const latestBoardSnapshot = await readWorkbookSessionSnapshot({
+      sessionId: params.sessionId,
+      layer: "board",
+    });
+    if (latestBoardSnapshot) {
+      const tail = await readWorkbookSessionEvents({
+        sessionId: params.sessionId,
+        afterSeq: Math.max(0, Math.trunc(latestBoardSnapshot.version)),
+        limit: 5_000,
+      });
+      return deriveObjectVersionStateFromSnapshotAndEvents({
+        snapshotVersion: latestBoardSnapshot.version,
+        snapshotPayload: latestBoardSnapshot.payload,
+        events: tail.events,
+      });
+    }
+    const history = await readWorkbookSessionEvents({
+      sessionId: params.sessionId,
+      afterSeq: 0,
+      limit: 5_000,
+    });
+    return deriveObjectVersionStateFromEvents(history.events);
+  } catch {
+    const persistedSessionEvents = params.db.workbookEvents.filter(
+      (event) => event.sessionId === params.sessionId
+    );
+    const localSnapshot = params.db.workbookSnapshots
+      .filter((snapshot) => snapshot.sessionId === params.sessionId && snapshot.layer === "board")
+      .sort((left, right) => right.version - left.version)[0];
+    const localEvents = mapLocalEventsToPersisted(persistedSessionEvents);
+    if (localSnapshot) {
+      return deriveObjectVersionStateFromSnapshotAndEvents({
+        snapshotVersion: localSnapshot.version,
+        snapshotPayload: localSnapshot.payload,
+        events: localEvents,
+      });
+    }
+    return deriveObjectVersionStateFromEvents(localEvents);
+  }
+};
+
+export const applyWorkbookObjectVersionGuard = async (params: {
   db: MockDb;
   sessionId: string;
   events: WorkbookClientEventInput[];
@@ -410,19 +473,10 @@ export const applyWorkbookObjectVersionGuard = (params: {
     return { ok: true as const, events: params.events };
   }
 
-  const persistedSessionEvents = params.db.workbookEvents.filter(
-    (event) => event.sessionId === params.sessionId
-  );
-  const latestBoardSnapshot = params.db.workbookSnapshots
-    .filter((snapshot) => snapshot.sessionId === params.sessionId && snapshot.layer === "board")
-    .sort((left, right) => right.version - left.version)[0];
-  const state = latestBoardSnapshot
-    ? deriveObjectVersionStateFromSnapshotAndEvents({
-        snapshotVersion: latestBoardSnapshot.version,
-        snapshotPayload: latestBoardSnapshot.payload,
-        events: persistedSessionEvents,
-      })
-    : deriveObjectVersionStateFromEvents(persistedSessionEvents);
+  const state = await loadObjectVersionState({
+    db: params.db,
+    sessionId: params.sessionId,
+  });
   registerObjectVersionCoverage(params.sessionId, state.size);
 
   const conflicts: ObjectVersionConflict[] = [];
