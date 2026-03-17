@@ -10,6 +10,7 @@ Incident response for workbook sessions: lesson cards, invites, realtime sync, e
 
 ## Health Signals
 - Runtime readiness: `GET /api/runtime/readiness`
+- Runtime infra diagnostics: `GET /api/runtime/infra`
 - Monolith health: `GET /healthz`
 - Runtime diagnostics (authorized): `GET /api/telemetry/runtime?limit=100`
 - Automated check command:
@@ -23,16 +24,17 @@ Incident response for workbook sessions: lesson cards, invites, realtime sync, e
 ## First 10 Minutes Checklist
 1. Confirm current deploy revision and service status.
 2. Run `GET /healthz` and inspect `readiness`, `storage`, `runtime`, `telemetry`.
-3. If readiness is false:
+3. Run `GET /api/runtime/infra` and inspect `storage.postgresPool`, `runtime.redis`, `affinity`.
+4. If readiness is false:
    - `storage_not_ready` or `storage_driver_degraded`: treat as persistence incident.
    - `runtime_redis_not_connected` when required: treat as realtime distribution incident.
-4. Validate user path quickly:
+5. Validate user path quickly:
    - Teacher login
    - Open workbook hub
    - Create class session
    - Copy invite
    - Student join
-5. Capture evidence: timestamps, failing request ids, session ids, affected %.
+6. Capture evidence: timestamps, failing request ids, session ids, affected %.
 
 ## Incident Playbooks
 
@@ -89,4 +91,6 @@ Incident response for workbook sessions: lesson cards, invites, realtime sync, e
   - readiness false > 2 min
   - slow workbook traces above threshold for 5 min
   - session create failure rate > 2%
+  - postgres pool waiting queue > 10 for 5 min
+  - redis command timeouts/publish failures show continuous growth
 - Perform monthly restore drills for persistence backups.

@@ -1,5 +1,12 @@
 import type { NextHandleFunction } from "connect";
 import type { IncomingMessage } from "node:http";
+import {
+  extractWorkbookSessionIdFromPath,
+  getWorkbookSessionAffinityBucketHeaderName,
+  getWorkbookSessionAffinityHeaderName,
+  getWorkbookSessionAffinityNodeHeaderName,
+  resolveWorkbookSessionAffinity,
+} from "../../../src/mock/sessionAffinity";
 import { nestEnv, shadowRequestHeader } from "./nest-env";
 
 const proxyHeaders = [
@@ -14,6 +21,7 @@ const proxyHeaders = [
   "x-workbook-device-id",
   "x-workbook-device-class",
   "x-workbook-tab-id",
+  "x-workbook-session-affinity",
 ] as const;
 
 const PROXY_ROUTES: Array<{ method: "GET" | "POST" | "PUT"; pattern: RegExp }> = [
@@ -25,6 +33,7 @@ const PROXY_ROUTES: Array<{ method: "GET" | "POST" | "PUT"; pattern: RegExp }> =
   { method: "POST", pattern: /^\/api\/workbook\/sessions\/[^/]+\/presence\/leave$/ },
   { method: "GET", pattern: /^\/api\/nest\/write\/diagnostics$/ },
 ];
+const ALL_PROXY_SKIP_PATTERNS = [/^\/api\/nest\/shadow\/parity$/, /^\/api\/nest\/proxy\/diagnostics$/];
 
 const readRawBody = async (req: IncomingMessage) => {
   const chunks: Buffer[] = [];
@@ -53,6 +62,17 @@ const createForwardHeaders = (req: IncomingMessage) => {
   return headers;
 };
 
+const shouldProxyRoute = (method: "GET" | "POST" | "PUT" | "DELETE", pathname: string) => {
+  if (nestEnv.proxyMode === "all") {
+    if (!pathname.startsWith("/api/")) return false;
+    if (ALL_PROXY_SKIP_PATTERNS.some((pattern) => pattern.test(pathname))) return false;
+    return true;
+  }
+  return PROXY_ROUTES.some(
+    (route) => route.method === method && route.pattern.test(pathname)
+  );
+};
+
 export const createNestApiProxyMiddleware = (): NextHandleFunction => {
   if (!nestEnv.featureEnabled) {
     return (_req, _res, next) => next();
@@ -69,21 +89,29 @@ export const createNestApiProxyMiddleware = (): NextHandleFunction => {
     }
     const method = String(req.method ?? "GET").toUpperCase() as "GET" | "POST" | "PUT" | "DELETE";
     const pathname = new URL(req.url, "http://localhost").pathname;
-    const shouldProxy = PROXY_ROUTES.some(
-      (route) => route.method === method && route.pattern.test(pathname)
-    );
+    const shouldProxy = shouldProxyRoute(method, pathname);
     if (!shouldProxy) {
       next();
       return;
     }
+    const sessionId = extractWorkbookSessionIdFromPath(pathname);
+    const affinityHeaderName = getWorkbookSessionAffinityHeaderName();
+    const affinityBucketHeaderName = getWorkbookSessionAffinityBucketHeaderName();
+    const affinityNodeHeaderName = getWorkbookSessionAffinityNodeHeaderName();
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), nestEnv.writeProxyTimeoutMs);
+    const timeoutBudgetMs = method === "GET" ? nestEnv.requestTimeoutMs : nestEnv.writeProxyTimeoutMs;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutBudgetMs);
     try {
       const body = method === "POST" || method === "PUT" ? await readRawBody(req) : Buffer.alloc(0);
+      const forwardHeaders = createForwardHeaders(req);
+      if (sessionId && !forwardHeaders.has(affinityHeaderName)) {
+        const affinity = resolveWorkbookSessionAffinity(sessionId);
+        forwardHeaders.set(affinityHeaderName, affinity.headerValue);
+      }
       const response = await fetch(`${nestEnv.apiBaseUrl}${req.url}`, {
         method,
-        headers: createForwardHeaders(req),
+        headers: forwardHeaders,
         body: body.length > 0 ? body : undefined,
         signal: controller.signal,
       });
@@ -93,6 +121,12 @@ export const createNestApiProxyMiddleware = (): NextHandleFunction => {
       for (const [name, value] of response.headers.entries()) {
         if (name.toLowerCase() === "transfer-encoding") continue;
         res.setHeader(name, value);
+      }
+      if (sessionId) {
+        const affinity = resolveWorkbookSessionAffinity(sessionId);
+        res.setHeader(affinityHeaderName, affinity.headerValue);
+        res.setHeader(affinityBucketHeaderName, String(affinity.bucket));
+        res.setHeader(affinityNodeHeaderName, affinity.nodeId);
       }
       if (req.method === "HEAD") {
         res.end();

@@ -13,7 +13,7 @@ const bootstrap = async () => {
   });
   await app.listen(nestEnv.port, nestEnv.host);
   console.log(
-    `[backend:nest] read-path shadow app listening on http://${nestEnv.host}:${nestEnv.port} (legacy: ${nestEnv.legacyBaseUrl})`
+    `[backend:nest] app listening on http://${nestEnv.host}:${nestEnv.port} (legacy: ${nestEnv.legacyBaseUrl}, proxyMode: ${nestEnv.proxyMode})`
   );
 };
 

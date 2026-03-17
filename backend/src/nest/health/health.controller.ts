@@ -1,7 +1,12 @@
 import { Controller, Get } from "@nestjs/common";
+import { nestEnv } from "../nest-env";
 
 @Controller()
 export class HealthController {
+  private getMode() {
+    return nestEnv.proxyMode === "all" ? "cutover-all-api" : "write-gateway";
+  }
+
   @Get("/livez")
   getLivez() {
     return {
@@ -20,7 +25,9 @@ export class HealthController {
       ready: true,
       reasons: [],
       shuttingDown: false,
-      mode: "read-path-shadow",
+      mode: this.getMode(),
+      proxyMode: nestEnv.proxyMode,
+      ffNestApi: nestEnv.featureEnabled,
     };
   }
 
@@ -30,7 +37,9 @@ export class HealthController {
       ok: true,
       service: "mathboard-nest",
       timestamp: new Date().toISOString(),
-      mode: "read-path-shadow",
+      mode: this.getMode(),
+      proxyMode: nestEnv.proxyMode,
+      ffNestApi: nestEnv.featureEnabled,
     };
   }
 }

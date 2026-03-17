@@ -1,0 +1,69 @@
+name: Phase7 Cutover
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "API base URL for SLO gates"
+        required: true
+        default: "https://api.board.mathwise.ru"
+      dry_run:
+        description: "Run cutover without executing traffic/rollback shell commands"
+        required: true
+        default: "true"
+      run_load_check:
+        description: "Run phase6 load-check on each cutover stage"
+        required: true
+        default: "false"
+      settle_seconds:
+        description: "Seconds to wait after each traffic stage"
+        required: true
+        default: "120"
+      set_traffic_cmd:
+        description: "Optional shell template for traffic switch, use {percent}"
+        required: false
+        default: ""
+      rollback_cmd:
+        description: "Optional shell template for rollback, use {previous_percent}"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  cutover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run phase7 cutover orchestrator
+        env:
+          PHASE7_BASE_URL: ${{ inputs.base_url }}
+          PHASE7_DRY_RUN: ${{ inputs.dry_run }}
+          PHASE7_RUN_LOAD_CHECK: ${{ inputs.run_load_check }}
+          PHASE7_SETTLE_SECONDS: ${{ inputs.settle_seconds }}
+          PHASE7_SET_TRAFFIC_CMD: ${{ inputs.set_traffic_cmd }}
+          PHASE7_ROLLBACK_CMD: ${{ inputs.rollback_cmd }}
+        run: npm run phase7:cutover
+
+      - name: Build phase7 report
+        run: npm run phase7:report
+
+      - name: Upload cutover artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase7-cutover-artifacts
+          path: output/phase7-cutover-*

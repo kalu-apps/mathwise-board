@@ -28,10 +28,42 @@ VITE_WHITEBOARD_TEACHER_PASSWORD=<strong-password>
 
 BOARD_STORAGE_DRIVER=postgres
 DATABASE_URL=postgresql://board_app:<url-encoded-password>@10.20.0.4:5432/board_prod?sslmode=require
+BOARD_PG_POOL_MAX=20
+BOARD_PG_POOL_MIN=2
+BOARD_PG_POOL_IDLE_TIMEOUT_MS=30000
+BOARD_PG_POOL_CONNECTION_TIMEOUT_MS=5000
+BOARD_PG_POOL_MAX_USES=0
+BOARD_PG_QUERY_TIMEOUT_MS=15000
+BOARD_PG_INIT_RETRIES=3
+BOARD_PG_INIT_RETRY_DELAY_MS=750
+BOARD_PG_SSL_REJECT_UNAUTHORIZED=0
 WORKBOOK_ACCESS_LOG_RETENTION_DAYS=90
 WORKBOOK_ACCESS_LOG_HASH_SALT=<random-secret-salt>
 REDIS_URL=redis://default:<url-encoded-password>@10.20.0.5:6379/0
 BOARD_RUNTIME_REDIS_REQUIRED=1
+BOARD_RUNTIME_REDIS_CONNECT_TIMEOUT_MS=4000
+BOARD_RUNTIME_REDIS_INIT_TIMEOUT_MS=8000
+BOARD_RUNTIME_REDIS_COMMAND_TIMEOUT_MS=1500
+BOARD_RUNTIME_REDIS_RECONNECT_BASE_DELAY_MS=150
+BOARD_RUNTIME_REDIS_RECONNECT_MAX_DELAY_MS=5000
+BOARD_RUNTIME_REDIS_RECONNECT_MAX_ATTEMPTS=0
+BOARD_RUNTIME_REDIS_INIT_MAX_ATTEMPTS=3
+BOARD_RUNTIME_REDIS_INIT_RETRY_DELAY_MS=600
+BOARD_RUNTIME_REDIS_COMMAND_RETRIES=1
+BOARD_RUNTIME_REDIS_PUBLISH_RETRIES=2
+BOARD_RUNTIME_REDIS_KEEPALIVE_MS=30000
+BOARD_RUNTIME_REDIS_DISABLE_OFFLINE_QUEUE=0
+WORKBOOK_SESSION_AFFINITY_BUCKETS=128
+WORKBOOK_SESSION_AFFINITY_SALT=<random-affinity-salt>
+WORKBOOK_SESSION_AFFINITY_COOKIE_ENABLED=1
+WORKBOOK_SESSION_AFFINITY_COOKIE_NAME=mw_session_affinity
+WORKBOOK_SESSION_AFFINITY_COOKIE_TTL_SECONDS=28800
+WORKBOOK_SESSION_AFFINITY_COOKIE_SAME_SITE=Lax
+WORKBOOK_SESSION_AFFINITY_COOKIE_SECURE=1
+WORKBOOK_SESSION_AFFINITY_COOKIE_HTTP_ONLY=0
+WORKBOOK_SESSION_AFFINITY_COOKIE_DOMAIN=.your-domain.tld
+FF_NEST_API=1
+NEST_PROXY_MODE=all
 
 MEDIA_STUN_URLS=stun:stun.l.google.com:19302
 MEDIA_TURN_URLS=turn:turn.your-domain.tld:3478?transport=udp,turns:turn.your-domain.tld:5349?transport=tcp
@@ -47,6 +79,7 @@ MEDIA_LIVEKIT_TOKEN_TTL_SECONDS=3600
 ```bash
 systemctl restart mathwise-board
 curl -s https://api.your-domain.tld/healthz | python3 -m json.tool
+curl -s https://api.your-domain.tld/api/runtime/infra | python3 -m json.tool
 ```
 
 Проверить обязательно:
@@ -54,6 +87,8 @@ curl -s https://api.your-domain.tld/healthz | python3 -m json.tool
 - `storage.required=true`
 - `runtime.redis.required=true`
 - `runtime.redis.connected=true`
+- `storage.postgresPool.waitingCount` в норме (обычно `0`)
+- `affinity.buckets` соответствует плану (`128` или ваш выбранный размер)
 
 ## 2.1) PostgreSQL на Timeweb DBaaS
 Нужно, чтобы backend реально работал не в file-mode, а в production `PostgreSQL`.
@@ -186,3 +221,16 @@ nginx -T 2>/dev/null | grep -nA20 -B5 "server_name rtc.board.your-domain.tld"
    - чат realtime;
    - аудио в обе стороны (через TURN).
    - в `GET /api/telemetry/runtime?limit=20` появляются `append/publish_runtime/deliver_local/runtime_bridge` traces.
+
+## 7) Phase-7 cutover
+
+```bash
+cd /opt/mathwise/board
+PHASE7_BASE_URL=https://api.board.your-domain.tld \
+PHASE7_DRY_RUN=0 \
+PHASE7_SET_TRAFFIC_CMD='<set-lb-traffic-to-{percent}-percent>' \
+PHASE7_ROLLBACK_CMD='<rollback-lb-to-{previous_percent}-percent>' \
+npm run phase7:cutover
+
+npm run phase7:report
+```

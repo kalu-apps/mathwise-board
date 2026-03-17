@@ -21,4 +21,12 @@ export class TelemetryController {
   ) {
     await forwardGetResponse(this.proxy, req, res, "/api/runtime/readiness");
   }
+
+  @Get("/api/runtime/infra")
+  async getRuntimeInfra(
+    @Req() req: { headers?: Record<string, string | string[] | undefined>; originalUrl?: string },
+    @Res() res: ProxyResponseLike
+  ) {
+    await forwardGetResponse(this.proxy, req, res, "/api/runtime/infra");
+  }
 }
