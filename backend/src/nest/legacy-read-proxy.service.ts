@@ -15,6 +15,10 @@ const passthroughRequestHeaders = [
   "accept-language",
   "user-agent",
   "x-request-id",
+  "x-idempotency-key",
+  "x-workbook-device-id",
+  "x-workbook-device-class",
+  "x-workbook-tab-id",
 ] as const;
 
 const isJsonContentType = (contentType: string) =>
@@ -31,7 +35,8 @@ const toText = async (response: Response) => {
 @Injectable()
 export class LegacyReadProxyService {
   private readonly baseUrl = nestEnv.legacyBaseUrl;
-  private readonly timeoutMs = nestEnv.requestTimeoutMs;
+  private readonly readTimeoutMs = nestEnv.requestTimeoutMs;
+  private readonly writeTimeoutMs = nestEnv.writeProxyTimeoutMs;
 
   private buildTargetUrl(pathAndQuery: string) {
     const base = this.baseUrl.endsWith("/") ? this.baseUrl.slice(0, -1) : this.baseUrl;
@@ -56,13 +61,49 @@ export class LegacyReadProxyService {
 
   private async fetchWithTimeout(pathAndQuery: string, req: { headers?: Record<string, string | string[] | undefined> }) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timeoutId = setTimeout(() => controller.abort(), this.readTimeoutMs);
     try {
       return await fetch(this.buildTargetUrl(pathAndQuery), {
         method: "GET",
         headers: this.createForwardHeaders(req),
         signal: controller.signal,
       });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "legacy_proxy_fetch_failed";
+      throw new ServiceUnavailableException({
+        error: "legacy_proxy_unavailable",
+        message,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  async forwardJson(params: {
+    method: "POST" | "PUT" | "DELETE";
+    pathAndQuery: string;
+    req: { headers?: Record<string, string | string[] | undefined> };
+    body?: unknown;
+  }) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.writeTimeoutMs);
+    try {
+      const headers = this.createForwardHeaders(params.req);
+      headers.set("content-type", "application/json; charset=utf-8");
+      const response = await fetch(this.buildTargetUrl(params.pathAndQuery), {
+        method: params.method,
+        headers,
+        body: JSON.stringify(params.body ?? null),
+        signal: controller.signal,
+      });
+      const contentType = response.headers.get("content-type") ?? "application/json; charset=utf-8";
+      const text = await toText(response);
+      const body = isJsonContentType(contentType) ? (text.length > 0 ? safeParseJson(text) : null) : text;
+      return {
+        statusCode: response.status,
+        contentType,
+        body,
+      } satisfies ProxiedPayload;
     } catch (error) {
       const message = error instanceof Error ? error.message : "legacy_proxy_fetch_failed";
       throw new ServiceUnavailableException({
@@ -100,7 +141,7 @@ export class LegacyReadProxyService {
     on: (event: string, listener: () => void) => void;
   }) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timeoutId = setTimeout(() => controller.abort(), this.readTimeoutMs);
     try {
       const response = await fetch(this.buildTargetUrl(pathAndQuery), {
         method: "GET",
