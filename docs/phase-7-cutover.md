@@ -14,7 +14,7 @@
 - `npm run phase7:report`
 - собирает markdown-отчет из JSON-артефакта cutover запуска.
 3. Nest ingress cutover mode:
-- `NEST_PROXY_MODE=all` включает 100% проксирование `/api/*` через Nest gateway;
+- 100% проксирование `/api/*` через Nest gateway;
 - fallback controller в Nest закрывает неизвестные API пути через legacy-прокси (без прямого ingress в legacy handlers).
 4. Legacy cleanup readiness:
 - phase-7 процесс переводит legacy в fallback-only режим;
@@ -22,15 +22,12 @@
 
 ## Env
 
-1. `FF_NEST_API=1`
-2. `NEST_PROXY_MODE=all`
-3. `FF_NEST_API_SHADOW=0` (на полном cutover shadow больше не нужен)
-4. `PHASE7_BASE_URL=https://api.board.your-domain.tld`
-5. `PHASE7_DRY_RUN=0|1`
-6. `PHASE7_SET_TRAFFIC_CMD='<set-lb-traffic-to-{percent}-percent>'`
-7. `PHASE7_ROLLBACK_CMD='<rollback-lb-to-{previous_percent}-percent>'`
-8. `PHASE7_SETTLE_SECONDS=120`
-9. `PHASE7_RUN_LOAD_CHECK=1` (рекомендуется)
+1. `PHASE7_BASE_URL=https://api.board.your-domain.tld`
+2. `PHASE7_DRY_RUN=0|1`
+3. `PHASE7_SET_TRAFFIC_CMD='<set-lb-traffic-to-{percent}-percent>'`
+4. `PHASE7_ROLLBACK_CMD='<rollback-lb-to-{previous_percent}-percent>'`
+5. `PHASE7_SETTLE_SECONDS=120`
+6. `PHASE7_RUN_LOAD_CHECK=1` (рекомендуется)
 
 ## Go/No-Go (Phase 7)
 
