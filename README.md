@@ -112,6 +112,17 @@ npm run phase0:baseline
 PHASE0_BASE_URL=https://api.board.mathwise.ru npm run phase0:baseline
 ```
 
+## Phase 3 (Nest read-path shadow)
+
+Документация и go/no-go: `docs/phase-3-nest-read-path.md`.
+
+Команды:
+
+```bash
+npm run backend:start:nest
+PHASE3_BASE_URL=http://127.0.0.1:4173 npm run phase3:parity
+```
+
 ## Git flow (prod + migration)
 
 См. обязательные правила ветвления: `docs/branching-policy.md`.

@@ -20,7 +20,9 @@
     "preview": "vite preview",
     "start:board": "vite preview --mode board --host 0.0.0.0 --port ${PORT:-4173}",
     "backend:start": "node --import tsx backend/src/server.ts",
-    "backend:start:board": "VITE_BOARD_MODE=realtime VITE_WHITEBOARD_ONLY=1 node --import tsx backend/src/server.ts"
+    "backend:start:board": "VITE_BOARD_MODE=realtime VITE_WHITEBOARD_ONLY=1 node --import tsx backend/src/server.ts",
+    "backend:start:nest": "TSX_TSCONFIG_PATH=backend/tsconfig.nest.json node --import tsx backend/src/nest/main.ts",
+    "phase3:parity": "node scripts/phase3-shadow-parity-check.mjs"
   },
   "browserslist": {
     "production": [
@@ -41,6 +43,9 @@
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.7",
     "@mui/material": "^7.3.7",
+    "@nestjs/common": "^11.1.17",
+    "@nestjs/core": "^11.1.17",
+    "@nestjs/platform-express": "^11.1.17",
     "connect": "^3.7.0",
     "jspdf": "^4.1.0",
     "livekit-client": "^2.17.2",
@@ -50,6 +55,8 @@
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.12.0",
     "redis": "^5.11.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
     "three": "^0.183.2",
     "tsx": "^4.20.6",
     "zustand": "^5.0.12"
