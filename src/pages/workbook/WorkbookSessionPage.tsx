@@ -1688,6 +1688,7 @@ export default function WorkbookSessionPage() {
   const persistSnapshotsRef = useRef<
     ((options?: { silent?: boolean; force?: boolean }) => Promise<boolean>) | null
   >(null);
+  const authRequiredRef = useRef(false);
   const undoStackRef = useRef<WorkbookHistoryEntry[]>([]);
   const redoStackRef = useRef<WorkbookHistoryEntry[]>([]);
   const latestSeqRef = useRef(0);
@@ -3101,10 +3102,10 @@ export default function WorkbookSessionPage() {
             : 0;
         const shouldApplyBoardSnapshot = !isBackground
           ? true
-          : boardSnapshot !== null && boardSnapshotVersion >= currentLatestSeq;
+          : boardSnapshot !== null && boardSnapshotVersion > currentLatestSeq;
         const shouldApplyAnnotationSnapshot = !isBackground
           ? true
-          : annotationSnapshot !== null && annotationSnapshotVersion >= currentLatestSeq;
+          : annotationSnapshot !== null && annotationSnapshotVersion > currentLatestSeq;
         setSession(sessionData);
         queuedBoardSettingsCommitRef.current = null;
         queuedBoardSettingsHistoryBeforeRef.current = null;
@@ -3216,6 +3217,8 @@ export default function WorkbookSessionPage() {
         if (!isBackground) {
           setLoading(false);
         }
+        authRequiredRef.current = false;
+        setSaveSyncWarning(null);
         return;
       } catch (error) {
         if (isStaleLoadRequest()) return;
@@ -3238,8 +3241,18 @@ export default function WorkbookSessionPage() {
           (error.status === 401 || error.status === 403 || error.status === 404)
         ) {
           dropWorkbookPersistenceTasksForSession(sessionId);
+          if (error.status === 401) {
+            authRequiredRef.current = true;
+          }
         }
         if (isBackground) {
+          if (error instanceof ApiError && error.status === 401) {
+            setError("Сессия недоступна: требуется повторная авторизация.");
+            setSaveSyncWarning(
+              "Сессия авторизации истекла. Войдите снова и не закрывайте вкладку до восстановления синхронизации."
+            );
+            return;
+          }
           setError("Связь с доской нестабильна. Продолжаем работу и повторяем синхронизацию.");
           return;
         }
@@ -3274,6 +3287,19 @@ export default function WorkbookSessionPage() {
     sessionId,
   ]);
 
+  const handleRealtimeAuthRequired = useCallback(() => {
+    if (authRequiredRef.current) return;
+    authRequiredRef.current = true;
+    if (sessionId) {
+      dropWorkbookPersistenceTasksForSession(sessionId);
+    }
+    setSaveState("error");
+    setSaveSyncWarning(
+      "Сессия авторизации истекла. Войдите снова и не закрывайте вкладку до восстановления синхронизации."
+    );
+    setError("Сессия недоступна: требуется повторная авторизация.");
+  }, [sessionId]);
+
   useWorkbookRealtimeTransport({
     sessionId,
     loadSession,
@@ -3298,6 +3324,7 @@ export default function WorkbookSessionPage() {
     adaptivePollingMinMs: ADAPTIVE_POLLING_MIN_MS,
     adaptivePollingMaxMs: ADAPTIVE_POLLING_MAX_MS,
     isMediaAudioConnected: isLivekitConnected,
+    onAuthRequired: handleRealtimeAuthRequired,
   });
 
   useEffect(() => {
@@ -3738,6 +3765,7 @@ export default function WorkbookSessionPage() {
 
   const persistSnapshots = useCallback(async (options?: { silent?: boolean; force?: boolean }) => {
     if (!sessionId) return false;
+    if (authRequiredRef.current) return false;
     if (!options?.force && !dirtyRef.current) return true;
     if (isSavingRef.current) {
       pendingAutosaveAfterSaveRef.current = true;
@@ -3789,7 +3817,11 @@ export default function WorkbookSessionPage() {
       }
 
       return true;
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        handleRealtimeAuthRequired();
+        return false;
+      }
       setSaveState("error");
       setSaveSyncWarning(
         "Автосохранение временно недоступно. Не закрывайте вкладку: повторяем синхронизацию."
@@ -3812,6 +3844,7 @@ export default function WorkbookSessionPage() {
     boardSettings,
     libraryState,
     documentState,
+    handleRealtimeAuthRequired,
     latestSeq,
     scheduleAutosave,
     sessionId,
@@ -4032,6 +4065,9 @@ export default function WorkbookSessionPage() {
           markDirty();
         }
       } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          handleRealtimeAuthRequired();
+        }
         optimisticEventIds.forEach((eventId) => {
           processedEventIdsRef.current.delete(eventId);
         });
@@ -4046,6 +4082,7 @@ export default function WorkbookSessionPage() {
       enqueueIncomingRealtimeApply,
       filterUnseenWorkbookEvents,
       markDirty,
+      handleRealtimeAuthRequired,
       pushHistoryEntry,
       rollbackHistoryEntry,
       sessionId,
