@@ -183,7 +183,13 @@ export type WorkbookAccessLogInput = {
 export type WorkbookOperationScope =
   | "workbook_sessions_create"
   | "workbook_sessions_delete"
-  | "workbook_invite_create";
+  | "workbook_invite_create"
+  | "workbook_events_append"
+  | "workbook_events_live"
+  | "workbook_events_preview"
+  | "workbook_snapshot_upsert"
+  | "workbook_presence_heartbeat"
+  | "workbook_presence_leave";
 
 export type WorkbookOperationRecord = {
   id: string;
