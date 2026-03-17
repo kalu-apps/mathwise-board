@@ -6,6 +6,7 @@ import { extname, resolve } from "node:path";
 import type { ViteDevServer } from "vite";
 import { getStorageDiagnostics, initializeDb, shutdownDb } from "../../src/mock/db";
 import { getTelemetryDiagnostics } from "../../src/mock/telemetryService";
+import { getWorkbookSessionAffinityDiagnostics } from "../../src/mock/sessionAffinity";
 import {
   getRuntimeServicesStatus,
   initializeRuntimeServices,
@@ -17,6 +18,7 @@ import {
   getNestShadowParityDiagnostics,
 } from "./nest/shadowParity";
 import { createNestApiProxyMiddleware } from "./nest/apiProxy";
+import { nestEnv } from "./nest/nest-env";
 
 const HOST = process.env.HOST ?? "0.0.0.0";
 const PORT = Number(process.env.PORT ?? 4173);
@@ -180,6 +182,7 @@ const staticMiddleware: NextHandleFunction = async (req, res, next) => {
       ...readiness,
       media: getMediaDiagnostics(),
       telemetry: getTelemetryDiagnostics(),
+      affinity: getWorkbookSessionAffinityDiagnostics(),
     });
   }
   if (pathname === "/healthz") {
@@ -193,6 +196,7 @@ const staticMiddleware: NextHandleFunction = async (req, res, next) => {
       runtime: readiness.runtime,
       media: getMediaDiagnostics(),
       telemetry: getTelemetryDiagnostics(),
+      affinity: getWorkbookSessionAffinityDiagnostics(),
     });
   }
 
@@ -254,8 +258,20 @@ app.use((req, res, next) => {
     return;
   }
   const pathname = new URL(req.url, "http://localhost").pathname;
-  if (pathname !== "/api/nest/shadow/parity") {
+  if (pathname !== "/api/nest/shadow/parity" && pathname !== "/api/nest/proxy/diagnostics") {
     next();
+    return;
+  }
+  if (pathname === "/api/nest/proxy/diagnostics") {
+    json(res, 200, {
+      ffNestApi: nestEnv.featureEnabled,
+      ffNestApiShadow: nestEnv.featureShadowEnabled,
+      proxyMode: nestEnv.proxyMode,
+      apiBaseUrl: nestEnv.apiBaseUrl,
+      legacyBaseUrl: nestEnv.legacyBaseUrl,
+      requestTimeoutMs: nestEnv.requestTimeoutMs,
+      writeProxyTimeoutMs: nestEnv.writeProxyTimeoutMs,
+    });
     return;
   }
   json(res, 200, getNestShadowParityDiagnostics());

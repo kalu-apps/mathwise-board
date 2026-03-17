@@ -236,6 +236,26 @@ export type PersistedWorkbookSnapshot = {
   createdAt: string;
 };
 
+const readPositiveIntEnv = (
+  value: string | undefined,
+  fallback: number,
+  options?: { min?: number; max?: number }
+) => {
+  const parsed = Number.parseInt(String(value ?? "").trim(), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  const min = options?.min ?? 1;
+  const max = options?.max ?? Number.MAX_SAFE_INTEGER;
+  if (parsed < min) return fallback;
+  return Math.min(max, Math.floor(parsed));
+};
+
+const readBoolEnv = (value: string | undefined, fallback = false) => {
+  if (value == null) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return fallback;
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+};
+
 const DB_FILE = path.resolve(process.cwd(), "mock-db.json");
 const PERSIST_DEBOUNCE_MS = 1_000;
 const DATABASE_URL = String(process.env.DATABASE_URL ?? "").trim();
@@ -256,6 +276,40 @@ const ACCESS_LOG_RETENTION_DAYS = (() => {
 })();
 const ACCESS_LOG_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const WORKBOOK_ACCESS_LOG_DEFAULT_LIMIT = 120;
+const PG_POOL_MAX = readPositiveIntEnv(process.env.BOARD_PG_POOL_MAX, 20, { min: 1, max: 500 });
+const PG_POOL_MIN = readPositiveIntEnv(process.env.BOARD_PG_POOL_MIN, 2, { min: 0, max: 100 });
+const PG_POOL_IDLE_TIMEOUT_MS = readPositiveIntEnv(
+  process.env.BOARD_PG_POOL_IDLE_TIMEOUT_MS,
+  30_000,
+  { min: 1_000, max: 900_000 }
+);
+const PG_POOL_CONNECTION_TIMEOUT_MS = readPositiveIntEnv(
+  process.env.BOARD_PG_POOL_CONNECTION_TIMEOUT_MS,
+  5_000,
+  { min: 500, max: 120_000 }
+);
+const PG_POOL_MAX_USES = readPositiveIntEnv(process.env.BOARD_PG_POOL_MAX_USES, 0, {
+  min: 0,
+  max: 1_000_000,
+});
+const PG_QUERY_TIMEOUT_MS = readPositiveIntEnv(
+  process.env.BOARD_PG_QUERY_TIMEOUT_MS,
+  15_000,
+  { min: 1_000, max: 180_000 }
+);
+const PG_INIT_RETRIES = readPositiveIntEnv(process.env.BOARD_PG_INIT_RETRIES, 3, {
+  min: 1,
+  max: 20,
+});
+const PG_INIT_RETRY_DELAY_MS = readPositiveIntEnv(
+  process.env.BOARD_PG_INIT_RETRY_DELAY_MS,
+  750,
+  { min: 100, max: 30_000 }
+);
+const PG_SSL_REJECT_UNAUTHORIZED = readBoolEnv(
+  process.env.BOARD_PG_SSL_REJECT_UNAUTHORIZED,
+  false
+);
 let db: MockDb | null = null;
 let persistTimer: NodeJS.Timeout | null = null;
 let persistInFlight = false;
@@ -280,9 +334,19 @@ type PgPool = {
   query<T>(text: string, params?: readonly unknown[]): Promise<PgQueryResult<T>>;
   connect(): Promise<PgClient>;
   end(): Promise<void>;
+  totalCount?: number;
+  idleCount?: number;
+  waitingCount?: number;
 };
 
 let pgPool: PgPool | null = null;
+const pgPoolStatus = {
+  initAttempts: 0,
+  initFailures: 0,
+  lastInitAt: null as string | null,
+  lastConnectedAt: null as string | null,
+  lastError: null as string | null,
+};
 
 type PgWorkbookEventRow = {
   id: string;
@@ -346,6 +410,11 @@ const normalizeError = (error: unknown) => {
   if (error instanceof Error) return error.message;
   return String(error);
 };
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 const ensureId = () =>
   typeof crypto.randomUUID === "function"
@@ -476,16 +545,50 @@ const ensurePgPool = async () => {
   if (!DATABASE_URL) {
     throw new Error("DATABASE_URL is not configured");
   }
-  const { Pool } = await import("pg") as {
+  const { Pool } = (await import("pg")) as {
     Pool: new (config?: Record<string, unknown>) => PgPool;
   };
   const useSsl = shouldUsePgSsl(DATABASE_URL);
-  pgPool = new Pool({
+  const max = Math.max(1, PG_POOL_MAX);
+  const min = Math.min(PG_POOL_MIN, max);
+  const poolConfig: Record<string, unknown> = {
     connectionString: DATABASE_URL,
-    ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
-  });
-  await ensurePgSchema(pgPool);
-  return pgPool;
+    max,
+    min,
+    idleTimeoutMillis: PG_POOL_IDLE_TIMEOUT_MS,
+    connectionTimeoutMillis: PG_POOL_CONNECTION_TIMEOUT_MS,
+    query_timeout: PG_QUERY_TIMEOUT_MS,
+    statement_timeout: PG_QUERY_TIMEOUT_MS,
+    keepAlive: true,
+    ...(PG_POOL_MAX_USES > 0 ? { maxUses: PG_POOL_MAX_USES } : {}),
+    ...(useSsl ? { ssl: { rejectUnauthorized: PG_SSL_REJECT_UNAUTHORIZED } } : {}),
+  };
+
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= PG_INIT_RETRIES; attempt += 1) {
+    pgPoolStatus.initAttempts += 1;
+    pgPoolStatus.lastInitAt = nowIso();
+    const candidate = new Pool(poolConfig);
+    try {
+      await candidate.query("SELECT 1");
+      await ensurePgSchema(candidate);
+      pgPool = candidate;
+      pgPoolStatus.lastConnectedAt = nowIso();
+      pgPoolStatus.lastError = null;
+      return pgPool;
+    } catch (error) {
+      lastError = error;
+      pgPoolStatus.initFailures += 1;
+      pgPoolStatus.lastError = normalizeError(error);
+      storageError = normalizeError(error);
+      await candidate.end().catch(() => undefined);
+      if (attempt < PG_INIT_RETRIES) {
+        await sleep(PG_INIT_RETRY_DELAY_MS * attempt);
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("pg_pool_init_failed");
 };
 
 const schedulePostgresEventTrim = (sessionId: string, limit: number) => {
@@ -2171,6 +2274,28 @@ export const getStorageDiagnostics = () => ({
   ready: dbInitialized,
   databaseUrlConfigured: DATABASE_URL.length > 0,
   accessLogRetentionDays: ACCESS_LOG_RETENTION_DAYS,
+  postgresPool: {
+    initialized: Boolean(pgPool),
+    totalCount: typeof pgPool?.totalCount === "number" ? pgPool.totalCount : null,
+    idleCount: typeof pgPool?.idleCount === "number" ? pgPool.idleCount : null,
+    waitingCount: typeof pgPool?.waitingCount === "number" ? pgPool.waitingCount : null,
+    config: {
+      max: PG_POOL_MAX,
+      min: Math.min(PG_POOL_MIN, Math.max(1, PG_POOL_MAX)),
+      idleTimeoutMs: PG_POOL_IDLE_TIMEOUT_MS,
+      connectionTimeoutMs: PG_POOL_CONNECTION_TIMEOUT_MS,
+      maxUses: PG_POOL_MAX_USES,
+      queryTimeoutMs: PG_QUERY_TIMEOUT_MS,
+      initRetries: PG_INIT_RETRIES,
+      initRetryDelayMs: PG_INIT_RETRY_DELAY_MS,
+      sslRejectUnauthorized: PG_SSL_REJECT_UNAUTHORIZED,
+    },
+    initAttempts: pgPoolStatus.initAttempts,
+    initFailures: pgPoolStatus.initFailures,
+    lastInitAt: pgPoolStatus.lastInitAt,
+    lastConnectedAt: pgPoolStatus.lastConnectedAt,
+    lastError: pgPoolStatus.lastError,
+  },
   lastError: storageError,
 });
 
@@ -2192,4 +2317,5 @@ export const shutdownDb = async () => {
     await pgPool.end().catch(() => undefined);
     pgPool = null;
   }
+  pgPoolStatus.lastConnectedAt = null;
 };

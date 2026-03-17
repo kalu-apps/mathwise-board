@@ -19,6 +19,7 @@ const passthroughRequestHeaders = [
   "x-workbook-device-id",
   "x-workbook-device-class",
   "x-workbook-tab-id",
+  "x-workbook-session-affinity",
 ] as const;
 
 const isJsonContentType = (contentType: string) =>

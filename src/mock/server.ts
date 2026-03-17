@@ -8,6 +8,7 @@ import {
   appendWorkbookAccessLog,
   copyWorkbookSessionSnapshots,
   deleteWorkbookSessionArtifacts,
+  getStorageDiagnostics,
   getDb,
   saveDb,
   type AuthSessionRecord,
@@ -23,6 +24,7 @@ import {
   type WorkbookSessionRecord,
 } from "./db";
 import {
+  getRuntimeServicesStatus,
   publishWorkbookRealtimePayload,
   subscribeWorkbookRealtimePayload,
 } from "./runtimeServices";
@@ -64,6 +66,12 @@ import {
   REQUEST_BODY_TOO_LARGE_ERROR,
 } from "./httpBody";
 import { createTokenBucketRateLimiter } from "./tokenBucketRateLimiter";
+import {
+  appendSetCookieHeader,
+  applyWorkbookSessionAffinityHeaders,
+  extractWorkbookSessionIdFromPath,
+  getWorkbookSessionAffinityDiagnostics,
+} from "./sessionAffinity";
 
 const WHITEBOARD_TEACHER_LOGIN = "teacher@axiom.demo";
 const WHITEBOARD_TEACHER_PASSWORD =
@@ -674,8 +682,8 @@ const saveWorkbookIdempotentOperation = (
 };
 
 const writeAuthCookie = (res: ServerResponse, token: string) => {
-  res.setHeader(
-    "Set-Cookie",
+  appendSetCookieHeader(
+    res,
     [
       `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}`,
       "Path=/",
@@ -689,8 +697,8 @@ const writeAuthCookie = (res: ServerResponse, token: string) => {
 };
 
 const clearAuthCookie = (res: ServerResponse) => {
-  res.setHeader(
-    "Set-Cookie",
+  appendSetCookieHeader(
+    res,
     [
       `${AUTH_COOKIE_NAME}=`,
       "Path=/",
@@ -730,7 +738,7 @@ const applyCors = (req: IncomingMessage, res: ServerResponse) => {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type, X-Request-Id, X-Retry-Attempt, X-Idempotency-Key, X-Workbook-Device-Id"
+    "Content-Type, X-Request-Id, X-Retry-Attempt, X-Idempotency-Key, X-Workbook-Device-Id, X-Workbook-Session-Affinity"
   );
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   appendVary(res, "Origin");
@@ -2129,6 +2137,15 @@ export function setupMockServer(host: MiddlewareHost) {
       return;
     }
 
+    const sessionIdFromPath = extractWorkbookSessionIdFromPath(pathname);
+    if (sessionIdFromPath && method !== "OPTIONS") {
+      applyWorkbookSessionAffinityHeaders({
+        req,
+        res,
+        sessionId: sessionIdFromPath,
+      });
+    }
+
     applyCors(req, res);
     if (method === "OPTIONS") {
       res.statusCode = 204;
@@ -2181,6 +2198,21 @@ export function setupMockServer(host: MiddlewareHost) {
       if (pathname === "/api/runtime/readiness" && method === "GET") {
         const readiness = getWorkbookPersistenceReadiness();
         json(res, readiness.ready ? 200 : 503, readiness);
+        return;
+      }
+
+      if (pathname === "/api/runtime/infra" && method === "GET") {
+        const readiness = getWorkbookPersistenceReadiness();
+        json(res, readiness.ready ? 200 : 503, {
+          ok: readiness.ready,
+          service: "mathboard-runtime-infra",
+          timestamp: new Date().toISOString(),
+          readiness,
+          storage: getStorageDiagnostics(),
+          runtime: getRuntimeServicesStatus(),
+          telemetry: getTelemetryDiagnostics(),
+          affinity: getWorkbookSessionAffinityDiagnostics(),
+        });
         return;
       }
 
