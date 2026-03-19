@@ -10,7 +10,7 @@ import {
   isUrgentWorkbookLiveEventType,
   isVolatileWorkbookEventType,
   type WorkbookClientEventInput,
-} from "../features/workbook/model/events";
+} from "../../../../../src/features/workbook/model/events";
 import {
   bumpWorkbookSessionLatestSeqCached,
   readWorkbookSessionLatestSeqCached,

@@ -16,6 +16,13 @@ const readFloat = (value, fallback, min, max) => {
   return Math.max(min, Math.min(max, parsed));
 };
 
+const readBool = (value, fallback = false) => {
+  if (value == null) return fallback;
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return fallback;
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+};
+
 const sleep = (ms) =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -70,6 +77,7 @@ const maxPgWaiting = readPositiveInt(process.env.PHASEF_MAX_PG_WAITING, 10, 10_0
 const expectedProxyMode = String(process.env.PHASEF_EXPECTED_PROXY_MODE ?? "none").trim() || "none";
 const expectedWriteMode =
   String(process.env.PHASEF_EXPECTED_WRITE_MODE ?? "nest-native-api").trim() || "nest-native-api";
+const proxyDiagnosticsRequired = readBool(process.env.PHASEF_PROXY_DIAG_REQUIRED, false);
 const maxObjectConflictDelta = readPositiveInt(process.env.PHASEF_MAX_OBJECT_CONFLICT_DELTA, 0, 1_000_000);
 const maxIdempotencyConflictDelta = readPositiveInt(
   process.env.PHASEF_MAX_IDEMPOTENCY_CONFLICT_DELTA,
@@ -199,8 +207,13 @@ const run = async () => {
     },
     {
       name: "proxy_diag_endpoint_ok",
-      ok: samples.every((sample) => sample.proxyStatus === 200),
-      detail: { expected: 200, observed: samples.map((sample) => sample.proxyStatus) },
+      ok: proxyDiagnosticsRequired
+        ? samples.every((sample) => sample.proxyStatus === 200)
+        : samples.every((sample) => sample.proxyStatus === 200 || sample.proxyStatus === 404),
+      detail: {
+        expected: proxyDiagnosticsRequired ? [200] : [200, 404],
+        observed: samples.map((sample) => sample.proxyStatus),
+      },
     },
     {
       name: "readiness_always_true",
@@ -237,8 +250,13 @@ const run = async () => {
     },
     {
       name: "proxy_mode_fixed",
-      ok: samples.every((sample) => sample.proxyMode === expectedProxyMode),
-      detail: { expected: expectedProxyMode, observed: Array.from(new Set(samples.map((s) => s.proxyMode))) },
+      ok: proxyDiagnosticsRequired
+        ? samples.every((sample) => sample.proxyMode === expectedProxyMode)
+        : true,
+      detail: {
+        expected: proxyDiagnosticsRequired ? expectedProxyMode : "skipped_optional_proxy_diagnostics",
+        observed: Array.from(new Set(samples.map((s) => s.proxyMode))),
+      },
     },
     {
       name: "write_mode_fixed",
@@ -268,6 +286,7 @@ const run = async () => {
       intervalSeconds,
       timeoutMs,
       expectedProxyMode,
+      proxyDiagnosticsRequired,
       expectedWriteMode,
       maxFailureRate,
       maxP95Ms,

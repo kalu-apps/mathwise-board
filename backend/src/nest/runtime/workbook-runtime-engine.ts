@@ -1,8 +1,7 @@
 import crypto from "node:crypto";
 import os from "node:os";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { Duplex } from "node:stream";
-import { WebSocket, WebSocketServer } from "ws";
+import { WebSocket } from "ws";
 import {
   appendWorkbookAccessLog,
   copyWorkbookSessionSnapshots,
@@ -16,20 +15,19 @@ import {
   type WorkbookAccessDeviceClass,
   type WorkbookDraftRecord,
   type WorkbookInviteRecord,
-  type WorkbookOperationRecord,
   type WorkbookParticipantPermissions,
   type WorkbookSessionKind,
   type WorkbookSessionParticipantRecord,
   type WorkbookSessionRecord,
-} from "./db";
+} from "./core/db";
 import {
   getRuntimeServicesStatus,
   publishWorkbookRealtimePayload,
   subscribeWorkbookRealtimePayload,
-} from "./runtimeServices";
+} from "./core/runtimeServices";
 import {
   type WorkbookClientEventInput,
-} from "../features/workbook/model/events";
+} from "../../../../src/features/workbook/model/events";
 import {
   appendWorkbookEvents,
   collectUrgentWorkbookLiveEvents,
@@ -37,61 +35,62 @@ import {
   mergeRuntimeWorkbookEventsIntoDb,
   trimWorkbookEventsOverflow,
   type WorkbookRealtimeEnvelope,
-} from "./workbookEventService";
+} from "./core/workbookEventService";
 import {
   getTelemetryDiagnostics,
   ingestRumTelemetryEvents,
   readRecentRumTelemetryEvents,
   readRecentWorkbookServerTraces,
   recordWorkbookServerTrace,
-} from "./telemetryService";
+} from "./core/telemetryService";
 import {
   decodeWorkbookPdfDataUrl,
   renderWorkbookPdfPagesViaPoppler,
   WORKBOOK_PDF_RENDER_MAX_BYTES,
-} from "./workbookPdfService";
+} from "./core/workbookPdfService";
 import {
   workbookEventStore,
   workbookSnapshotStore,
-} from "./workbookStores";
+} from "./core/workbookStores";
 import {
   getDbIndex,
   getSessionOwnerKey,
   getSessionUserKey,
-} from "./dbIndex";
-import { getWorkbookPersistenceReadiness } from "./runtimeReadiness";
+} from "./core/dbIndex";
+import { getWorkbookPersistenceReadiness } from "./core/runtimeReadiness";
 import {
   INVALID_JSON_BODY_ERROR,
   readJsonBody,
   REQUEST_BODY_TOO_LARGE_ERROR,
-} from "./httpBody";
-import { createTokenBucketRateLimiter } from "./tokenBucketRateLimiter";
+} from "./core/httpBody";
+import { createTokenBucketRateLimiter } from "./core/tokenBucketRateLimiter";
 import {
   appendSetCookieHeader,
   applyWorkbookSessionAffinityHeaders,
   extractWorkbookSessionIdFromPath,
   getWorkbookSessionAffinityDiagnostics,
-} from "./sessionAffinity";
+} from "./core/sessionAffinity";
 import {
-  applyWorkbookObjectVersionGuard,
   hashWorkbookOperationFingerprint,
-  isWorkbookWriteOperationScope,
-  registerWorkbookIdempotencyConflict,
-  registerWorkbookIdempotencyEvictions,
-  registerWorkbookIdempotencyHit,
-  registerWorkbookIdempotencyMiss,
-  registerWorkbookIdempotencyWrite,
-  resolveWorkbookSnapshotBarrier,
-  resolveWorkbookWriteIdempotencyKey,
-  workbookConsistencyConfig,
-} from "./workbookConsistency";
+} from "./core/workbookConsistency";
+import {
+  createWorkbookConsistencyService,
+  normalizeOperationFingerprint,
+} from "./core/workbookConsistencyService";
+import {
+  handleAuthDomainRoute,
+  handleRuntimeInfraDomainRoute,
+  handleTelemetryDomainRoute,
+} from "./http/workbook-runtime-domain-handlers";
+import { handleWorkbookDomainRoute } from "./http/workbook-runtime-workbook-domain-handlers";
+import { registerWorkbookLiveSocketRuntime } from "./live/workbook-runtime-live-runtime";
 
 const WHITEBOARD_TEACHER_LOGIN = "teacher@axiom.demo";
-const WHITEBOARD_TEACHER_PASSWORD =
-  typeof process.env.VITE_WHITEBOARD_TEACHER_PASSWORD === "string" &&
-  process.env.VITE_WHITEBOARD_TEACHER_PASSWORD.trim().length > 0
-    ? process.env.VITE_WHITEBOARD_TEACHER_PASSWORD.trim()
-    : "magic";
+const WHITEBOARD_TEACHER_PASSWORD = (() => {
+  const secret = String(process.env.WHITEBOARD_TEACHER_PASSWORD ?? "").trim();
+  if (secret.length > 0) return secret;
+  throw new Error("[backend:nest] Missing WHITEBOARD_TEACHER_PASSWORD env variable.");
+})();
 
 const AUTH_COOKIE_NAME = "math_tutor_session";
 const AUTH_SESSION_TTL_MS = (() => {
@@ -111,10 +110,17 @@ const CLASS_INVITE_PERSISTENT_EXPIRES_AT = "2999-12-31T23:59:59.999Z";
 const WORKBOOK_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const WORKBOOK_IDEMPOTENCY_MAX_RECORDS = 5_000;
 const WORKBOOK_EVENT_LIMIT = 1_200;
+const NODE_ENV = String(process.env.NODE_ENV ?? "development")
+  .trim()
+  .toLowerCase();
+const IS_PRODUCTION_RUNTIME = NODE_ENV === "production";
 const CORS_ALLOWED_ORIGINS = String(process.env.CORS_ALLOWED_ORIGINS ?? "")
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
+if (IS_PRODUCTION_RUNTIME && CORS_ALLOWED_ORIGINS.length === 0) {
+  throw new Error("[backend:nest] CORS_ALLOWED_ORIGINS is required in production runtime.");
+}
 const AUTH_COOKIE_DOMAIN = String(process.env.AUTH_COOKIE_DOMAIN ?? "").trim();
 const AUTH_COOKIE_SAME_SITE_RAW = String(process.env.AUTH_COOKIE_SAME_SITE ?? "Lax")
   .trim()
@@ -126,6 +132,7 @@ const AUTH_COOKIE_SAME_SITE =
       ? "None"
       : "Lax";
 const AUTH_COOKIE_SECURE =
+  IS_PRODUCTION_RUNTIME ||
   String(process.env.AUTH_COOKIE_SECURE ?? "").trim() === "1" ||
   AUTH_COOKIE_SAME_SITE === "None";
 const DEFAULT_MEDIA_STUN_URL = "stun:stun.l.google.com:19302";
@@ -184,20 +191,6 @@ const MEDIA_LIVEKIT_ENABLED =
   MEDIA_LIVEKIT_API_SECRET.length > 0;
 const PUBLIC_BASE_URL = String(process.env.VITE_PUBLIC_BASE_URL ?? "").trim().replace(/\/+$/g, "");
 
-export type HttpUpgradeServer = {
-  on(
-    event: "upgrade",
-    listener: (req: IncomingMessage, socket: Duplex, head: Buffer) => void
-  ): unknown;
-};
-
-type WorkbookApiNext = () => void;
-type WorkbookApiMiddleware = (
-  req: IncomingMessage,
-  res: ServerResponse,
-  next: WorkbookApiNext
-) => void | Promise<void>;
-
 type WorkbookSettings = {
   undoPolicy: "everyone" | "teacher_only" | "own_only";
   strictGeometry: boolean;
@@ -250,7 +243,6 @@ const workbookVolatileRateLimiter = createTokenBucketRateLimiter({
   maxKeys: 20_000,
 });
 const RUNTIME_NODE_ID = `${os.hostname()}-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
-const workbookLiveSocketServerByHost = new WeakMap<HttpUpgradeServer, WebSocketServer>();
 const nowIso = () => new Date().toISOString();
 const nowTs = () => Date.now();
 const summarizeRealtimeEventTypes = (eventTypes: string[]) =>
@@ -599,187 +591,16 @@ const recordWorkbookAccessEvent = async (params: {
   }
 };
 
-const readIdempotencyKey = (req: IncomingMessage) => {
-  const raw = readHeaderValue(req, "x-idempotency-key");
-  if (!raw) return null;
-  return raw.slice(0, 240);
-};
-
-const resolveWriteIdempotencyKey = (params: {
-  req: IncomingMessage;
-  scope: WorkbookOperationRecord["scope"];
-  actorUserId: string;
-  sessionId: string;
-  payloadFingerprint: unknown;
-}) =>
-  resolveWorkbookWriteIdempotencyKey({
-    headerKey: readIdempotencyKey(params.req),
-    scope: params.scope,
-    actorUserId: params.actorUserId,
-    sessionId: params.sessionId,
-    payloadFingerprint: params.payloadFingerprint,
-  });
-
-const normalizeOperationFingerprint = (value: unknown) => {
-  try {
-    return JSON.stringify(value ?? null);
-  } catch {
-    return String(value ?? "");
-  }
-};
-
-const resolveOperationStorageLimits = (scope: WorkbookOperationRecord["scope"]) => {
-  if (isWorkbookWriteOperationScope(scope)) {
-    return {
-      ttlMs: workbookConsistencyConfig.idempotencyTtlMs,
-      maxRecords: workbookConsistencyConfig.idempotencyMaxRecords,
-    };
-  }
-  return {
-    ttlMs: WORKBOOK_IDEMPOTENCY_TTL_MS,
-    maxRecords: WORKBOOK_IDEMPOTENCY_MAX_RECORDS,
-  };
-};
-
-const cleanupWorkbookIdempotencyOperations = (db: MockDb) => {
-  const before = db.workbookOperations.length;
-  const now = nowTs();
-  const writeLimit = resolveOperationStorageLimits("workbook_events_append").maxRecords;
-  const writeScopes = db.workbookOperations.filter((entry) =>
-    isWorkbookWriteOperationScope(entry.scope)
-  );
-  const writeOverflowThreshold = Math.max(0, writeScopes.length - writeLimit);
-
-  let operations = db.workbookOperations.filter(
-    (entry) => new Date(entry.expiresAt).getTime() > now
-  );
-  if (operations.length > WORKBOOK_IDEMPOTENCY_MAX_RECORDS || writeOverflowThreshold > 0) {
-    const sorted = operations
-      .slice()
-      .sort(
-        (left, right) =>
-          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
-      );
-    let globalTrimmed = sorted.slice(0, WORKBOOK_IDEMPOTENCY_MAX_RECORDS);
-    if (writeOverflowThreshold > 0) {
-      const keepWrite = new Set(
-        globalTrimmed
-          .filter((entry) => isWorkbookWriteOperationScope(entry.scope))
-          .slice(0, writeLimit)
-          .map((entry) => entry.id)
-      );
-      globalTrimmed = globalTrimmed.filter(
-        (entry) =>
-          !isWorkbookWriteOperationScope(entry.scope) || keepWrite.has(entry.id)
-      );
-    }
-    operations = globalTrimmed;
-  }
-  if (operations.length === db.workbookOperations.length) return 0;
-
-  const writeBefore = db.workbookOperations.filter((entry) =>
-    isWorkbookWriteOperationScope(entry.scope)
-  ).length;
-  const writeAfter = operations.filter((entry) =>
-    isWorkbookWriteOperationScope(entry.scope)
-  ).length;
-
-  db.workbookOperations = operations;
-  saveDb();
-  const writeEvictions = Math.max(0, writeBefore - writeAfter);
-  if (writeEvictions > 0) {
-    registerWorkbookIdempotencyEvictions(writeEvictions);
-  }
-  return Math.max(0, before - operations.length);
-};
-
-const readWorkbookIdempotentOperation = <TPayload>(
-  db: MockDb,
-  params: {
-    scope: WorkbookOperationRecord["scope"];
-    actorUserId: string;
-    idempotencyKey: string | null;
-    requestFingerprint: string;
-  }
-) => {
-  const writeScope = isWorkbookWriteOperationScope(params.scope);
-  if (!params.idempotencyKey) {
-    if (writeScope) {
-      registerWorkbookIdempotencyMiss();
-    }
-    return null;
-  }
-  cleanupWorkbookIdempotencyOperations(db);
-  const key = `${params.actorUserId}:${params.idempotencyKey}`;
-  const operation =
-    getDbIndex(db).operationsByScopeKey.get(`${params.scope}:${key}`) ?? null;
-  if (!operation) {
-    if (writeScope) {
-      registerWorkbookIdempotencyMiss();
-    }
-    return null;
-  }
-  if (operation.requestFingerprint !== params.requestFingerprint) {
-    if (writeScope) {
-      registerWorkbookIdempotencyConflict();
-    }
-    return { conflict: true } as const;
-  }
-  if (writeScope) {
-    registerWorkbookIdempotencyHit();
-  }
-  return {
-    conflict: false as const,
-    statusCode: operation.statusCode,
-    payload: safeParseJson<TPayload>(operation.responsePayload, null as TPayload),
-  };
-};
-
-const saveWorkbookIdempotentOperation = (
-  db: MockDb,
-  params: {
-    scope: WorkbookOperationRecord["scope"];
-    actorUserId: string;
-    idempotencyKey: string | null;
-    requestFingerprint: string;
-    statusCode: number;
-    payload: unknown;
-  }
-) => {
-  if (!params.idempotencyKey) return;
-  cleanupWorkbookIdempotencyOperations(db);
-  const key = `${params.actorUserId}:${params.idempotencyKey}`;
-  const timestamp = nowIso();
-  const expiresAt = new Date(
-    nowTs() + resolveOperationStorageLimits(params.scope).ttlMs
-  ).toISOString();
-  const payloadRaw = normalizeOperationFingerprint(params.payload);
-  const existingIndex = db.workbookOperations.findIndex(
-    (entry) => entry.scope === params.scope && entry.key === key
-  );
-  const record: WorkbookOperationRecord = {
-    id: existingIndex >= 0 ? db.workbookOperations[existingIndex].id : ensureId(),
-    scope: params.scope,
-    actorUserId: params.actorUserId,
-    key,
-    requestFingerprint: params.requestFingerprint,
-    statusCode: params.statusCode,
-    responsePayload: payloadRaw,
-    createdAt:
-      existingIndex >= 0 ? db.workbookOperations[existingIndex].createdAt : timestamp,
-    updatedAt: timestamp,
-    expiresAt,
-  };
-  if (existingIndex >= 0) {
-    db.workbookOperations[existingIndex] = record;
-  } else {
-    db.workbookOperations.push(record);
-  }
-  saveDb();
-  if (isWorkbookWriteOperationScope(params.scope)) {
-    registerWorkbookIdempotencyWrite();
-  }
-};
+const workbookConsistencyService = createWorkbookConsistencyService({
+  config: {
+    fallbackIdempotencyTtlMs: WORKBOOK_IDEMPOTENCY_TTL_MS,
+    fallbackIdempotencyMaxRecords: WORKBOOK_IDEMPOTENCY_MAX_RECORDS,
+  },
+  ensureId,
+  nowIso,
+  nowTs,
+  saveDb,
+});
 
 const writeAuthCookie = (res: ServerResponse, token: string) => {
   appendSetCookieHeader(
@@ -1993,126 +1814,6 @@ const sanitizeWorkbookLiveEvents = (
   return sanitized;
 };
 
-const rejectUpgrade = (
-  socket: Duplex,
-  statusCode: 400 | 401 | 403 | 404 | 503,
-  statusText: string
-) => {
-  try {
-    socket.write(
-      `HTTP/1.1 ${statusCode} ${statusText}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`
-    );
-  } finally {
-    socket.destroy();
-  }
-};
-
-export const attachWorkbookLiveSocketServer = (
-  httpServer: HttpUpgradeServer | null | undefined
-) => {
-  if (!httpServer || workbookLiveSocketServerByHost.has(httpServer)) return;
-  const socketServer = new WebSocketServer({ noServer: true });
-  workbookLiveSocketServerByHost.set(httpServer, socketServer);
-
-  httpServer.on("upgrade", (req, socket, head) => {
-    const { pathname } = parsePath(req);
-    const match = pathname.match(/^\/api\/workbook\/sessions\/([^/]+)\/events\/live$/);
-    if (!match) return;
-    const readiness = getWorkbookPersistenceReadiness();
-    if (!readiness.ready) {
-      rejectUpgrade(socket, 503, "Service Unavailable");
-      return;
-    }
-    const db = getDb();
-    pickTeacher(db);
-    ensureDbParticipantPermissionsNormalized(db);
-    const actor = resolveAuthUser(req, db);
-    if (!actor) {
-      rejectUpgrade(socket, 401, "Unauthorized");
-      return;
-    }
-    const sessionId = decodeURIComponent(match[1]);
-    if (!getWorkbookParticipant(db, sessionId, actor.id)) {
-      rejectUpgrade(socket, 403, "Forbidden");
-      return;
-    }
-    void ensureRuntimeSessionBridge(sessionId);
-    socketServer.handleUpgrade(req, socket, head, (ws) => {
-      const clientId = ensureId();
-      const sessionClients = workbookLiveSocketClientsBySession.get(sessionId) ?? new Map();
-      sessionClients.set(clientId, { id: clientId, userId: actor.id, socket: ws });
-      workbookLiveSocketClientsBySession.set(sessionId, sessionClients);
-
-      const cleanup = () => {
-        const currentClients = workbookLiveSocketClientsBySession.get(sessionId);
-        if (!currentClients) return;
-        currentClients.delete(clientId);
-        if (currentClients.size === 0) {
-          workbookLiveSocketClientsBySession.delete(sessionId);
-          void teardownRuntimeSessionBridgeIfIdle(sessionId);
-        }
-      };
-
-      ws.on("message", async (rawMessage) => {
-        let parsed: { events?: unknown[] } | null = null;
-        try {
-          parsed = JSON.parse(String(rawMessage)) as { events?: unknown[] };
-        } catch {
-          parsed = null;
-        }
-        const currentDb = getDb();
-        const currentSession = getWorkbookSessionById(currentDb, sessionId);
-        if (!currentSession) {
-          try {
-            ws.close();
-          } catch {
-            // ignore close failures
-          }
-          return;
-        }
-        applyStudentControls(currentSession, currentDb);
-        const currentParticipant = getWorkbookParticipant(currentDb, sessionId, actor.id);
-        if (!currentParticipant) {
-          try {
-            ws.close();
-          } catch {
-            // ignore close failures
-          }
-          return;
-        }
-        const volatileLimit = isVolatileRateLimitAllowed(sessionId, actor.id, "live_ws");
-        if (!volatileLimit.allowed) {
-          try {
-            ws.close(1013, "rate_limited");
-          } catch {
-            // ignore close failures
-          }
-          return;
-        }
-        const events = Array.isArray(parsed?.events) ? parsed.events : [];
-        const sanitizedEvents = sanitizeWorkbookLiveEvents(currentParticipant, events);
-        if (sanitizedEvents.length === 0) return;
-        const appendResult = await appendWorkbookEvents(currentDb, {
-          sessionId,
-          authorUserId: actor.id,
-          events: sanitizedEvents,
-          persist: false,
-        });
-        touchSessionActivity(currentSession, appendResult.timestamp);
-        publishWorkbookLiveEvents(currentDb, {
-          sessionId,
-          latestSeq: appendResult.latestSeq,
-          events: appendResult.events,
-          channel: "live",
-        });
-      });
-
-      ws.on("close", cleanup);
-      ws.on("error", cleanup);
-    });
-  });
-};
-
 const resolveEffectiveStudentControls = (
   session: WorkbookSessionRecord,
   hasOnlineTeacher: boolean
@@ -2227,144 +1928,215 @@ const setAuthSession = (db: MockDb, res: ServerResponse, user: UserRecord) => {
   return session;
 };
 
-export const createWorkbookApiMiddleware = (): WorkbookApiMiddleware => {
-  return async (req: IncomingMessage, res: ServerResponse, next: WorkbookApiNext) => {
-    if (!req.url) {
-      next();
-      return;
-    }
+const workbookLiveSocketRuntime = {
+  parsePath,
+  getWorkbookPersistenceReadiness,
+  getDb,
+  pickTeacher,
+  ensureDbParticipantPermissionsNormalized,
+  resolveAuthUser,
+  getWorkbookParticipant,
+  ensureRuntimeSessionBridge,
+  ensureId,
+  workbookLiveSocketClientsBySession,
+  teardownRuntimeSessionBridgeIfIdle,
+  getWorkbookSessionById,
+  applyStudentControls,
+  isVolatileRateLimitAllowed,
+  sanitizeWorkbookLiveEvents,
+  appendWorkbookEvents,
+  touchSessionActivity,
+  publishWorkbookLiveEvents,
+};
+registerWorkbookLiveSocketRuntime(workbookLiveSocketRuntime);
 
-    const method = (req.method ?? "GET").toUpperCase();
-    const { pathname, searchParams } = parsePath(req);
+export const handleWorkbookApiRequest = async (
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<boolean | void> => {
+  return handleWorkbookApiRequestByDomains(req, res, new Set<RuntimeApiDomain>(["workbook"]));
+};
 
-    if (!pathname.startsWith("/api/")) {
-      next();
-      return;
-    }
-    if (pathname.startsWith("/api/nest/")) {
-      next();
-      return;
-    }
+export type RuntimeApiDomain = "auth" | "runtime" | "telemetry" | "workbook";
 
-    const sessionIdFromPath = extractWorkbookSessionIdFromPath(pathname);
-    if (sessionIdFromPath && method !== "OPTIONS") {
-      applyWorkbookSessionAffinityHeaders({
-        req,
-        res,
-        sessionId: sessionIdFromPath,
-      });
-    }
+export const handleWorkbookApiRequestByDomains = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  domains: ReadonlySet<RuntimeApiDomain>
+): Promise<boolean | void> => {
+  if (!req.url) {
+    return false;
+  }
 
-    applyCors(req, res);
-    if (method === "OPTIONS") {
-      res.statusCode = 204;
-      res.end();
-      return;
-    }
+  const method = (req.method ?? "GET").toUpperCase();
+  const { pathname, searchParams } = parsePath(req);
 
-    const db = getDb();
-    pickTeacher(db);
-    ensureDbParticipantPermissionsNormalized(db);
+  if (!pathname.startsWith("/api/")) {
+    return false;
+  }
+  if (pathname.startsWith("/api/nest/")) {
+    return false;
+  }
+  if (pathname.startsWith("/api/auth") && !domains.has("auth")) {
+    return false;
+  }
+  if (pathname.startsWith("/api/runtime") && !domains.has("runtime")) {
+    return false;
+  }
+  if (pathname.startsWith("/api/telemetry") && !domains.has("telemetry")) {
+    return false;
+  }
+  if (pathname.startsWith("/api/workbook") && !domains.has("workbook")) {
+    return false;
+  }
 
-    try {
-      if (pathname === "/api/auth/session" && method === "GET") {
-        const user = resolveAuthUser(req, db);
-        json(res, 200, user ? safeUser(user) : null);
-        return;
-      }
+  const sessionIdFromPath = extractWorkbookSessionIdFromPath(pathname);
+  if (sessionIdFromPath && method !== "OPTIONS") {
+    applyWorkbookSessionAffinityHeaders({
+      req,
+      res,
+      sessionId: sessionIdFromPath,
+    });
+  }
 
-      if (pathname === "/api/telemetry/rum" && method === "POST") {
-        const actor = resolveAuthUser(req, db, { touchSession: false });
-        const body = (await readBody(req)) as { events?: unknown[]; sessionId?: unknown } | null;
-        const events = Array.isArray(body?.events) ? body.events : [];
-        const sessionId =
-          typeof body?.sessionId === "string" && body.sessionId.trim().length > 0
-            ? body.sessionId.trim()
-            : null;
-        const result = ingestRumTelemetryEvents(events, {
-          userId: actor?.id ?? null,
-          sessionId,
-        });
-        json(res, 202, { ok: true, accepted: result.accepted });
-        return;
-      }
+  applyCors(req, res);
+  if (method === "OPTIONS") {
+    res.statusCode = 204;
+    res.end();
+    return true;
+  }
 
-      if (pathname === "/api/telemetry/runtime" && method === "GET") {
-        const actor = requireAuthUser(req, res, db);
-        if (!actor) return;
-        const limit = Math.max(
-          1,
-          Math.min(200, Number.parseInt(String(searchParams.get("limit") ?? "50"), 10) || 50)
-        );
-        json(res, 200, {
-          diagnostics: getTelemetryDiagnostics(),
-          workbookServerTraces: readRecentWorkbookServerTraces(limit),
-          rumEvents: readRecentRumTelemetryEvents(limit),
-        });
-        return;
-      }
+  const db = getDb();
+  pickTeacher(db);
+  ensureDbParticipantPermissionsNormalized(db);
 
-      if (pathname === "/api/runtime/readiness" && method === "GET") {
-        const readiness = getWorkbookPersistenceReadiness();
-        json(res, readiness.ready ? 200 : 503, readiness);
-        return;
-      }
-
-      if (pathname === "/api/runtime/infra" && method === "GET") {
-        const readiness = getWorkbookPersistenceReadiness();
-        json(res, readiness.ready ? 200 : 503, {
-          ok: readiness.ready,
-          service: "mathboard-runtime-infra",
-          timestamp: new Date().toISOString(),
-          readiness,
-          storage: getStorageDiagnostics(),
-          runtime: getRuntimeServicesStatus(),
-          telemetry: getTelemetryDiagnostics(),
-          affinity: getWorkbookSessionAffinityDiagnostics(),
-        });
-        return;
-      }
-
-      if (pathname === "/api/auth/password/login" && method === "POST") {
-        const body = (await readBody(req)) as { email?: string; password?: string } | null;
-        const email = String(body?.email ?? "").trim().toLowerCase();
-        const password = String(body?.password ?? "");
-        if (email !== WHITEBOARD_TEACHER_LOGIN || password !== WHITEBOARD_TEACHER_PASSWORD) {
-          unauthorized(res, "Неверный логин или пароль.");
-          return;
-        }
-        const teacher = pickTeacher(db);
-        setAuthSession(db, res, teacher);
-        saveDb();
-        json(res, 200, safeUser(teacher));
-        return;
-      }
-
-      if (pathname === "/api/auth/logout" && method === "POST") {
-        const cookies = parseCookies(req);
-        const token = cookies[AUTH_COOKIE_NAME];
-        if (token) {
-          const authSession = getDbIndex(db).authSessionsByToken.get(token) ?? null;
-          if (authSession) {
-            closeUserPresenceAcrossSessions(db, authSession.userId);
+  try {
+      if (
+        domains.has("auth") &&
+        (await handleAuthDomainRoute(
+          { req, res, db, method, pathname, searchParams },
+          {
+            authCookieName: AUTH_COOKIE_NAME,
+            teacherLogin: WHITEBOARD_TEACHER_LOGIN,
+            teacherPassword: WHITEBOARD_TEACHER_PASSWORD,
+            resolveAuthUser,
+            readBody,
+            unauthorized,
+            pickTeacher,
+            setAuthSession,
+            saveDb,
+            safeUser,
+            parseCookies,
+            readAuthSessionByToken: (runtimeDb, token) =>
+              getDbIndex(runtimeDb).authSessionsByToken.get(token) ?? null,
+            closeUserPresenceAcrossSessions,
+            removeAuthSessionPersistenceToken: (token) => {
+              authSessionPersistAtByToken.delete(token);
+            },
+            clearAuthCookie,
+            json,
           }
-          db.authSessions = db.authSessions.filter((session) => session.token !== token);
-          authSessionPersistAtByToken.delete(token);
-          saveDb();
-        }
-        clearAuthCookie(res);
-        json(res, 200, { ok: true });
+        ))
+      ) {
         return;
       }
 
-      if (pathname === "/api/auth/password/status" && method === "GET") {
-        json(res, 200, {
-          ok: true,
-          hasPassword: true,
-          state: "active",
-          lockedUntil: null,
-          lastPasswordChangeAt: null,
-        });
+      if (
+        domains.has("runtime") &&
+        handleRuntimeInfraDomainRoute(
+          { req, res, db, method, pathname, searchParams },
+          {
+            getWorkbookPersistenceReadiness,
+            getStorageDiagnostics,
+            getRuntimeServicesStatus,
+            getTelemetryDiagnostics,
+            getWorkbookSessionAffinityDiagnostics,
+            json,
+          }
+        )
+      ) {
+        return;
+      }
+
+      if (
+        domains.has("telemetry") &&
+        (await handleTelemetryDomainRoute(
+          { req, res, db, method, pathname, searchParams },
+          {
+            resolveAuthUser,
+            requireAuthUser,
+            readBody,
+            ingestRumTelemetryEvents,
+            getTelemetryDiagnostics,
+            readRecentWorkbookServerTraces,
+            readRecentRumTelemetryEvents,
+            json,
+          }
+        ))
+      ) {
+        return;
+      }
+
+      if (
+        domains.has("workbook") &&
+        (await handleWorkbookDomainRoute(
+          { req, res, db, method, pathname, searchParams },
+          {
+            WORKBOOK_EVENT_LIMIT,
+            WORKBOOK_PDF_RENDER_MAX_BYTES,
+            PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS,
+            ensureWorkbookPersistenceReady,
+            requireAuthUser,
+            getWorkbookParticipant,
+            getWorkbookSessionById,
+            applyStudentControls,
+            enforceVolatileRateLimit,
+            readBody,
+            badRequest,
+            forbidden,
+            notFound,
+            conflict,
+            json,
+            hashWorkbookOperationFingerprint,
+            resolveWriteIdempotencyKey: workbookConsistencyService.resolveWriteIdempotencyKey,
+            readWorkbookIdempotentOperation: workbookConsistencyService.readIdempotentOperation,
+            saveWorkbookIdempotentOperation: workbookConsistencyService.saveIdempotentOperation,
+            sanitizeWorkbookLiveEvents,
+            appendWorkbookEvents,
+            workbookEventStore,
+            collectUrgentWorkbookLiveEvents,
+            publishWorkbookLiveEvents,
+            publishWorkbookStreamEvents,
+            touchSessionActivity,
+            ensureDraftForOwner,
+            saveDb,
+            applyWorkbookObjectVersionGuard: workbookConsistencyService.applyObjectVersionGuard,
+            workbookStreamClientsBySession,
+            ensureRuntimeSessionBridge,
+            closeWorkbookStreamClient,
+            nowIso,
+            ensureId,
+            nowTs,
+            workbookSnapshotStore,
+            getWorkbookSessionLatestSeq,
+            resolveWorkbookSnapshotBarrier: workbookConsistencyService.resolveSnapshotBarrier,
+            trimWorkbookEventsOverflow,
+            normalizePresenceState,
+            normalizePresenceTabId,
+            applyParticipantPresenceState,
+            presenceActivityTouchAtBySession,
+            persistPresenceIfNeeded,
+            maybePublishPresenceSync,
+            recordWorkbookAccessEvent,
+            decodeWorkbookPdfDataUrl,
+            renderWorkbookPdfPagesViaPoppler,
+            sanitizePermissionPatch,
+            normalizeParticipantPermissions,
+            hasBoardToolsPermissionPatch,
+            resolveBoardToolsOverrideState,
+          }
+        ))
+      ) {
         return;
       }
 
@@ -2445,12 +2217,21 @@ export const createWorkbookApiMiddleware = (): WorkbookApiMiddleware => {
             : kind === "CLASS"
               ? "Индивидуальное занятие"
               : "Личная тетрадь";
-        const idempotencyKey = readIdempotencyKey(req);
+        const idempotencyKey = workbookConsistencyService.resolveWriteIdempotencyKey({
+          req,
+          scope: "workbook_sessions_create",
+          actorUserId: actor.id,
+          sessionId: "__global__",
+          payloadFingerprint: {
+            kind,
+            title,
+          },
+        });
         const requestFingerprint = normalizeOperationFingerprint({
           kind,
           title,
         });
-        const existingOperation = readWorkbookIdempotentOperation<{
+        const existingOperation = workbookConsistencyService.readIdempotentOperation<{
           session: ReturnType<typeof serializeSession>;
           draft: ReturnType<typeof serializeDraft>;
         }>(db, {
@@ -2494,7 +2275,7 @@ export const createWorkbookApiMiddleware = (): WorkbookApiMiddleware => {
           session: serializeSession(db, session, actor.id),
           draft: serializeDraft(db, draft, actor.id),
         };
-        saveWorkbookIdempotentOperation(db, {
+        workbookConsistencyService.saveIdempotentOperation(db, {
           scope: "workbook_sessions_create",
           actorUserId: actor.id,
           idempotencyKey,
@@ -2577,9 +2358,15 @@ export const createWorkbookApiMiddleware = (): WorkbookApiMiddleware => {
         const actor = requireAuthUser(req, res, db);
         if (!actor) return;
         const sessionId = decodeURIComponent(workbookSessionMatch[1]);
-        const idempotencyKey = readIdempotencyKey(req);
+        const idempotencyKey = workbookConsistencyService.resolveWriteIdempotencyKey({
+          req,
+          scope: "workbook_sessions_delete",
+          actorUserId: actor.id,
+          sessionId,
+          payloadFingerprint: { sessionId },
+        });
         const requestFingerprint = normalizeOperationFingerprint({ sessionId });
-        const existingOperation = readWorkbookIdempotentOperation<{
+        const existingOperation = workbookConsistencyService.readIdempotentOperation<{
           ok: true;
           deletedSessionId: string;
           message: string;
@@ -2628,7 +2415,7 @@ export const createWorkbookApiMiddleware = (): WorkbookApiMiddleware => {
           deletedSessionId: sessionId,
           message: "Сессия удалена",
         };
-        saveWorkbookIdempotentOperation(db, {
+        workbookConsistencyService.saveIdempotentOperation(db, {
           scope: "workbook_sessions_delete",
           actorUserId: actor.id,
           idempotencyKey,
@@ -2907,9 +2694,15 @@ export const createWorkbookApiMiddleware = (): WorkbookApiMiddleware => {
         const actor = requireAuthUser(req, res, db);
         if (!actor) return;
         const sessionId = decodeURIComponent(workbookInviteCreateMatch[1]);
-        const idempotencyKey = readIdempotencyKey(req);
+        const idempotencyKey = workbookConsistencyService.resolveWriteIdempotencyKey({
+          req,
+          scope: "workbook_invite_create",
+          actorUserId: actor.id,
+          sessionId,
+          payloadFingerprint: { sessionId },
+        });
         const requestFingerprint = normalizeOperationFingerprint({ sessionId });
-        const existingOperation = readWorkbookIdempotentOperation<{
+        const existingOperation = workbookConsistencyService.readIdempotentOperation<{
           inviteId: string;
           sessionId: string;
           token: string;
@@ -2984,7 +2777,7 @@ export const createWorkbookApiMiddleware = (): WorkbookApiMiddleware => {
           maxUses: invite.maxUses ?? null,
           useCount: invite.useCount,
         };
-        saveWorkbookIdempotentOperation(db, {
+        workbookConsistencyService.saveIdempotentOperation(db, {
           scope: "workbook_invite_create",
           actorUserId: actor.id,
           idempotencyKey,
@@ -3206,839 +2999,6 @@ export const createWorkbookApiMiddleware = (): WorkbookApiMiddleware => {
         return;
       }
 
-      const workbookEventsMatch = pathname.match(/^\/api\/workbook\/sessions\/([^/]+)\/events$/);
-      if (workbookEventsMatch && method === "GET") {
-        if (!ensureWorkbookPersistenceReady(res)) return;
-        const actor = requireAuthUser(req, res, db);
-        if (!actor) return;
-        const sessionId = decodeURIComponent(workbookEventsMatch[1]);
-        if (!getWorkbookParticipant(db, sessionId, actor.id)) {
-          forbidden(res);
-          return;
-        }
-
-        const afterSeq = Number(searchParams.get("afterSeq") ?? "0");
-        const { events, latestSeq } = await workbookEventStore.read({
-          sessionId,
-          afterSeq: Number.isFinite(afterSeq) ? afterSeq : 0,
-          limit: WORKBOOK_EVENT_LIMIT,
-        });
-        json(res, 200, { sessionId, latestSeq, events });
-        return;
-      }
-
-      if (workbookEventsMatch && method === "POST") {
-        if (!ensureWorkbookPersistenceReady(res)) return;
-        const actor = requireAuthUser(req, res, db);
-        if (!actor) return;
-        const sessionId = decodeURIComponent(workbookEventsMatch[1]);
-        const session = getWorkbookSessionById(db, sessionId);
-        if (!session) {
-          notFound(res);
-          return;
-        }
-        applyStudentControls(session, db);
-        let participant = getWorkbookParticipant(db, sessionId, actor.id);
-        if (!participant) {
-          forbidden(res);
-          return;
-        }
-
-        const body = (await readBody(req)) as { events?: WorkbookClientEventInput[] } | null;
-        const events = Array.isArray(body?.events)
-          ? body.events.filter((event) => typeof event?.type === "string")
-          : [];
-        if (!events.length) {
-          badRequest(res, "Нет событий для сохранения.");
-          return;
-        }
-        const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_events_append";
-        const requestFingerprint = hashWorkbookOperationFingerprint({
-          sessionId,
-          events,
-        });
-        const idempotencyKey = resolveWriteIdempotencyKey({
-          req,
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          sessionId,
-          payloadFingerprint: {
-            events,
-          },
-        });
-        const existingOperation = readWorkbookIdempotentOperation<{
-          events: unknown[];
-          latestSeq: number;
-        }>(db, {
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          idempotencyKey,
-          requestFingerprint,
-        });
-        if (existingOperation?.conflict) {
-          conflict(res, "idempotency_key_reused_with_different_payload");
-          return;
-        }
-        if (existingOperation) {
-          json(res, existingOperation.statusCode, existingOperation.payload);
-          return;
-        }
-
-        for (const event of events) {
-          if (event.type === "media.signal" && !participant.permissions.canUseMedia) {
-            forbidden(res, "media_disabled");
-            return;
-          }
-          if (event.type === "chat.message" && !participant.permissions.canUseChat) {
-            forbidden(res, "chat_disabled");
-            return;
-          }
-          if (
-            (event.type === "chat.message.delete" || event.type === "chat.clear") &&
-            !participant.permissions.canManageSession
-          ) {
-            forbidden(res);
-            return;
-          }
-          if (event.type !== "permissions.update") continue;
-          if (!participant.permissions.canManageSession) {
-            forbidden(res);
-            return;
-          }
-          const payload =
-            event.payload && typeof event.payload === "object"
-              ? (event.payload as { userId?: unknown; permissions?: unknown })
-              : null;
-          const targetUserId = typeof payload?.userId === "string" ? payload.userId : "";
-          if (!targetUserId) continue;
-          const targetParticipant = getWorkbookParticipant(db, sessionId, targetUserId);
-          if (!targetParticipant || targetParticipant.roleInSession !== "student") continue;
-          const patch = sanitizePermissionPatch(payload?.permissions ?? null);
-          if (Object.keys(patch).length === 0) continue;
-          const nextPermissions = normalizeParticipantPermissions("student", {
-            ...targetParticipant.permissions,
-            ...patch,
-          });
-          targetParticipant.permissions = nextPermissions;
-          if (hasBoardToolsPermissionPatch(patch)) {
-            targetParticipant.boardToolsOverride = resolveBoardToolsOverrideState(nextPermissions);
-          }
-          participant = getWorkbookParticipant(db, sessionId, actor.id) ?? participant;
-        }
-        const versionGuardResult = await applyWorkbookObjectVersionGuard({
-          db,
-          sessionId,
-          events,
-        });
-        if (!versionGuardResult.ok) {
-          json(res, 409, {
-            error: "object_version_conflict",
-            conflicts: versionGuardResult.conflicts,
-          });
-          return;
-        }
-
-        const appendResult = await workbookEventStore.append({
-          sessionId,
-          authorUserId: actor.id,
-          events: versionGuardResult.events,
-          limit: WORKBOOK_EVENT_LIMIT,
-        });
-
-        touchSessionActivity(session, appendResult.timestamp);
-        ensureDraftForOwner(db, session, actor.id).updatedAt = appendResult.timestamp;
-        const urgentLiveEvents = collectUrgentWorkbookLiveEvents(appendResult.events);
-        if (urgentLiveEvents.length > 0) {
-          publishWorkbookLiveEvents(db, {
-            sessionId,
-            latestSeq: appendResult.latestSeq,
-            events: urgentLiveEvents,
-            channel: "live",
-          });
-        }
-
-        publishWorkbookStreamEvents(db, {
-          sessionId,
-          latestSeq: appendResult.latestSeq,
-          events: appendResult.events,
-        });
-        saveDb();
-        const responsePayload = {
-          events: appendResult.events,
-          latestSeq: appendResult.latestSeq,
-        };
-        saveWorkbookIdempotentOperation(db, {
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          idempotencyKey,
-          requestFingerprint,
-          statusCode: 200,
-          payload: responsePayload,
-        });
-        json(res, 200, responsePayload);
-        return;
-      }
-
-      const workbookLiveMatch = pathname.match(/^\/api\/workbook\/sessions\/([^/]+)\/events\/live$/);
-      if (workbookLiveMatch && method === "POST") {
-        const actor = requireAuthUser(req, res, db);
-        if (!actor) return;
-        const sessionId = decodeURIComponent(workbookLiveMatch[1]);
-        const session = getWorkbookSessionById(db, sessionId);
-        if (!session) {
-          notFound(res);
-          return;
-        }
-        applyStudentControls(session, db);
-        const participant = getWorkbookParticipant(db, sessionId, actor.id);
-        if (!participant) {
-          forbidden(res);
-          return;
-        }
-        if (!enforceVolatileRateLimit(res, sessionId, actor.id, "live_http")) {
-          return;
-        }
-        const body = (await readBody(req)) as { events?: unknown[] } | null;
-        const events = Array.isArray(body?.events) ? body.events : [];
-        const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_events_live";
-        const requestFingerprint = hashWorkbookOperationFingerprint({
-          sessionId,
-          events,
-        });
-        const idempotencyKey = resolveWriteIdempotencyKey({
-          req,
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          sessionId,
-          payloadFingerprint: {
-            events,
-          },
-        });
-        const existingOperation = readWorkbookIdempotentOperation<{ ok: true }>(db, {
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          idempotencyKey,
-          requestFingerprint,
-        });
-        if (existingOperation?.conflict) {
-          conflict(res, "idempotency_key_reused_with_different_payload");
-          return;
-        }
-        if (existingOperation) {
-          json(res, existingOperation.statusCode, existingOperation.payload);
-          return;
-        }
-        const sanitizedEvents = sanitizeWorkbookLiveEvents(participant, events);
-        if (sanitizedEvents.length === 0) {
-          json(res, 200, { ok: true });
-          return;
-        }
-        const appendResult = await appendWorkbookEvents(db, {
-          sessionId,
-          authorUserId: actor.id,
-          events: sanitizedEvents,
-          persist: false,
-        });
-        touchSessionActivity(session, appendResult.timestamp);
-        publishWorkbookLiveEvents(db, {
-          sessionId,
-          latestSeq: appendResult.latestSeq,
-          events: appendResult.events,
-          channel: "live",
-        });
-        const responsePayload = { ok: true as const };
-        saveWorkbookIdempotentOperation(db, {
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          idempotencyKey,
-          requestFingerprint,
-          statusCode: 200,
-          payload: responsePayload,
-        });
-        json(res, 200, responsePayload);
-        return;
-      }
-
-      const workbookPreviewMatch = pathname.match(
-        /^\/api\/workbook\/sessions\/([^/]+)\/events\/preview$/
-      );
-      if (workbookPreviewMatch && method === "POST") {
-        const actor = requireAuthUser(req, res, db);
-        if (!actor) return;
-        const sessionId = decodeURIComponent(workbookPreviewMatch[1]);
-        const session = getWorkbookSessionById(db, sessionId);
-        if (!session) {
-          notFound(res);
-          return;
-        }
-        applyStudentControls(session, db);
-        const participant = getWorkbookParticipant(db, sessionId, actor.id);
-        if (!participant) {
-          forbidden(res);
-          return;
-        }
-        if (!enforceVolatileRateLimit(res, sessionId, actor.id, "preview_http")) {
-          return;
-        }
-
-        const body = (await readBody(req)) as {
-          type?: string;
-          objectId?: string;
-          patch?: Record<string, unknown>;
-          stroke?: Record<string, unknown>;
-          previewVersion?: unknown;
-        } | null;
-        const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_events_preview";
-        const requestFingerprint = hashWorkbookOperationFingerprint({
-          sessionId,
-          body,
-        });
-        const idempotencyKey = resolveWriteIdempotencyKey({
-          req,
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          sessionId,
-          payloadFingerprint: body ?? {},
-        });
-        const existingOperation = readWorkbookIdempotentOperation<{ ok: true }>(db, {
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          idempotencyKey,
-          requestFingerprint,
-        });
-        if (existingOperation?.conflict) {
-          conflict(res, "idempotency_key_reused_with_different_payload");
-          return;
-        }
-        if (existingOperation) {
-          json(res, existingOperation.statusCode, existingOperation.payload);
-          return;
-        }
-
-        const previewVersion =
-          typeof body?.previewVersion === "number" && Number.isFinite(body.previewVersion)
-            ? Math.max(1, Math.trunc(body.previewVersion))
-            : null;
-        const previewType =
-          body?.type === "board.stroke.preview" || body?.type === "annotations.stroke.preview"
-            ? body.type
-            : "board.object.preview";
-        let previewEvent: WorkbookClientEventInput | null = null;
-
-        if (previewType === "board.stroke.preview" || previewType === "annotations.stroke.preview") {
-          if (!participant.permissions.canDraw) {
-            forbidden(res);
-            return;
-          }
-          const stroke = body?.stroke && typeof body.stroke === "object" ? body.stroke : null;
-          if (!stroke) {
-            badRequest(res, "Некорректные данные preview.");
-            return;
-          }
-          previewEvent = {
-            type: previewType,
-            payload: {
-              stroke,
-              ...(previewVersion ? { previewVersion } : {}),
-            },
-          };
-        } else {
-          if (!participant.permissions.canSelect) {
-            forbidden(res);
-            return;
-          }
-          const objectId = typeof body?.objectId === "string" ? body.objectId : "";
-          const patch = body?.patch && typeof body.patch === "object" ? body.patch : null;
-          if (!objectId || !patch) {
-            badRequest(res, "Некорректные данные preview.");
-            return;
-          }
-          previewEvent = {
-            type: "board.object.preview",
-            payload: {
-              objectId,
-              patch,
-              ...(previewVersion ? { previewVersion } : {}),
-            },
-          };
-        }
-
-        const appendResult = await appendWorkbookEvents(db, {
-          sessionId,
-          authorUserId: actor.id,
-          events: previewEvent ? [previewEvent] : [],
-          persist: false,
-        });
-
-        touchSessionActivity(session, appendResult.timestamp);
-        publishWorkbookLiveEvents(db, {
-          sessionId,
-          latestSeq: appendResult.latestSeq,
-          events: appendResult.events,
-          channel: "live",
-        });
-        const responsePayload = { ok: true as const };
-        saveWorkbookIdempotentOperation(db, {
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          idempotencyKey,
-          requestFingerprint,
-          statusCode: 200,
-          payload: responsePayload,
-        });
-        json(res, 200, responsePayload);
-        return;
-      }
-
-      const workbookEventsStreamMatch = pathname.match(
-        /^\/api\/workbook\/sessions\/([^/]+)\/events\/stream$/
-      );
-      if (workbookEventsStreamMatch && method === "GET") {
-        const actor = requireAuthUser(req, res, db);
-        if (!actor) return;
-        const sessionId = decodeURIComponent(workbookEventsStreamMatch[1]);
-        if (!getWorkbookParticipant(db, sessionId, actor.id)) {
-          forbidden(res);
-          return;
-        }
-
-        res.statusCode = 200;
-        res.setHeader("Content-Type", "text/event-stream");
-        res.setHeader("Cache-Control", "no-cache, no-transform");
-        res.setHeader("Connection", "keep-alive");
-        res.setHeader("X-Accel-Buffering", "no");
-
-        const clientId = ensureId();
-        const sessionClients = workbookStreamClientsBySession.get(sessionId) ?? new Map();
-        sessionClients.set(clientId, { id: clientId, userId: actor.id, res });
-        workbookStreamClientsBySession.set(sessionId, sessionClients);
-        void ensureRuntimeSessionBridge(sessionId);
-
-        try {
-          res.write(`event: ping\\ndata: ${JSON.stringify({ ts: nowIso() })}\\n\\n`);
-        } catch {
-          closeWorkbookStreamClient(sessionId, clientId);
-          res.end();
-          return;
-        }
-
-        const heartbeat = setInterval(() => {
-          try {
-            res.write(`event: ping\\ndata: ${JSON.stringify({ ts: nowIso() })}\\n\\n`);
-          } catch {
-            clearInterval(heartbeat);
-            closeWorkbookStreamClient(sessionId, clientId);
-            res.end();
-          }
-        }, 15_000);
-
-        const cleanup = () => {
-          clearInterval(heartbeat);
-          closeWorkbookStreamClient(sessionId, clientId);
-        };
-
-        req.on("close", cleanup);
-        req.on("end", cleanup);
-        req.on("error", cleanup);
-        return;
-      }
-
-      const workbookSnapshotMatch = pathname.match(/^\/api\/workbook\/sessions\/([^/]+)\/snapshot$/);
-      if (workbookSnapshotMatch && method === "GET") {
-        if (!ensureWorkbookPersistenceReady(res)) return;
-        const actor = requireAuthUser(req, res, db);
-        if (!actor) return;
-        const sessionId = decodeURIComponent(workbookSnapshotMatch[1]);
-        if (!getWorkbookParticipant(db, sessionId, actor.id)) {
-          forbidden(res);
-          return;
-        }
-        const layer = searchParams.get("layer") === "annotations" ? "annotations" : "board";
-        const snapshot = await workbookSnapshotStore.read({ sessionId, layer });
-        if (!snapshot) {
-          json(res, 200, null);
-          return;
-        }
-        json(res, 200, {
-          id: snapshot.id,
-          sessionId: snapshot.sessionId,
-          layer: snapshot.layer,
-          version: snapshot.version,
-          payload: snapshot.payload,
-          createdAt: snapshot.createdAt,
-        });
-        return;
-      }
-
-      if (workbookSnapshotMatch && method === "PUT") {
-        if (!ensureWorkbookPersistenceReady(res)) return;
-        const actor = requireAuthUser(req, res, db);
-        if (!actor) return;
-        const sessionId = decodeURIComponent(workbookSnapshotMatch[1]);
-        if (!getWorkbookParticipant(db, sessionId, actor.id)) {
-          forbidden(res);
-          return;
-        }
-        const body = (await readBody(req)) as {
-          layer?: "board" | "annotations";
-          version?: number;
-          payload?: unknown;
-        } | null;
-        const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_snapshot_upsert";
-        const requestFingerprint = hashWorkbookOperationFingerprint({
-          sessionId,
-          body,
-        });
-        const idempotencyKey = resolveWriteIdempotencyKey({
-          req,
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          sessionId,
-          payloadFingerprint: body ?? {},
-        });
-        const existingOperation = readWorkbookIdempotentOperation<{
-          id: string;
-          sessionId: string;
-          layer: "board" | "annotations";
-          version: number;
-          payload: unknown;
-          accepted: boolean;
-          requestedVersion: number;
-          barrierSeq: number;
-          createdAt: string;
-        }>(db, {
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          idempotencyKey,
-          requestFingerprint,
-        });
-        if (existingOperation?.conflict) {
-          conflict(res, "idempotency_key_reused_with_different_payload");
-          return;
-        }
-        if (existingOperation) {
-          json(res, existingOperation.statusCode, existingOperation.payload);
-          return;
-        }
-        const layer = body?.layer === "annotations" ? "annotations" : "board";
-        const requestedVersion =
-          typeof body?.version === "number" && body.version > 0 ? Math.trunc(body.version) : 1;
-        const latestSeq = getWorkbookSessionLatestSeq(db, sessionId);
-        const version =
-          latestSeq > 0
-            ? Math.max(1, Math.min(requestedVersion, latestSeq))
-            : Math.max(1, requestedVersion);
-        const payload = body?.payload ?? null;
-        const snapshot = await workbookSnapshotStore.upsert({
-          sessionId,
-          layer,
-          version,
-          payload,
-        });
-        const barrier = resolveWorkbookSnapshotBarrier(db, sessionId);
-        const beforeTrimCount = db.workbookEvents.filter((event) => event.sessionId === sessionId).length;
-        const accepted =
-          requestedVersion === version && version >= snapshot.version;
-        if (beforeTrimCount > WORKBOOK_EVENT_LIMIT && barrier.confirmed) {
-          const before = db.workbookEvents.length;
-          // Snapshot barrier confirms recovery point; now overflow trim is safe.
-          trimWorkbookEventsOverflow(db, sessionId);
-          if (db.workbookEvents.length !== before) {
-            saveDb();
-          }
-        }
-        const responsePayload = {
-          id: snapshot.id,
-          sessionId: snapshot.sessionId,
-          layer: snapshot.layer,
-          version: snapshot.version,
-          payload: snapshot.payload,
-          accepted,
-          requestedVersion,
-          barrierSeq: barrier.barrierSeq,
-          createdAt: snapshot.createdAt,
-        };
-        saveWorkbookIdempotentOperation(db, {
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          idempotencyKey,
-          requestFingerprint,
-          statusCode: 200,
-          payload: responsePayload,
-        });
-
-        json(res, 200, responsePayload);
-        return;
-      }
-
-      const workbookPresenceMatch = pathname.match(/^\/api\/workbook\/sessions\/([^/]+)\/presence$/);
-      if (workbookPresenceMatch && method === "POST") {
-        const actor = requireAuthUser(req, res, db);
-        if (!actor) return;
-        const body = (await readBody(req)) as {
-          state?: WorkbookPresenceState;
-          tabId?: string;
-        } | null;
-        const sessionId = decodeURIComponent(workbookPresenceMatch[1]);
-        const session = getWorkbookSessionById(db, sessionId);
-        if (!session) {
-          notFound(res);
-          return;
-        }
-        const participant = getWorkbookParticipant(db, sessionId, actor.id);
-        if (!participant) {
-          forbidden(res);
-          return;
-        }
-        const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_presence_heartbeat";
-        const requestFingerprint = hashWorkbookOperationFingerprint({
-          sessionId,
-          body,
-        });
-        const idempotencyKey = resolveWriteIdempotencyKey({
-          req,
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          sessionId,
-          payloadFingerprint: body ?? {},
-        });
-        const existingOperation = readWorkbookIdempotentOperation<{
-          ok: true;
-          participants: ReturnType<typeof maybePublishPresenceSync>;
-        }>(db, {
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          idempotencyKey,
-          requestFingerprint,
-        });
-        if (existingOperation?.conflict) {
-          conflict(res, "idempotency_key_reused_with_different_payload");
-          return;
-        }
-        if (existingOperation) {
-          json(res, existingOperation.statusCode, existingOperation.payload);
-          return;
-        }
-
-        const state = normalizePresenceState(body?.state);
-        const tabId = normalizePresenceTabId(body?.tabId);
-        const wasActive = participant.isActive;
-        const heartbeatTs = nowTs();
-        const heartbeatAt = nowIso();
-        const presenceResult = applyParticipantPresenceState(participant, {
-          sessionId,
-          state,
-          tabId,
-          timestamp: heartbeatAt,
-        });
-        const lastActivityTouchAt = presenceActivityTouchAtBySession.get(sessionId) ?? 0;
-        const shouldTouchSessionActivity =
-          state === "active" &&
-          (!wasActive || heartbeatTs - lastActivityTouchAt >= PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS);
-        if (shouldTouchSessionActivity) {
-          touchSessionActivity(session, heartbeatAt);
-          ensureDraftForOwner(db, session, actor.id).updatedAt = session.lastActivityAt;
-          presenceActivityTouchAtBySession.set(sessionId, heartbeatTs);
-        } else if (!presenceResult.hasActiveTabs) {
-          presenceActivityTouchAtBySession.delete(sessionId);
-        }
-        applyStudentControls(session, db);
-        persistPresenceIfNeeded(participant, {
-          force: presenceResult.changed || shouldTouchSessionActivity,
-        });
-        const participants = maybePublishPresenceSync(db, sessionId, actor.id);
-        if (presenceResult.visitStarted) {
-          await recordWorkbookAccessEvent({
-            req,
-            sessionId,
-            eventType: "presence_started",
-            actor,
-            details: {
-              state,
-              tabId,
-            },
-          });
-        }
-        if (presenceResult.visitEnded) {
-          await recordWorkbookAccessEvent({
-            req,
-            sessionId,
-            eventType: "presence_ended",
-            actor,
-            details: {
-              reason: "presence_inactive",
-              state,
-              tabId,
-            },
-          });
-        }
-        const responsePayload = {
-          ok: true,
-          participants,
-        } as const;
-        saveWorkbookIdempotentOperation(db, {
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          idempotencyKey,
-          requestFingerprint,
-          statusCode: 200,
-          payload: responsePayload,
-        });
-        json(res, 200, responsePayload);
-        return;
-      }
-
-      const workbookPresenceLeaveMatch = pathname.match(
-        /^\/api\/workbook\/sessions\/([^/]+)\/presence\/leave$/
-      );
-      if (workbookPresenceLeaveMatch && method === "POST") {
-        const actor = requireAuthUser(req, res, db);
-        if (!actor) return;
-        const body = (await readBody(req)) as {
-          tabId?: string;
-          reason?: string;
-        } | null;
-        const sessionId = decodeURIComponent(workbookPresenceLeaveMatch[1]);
-        const session = getWorkbookSessionById(db, sessionId);
-        if (!session) {
-          notFound(res);
-          return;
-        }
-        const participant = getWorkbookParticipant(db, sessionId, actor.id);
-        if (!participant) {
-          forbidden(res);
-          return;
-        }
-        const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_presence_leave";
-        const requestFingerprint = hashWorkbookOperationFingerprint({
-          sessionId,
-          body,
-        });
-        const idempotencyKey = resolveWriteIdempotencyKey({
-          req,
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          sessionId,
-          payloadFingerprint: body ?? {},
-        });
-        const existingOperation = readWorkbookIdempotentOperation<{
-          ok: true;
-          participants: ReturnType<typeof maybePublishPresenceSync>;
-        }>(db, {
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          idempotencyKey,
-          requestFingerprint,
-        });
-        if (existingOperation?.conflict) {
-          conflict(res, "idempotency_key_reused_with_different_payload");
-          return;
-        }
-        if (existingOperation) {
-          json(res, existingOperation.statusCode, existingOperation.payload);
-          return;
-        }
-        const leftAt = nowIso();
-        const hasTabId = typeof body?.tabId === "string" && body.tabId.trim().length > 0;
-        const tabId = normalizePresenceTabId(body?.tabId);
-        const presenceResult = applyParticipantPresenceState(participant, {
-          sessionId,
-          state: "inactive",
-          tabId,
-          timestamp: leftAt,
-          clearTabs: !hasTabId,
-        });
-        if (!presenceResult.hasActiveTabs) {
-          presenceActivityTouchAtBySession.delete(sessionId);
-        }
-        applyStudentControls(session, db);
-        persistPresenceIfNeeded(participant, { force: presenceResult.changed });
-        const participants = maybePublishPresenceSync(db, sessionId, actor.id);
-        if (presenceResult.visitEnded) {
-          await recordWorkbookAccessEvent({
-            req,
-            sessionId,
-            eventType: "presence_ended",
-            actor,
-            details: {
-              reason:
-                typeof body?.reason === "string" && body.reason.trim().length > 0
-                  ? body.reason.trim().slice(0, 120)
-                  : "leave_endpoint",
-              tabId,
-            },
-          });
-        }
-        const responsePayload = {
-          ok: true,
-          participants,
-        } as const;
-        saveWorkbookIdempotentOperation(db, {
-          scope: idempotencyScope,
-          actorUserId: actor.id,
-          idempotencyKey,
-          requestFingerprint,
-          statusCode: 200,
-          payload: responsePayload,
-        });
-        json(res, 200, responsePayload);
-        return;
-      }
-
-      if (pathname === "/api/workbook/pdf/render" && method === "POST") {
-        const body = (await readBody(req)) as {
-          fileName?: string;
-          dataUrl?: string;
-          dpi?: number;
-          maxPages?: number;
-        } | null;
-
-        const pdfBuffer = decodeWorkbookPdfDataUrl(body?.dataUrl);
-        if (!pdfBuffer) {
-          badRequest(res, "Некорректный PDF payload.");
-          return;
-        }
-        if (pdfBuffer.length > WORKBOOK_PDF_RENDER_MAX_BYTES) {
-          json(res, 413, {
-            error: "pdf_too_large",
-          });
-          return;
-        }
-
-        const dpi =
-          typeof body?.dpi === "number" && Number.isFinite(body.dpi)
-            ? Math.max(72, Math.min(240, Math.floor(body.dpi)))
-            : 128;
-        const maxPages =
-          typeof body?.maxPages === "number" && Number.isFinite(body.maxPages)
-            ? Math.max(1, Math.min(12, Math.floor(body.maxPages)))
-            : 8;
-
-        try {
-          const pages = await renderWorkbookPdfPagesViaPoppler({
-            pdfBuffer,
-            dpi,
-            maxPages,
-            ensureId,
-          });
-          json(res, 200, {
-            renderer: "poppler",
-            fileName: typeof body?.fileName === "string" ? body.fileName : "document.pdf",
-            pages,
-          });
-          return;
-        } catch {
-          json(res, 503, {
-            renderer: "unavailable",
-            fileName: typeof body?.fileName === "string" ? body.fileName : "document.pdf",
-            pages: [],
-            error:
-              "PDF render backend недоступен. Установите poppler (pdftoppm) или используйте image-файл.",
-          });
-          return;
-        }
-      }
-
       if (pathname === "/api/workbook/ink/recognize" && method === "POST") {
         const body = (await readBody(req)) as {
           strokes?: Array<{ points?: unknown[] }>;
@@ -4059,23 +3019,22 @@ export const createWorkbookApiMiddleware = (): WorkbookApiMiddleware => {
       }
 
       notFound(res);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "unknown_error";
-      const isRuntimeTimeout = /_timeout$/i.test(message);
-      const isRateLimitedError = /_rate_limited$/i.test(message);
-      const statusCode =
-        message === REQUEST_BODY_TOO_LARGE_ERROR
-          ? 413
-          : message === INVALID_JSON_BODY_ERROR
-            ? 400
-            : isRateLimitedError
-              ? 429
-              : isRuntimeTimeout
-                ? 503
-                : 500;
-      json(res, statusCode, {
-        error: message,
-      });
-    }
-  };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown_error";
+    const isRuntimeTimeout = /_timeout$/i.test(message);
+    const isRateLimitedError = /_rate_limited$/i.test(message);
+    const statusCode =
+      message === REQUEST_BODY_TOO_LARGE_ERROR
+        ? 413
+        : message === INVALID_JSON_BODY_ERROR
+          ? 400
+          : isRateLimitedError
+            ? 429
+            : isRuntimeTimeout
+              ? 503
+              : 500;
+    json(res, statusCode, {
+      error: message,
+    });
+  }
 };

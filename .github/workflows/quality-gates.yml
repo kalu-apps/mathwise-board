@@ -29,6 +29,9 @@ jobs:
       - name: Verify project
         run: npm run verify
 
+      - name: Guard Nest runtime imports
+        run: npm run guard:nest-runtime
+
       - name: Verify phase-0 artifacts
         run: npm run phase0:verify
 

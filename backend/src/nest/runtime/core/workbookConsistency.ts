@@ -7,7 +7,7 @@ import {
   type WorkbookEventRecord,
   type WorkbookOperationScope,
 } from "./db";
-import type { WorkbookClientEventInput } from "../features/workbook/model/events";
+import type { WorkbookClientEventInput } from "../../../../../src/features/workbook/model/events";
 
 const readBool = (value: string | undefined, fallback: boolean) => {
   if (value == null) return fallback;

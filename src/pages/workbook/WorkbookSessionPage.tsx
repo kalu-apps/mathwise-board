@@ -108,21 +108,134 @@ export default function WorkbookSessionPage() {
 
   const layer: WorkbookLayer = "board";
   const textPreset = "";
-  const workbookSessionUi = useWorkbookSessionStore(useShallow((state) => state.ui));
-  const workbookSessionCollab = useWorkbookSessionStore(useShallow((state) => state.collab));
-  const workbookSessionScene = useWorkbookSessionStore(useShallow((state) => state.scene));
-  const workbookSessionRuntime = useWorkbookSessionStore(useShallow((state) => state.runtime));
-  const workbookSessionTooling = useWorkbookSessionStore(useShallow((state) => state.tooling));
-  const workbookSessionPage = useWorkbookSessionStore(useShallow((state) => state.page));
-  const workbookSessionData = useWorkbookSessionStore(useShallow((state) => state.data));
-  const workbookSessionActions = useWorkbookSessionStore(useShallow((state) => state.actions));
+  const workbookSessionUi = useWorkbookSessionStore(
+    useShallow((state) => ({
+      isSessionChatOpen: state.ui.isSessionChatOpen,
+      isSessionChatMinimized: state.ui.isSessionChatMinimized,
+      isSessionChatMaximized: state.ui.isSessionChatMaximized,
+      isParticipantsCollapsed: state.ui.isParticipantsCollapsed,
+      contextbarPosition: state.ui.contextbarPosition,
+      floatingPanelsTop: state.ui.floatingPanelsTop,
+    }))
+  );
+  const latestSeq = useWorkbookSessionStore((state) => state.collab.latestSeq);
+  const realtimeSyncWarning = useWorkbookSessionStore((state) => state.collab.realtimeSyncWarning);
+  const isWorkbookStreamConnected = useWorkbookSessionStore(
+    (state) => state.collab.isWorkbookStreamConnected
+  );
+  const isWorkbookLiveConnected = useWorkbookSessionStore(
+    (state) => state.collab.isWorkbookLiveConnected
+  );
+  const selectedObjectId = useWorkbookSessionStore((state) => state.scene.selectedObjectId);
+  const selectedConstraintId = useWorkbookSessionStore((state) => state.scene.selectedConstraintId);
+  const canvasViewport = useWorkbookSessionStore((state) => state.scene.canvasViewport);
+  const viewportZoom = useWorkbookSessionStore((state) => state.scene.viewportZoom);
+  const focusPoint = useWorkbookSessionStore((state) => state.runtime.focusPoint);
+  const pointerPoint = useWorkbookSessionStore((state) => state.runtime.pointerPoint);
+  const focusPointsByUser = useWorkbookSessionStore((state) => state.runtime.focusPointsByUser);
+  const pointerPointsByUser = useWorkbookSessionStore((state) => state.runtime.pointerPointsByUser);
+  const workbookSessionTooling = useWorkbookSessionStore(
+    useShallow((state) => ({
+      tool: state.tooling.tool,
+      penToolSettings: state.tooling.penToolSettings,
+      highlighterToolSettings: state.tooling.highlighterToolSettings,
+      eraserRadius: state.tooling.eraserRadius,
+      strokeColor: state.tooling.strokeColor,
+      strokeWidth: state.tooling.strokeWidth,
+      polygonSides: state.tooling.polygonSides,
+      polygonMode: state.tooling.polygonMode,
+      polygonPreset: state.tooling.polygonPreset,
+      lineStyle: state.tooling.lineStyle,
+      lineWidthDraft: state.tooling.lineWidthDraft,
+      shape2dStrokeWidthDraft: state.tooling.shape2dStrokeWidthDraft,
+      dividerWidthDraft: state.tooling.dividerWidthDraft,
+      solid3dStrokeWidthDraft: state.tooling.solid3dStrokeWidthDraft,
+      graphExpressionDraft: state.tooling.graphExpressionDraft,
+      graphDraftFunctions: state.tooling.graphDraftFunctions,
+      selectedGraphPresetId: state.tooling.selectedGraphPresetId,
+      graphDraftError: state.tooling.graphDraftError,
+      graphFunctionsDraft: state.tooling.graphFunctionsDraft,
+      graphCatalogCursorActive: state.tooling.graphCatalogCursorActive,
+      pendingSolid3dInsertPreset: state.tooling.pendingSolid3dInsertPreset,
+      graphWorkbenchTab: state.tooling.graphWorkbenchTab,
+      activeSolidSectionId: state.tooling.activeSolidSectionId,
+      solid3dSectionPointCollecting: state.tooling.solid3dSectionPointCollecting,
+      solid3dDraftPoints: state.tooling.solid3dDraftPoints,
+    }))
+  );
+  const workbookSessionPage = useWorkbookSessionStore(
+    useShallow((state) => ({
+      spacePanActive: state.page.spacePanActive,
+      isFullscreen: state.page.isFullscreen,
+      isCompactViewport: state.page.isCompactViewport,
+      isDockedContextbarViewport: state.page.isDockedContextbarViewport,
+      utilityTab: state.page.utilityTab,
+      isUtilityPanelOpen: state.page.isUtilityPanelOpen,
+      isUtilityPanelCollapsed: state.page.isUtilityPanelCollapsed,
+      utilityPanelPosition: state.page.utilityPanelPosition,
+      utilityPanelDragState: state.page.utilityPanelDragState,
+      selectedLineStartLabelDraft: state.page.selectedLineStartLabelDraft,
+      selectedLineEndLabelDraft: state.page.selectedLineEndLabelDraft,
+      loading: state.page.loading,
+      bootstrapReady: state.page.bootstrapReady,
+      error: state.page.error,
+      saveSyncWarning: state.page.saveSyncWarning,
+      isSessionTabPassive: state.page.isSessionTabPassive,
+      copyingInviteLink: state.page.copyingInviteLink,
+      exportingSections: state.page.exportingSections,
+      isBoardPageMutationPending: state.page.isBoardPageMutationPending,
+      canvasVisibilityMode: state.page.canvasVisibilityMode,
+      docsWindow: state.page.docsWindow,
+      pendingClearRequest: state.page.pendingClearRequest,
+      awaitingClearRequest: state.page.awaitingClearRequest,
+      confirmedClearRequest: state.page.confirmedClearRequest,
+      incomingStrokePreviews: state.page.incomingStrokePreviews,
+      isSessionChatAtBottom: state.page.isSessionChatAtBottom,
+      sessionChatDraft: state.page.sessionChatDraft,
+      sessionChatReadAt: state.page.sessionChatReadAt,
+      areaSelection: state.page.areaSelection,
+    }))
+  );
+  const workbookSessionData = useWorkbookSessionStore(
+    useShallow((state) => ({
+      session: state.data.session,
+      boardStrokes: state.data.boardStrokes,
+      boardObjects: state.data.boardObjects,
+      constraints: state.data.constraints,
+      annotationStrokes: state.data.annotationStrokes,
+      chatMessages: state.data.chatMessages,
+      comments: state.data.comments,
+      timerState: state.data.timerState,
+      boardSettings: state.data.boardSettings,
+      libraryState: state.data.libraryState,
+      documentState: state.data.documentState,
+      smartInkOptions: state.data.smartInkOptions,
+    }))
+  );
+  const workbookSessionActions = useWorkbookSessionStore((state) => state.actions);
+  const workbookSessionCollab = useMemo(
+    () => ({
+      latestSeq,
+      realtimeSyncWarning,
+      isWorkbookStreamConnected,
+      isWorkbookLiveConnected,
+    }),
+    [latestSeq, realtimeSyncWarning, isWorkbookStreamConnected, isWorkbookLiveConnected]
+  );
+  const workbookSessionScene = useMemo(
+    () => ({
+      selectedObjectId,
+      selectedConstraintId,
+      canvasViewport,
+      viewportZoom,
+    }),
+    [selectedObjectId, selectedConstraintId, canvasViewport, viewportZoom]
+  );
 
   useEffect(() => {
     workbookSessionActions.resetForSession();
   }, [sessionId, workbookSessionActions]);
 
-  const { latestSeq, realtimeSyncWarning, isWorkbookLiveConnected } =
-    workbookSessionCollab;
   const {
     isSessionChatOpen,
     isSessionChatMinimized,
@@ -131,10 +244,6 @@ export default function WorkbookSessionPage() {
     contextbarPosition,
     floatingPanelsTop,
   } = workbookSessionUi;
-  const { selectedObjectId, selectedConstraintId, canvasViewport, viewportZoom } =
-    workbookSessionScene;
-  const { focusPoint, pointerPoint, focusPointsByUser, pointerPointsByUser } =
-    workbookSessionRuntime;
   const {
     session,
     boardStrokes,
