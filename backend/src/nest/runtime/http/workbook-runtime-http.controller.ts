@@ -1,0 +1,29 @@
+import { All, Controller, Req, Res } from "@nestjs/common";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { WorkbookRuntimeHttpService } from "./workbook-runtime-http.service";
+
+const WORKBOOK_API_ROUTES = [
+  "/api/workbook",
+  "/api/workbook/*",
+];
+
+@Controller()
+export class WorkbookRuntimeHttpController {
+  private readonly runtimeApiService: WorkbookRuntimeHttpService;
+
+  constructor(runtimeApiService: WorkbookRuntimeHttpService) {
+    this.runtimeApiService = runtimeApiService;
+  }
+
+  @All(WORKBOOK_API_ROUTES)
+  async handleRuntimeApiRequest(
+    @Req() req: IncomingMessage,
+    @Res() res: ServerResponse
+  ): Promise<void> {
+    const handled = await this.runtimeApiService.handle(req, res);
+    if (handled || res.headersSent) return;
+    res.statusCode = 404;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.end(JSON.stringify({ message: "Not Found" }));
+  }
+}

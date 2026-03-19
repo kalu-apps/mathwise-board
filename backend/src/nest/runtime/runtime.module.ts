@@ -1,7 +1,8 @@
 import { Module } from "@nestjs/common";
-import { WorkbookRealtimeBootstrap } from "./workbook-realtime.bootstrap";
+import { RuntimeHttpModule } from "./http/runtime-http.module";
+import { RuntimeLiveModule } from "./live/runtime-live.module";
 
 @Module({
-  providers: [WorkbookRealtimeBootstrap],
+  imports: [RuntimeHttpModule, RuntimeLiveModule],
 })
 export class RuntimeModule {}
