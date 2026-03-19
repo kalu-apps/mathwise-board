@@ -4,16 +4,12 @@ import legacy from "@vitejs/plugin-legacy";
 import basicSsl from "@vitejs/plugin-basic-ssl";
 import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
-import {
-  attachWorkbookLiveSocketServer,
-  createWorkbookApiMiddleware,
-} from "./src/mock/server";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // https://vite.dev/config/
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const loadedEnv = loadEnv(mode, process.cwd(), "");
   for (const [key, value] of Object.entries(loadedEnv)) {
     if (typeof process.env[key] === "undefined") {
@@ -21,6 +17,13 @@ export default defineConfig(({ mode }) => {
     }
   }
   const useHttps = process.env.VITE_DEV_HTTPS === "1";
+  const useEmbeddedRuntime =
+    command === "serve" && process.env.VITE_ENABLE_EMBEDDED_RUNTIME === "1";
+  if (useEmbeddedRuntime && mode === "production") {
+    throw new Error(
+      "[vite] VITE_ENABLE_EMBEDDED_RUNTIME is not allowed for production mode."
+    );
+  }
   const plugins: PluginOption[] = [
     react(),
     legacy({
@@ -28,18 +31,26 @@ export default defineConfig(({ mode }) => {
       modernPolyfills: true,
     }),
     ...(useHttps ? [basicSsl()] : []),
-    {
-      name: "mock-api",
-      configureServer(server) {
-        server.middlewares.use(createWorkbookApiMiddleware());
-        attachWorkbookLiveSocketServer(server.httpServer);
-      },
-      configurePreviewServer(server) {
-        server.middlewares.use(createWorkbookApiMiddleware());
-        attachWorkbookLiveSocketServer(server.httpServer);
-      },
-    },
   ];
+  if (useEmbeddedRuntime) {
+    plugins.push({
+      name: "embedded-runtime-api",
+      configureServer(server) {
+        void import("./backend/src/nest/runtime/workbook-runtime-api-adapters")
+          .then(({ createWorkbookApiMiddleware, attachWorkbookLiveSocketServer }) => {
+            server.middlewares.use(createWorkbookApiMiddleware());
+            attachWorkbookLiveSocketServer(server.httpServer);
+          })
+          .catch((error) => {
+            server.config.logger.error(
+              `[embedded-runtime-api] bootstrap failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`
+            );
+          });
+      },
+    });
+  }
   return {
     plugins,
     resolve: {

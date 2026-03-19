@@ -17,10 +17,12 @@ import {
 import { getAuthSession, logoutAuthSession, requestPasswordLogin } from "./api";
 import { t } from "@/shared/i18n";
 
-const BOARD_AUTO_LOGIN_EMAIL =
-  import.meta.env.VITE_BOARD_AUTO_LOGIN_EMAIL?.trim().toLowerCase() ?? "";
-const BOARD_AUTO_LOGIN_PASSWORD =
-  import.meta.env.VITE_BOARD_AUTO_LOGIN_PASSWORD ?? "magic";
+const BOARD_AUTO_LOGIN_EMAIL = import.meta.env.VITE_BOARD_AUTO_LOGIN_EMAIL?.trim().toLowerCase() ?? "";
+const BOARD_AUTO_LOGIN_PASSWORD = import.meta.env.VITE_BOARD_AUTO_LOGIN_PASSWORD?.trim() ?? "";
+const BOARD_AUTO_LOGIN_ENABLED = !import.meta.env.PROD &&
+  String(import.meta.env.VITE_ENABLE_DEV_AUTO_LOGIN ?? "1").trim() === "1" &&
+  BOARD_AUTO_LOGIN_EMAIL.length > 0 &&
+  BOARD_AUTO_LOGIN_PASSWORD.length > 0;
 const DISABLE_IDLE_AUTO_LOGOUT =
   import.meta.env.VITE_BOARD_MODE?.trim().toLowerCase() === "realtime" ||
   String(import.meta.env.VITE_WHITEBOARD_ONLY ?? "").trim() === "1";
@@ -81,12 +83,8 @@ const normalizeLogoutSignal = (raw: unknown): AuthLogoutSignal | null => {
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(() =>
-    readStorage<User | null>(AUTH_STORAGE_KEY, null)
-  );
-  const [isGuestSession, setGuestSession] = useState<boolean>(() =>
-    readStorage<boolean>(AUTH_GUEST_SESSION_KEY, false)
-  );
+  const [user, setUser] = useState<User | null>(() => readStorage<User | null>(AUTH_STORAGE_KEY, null));
+  const [isGuestSession, setGuestSession] = useState<boolean>(() => readStorage<boolean>(AUTH_GUEST_SESSION_KEY, false));
   const [isAuthReady, setAuthReady] = useState(false);
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
   const [authModalEmail, setAuthModalEmail] = useState("");
@@ -191,7 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [applyLogoutSignal]);
 
   useEffect(() => {
-    if (!BOARD_AUTO_LOGIN_EMAIL) return;
+    if (!BOARD_AUTO_LOGIN_ENABLED) return;
     if (!isAuthReady || user) return;
     if (autoLoginStartedRef.current) return;
     autoLoginStartedRef.current = true;

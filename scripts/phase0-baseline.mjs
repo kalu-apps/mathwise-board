@@ -11,8 +11,8 @@ const DIST_ASSETS_DIR = path.resolve(WORKSPACE_ROOT, "dist", "assets");
 const HOTSPOT_FILES = [
   "src/pages/workbook/WorkbookSessionPage.tsx",
   "src/features/workbook/ui/WorkbookCanvas.tsx",
-  "src/mock/server.ts",
-  "src/mock/db.ts",
+  "backend/src/nest/runtime/workbook-runtime-engine.ts",
+  "backend/src/nest/runtime/core/db.ts",
   "backend/src/nest/main.ts",
 ];
 
