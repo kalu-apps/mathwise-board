@@ -842,7 +842,8 @@
 .workbook-session__canvas {
   width: 100%;
   max-width: 100%;
-  min-height: 56vh;
+  min-height: clamp(520px, calc(100dvh - 220px), 980px);
+  height: clamp(520px, calc(100dvh - 220px), 980px);
   border-radius: 14px;
   border: 1px solid color-mix(in srgb, var(--brand-soft) 34%, var(--border-subtle));
   background:
@@ -3687,6 +3688,7 @@
 
 .workbook-session:fullscreen .workbook-session__canvas {
   min-height: calc(100vh - 230px);
+  height: calc(100vh - 230px);
 }
 
 .workbook-session:fullscreen .workbook-session__contextbar-dock {
@@ -3951,6 +3953,7 @@
 
   .workbook-session__canvas {
     min-height: 52vh;
+    height: 52vh;
   }
 
   .workbook-session__tools {

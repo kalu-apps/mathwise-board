@@ -1,5 +1,12 @@
 import { getStrokeRect } from "./stroke";
+import {
+  resolveWorkbookObjectEffectiveZOrder,
+  resolveWorkbookObjectSceneLayerId,
+  sortWorkbookObjectsByZOrder,
+} from "./objectZOrder";
 import type { WorkbookBoardObject, WorkbookPoint, WorkbookStroke } from "./types";
+
+export { resolveWorkbookObjectSceneLayerId };
 
 export type WorkbookSceneRect = {
   x: number;
@@ -61,14 +68,6 @@ export const buildForcedVisibleObjectIdSet = (
     }
   });
   return result;
-};
-
-export const resolveWorkbookObjectSceneLayerId = (object: WorkbookBoardObject) => {
-  const layerId =
-    object.meta && typeof object.meta === "object" && typeof object.meta.sceneLayerId === "string"
-      ? object.meta.sceneLayerId
-      : "";
-  return layerId.trim() || "main";
 };
 
 export const buildWorkbookSceneLayerObjectGroups = (
@@ -390,8 +389,9 @@ export const buildWorkbookSceneIndex = (params: {
   strokes: WorkbookStroke[];
   getObjectRect: (object: WorkbookBoardObject) => WorkbookSceneRect;
 }): WorkbookSceneIndex => {
+  const sortedBoardObjects = sortWorkbookObjectsByZOrder(params.boardObjects);
   const allObjectIndex = buildWorkbookSceneRectIndex({
-    items: params.boardObjects,
+    items: sortedBoardObjects,
     getKey: (object) => object.id,
     getRect: params.getObjectRect,
   });
@@ -401,11 +401,11 @@ export const buildWorkbookSceneIndex = (params: {
     getRect: (stroke) => getStrokeRect(stroke),
   });
   return {
-    boardObjects: params.boardObjects,
+    boardObjects: sortedBoardObjects,
     strokes: params.strokes,
-    objectById: buildWorkbookObjectLookup(params.boardObjects),
+    objectById: buildWorkbookObjectLookup(sortedBoardObjects),
     strokeByKey: buildWorkbookStrokeLookup(params.strokes),
-    unpinnedSceneLayerObjectsById: buildWorkbookSceneLayerObjectGroups(params.boardObjects),
+    unpinnedSceneLayerObjectsById: buildWorkbookSceneLayerObjectGroups(sortedBoardObjects),
     allObjectIndex,
     allStrokeIndex,
     getObjectRect: params.getObjectRect,
@@ -574,14 +574,25 @@ export const resolveTopVisibleBoardObject = (
   boardObjects: WorkbookBoardObject[],
   predicate: (object: WorkbookBoardObject) => boolean
 ) => {
-  for (let index = boardObjects.length - 1; index >= 0; index -= 1) {
+  let topObject: WorkbookBoardObject | null = null;
+  let topZOrder = Number.NEGATIVE_INFINITY;
+  let topIndex = -1;
+  for (let index = 0; index < boardObjects.length; index += 1) {
     const object = boardObjects[index];
     if (object.locked) continue;
-    if (predicate(object)) {
-      return object;
+    if (!predicate(object)) continue;
+    const zOrder = resolveWorkbookObjectEffectiveZOrder(object, index);
+    if (
+      !topObject ||
+      zOrder > topZOrder ||
+      (zOrder === topZOrder && index > topIndex)
+    ) {
+      topObject = object;
+      topZOrder = zOrder;
+      topIndex = index;
     }
   }
-  return null;
+  return topObject;
 };
 
 export const resolveTopVisibleStroke = (

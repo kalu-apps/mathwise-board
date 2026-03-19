@@ -21,17 +21,18 @@
 - удален `scripts/phase3-shadow-parity-check.mjs`
 - удален npm script `phase3:parity`
 
-3. Nest proxy routing:
-- proxy middleware работает в always-on режиме для всех `/api/*` (кроме `/api/nest/proxy/diagnostics`).
+3. Nest diagnostics routing:
+- `/api/nest/proxy/diagnostics` обслуживается самим Nest и фиксирует `proxyMode=none`.
 
 ## Текущий runtime-контур
 
-1. `backend/src/server.ts`:
-- единая точка ingress для API и статики;
-- API всегда проксируется в Nest runtime.
+1. `backend:start`:
+- запускает только Nest runtime (`backend/src/nest/main.ts`) как единую ingress-точку.
 
 2. `backend/src/nest/main.ts`:
-- Nest runtime с реальным workbook API middleware (`setupMockServer(...)`).
+- Nest runtime с прямым подключением workbook API/WS через
+  `createWorkbookApiMiddleware()` и `attachWorkbookLiveSocketServer(...)`
+  без внешнего proxy-сервера.
 
 3. Consistency controls:
 - `NEST_OBJECT_VERSION_STRICT`
@@ -40,5 +41,5 @@
 ## Go/No-Go
 
 1. `npm run verify` проходит.
-2. `/api/nest/proxy/diagnostics` доступен и показывает `mode=nest-api-only`.
+2. `/api/nest/proxy/diagnostics` доступен и показывает `proxyMode=none`.
 3. Нет использования удаленных migration-флагов в runtime-конфиге.

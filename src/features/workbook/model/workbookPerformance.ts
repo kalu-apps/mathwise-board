@@ -2,6 +2,35 @@ import { reportLongTaskMetric } from "@/shared/lib/performanceMonitoring";
 
 const WORKBOOK_FRAME_STALL_THRESHOLD_MS = 42;
 const WORKBOOK_FRAME_STALL_COOLDOWN_MS = 2_000;
+const nowMs = () =>
+  typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+
+export type WorkbookLoadStageMetricName =
+  | "session_open_ms"
+  | "snapshot_decode_ms"
+  | "snapshot_hydrate_ms"
+  | "first_interactive_ms";
+
+export const reportWorkbookLoadStageMetric = (params: {
+  sessionId: string;
+  name: WorkbookLoadStageMetricName;
+  durationMs: number;
+  startedAtMs?: number;
+}) => {
+  if (!params.sessionId.trim()) return;
+  const durationMs = Math.max(0, Math.round(params.durationMs));
+  reportLongTaskMetric(durationMs, {
+    interactionType: params.name,
+    target: `workbook:${params.sessionId}`,
+    durationMs,
+    startTimeMs:
+      typeof params.startedAtMs === "number" && Number.isFinite(params.startedAtMs)
+        ? params.startedAtMs
+        : Math.max(0, nowMs() - durationMs),
+  });
+};
 
 export const startWorkbookPerformanceSession = (sessionId: string) => {
   if (typeof window === "undefined" || !sessionId.trim()) {

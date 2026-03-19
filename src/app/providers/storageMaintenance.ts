@@ -1,5 +1,8 @@
 import { readStorage } from "@/shared/lib/localDb";
-import { AUTH_STORAGE_KEY } from "@/features/auth/model/constants";
+import {
+  AUTH_LOGOUT_SIGNAL_STORAGE_KEY,
+  AUTH_STORAGE_KEY,
+} from "@/features/auth/model/constants";
 import { OUTBOX_STORAGE_KEY } from "@/shared/lib/outbox";
 import { APP_DATA_UPDATED_STORAGE_KEY } from "@/shared/lib/dataUpdateBus";
 
@@ -36,6 +39,7 @@ const cleanupLegacyTimestampKey = (key: string, maxAgeMs: number) => {
 export const runStorageMaintenanceSweep = () => {
   // Trigger TTL eviction for envelope-managed keys.
   readStorage(AUTH_STORAGE_KEY, null);
+  readStorage(AUTH_LOGOUT_SIGNAL_STORAGE_KEY, null);
   readStorage(OUTBOX_STORAGE_KEY, []);
   readStorage(APP_DATA_UPDATED_STORAGE_KEY, null);
   readStorage(NEWS_FEED_UPDATED_STORAGE_KEY, null);

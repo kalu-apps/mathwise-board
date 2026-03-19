@@ -28,6 +28,15 @@ export function MainLayout() {
     closeAuthModal();
   }, [closeAuthModal, hideAuthModalForWorkbook, isAuthModalOpen]);
 
+  useEffect(() => {
+    if (!isAuthReady || user) return;
+    if (!location.pathname.startsWith("/workbook")) return;
+    if (location.pathname.startsWith("/workbook/invite/")) return;
+    if (typeof window !== "undefined") {
+      window.location.replace("/");
+    }
+  }, [isAuthReady, location.pathname, user]);
+
   return (
     <>
       <Header />

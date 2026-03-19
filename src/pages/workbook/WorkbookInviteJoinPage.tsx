@@ -8,6 +8,7 @@ import { useAuth } from "@/features/auth/model/AuthContext";
 import { AuthAmbientScene } from "@/features/auth-ambient/ui/AuthAmbientScene";
 import { ApiError } from "@/shared/api/client";
 import { t } from "@/shared/i18n";
+import { prefetchWorkbookSessionRuntime } from "./prefetchWorkbookSessionRuntime";
 
 export default function WorkbookInviteJoinPage() {
   const { token = "" } = useParams();
@@ -91,6 +92,7 @@ export default function WorkbookInviteJoinPage() {
           }));
           return;
         }
+        void prefetchWorkbookSessionRuntime();
         setState((prev) => ({
           ...prev,
           loading: false,
@@ -147,6 +149,7 @@ export default function WorkbookInviteJoinPage() {
         joined: true,
         sessionId: joined.session.id,
       }));
+      void prefetchWorkbookSessionRuntime();
       navigate(`/workbook/session/${encodeURIComponent(joined.session.id)}`, {
         replace: true,
       });

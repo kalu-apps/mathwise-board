@@ -2,7 +2,6 @@ import crypto from "node:crypto";
 import os from "node:os";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
-import type { Connect, PreviewServer, ViteDevServer } from "vite";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   appendWorkbookAccessLog,
@@ -185,20 +184,19 @@ const MEDIA_LIVEKIT_ENABLED =
   MEDIA_LIVEKIT_API_SECRET.length > 0;
 const PUBLIC_BASE_URL = String(process.env.VITE_PUBLIC_BASE_URL ?? "").trim().replace(/\/+$/g, "");
 
-type HttpUpgradeServer = {
+export type HttpUpgradeServer = {
   on(
     event: "upgrade",
     listener: (req: IncomingMessage, socket: Duplex, head: Buffer) => void
   ): unknown;
 };
 
-type MiddlewareHost =
-  | ViteDevServer
-  | PreviewServer
-  | {
-      middlewares: Connect.Server;
-      httpServer?: HttpUpgradeServer | null;
-    };
+type WorkbookApiNext = () => void;
+type WorkbookApiMiddleware = (
+  req: IncomingMessage,
+  res: ServerResponse,
+  next: WorkbookApiNext
+) => void | Promise<void>;
 
 type WorkbookSettings = {
   undoPolicy: "everyone" | "teacher_only" | "own_only";
@@ -2009,8 +2007,9 @@ const rejectUpgrade = (
   }
 };
 
-const attachWorkbookLiveSocketServer = (host: MiddlewareHost) => {
-  const httpServer = resolveHttpServer(host);
+export const attachWorkbookLiveSocketServer = (
+  httpServer: HttpUpgradeServer | null | undefined
+) => {
   if (!httpServer || workbookLiveSocketServerByHost.has(httpServer)) return;
   const socketServer = new WebSocketServer({ noServer: true });
   workbookLiveSocketServerByHost.set(httpServer, socketServer);
@@ -2228,19 +2227,8 @@ const setAuthSession = (db: MockDb, res: ServerResponse, user: UserRecord) => {
   return session;
 };
 
-const resolveMiddlewares = (host: MiddlewareHost) => host.middlewares;
-const resolveHttpServer = (host: MiddlewareHost): HttpUpgradeServer | null => {
-  if ("httpServer" in host) {
-    return host.httpServer ?? null;
-  }
-  return null;
-};
-
-export function setupMockServer(host: MiddlewareHost) {
-  const middlewares = resolveMiddlewares(host);
-  attachWorkbookLiveSocketServer(host);
-
-  middlewares.use(async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+export const createWorkbookApiMiddleware = (): WorkbookApiMiddleware => {
+  return async (req: IncomingMessage, res: ServerResponse, next: WorkbookApiNext) => {
     if (!req.url) {
       next();
       return;
@@ -4089,5 +4077,5 @@ export function setupMockServer(host: MiddlewareHost) {
         error: message,
       });
     }
-  });
-}
+  };
+};

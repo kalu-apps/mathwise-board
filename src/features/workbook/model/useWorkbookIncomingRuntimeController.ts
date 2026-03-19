@@ -6,6 +6,11 @@ import {
   type MutableRefObject,
   type SetStateAction,
 } from "react";
+import {
+  clampWorkbookObjectToPageFrame,
+  resolveWorkbookPageFrameBounds,
+  WORKBOOK_PAGE_FRAME_WIDTH,
+} from "./pageFrame";
 import { mergeBoardObjectWithPatch } from "./runtime";
 import type {
   WorkbookBoardObject,
@@ -84,6 +89,9 @@ type UseWorkbookIncomingRuntimeControllerParams = {
 export const useWorkbookIncomingRuntimeController = (
   params: UseWorkbookIncomingRuntimeControllerParams
 ) => {
+  const pageFrameBoundsRef = useRef(
+    resolveWorkbookPageFrameBounds(WORKBOOK_PAGE_FRAME_WIDTH)
+  );
   const {
     boardObjectsRef,
     setBoardObjects,
@@ -349,7 +357,11 @@ export const useWorkbookIncomingRuntimeController = (
         if (!pendingPatches || pendingPatches.length === 0) return item;
         changed = true;
         return pendingPatches.reduce<WorkbookBoardObject>(
-          (previewObject, patch) => mergeBoardObjectWithPatch(previewObject, patch),
+          (previewObject, patch) =>
+            clampWorkbookObjectToPageFrame(
+              mergeBoardObjectWithPatch(previewObject, patch),
+              pageFrameBoundsRef.current
+            ),
           item
         );
       });

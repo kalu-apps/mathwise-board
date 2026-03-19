@@ -18,14 +18,11 @@ const readFloat = (value: string | undefined, fallback: number, min: number, max
 };
 
 export const nestEnv = {
-  host: String(process.env.NEST_HOST ?? "0.0.0.0").trim() || "0.0.0.0",
-  port: readPositiveInt(process.env.NEST_PORT, 4180, 65_535),
+  host:
+    String(process.env.NEST_HOST ?? process.env.HOST ?? "0.0.0.0").trim() ||
+    "0.0.0.0",
+  port: readPositiveInt(process.env.NEST_PORT ?? process.env.PORT, 4173, 65_535),
   bodyLimitMb: readPositiveInt(process.env.NEST_BODY_LIMIT_MB, 4, 64),
-  apiBaseUrl: String(process.env.NEST_API_BASE_URL ?? "http://127.0.0.1:4180")
-    .trim()
-    .replace(/\/+$/, ""),
-  requestTimeoutMs: readPositiveInt(process.env.NEST_PROXY_TIMEOUT_MS, 3_000, 30_000),
-  writeProxyTimeoutMs: readPositiveInt(process.env.NEST_WRITE_PROXY_TIMEOUT_MS, 8_000, 60_000),
   objectVersionStrict: readBool(process.env.NEST_OBJECT_VERSION_STRICT, false),
   idempotencyTtlMs: readPositiveInt(process.env.NEST_IDEMPOTENCY_TTL_MS, 300_000, 86_400_000),
   idempotencyMaxRecords: readPositiveInt(process.env.NEST_IDEMPOTENCY_MAX_RECORDS, 20_000, 200_000),

@@ -1,3 +1,8 @@
+import {
+  resolveWorkbookStrokeCanvasCompositeOperation,
+  resolveWorkbookStrokeOpacity,
+} from "../../model/strokeRenderStyle";
+
 type WorkerPoint = {
   x: number;
   y: number;
@@ -28,6 +33,7 @@ type StrokeBatch = {
   color: string;
   width: number;
   opacity: number;
+  compositeOperation: string;
   points: number[];
 };
 
@@ -177,7 +183,8 @@ const renderPayload = (payload: RenderPayload): RenderResult => {
           ? stroke.color
           : "#1f2937",
       width: clampPositive(stroke.width, 2) * safeZoom,
-      opacity: stroke.tool === "highlighter" ? 0.5 : 1,
+      opacity: resolveWorkbookStrokeOpacity(stroke.tool),
+      compositeOperation: resolveWorkbookStrokeCanvasCompositeOperation(stroke.tool),
       points: flatPoints,
     });
   }

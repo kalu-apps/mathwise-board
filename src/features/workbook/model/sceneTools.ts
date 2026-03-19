@@ -1,4 +1,5 @@
 import type { WorkbookTool } from "./types";
+import { resolveWorkbookStrokeOpacity } from "./strokeRenderStyle";
 
 const POINTER_SNAP_TOOLS = new Set<WorkbookTool>([
   "line",
@@ -78,6 +79,6 @@ export const resolveWorkbookStrokeVisual = (
 ) => ({
   color: tool === "eraser" ? "var(--surface-soft)" : color,
   width: tool === "eraser" ? Math.max(8, width * 1.6) : width,
-  opacity: tool === "highlighter" ? 0.5 : 1,
+  opacity: resolveWorkbookStrokeOpacity(tool),
   committedTool: tool === "eraser" ? ("pen" as const) : tool,
 });

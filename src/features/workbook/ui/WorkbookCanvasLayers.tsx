@@ -12,6 +12,10 @@ import type {
 import { getAreaSelectionHandlePoints, type WorkbookAreaSelection } from "../model/sceneSelection";
 import { createPolygonPath, normalizeRect } from "../model/sceneGeometry";
 import type { WorkbookPolygonPreset } from "../model/shapeGeometry";
+import {
+  resolveWorkbookStrokeOpacity,
+  resolveWorkbookStrokeSvgBlendMode,
+} from "../model/strokeRenderStyle";
 import { toPath, toSmoothPath } from "../model/stroke";
 
 export type WorkbookCanvasDividerLine = {
@@ -64,7 +68,14 @@ export const WorkbookStrokeLayer = memo(function WorkbookStrokeLayer({
           strokeLinecap="round"
           strokeLinejoin="round"
           fill="none"
-          opacity={stroke.tool === "highlighter" ? 0.5 : preview ? 0.94 : 1}
+          opacity={
+            stroke.tool === "highlighter"
+              ? resolveWorkbookStrokeOpacity(stroke.tool)
+              : preview
+                ? 0.94
+                : 1
+          }
+          style={{ mixBlendMode: resolveWorkbookStrokeSvgBlendMode(stroke.tool) }}
           pointerEvents={preview ? "none" : undefined}
         />
       ))}
@@ -85,8 +96,15 @@ const syncStrokePathNode = (
   node.setAttribute("fill", "none");
   node.setAttribute(
     "opacity",
-    String(stroke.tool === "highlighter" ? 0.5 : preview ? 0.94 : 1)
+    String(
+      stroke.tool === "highlighter"
+        ? resolveWorkbookStrokeOpacity(stroke.tool)
+        : preview
+          ? 0.94
+          : 1
+    )
   );
+  node.style.mixBlendMode = resolveWorkbookStrokeSvgBlendMode(stroke.tool);
   node.setAttribute("pointer-events", "none");
 };
 
