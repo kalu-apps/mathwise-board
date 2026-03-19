@@ -23,7 +23,7 @@ export type WorkbookBoardPageOption = {
   label: string;
 };
 
-type WorkbookSessionBoardSettingsPanelProps = {
+export type WorkbookSessionBoardSettingsPanelProps = {
   sharedBoardSettings: WorkbookBoardSettings;
   onSharedBoardSettingsChange: (patch: Partial<WorkbookBoardSettings>) => void;
   pageOptions: WorkbookBoardPageOption[];

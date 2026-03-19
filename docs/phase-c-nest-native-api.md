@@ -7,7 +7,7 @@ Remove backend dependency on `legacy proxy/fallback` for primary `api/*` traffic
 1. Nest boot now initializes storage/runtime and mounts the workbook API middleware directly:
    - `initializeDb()`
    - `initializeRuntimeServices()`
-   - `setupMockServer(...)` in `backend/src/nest/main.ts`
+   - `createWorkbookApiMiddleware()` + `attachWorkbookLiveSocketServer(...)` in `backend/src/nest/main.ts`
 2. Added passthrough guard for Nest internal diagnostics routes:
    - `/api/nest/*` bypass in `src/mock/server.ts`
 3. Removed proxy/fallback layer from Nest app:

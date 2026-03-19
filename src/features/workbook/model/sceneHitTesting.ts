@@ -223,25 +223,22 @@ export const resolveFunctionGraphPlotHit = (
   plots: FunctionGraphPlot[],
   point: WorkbookPoint
 ) => {
-  let bestMatch: { id: string; distance: number } | null = null;
-  plots.forEach((plot) => {
-    plot.segments.forEach((segment) => {
+  let bestMatchId: string | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const plot of plots) {
+    const threshold = Math.max(5.5, Math.min(9.5, plot.width * 2.2));
+    for (const segment of plot.segments) {
       for (let index = 0; index < segment.length - 1; index += 1) {
         const current = segment[index];
         const next = segment[index + 1];
         const distance = distanceToSegment(point, current, next);
-        const threshold = Math.max(5.5, Math.min(9.5, plot.width * 2.2));
-        if (distance > threshold) continue;
-        if (!bestMatch || distance < bestMatch.distance) {
-          bestMatch = {
-            id: plot.id,
-            distance,
-          };
-        }
+        if (distance > threshold || distance >= bestDistance) continue;
+        bestDistance = distance;
+        bestMatchId = plot.id;
       }
-    });
-  });
-  return bestMatch?.id ?? null;
+    }
+  }
+  return bestMatchId;
 };
 
 export const isWorkbookObjectErasedByCircle = (

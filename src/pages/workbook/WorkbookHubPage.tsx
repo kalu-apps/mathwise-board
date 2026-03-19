@@ -35,6 +35,7 @@ import {
   renameWorkbookSession,
 } from "@/features/workbook/model/api";
 import type { WorkbookDraftCard, WorkbookInviteInfo } from "@/features/workbook/model/types";
+import { prefetchWorkbookSessionRuntime } from "./prefetchWorkbookSessionRuntime";
 import { APP_DATA_UPDATED_EVENT } from "@/shared/lib/dataUpdateBus";
 
 type HubScope = "class" | "personal";
@@ -247,6 +248,7 @@ export default function WorkbookHubPage() {
 
   const openSessionInNewTab = useCallback(
     (sessionId: string) => {
+      void prefetchWorkbookSessionRuntime();
       if (typeof window === "undefined") {
         navigate(toSessionPath(sessionId));
         return;
@@ -630,6 +632,15 @@ export default function WorkbookHubPage() {
                         variant="text"
                         startIcon={<OpenInNewRoundedIcon />}
                         onClick={() => handleOpenCard(card.sessionId)}
+                        onMouseEnter={() => {
+                          void prefetchWorkbookSessionRuntime();
+                        }}
+                        onFocus={() => {
+                          void prefetchWorkbookSessionRuntime();
+                        }}
+                        onPointerDown={() => {
+                          void prefetchWorkbookSessionRuntime();
+                        }}
                       >
                         Открыть
                       </Button>

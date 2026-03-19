@@ -44,6 +44,7 @@ export type WorkbookKnownEventPayloadMap = {
   };
   "board.object.delete": { objectId: string };
   "board.object.pin": { objectId: string; pinned: boolean };
+  "board.object.reorder": { objectId: string; zOrder: number };
   "board.undo": { operations?: unknown[]; scene?: unknown };
   "board.redo": { operations?: unknown[]; scene?: unknown };
   "annotations.stroke": { stroke: WorkbookStroke };
@@ -117,6 +118,7 @@ export const WORKBOOK_URGENT_LIVE_EVENT_TYPES = [
   "board.object.create",
   "board.object.update",
   "board.object.delete",
+  "board.object.reorder",
   "board.undo",
   "board.redo",
   "chat.message",
@@ -132,6 +134,7 @@ export const WORKBOOK_HISTORY_EVENT_TYPES = [
   "board.object.update",
   "board.object.delete",
   "board.object.pin",
+  "board.object.reorder",
   "board.clear",
   "annotations.clear",
   "geometry.constraint.add",

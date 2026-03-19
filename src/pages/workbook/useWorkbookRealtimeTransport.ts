@@ -16,6 +16,7 @@ import {
   hasWorkbookEventGap,
   resolveNextLatestSeq,
 } from "@/features/workbook/model/runtime";
+import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import {
   observeWorkbookRealtimeGap,
   observeWorkbookRealtimeReceive,
@@ -30,11 +31,13 @@ type EnqueueIncomingRealtimeApply = (batch: {
 }) => void;
 
 type WorkbookLiveSend = (
-  events: Array<{ type: WorkbookEvent["type"]; payload: unknown }>
+  events: WorkbookClientEventInput[]
 ) => boolean;
 
 type UseWorkbookRealtimeTransportParams = {
   sessionId: string | null;
+  enabled: boolean;
+  bootstrapReady: boolean;
   loadSession: (options?: { background?: boolean }) => Promise<void> | void;
   clearIncomingRealtimeApplyQueue: () => void;
   enqueueIncomingRealtimeApply: EnqueueIncomingRealtimeApply;
@@ -65,6 +68,8 @@ type UseWorkbookRealtimeTransportParams = {
 
 export const useWorkbookRealtimeTransport = ({
   sessionId,
+  enabled,
+  bootstrapReady,
   loadSession,
   clearIncomingRealtimeApplyQueue,
   enqueueIncomingRealtimeApply,
@@ -108,8 +113,28 @@ export const useWorkbookRealtimeTransport = ({
     clearAuthBlock();
   }, [clearAuthBlock, sessionId]);
 
+  useEffect(() => {
+    if (enabled) return;
+    workbookLiveSendRef.current = null;
+    clearIncomingRealtimeApplyQueue();
+    realtimeDisconnectSinceRef.current = null;
+    setIsWorkbookStreamConnected(false);
+    setIsWorkbookLiveConnected(false);
+    setRealtimeSyncWarning(null);
+  }, [
+    clearIncomingRealtimeApplyQueue,
+    enabled,
+    realtimeDisconnectSinceRef,
+    setIsWorkbookLiveConnected,
+    setIsWorkbookStreamConnected,
+    setRealtimeSyncWarning,
+    workbookLiveSendRef,
+  ]);
+
   const triggerSessionResync = useCallback(() => {
     const now = Date.now();
+    if (!enabled) return;
+    if (!bootstrapReady) return;
     if (authBlockedRef.current) return;
     if (sessionResyncInFlightRef.current) return;
     if (now - lastForcedResyncAtRef.current < resyncMinIntervalMs) return;
@@ -121,6 +146,8 @@ export const useWorkbookRealtimeTransport = ({
     });
   }, [
     clearIncomingRealtimeApplyQueue,
+    enabled,
+    bootstrapReady,
     lastForcedResyncAtRef,
     loadSession,
     resyncMinIntervalMs,
@@ -128,11 +155,12 @@ export const useWorkbookRealtimeTransport = ({
   ]);
 
   useEffect(() => {
+    if (!enabled) return;
     void loadSession();
-  }, [loadSession]);
+  }, [enabled, loadSession]);
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (!enabled || !sessionId || !bootstrapReady) return;
     let active = true;
     let pollTimerId: number | null = null;
     let pollErrorStreak = 0;
@@ -277,12 +305,14 @@ export const useWorkbookRealtimeTransport = ({
     pollIntervalMs,
     pollIntervalStreamConnectedMs,
     sessionId,
+    enabled,
+    bootstrapReady,
     setLatestSeq,
     triggerSessionResync,
   ]);
 
   useEffect(() => {
-    if (!sessionId) {
+    if (!enabled || !sessionId || !bootstrapReady) {
       realtimeDisconnectSinceRef.current = null;
       setRealtimeSyncWarning(null);
       return;
@@ -325,6 +355,8 @@ export const useWorkbookRealtimeTransport = ({
     isWorkbookStreamConnected,
     lastForcedResyncAtRef,
     notifyAuthRequired,
+    enabled,
+    bootstrapReady,
     realtimeDisconnectSinceRef,
     sessionId,
     setRealtimeSyncWarning,
@@ -332,7 +364,7 @@ export const useWorkbookRealtimeTransport = ({
   ]);
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (!enabled || !sessionId || !bootstrapReady) return;
     const unsubscribe = subscribeWorkbookEventsStream({
       sessionId,
       onEvents: (payload) => {
@@ -387,6 +419,8 @@ export const useWorkbookRealtimeTransport = ({
     enqueueIncomingRealtimeApply,
     filterUnseenWorkbookEvents,
     latestSeqRef,
+    enabled,
+    bootstrapReady,
     sessionId,
     setIsWorkbookStreamConnected,
     setLatestSeq,
@@ -395,7 +429,7 @@ export const useWorkbookRealtimeTransport = ({
   ]);
 
   useEffect(() => {
-    if (!sessionId) {
+    if (!enabled || !sessionId || !bootstrapReady) {
       workbookLiveSendRef.current = null;
       clearIncomingRealtimeApplyQueue();
       return;
@@ -458,6 +492,8 @@ export const useWorkbookRealtimeTransport = ({
     enqueueIncomingRealtimeApply,
     filterUnseenWorkbookEvents,
     latestSeqRef,
+    enabled,
+    bootstrapReady,
     sessionId,
     setIsWorkbookLiveConnected,
     setLatestSeq,

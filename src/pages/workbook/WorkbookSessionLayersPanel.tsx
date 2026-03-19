@@ -5,7 +5,7 @@ import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import FilterCenterFocusRoundedIcon from "@mui/icons-material/FilterCenterFocusRounded";
 import type { WorkbookBoardObject, WorkbookSceneLayer } from "@/features/workbook/model/types";
 
-type WorkbookSessionLayersPanelProps = {
+export type WorkbookSessionLayersPanelProps = {
   layers: Array<{
     layer: WorkbookSceneLayer;
     objects: WorkbookBoardObject[];

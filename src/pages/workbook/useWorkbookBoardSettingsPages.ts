@@ -1,0 +1,404 @@
+import { useCallback, type MutableRefObject } from "react";
+import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
+import type {
+  WorkbookBoardObject,
+  WorkbookBoardSettings,
+  WorkbookStroke,
+} from "@/features/workbook/model/types";
+import { DEFAULT_SMART_INK_OPTIONS } from "./workbookBoardSettingsModel";
+import {
+  buildBoardSettingsDiffPatch,
+  cloneSerializable,
+  resolveMaxKnownWorkbookPage,
+  toSafeWorkbookPage,
+} from "./WorkbookSessionPage.core";
+import { normalizeSceneLayersForBoard } from "./WorkbookSessionPage.geometry";
+
+type StateUpdater<T> = T | ((current: T) => T);
+
+type SetState<T> = (updater: StateUpdater<T>) => void;
+
+type AppendEventsAndApply = (
+  events: WorkbookClientEventInput[],
+  options?: {
+    trackHistory?: boolean;
+    markDirty?: boolean;
+    historyEntry?: unknown;
+  }
+) => Promise<void>;
+
+type UseWorkbookBoardSettingsPagesParams = {
+  canManageSharedBoardSettings: boolean;
+  canDelete: boolean;
+  isBoardPageMutationPending: boolean;
+  appendEventsAndApply: AppendEventsAndApply;
+  boardSettingsRef: MutableRefObject<WorkbookBoardSettings>;
+  boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
+  boardStrokesRef: MutableRefObject<WorkbookStroke[]>;
+  annotationStrokesRef: MutableRefObject<WorkbookStroke[]>;
+  queuedBoardSettingsCommitRef: MutableRefObject<WorkbookBoardSettings | null>;
+  queuedBoardSettingsHistoryBeforeRef: MutableRefObject<WorkbookBoardSettings | null>;
+  boardSettingsCommitTimerRef: MutableRefObject<number | null>;
+  boardSettingsCommitInFlightRef: MutableRefObject<boolean>;
+  setBoardSettings: SetState<WorkbookBoardSettings>;
+  setError: (value: string | null) => void;
+  setIsBoardPageMutationPending: SetState<boolean>;
+};
+
+export const useWorkbookBoardSettingsPages = ({
+  canManageSharedBoardSettings,
+  canDelete,
+  isBoardPageMutationPending,
+  appendEventsAndApply,
+  boardSettingsRef,
+  boardObjectsRef,
+  boardStrokesRef,
+  annotationStrokesRef,
+  queuedBoardSettingsCommitRef,
+  queuedBoardSettingsHistoryBeforeRef,
+  boardSettingsCommitTimerRef,
+  boardSettingsCommitInFlightRef,
+  setBoardSettings,
+  setError,
+  setIsBoardPageMutationPending,
+}: UseWorkbookBoardSettingsPagesParams) => {
+  const flushQueuedBoardSettingsCommit = useCallback(async () => {
+    if (!canManageSharedBoardSettings || boardSettingsCommitInFlightRef.current) return;
+    const nextSettings = queuedBoardSettingsCommitRef.current;
+    if (!nextSettings) return;
+    const historyBefore = queuedBoardSettingsHistoryBeforeRef.current;
+    queuedBoardSettingsCommitRef.current = null;
+    boardSettingsCommitInFlightRef.current = true;
+    try {
+      const forwardPatch = historyBefore
+        ? buildBoardSettingsDiffPatch(historyBefore, nextSettings)
+        : null;
+      const inversePatch = historyBefore
+        ? buildBoardSettingsDiffPatch(nextSettings, historyBefore)
+        : null;
+      await appendEventsAndApply(
+        [
+          {
+            type: "board.settings.update",
+            payload: {
+              boardSettings: {
+                ...nextSettings,
+                smartInk: DEFAULT_SMART_INK_OPTIONS,
+              },
+            },
+          },
+        ],
+        {
+          historyEntry:
+            forwardPatch && inversePatch
+              ? {
+                  forward: [{ kind: "patch_board_settings", patch: forwardPatch }],
+                  inverse: [{ kind: "patch_board_settings", patch: inversePatch }],
+                  createdAt: new Date().toISOString(),
+                }
+              : null,
+        }
+      );
+      queuedBoardSettingsHistoryBeforeRef.current = null;
+    } catch {
+      setError("Не удалось сохранить настройки доски.");
+    } finally {
+      boardSettingsCommitInFlightRef.current = false;
+      if (queuedBoardSettingsCommitRef.current) {
+        void flushQueuedBoardSettingsCommit();
+      }
+    }
+  }, [
+    appendEventsAndApply,
+    boardSettingsCommitInFlightRef,
+    canManageSharedBoardSettings,
+    queuedBoardSettingsCommitRef,
+    queuedBoardSettingsHistoryBeforeRef,
+    setError,
+  ]);
+
+  const scheduleBoardSettingsCommit = useCallback(
+    (nextSettings: WorkbookBoardSettings) => {
+      if (!canManageSharedBoardSettings || typeof window === "undefined") return;
+      queuedBoardSettingsCommitRef.current = nextSettings;
+      if (boardSettingsCommitTimerRef.current !== null) {
+        window.clearTimeout(boardSettingsCommitTimerRef.current);
+      }
+      boardSettingsCommitTimerRef.current = window.setTimeout(() => {
+        boardSettingsCommitTimerRef.current = null;
+        void flushQueuedBoardSettingsCommit();
+      }, 220);
+    },
+    [
+      boardSettingsCommitTimerRef,
+      canManageSharedBoardSettings,
+      flushQueuedBoardSettingsCommit,
+      queuedBoardSettingsCommitRef,
+    ]
+  );
+
+  const handleSharedBoardSettingsChange = useCallback(
+    (patch: Partial<WorkbookBoardSettings>) => {
+      if (!canManageSharedBoardSettings || isBoardPageMutationPending) return;
+      setBoardSettings((current) => {
+        if (!queuedBoardSettingsHistoryBeforeRef.current) {
+          queuedBoardSettingsHistoryBeforeRef.current = cloneSerializable(current);
+        }
+        const merged = { ...current, ...patch };
+        const normalizedLayers = normalizeSceneLayersForBoard(
+          merged.sceneLayers,
+          merged.activeSceneLayerId
+        );
+        const nextPagesCount = Math.max(1, Math.round(merged.pagesCount || 1));
+        const nextSettings: WorkbookBoardSettings = {
+          ...merged,
+          sceneLayers: normalizedLayers.sceneLayers,
+          activeSceneLayerId: normalizedLayers.activeSceneLayerId,
+          title: typeof merged.title === "string" ? merged.title : current.title,
+          gridSize: Math.max(
+            8,
+            Math.min(96, Math.round(merged.gridSize || current.gridSize))
+          ),
+          currentPage: Math.max(
+            1,
+            Math.min(
+              nextPagesCount,
+              Math.round(merged.currentPage || current.currentPage || 1)
+            )
+          ),
+          pagesCount: nextPagesCount,
+          dividerStep: Math.max(
+            320,
+            Math.min(2400, Math.round(merged.dividerStep || current.dividerStep || 320))
+          ),
+        };
+        scheduleBoardSettingsCommit(nextSettings);
+        return nextSettings;
+      });
+    },
+    [
+      canManageSharedBoardSettings,
+      isBoardPageMutationPending,
+      queuedBoardSettingsHistoryBeforeRef,
+      scheduleBoardSettingsCommit,
+      setBoardSettings,
+    ]
+  );
+
+  const handleSelectBoardPage = useCallback(
+    (page: number) => {
+      if (!canManageSharedBoardSettings || isBoardPageMutationPending) return;
+      const maxKnownPage = resolveMaxKnownWorkbookPage({
+        pagesCount: boardSettingsRef.current.pagesCount,
+        boardObjects: boardObjectsRef.current,
+        boardStrokes: boardStrokesRef.current,
+        annotationStrokes: annotationStrokesRef.current,
+      });
+      const safeNextPage = Math.min(maxKnownPage, toSafeWorkbookPage(page));
+      const currentPage = toSafeWorkbookPage(boardSettingsRef.current.currentPage);
+      if (safeNextPage === currentPage) return;
+      handleSharedBoardSettingsChange({
+        currentPage: safeNextPage,
+        pagesCount: Math.max(
+          toSafeWorkbookPage(boardSettingsRef.current.pagesCount),
+          safeNextPage
+        ),
+      });
+    },
+    [
+      annotationStrokesRef,
+      boardObjectsRef,
+      boardSettingsRef,
+      boardStrokesRef,
+      canManageSharedBoardSettings,
+      handleSharedBoardSettingsChange,
+      isBoardPageMutationPending,
+    ]
+  );
+
+  const handleAddBoardPage = useCallback(() => {
+    if (!canManageSharedBoardSettings || isBoardPageMutationPending) return;
+    const maxKnownPage = resolveMaxKnownWorkbookPage({
+      pagesCount: boardSettingsRef.current.pagesCount,
+      boardObjects: boardObjectsRef.current,
+      boardStrokes: boardStrokesRef.current,
+      annotationStrokes: annotationStrokesRef.current,
+    });
+    const nextPage = maxKnownPage + 1;
+    handleSharedBoardSettingsChange({
+      pagesCount: nextPage,
+      currentPage: nextPage,
+    });
+  }, [
+    annotationStrokesRef,
+    boardObjectsRef,
+    boardSettingsRef,
+    boardStrokesRef,
+    canManageSharedBoardSettings,
+    handleSharedBoardSettingsChange,
+    isBoardPageMutationPending,
+  ]);
+
+  const handleDeleteBoardPage = useCallback(
+    async (targetPage: number) => {
+      if (!canManageSharedBoardSettings || !canDelete || isBoardPageMutationPending) return;
+      if (boardSettingsCommitInFlightRef.current) {
+        setError("Дождитесь завершения синхронизации настроек и повторите попытку.");
+        return;
+      }
+
+      const boardSettingsSnapshot = boardSettingsRef.current;
+      const boardObjectsSnapshot = cloneSerializable(boardObjectsRef.current);
+      const boardStrokesSnapshot = cloneSerializable(boardStrokesRef.current);
+      const annotationStrokesSnapshot = cloneSerializable(annotationStrokesRef.current);
+      const maxKnownPage = resolveMaxKnownWorkbookPage({
+        pagesCount: boardSettingsSnapshot.pagesCount,
+        boardObjects: boardObjectsSnapshot,
+        boardStrokes: boardStrokesSnapshot,
+        annotationStrokes: annotationStrokesSnapshot,
+      });
+
+      if (maxKnownPage <= 1) {
+        setError("Нельзя удалить единственную страницу доски.");
+        return;
+      }
+
+      const safeTargetPage = Math.min(maxKnownPage, toSafeWorkbookPage(targetPage));
+      if (typeof window !== "undefined") {
+        const confirmed = window.confirm(
+          `Удалить страницу ${safeTargetPage}? Ее контент будет удален, а следующие страницы сдвинутся вверх.`
+        );
+        if (!confirmed) return;
+      }
+
+      setIsBoardPageMutationPending(true);
+      try {
+        if (boardSettingsCommitTimerRef.current !== null && typeof window !== "undefined") {
+          window.clearTimeout(boardSettingsCommitTimerRef.current);
+          boardSettingsCommitTimerRef.current = null;
+        }
+        if (queuedBoardSettingsCommitRef.current) {
+          await flushQueuedBoardSettingsCommit();
+        }
+
+        const events: WorkbookClientEventInput[] = [];
+        boardObjectsSnapshot.forEach((object) => {
+          const page = toSafeWorkbookPage(object.page);
+          if (page === safeTargetPage) {
+            events.push({
+              type: "board.object.delete",
+              payload: { objectId: object.id },
+            });
+            return;
+          }
+          if (page > safeTargetPage) {
+            events.push({
+              type: "board.object.update",
+              payload: {
+                objectId: object.id,
+                patch: { page: page - 1 },
+              },
+            });
+          }
+        });
+
+        boardStrokesSnapshot.forEach((stroke) => {
+          const page = toSafeWorkbookPage(stroke.page);
+          if (page === safeTargetPage) {
+            events.push({
+              type: "board.stroke.delete",
+              payload: { strokeId: stroke.id },
+            });
+            return;
+          }
+          if (page > safeTargetPage) {
+            events.push({
+              type: "board.stroke.delete",
+              payload: { strokeId: stroke.id },
+            });
+            events.push({
+              type: "board.stroke",
+              payload: {
+                stroke: {
+                  ...stroke,
+                  page: page - 1,
+                },
+              },
+            });
+          }
+        });
+
+        annotationStrokesSnapshot.forEach((stroke) => {
+          const page = toSafeWorkbookPage(stroke.page);
+          if (page === safeTargetPage) {
+            events.push({
+              type: "annotations.stroke.delete",
+              payload: { strokeId: stroke.id },
+            });
+            return;
+          }
+          if (page > safeTargetPage) {
+            events.push({
+              type: "annotations.stroke.delete",
+              payload: { strokeId: stroke.id },
+            });
+            events.push({
+              type: "annotations.stroke",
+              payload: {
+                stroke: {
+                  ...stroke,
+                  page: page - 1,
+                },
+              },
+            });
+          }
+        });
+
+        const nextPagesCount = Math.max(1, maxKnownPage - 1);
+        const currentPage = toSafeWorkbookPage(boardSettingsSnapshot.currentPage);
+        const nextCurrentPage =
+          currentPage > safeTargetPage
+            ? currentPage - 1
+            : Math.min(currentPage, nextPagesCount);
+        events.push({
+          type: "board.settings.update",
+          payload: {
+            boardSettings: {
+              pagesCount: nextPagesCount,
+              currentPage: nextCurrentPage,
+            },
+          },
+        });
+
+        await appendEventsAndApply(events);
+      } catch {
+        setError("Не удалось удалить страницу доски.");
+      } finally {
+        setIsBoardPageMutationPending(false);
+      }
+    },
+    [
+      annotationStrokesRef,
+      appendEventsAndApply,
+      boardObjectsRef,
+      boardSettingsCommitInFlightRef,
+      boardSettingsCommitTimerRef,
+      boardSettingsRef,
+      boardStrokesRef,
+      canDelete,
+      canManageSharedBoardSettings,
+      flushQueuedBoardSettingsCommit,
+      isBoardPageMutationPending,
+      queuedBoardSettingsCommitRef,
+      setError,
+      setIsBoardPageMutationPending,
+    ]
+  );
+
+  return {
+    handleSharedBoardSettingsChange,
+    handleSelectBoardPage,
+    handleAddBoardPage,
+    handleDeleteBoardPage,
+  };
+};

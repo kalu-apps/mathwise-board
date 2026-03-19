@@ -67,7 +67,7 @@ const maxFailureRate = readFloat(process.env.PHASEF_MAX_FAILURE_RATE, 0.1, 0, 1)
 const maxP95Ms = readPositiveInt(process.env.PHASEF_MAX_P95_MS, 500, 120_000);
 const maxP99Ms = readPositiveInt(process.env.PHASEF_MAX_P99_MS, 1_000, 120_000);
 const maxPgWaiting = readPositiveInt(process.env.PHASEF_MAX_PG_WAITING, 10, 10_000);
-const expectedProxyMode = String(process.env.PHASEF_EXPECTED_PROXY_MODE ?? "all").trim() || "all";
+const expectedProxyMode = String(process.env.PHASEF_EXPECTED_PROXY_MODE ?? "none").trim() || "none";
 const expectedWriteMode =
   String(process.env.PHASEF_EXPECTED_WRITE_MODE ?? "nest-native-api").trim() || "nest-native-api";
 const maxObjectConflictDelta = readPositiveInt(process.env.PHASEF_MAX_OBJECT_CONFLICT_DELTA, 0, 1_000_000);
@@ -151,6 +151,7 @@ const run = async () => {
       writeStatus: writeDiag.status,
       proxyStatus: proxyDiag.status,
       readinessReady: Boolean(infra.payload?.readiness?.ready),
+      redisRequired: runtime?.redis?.required === true,
       redisConnected: runtime?.redis?.connected === true,
       pgWaitingCount: toNumber(storage?.postgresPool?.waitingCount, 0),
       failureRate: toNumber(telemetry?.recentWorkbookFailureRate, 0),
@@ -208,8 +209,11 @@ const run = async () => {
     },
     {
       name: "redis_always_connected",
-      ok: samples.every((sample) => sample.redisConnected),
-      detail: { violations: samples.filter((sample) => !sample.redisConnected).length },
+      ok: samples.every((sample) => !sample.redisRequired || sample.redisConnected),
+      detail: {
+        requiredSamples: samples.filter((sample) => sample.redisRequired).length,
+        violations: samples.filter((sample) => sample.redisRequired && !sample.redisConnected).length,
+      },
     },
     {
       name: "pg_waiting_budget",

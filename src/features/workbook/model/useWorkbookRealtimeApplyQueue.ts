@@ -42,7 +42,12 @@ export const useWorkbookRealtimeApplyQueue = (params: {
         });
       },
       frameBudgetMs: 6,
+      criticalFrameBudgetMs: 4,
+      volatileFrameBudgetMs: 2,
       maxEventsPerFrame: 120,
+      maxCriticalEventsPerFrame: 72,
+      maxVolatileEventsPerFrame: 24,
+      maxVolatileQueuedEvents: 720,
     });
     queueRef.current = queue;
     return () => {

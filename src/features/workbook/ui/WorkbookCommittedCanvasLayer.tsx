@@ -6,6 +6,7 @@ type CommittedStrokeBatch = {
   color: string;
   width: number;
   opacity: number;
+  compositeOperation: string;
   points: number[];
 };
 
@@ -46,9 +47,15 @@ type WorkbookCommittedCanvasLayerProps = {
   width: number;
   height: number;
   currentPage: number;
+  pendingBridgeStrokeId?: string | null;
+  onPendingBridgeStrokeDrawn?: (payload: { strokeId: string }) => void;
 };
 
 const MAX_POINTS_PER_STROKE = 240;
+type PendingCommittedDrawPayload = {
+  requestId: number;
+  batches: CommittedStrokeBatch[];
+};
 
 const drawBatches = (
   canvas: HTMLCanvasElement,
@@ -83,6 +90,8 @@ const drawBatches = (
 
   for (const batch of batches) {
     if (!Array.isArray(batch.points) || batch.points.length < 4) continue;
+    context.globalCompositeOperation =
+      batch.compositeOperation === "multiply" ? "multiply" : "source-over";
     context.globalAlpha = Math.max(0.1, Math.min(1, batch.opacity));
     context.strokeStyle = batch.color;
     context.lineWidth = Math.max(0.8, batch.width);
@@ -104,6 +113,8 @@ export const WorkbookCommittedCanvasLayer = memo(function WorkbookCommittedCanva
   width,
   height,
   currentPage,
+  pendingBridgeStrokeId = null,
+  onPendingBridgeStrokeDrawn,
 }: WorkbookCommittedCanvasLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const workerRef = useRef<Worker | null>(null);
@@ -111,8 +122,18 @@ export const WorkbookCommittedCanvasLayer = memo(function WorkbookCommittedCanva
   const latestAppliedRequestIdRef = useRef(0);
   const pendingPayloadRef = useRef<WorkerRenderPayload | null>(null);
   const workerBusyRef = useRef(false);
-  const pendingDrawBatchesRef = useRef<CommittedStrokeBatch[] | null>(null);
+  const pendingDrawPayloadRef = useRef<PendingCommittedDrawPayload | null>(null);
   const drawFrameRef = useRef<number | null>(null);
+  const pendingBridgeStrokeIdRef = useRef<string | null>(pendingBridgeStrokeId);
+  const onPendingBridgeStrokeDrawnRef = useRef(onPendingBridgeStrokeDrawn);
+
+  useEffect(() => {
+    pendingBridgeStrokeIdRef.current = pendingBridgeStrokeId;
+  }, [pendingBridgeStrokeId]);
+
+  useEffect(() => {
+    onPendingBridgeStrokeDrawnRef.current = onPendingBridgeStrokeDrawn;
+  }, [onPendingBridgeStrokeDrawn]);
 
   const payloadBase = useMemo<WorkerRenderBasePayload>(
     () => ({
@@ -135,16 +156,23 @@ export const WorkbookCommittedCanvasLayer = memo(function WorkbookCommittedCanva
   );
 
   const scheduleDraw = useMemo(
-    () => (batches: CommittedStrokeBatch[]) => {
-      pendingDrawBatchesRef.current = batches;
+    () => (payload: PendingCommittedDrawPayload) => {
+      pendingDrawPayloadRef.current = payload;
       if (drawFrameRef.current !== null) return;
       drawFrameRef.current = window.requestAnimationFrame(() => {
         drawFrameRef.current = null;
         const canvas = canvasRef.current;
-        const nextBatches = pendingDrawBatchesRef.current;
-        pendingDrawBatchesRef.current = null;
-        if (!canvas || !nextBatches) return;
-        drawBatches(canvas, nextBatches, width, height);
+        const nextDrawPayload = pendingDrawPayloadRef.current;
+        pendingDrawPayloadRef.current = null;
+        if (!canvas || !nextDrawPayload) return;
+        drawBatches(canvas, nextDrawPayload.batches, width, height);
+        const pendingStrokeId = pendingBridgeStrokeIdRef.current;
+        const notifyPendingBridgeStrokeDrawn = onPendingBridgeStrokeDrawnRef.current;
+        if (!pendingStrokeId || !notifyPendingBridgeStrokeDrawn) return;
+        if (!nextDrawPayload.batches.some((batch) => batch.id === pendingStrokeId)) return;
+        notifyPendingBridgeStrokeDrawn({
+          strokeId: pendingStrokeId,
+        });
       });
     },
     [height, width]
@@ -173,7 +201,10 @@ export const WorkbookCommittedCanvasLayer = memo(function WorkbookCommittedCanva
         return;
       }
       latestAppliedRequestIdRef.current = data.requestId;
-      scheduleDraw(data.batches);
+      scheduleDraw({
+        requestId: data.requestId,
+        batches: data.batches,
+      });
       const nextPayload = pendingPayloadRef.current;
       if (nextPayload) {
         pendingPayloadRef.current = null;
@@ -220,7 +251,7 @@ export const WorkbookCommittedCanvasLayer = memo(function WorkbookCommittedCanva
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    drawBatches(canvas, pendingDrawBatchesRef.current ?? [], width, height);
+    drawBatches(canvas, pendingDrawPayloadRef.current?.batches ?? [], width, height);
   }, [height, width]);
 
   return (

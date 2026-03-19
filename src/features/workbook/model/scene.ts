@@ -22,6 +22,7 @@ import type {
   WorkbookStroke,
   WorkbookTimerState,
 } from "./types";
+import { normalizeWorkbookObjectZOrder } from "./objectZOrder";
 
 const toFiniteNumber = (value: unknown, fallback = 0) => {
   const numeric = typeof value === "number" ? value : Number(value);
@@ -208,6 +209,7 @@ const normalizeBoardObject = (raw: unknown): WorkbookBoardObject | null => {
     fontSize: Math.max(10, Math.min(72, toFiniteNumber(source.fontSize, 18))),
     imageUrl: typeof source.imageUrl === "string" ? source.imageUrl : undefined,
     imageName: typeof source.imageName === "string" ? source.imageName : undefined,
+    zOrder: normalizeWorkbookObjectZOrder(source.zOrder),
     meta:
       source.meta && typeof source.meta === "object"
         ? (source.meta as Record<string, unknown>)
