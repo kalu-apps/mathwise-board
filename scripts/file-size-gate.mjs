@@ -7,7 +7,7 @@ const args = new Set(process.argv.slice(2));
 const writeBaseline = args.has("--write-baseline");
 const strictMode = args.has("--strict");
 
-const parseFiles = () => {
+const parseFilesWithRipgrep = () => {
   const output = execFileSync(
     "rg",
     ["--files", "-g", "*.{ts,tsx,scss,css}", "src", "backend"],
@@ -18,6 +18,43 @@ const parseFiles = () => {
     .map((entry) => entry.trim())
     .filter(Boolean)
     .sort();
+};
+
+const TRACKED_EXTENSIONS = /\.(ts|tsx|scss|css)$/u;
+const IGNORED_DIRECTORIES = new Set(["node_modules", ".git", "dist", "coverage"]);
+
+const parseFilesWithNodeWalk = () => {
+  const roots = ["src", "backend"];
+  const files = [];
+  const walk = (directoryPath) => {
+    for (const entry of fs.readdirSync(directoryPath, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (IGNORED_DIRECTORIES.has(entry.name)) continue;
+        walk(path.join(directoryPath, entry.name));
+        continue;
+      }
+      if (!TRACKED_EXTENSIONS.test(entry.name)) continue;
+      files.push(path.relative(process.cwd(), path.join(directoryPath, entry.name)));
+    }
+  };
+  for (const root of roots) {
+    const rootPath = path.resolve(root);
+    if (!fs.existsSync(rootPath)) continue;
+    walk(rootPath);
+  }
+  return files.sort();
+};
+
+const parseFiles = () => {
+  try {
+    return parseFilesWithRipgrep();
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      console.warn("[file-size-gate] rg not found, using node fallback walker");
+      return parseFilesWithNodeWalk();
+    }
+    throw error;
+  }
 };
 
 const readLineCount = (filePath) => {
