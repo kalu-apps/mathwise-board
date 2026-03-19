@@ -169,7 +169,7 @@ type InteractionCallbacks = {
   ) => {
     point: { x: number; y: number; z: number };
     faceIndex: number;
-    triangleVertexIndices: number[];
+    triangleVertexIndices: [number, number, number];
     barycentric: [number, number, number];
   } | null;
   resolveSolid3dResizeHandleHit: (

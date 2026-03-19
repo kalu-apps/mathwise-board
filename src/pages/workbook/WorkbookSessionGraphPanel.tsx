@@ -11,7 +11,7 @@ import {
   type GraphFunctionDraft,
 } from "@/features/workbook/model/functionGraph";
 
-type WorkbookSessionGraphPanelProps = {
+export type WorkbookSessionGraphPanelProps = {
   graphTabUsesSelectedObject: boolean;
   canDraw: boolean;
   planeEntries: Array<{

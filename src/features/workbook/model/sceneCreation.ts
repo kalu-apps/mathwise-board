@@ -210,6 +210,10 @@ export const buildWorkbookShapeObject = (
           })),
         }
       : undefined;
+  const polygonFigureKind =
+    draft.tool === "polygon"
+      ? resolvePolygonFigureKind(polygonSides, polygonPreset ?? "regular")
+      : undefined;
   const isLineTool = draft.tool === "line" || draft.tool === "arrow";
   const lineDeltaX = draft.current.x - draft.start.x;
   const lineDeltaY = draft.current.y - draft.start.y;
@@ -350,14 +354,7 @@ export const buildWorkbookShapeObject = (
                 ? {
                     polygonMode,
                     polygonPreset,
-                    ...(resolvePolygonFigureKind(polygonSides, polygonPreset)
-                      ? {
-                          figureKind: resolvePolygonFigureKind(
-                            polygonSides,
-                            polygonPreset
-                          ),
-                        }
-                      : {}),
+                    ...(polygonFigureKind ? { figureKind: polygonFigureKind } : {}),
                     ...(defaultFigureMeta ?? {}),
                   }
                 : draft.tool === "rectangle" || draft.tool === "triangle"

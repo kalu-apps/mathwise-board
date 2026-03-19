@@ -4,7 +4,10 @@ import legacy from "@vitejs/plugin-legacy";
 import basicSsl from "@vitejs/plugin-basic-ssl";
 import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
-import { setupMockServer } from "./src/mock/server";
+import {
+  attachWorkbookLiveSocketServer,
+  createWorkbookApiMiddleware,
+} from "./src/mock/server";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -28,10 +31,12 @@ export default defineConfig(({ mode }) => {
     {
       name: "mock-api",
       configureServer(server) {
-        setupMockServer(server);
+        server.middlewares.use(createWorkbookApiMiddleware());
+        attachWorkbookLiveSocketServer(server.httpServer);
       },
       configurePreviewServer(server) {
-        setupMockServer(server);
+        server.middlewares.use(createWorkbookApiMiddleware());
+        attachWorkbookLiveSocketServer(server.httpServer);
       },
     },
   ];
@@ -78,9 +83,6 @@ export default defineConfig(({ mode }) => {
                 normalizedId.includes("/@emotion/")
               ) {
                 return "vendor-ui";
-              }
-              if (normalizedId.includes("/mathjs/")) {
-                return "vendor-mathjs";
               }
               if (normalizedId.includes("/three/")) {
                 return "vendor-three";

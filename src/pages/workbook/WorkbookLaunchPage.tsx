@@ -8,6 +8,7 @@ import {
   createWorkbookSession,
   getWorkbookDrafts,
 } from "@/features/workbook/model/api";
+import { prefetchWorkbookSessionRuntime } from "./prefetchWorkbookSessionRuntime";
 import { t } from "@/shared/i18n";
 
 const toSessionPath = (sessionId: string) =>
@@ -26,6 +27,7 @@ export default function WorkbookLaunchPage() {
       return;
     }
     if (user.role !== "teacher") return;
+    void prefetchWorkbookSessionRuntime();
 
     let active = true;
     const routeTeacherToLesson = async () => {
@@ -43,6 +45,7 @@ export default function WorkbookLaunchPage() {
         const sessionId =
           activeSession?.sessionId ??
           (await createWorkbookSession({ kind: "CLASS" })).session.id;
+        void prefetchWorkbookSessionRuntime();
         if (!active) return;
         if (typeof window === "undefined") {
           navigate(toSessionPath(sessionId), { replace: true });

@@ -34,6 +34,12 @@ import type {
 
 export type Solid3dPreviewMetaById = Record<string, Record<string, unknown>>;
 
+type ResolvedObjectEraserCut = {
+  x: number;
+  y: number;
+  radius: number;
+};
+
 export type WorkbookAreaSelectionResizeStateLike = {
   initialRect: {
     x: number;
@@ -69,7 +75,7 @@ export type PreparedWorkbookRenderObject = {
 export type WorkbookMaskedObjectSceneEntry = {
   id: string;
   renderedObject: ReactNode;
-  resolvedEraserCuts: ObjectEraserCut[];
+  resolvedEraserCuts: ResolvedObjectEraserCut[];
   maskPaths: ObjectEraserPreviewPath[];
   maskBounds: { x: number; y: number; width: number; height: number } | null;
 };
@@ -270,7 +276,7 @@ export const buildMaskedObjectSceneEntry = (params: {
     cuts: previewCuts,
     previewPaths,
   });
-  const resolvedEraserCuts: ObjectEraserCut[] = [];
+  const resolvedEraserCuts: ResolvedObjectEraserCut[] = [];
   if (resolvedEraserCuts.length === 0 && maskPaths.length === 0) {
     return {
       id: object.id,

@@ -4,6 +4,9 @@ import { AuthContext } from "./AuthContext";
 import type { User } from "@/entities/user/model/types";
 import { readStorage, removeStorage, writeStorage } from "@/shared/lib/localDb";
 import {
+  AUTH_LOGOUT_BROADCAST_CHANNEL,
+  AUTH_LOGOUT_SIGNAL_STORAGE_KEY,
+  AUTH_LOGOUT_SIGNAL_TTL_MS,
   AUTH_GUEST_SESSION_KEY,
   AUTH_IDLE_ACTIVITY_KEY,
   AUTH_IDLE_ACTIVITY_THROTTLE_MS,
@@ -21,6 +24,11 @@ const BOARD_AUTO_LOGIN_PASSWORD =
 const DISABLE_IDLE_AUTO_LOGOUT =
   import.meta.env.VITE_BOARD_MODE?.trim().toLowerCase() === "realtime" ||
   String(import.meta.env.VITE_WHITEBOARD_ONLY ?? "").trim() === "1";
+
+type AuthLogoutSignal = {
+  type: "logout";
+  at: number;
+};
 
 const readIdleActivityTimestamp = () => {
   if (typeof localStorage === "undefined") return null;
@@ -59,6 +67,19 @@ const isGuestUser = (user: User | null | undefined) => {
   return normalizedEmail.startsWith("guest_") && normalizedEmail.endsWith("@axiom.demo");
 };
 
+const normalizeLogoutSignal = (raw: unknown): AuthLogoutSignal | null => {
+  if (!raw || typeof raw !== "object") return null;
+  const source = raw as { type?: unknown; at?: unknown };
+  if (source.type !== "logout") return null;
+  if (typeof source.at !== "number" || !Number.isFinite(source.at) || source.at <= 0) {
+    return null;
+  }
+  return {
+    type: "logout",
+    at: Math.floor(source.at),
+  };
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() =>
     readStorage<User | null>(AUTH_STORAGE_KEY, null)
@@ -75,6 +96,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const lastPersistedActivityRef = useRef<number>(0);
   const autoLogoutInProgressRef = useRef(false);
   const autoLoginStartedRef = useRef(false);
+  const logoutBroadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  const lastLogoutSignalAtRef = useRef(0);
+
+  const applyLoggedOutState = useCallback((options?: { openAuthModal?: boolean }) => {
+    setUser(null);
+    setGuestSession(false);
+    removeStorage(AUTH_STORAGE_KEY);
+    removeStorage(AUTH_GUEST_SESSION_KEY);
+    clearIdleActivityTimestamp();
+    setAuthModalEmail("");
+    if (options?.openAuthModal !== false) {
+      setAuthModalOpen(true);
+    }
+  }, []);
+
+  const emitLogoutSignal = useCallback(() => {
+    const signal: AuthLogoutSignal = {
+      type: "logout",
+      at: Date.now(),
+    };
+    lastLogoutSignalAtRef.current = Math.max(lastLogoutSignalAtRef.current, signal.at);
+    try {
+      logoutBroadcastChannelRef.current?.postMessage(signal);
+    } catch {
+      // ignore BroadcastChannel delivery errors
+    }
+    writeStorage(AUTH_LOGOUT_SIGNAL_STORAGE_KEY, signal, {
+      ttlMs: AUTH_LOGOUT_SIGNAL_TTL_MS,
+    });
+  }, []);
+
+  const applyLogoutSignal = useCallback(
+    (rawSignal: unknown) => {
+      const normalized = normalizeLogoutSignal(rawSignal);
+      if (!normalized) return;
+      if (normalized.at <= lastLogoutSignalAtRef.current) return;
+      lastLogoutSignalAtRef.current = normalized.at;
+      applyLoggedOutState({ openAuthModal: true });
+    },
+    [applyLoggedOutState]
+  );
 
   const syncSession = useCallback(async () => {
     try {
@@ -109,6 +171,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [syncSession]);
 
   useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return;
+    try {
+      const channel = new BroadcastChannel(AUTH_LOGOUT_BROADCAST_CHANNEL);
+      logoutBroadcastChannelRef.current = channel;
+      channel.onmessage = (event) => {
+        applyLogoutSignal(event.data);
+      };
+      return () => {
+        channel.close();
+        if (logoutBroadcastChannelRef.current === channel) {
+          logoutBroadcastChannelRef.current = null;
+        }
+      };
+    } catch {
+      logoutBroadcastChannelRef.current = null;
+      return;
+    }
+  }, [applyLogoutSignal]);
+
+  useEffect(() => {
     if (!BOARD_AUTO_LOGIN_EMAIL) return;
     if (!isAuthReady || user) return;
     if (autoLoginStartedRef.current) return;
@@ -137,15 +219,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [isAuthReady, user]);
 
   const logout = useCallback(() => {
-    setUser(null);
-    setGuestSession(false);
-    removeStorage(AUTH_STORAGE_KEY);
-    removeStorage(AUTH_GUEST_SESSION_KEY);
-    clearIdleActivityTimestamp();
-    setAuthModalEmail("");
-    setAuthModalOpen(true);
+    applyLoggedOutState({ openAuthModal: true });
+    emitLogoutSignal();
     void logoutAuthSession();
-  }, []);
+  }, [applyLoggedOutState, emitLogoutSignal]);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
@@ -254,12 +331,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         scheduleIdleLogout();
         return;
       }
+      if (event.key === AUTH_LOGOUT_SIGNAL_STORAGE_KEY && event.newValue !== null) {
+        const signal = readStorage<AuthLogoutSignal | null>(
+          AUTH_LOGOUT_SIGNAL_STORAGE_KEY,
+          null
+        );
+        applyLogoutSignal(signal);
+        return;
+      }
       if (event.key === AUTH_STORAGE_KEY && event.newValue === null) {
         clearIdleTimer();
-        setUser(null);
-        setGuestSession(false);
-        removeStorage(AUTH_STORAGE_KEY);
-        removeStorage(AUTH_GUEST_SESSION_KEY);
+        applyLoggedOutState({ openAuthModal: true });
+        return;
       }
       if (event.key === AUTH_GUEST_SESSION_KEY) {
         const nextGuestValue = readStorage<boolean>(AUTH_GUEST_SESSION_KEY, false);
@@ -285,7 +368,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("storage", onStorageChange);
       clearIdleTimer();
     };
-  }, [logout, user]);
+  }, [applyLoggedOutState, applyLogoutSignal, logout, user]);
 
   const loginWithPassword = useCallback(async (email: string, password: string) => {
     const normalizedEmail = email.trim().toLowerCase();

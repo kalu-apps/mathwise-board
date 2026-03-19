@@ -4,16 +4,31 @@ import {
   normalizeScenePayload,
   normalizeStrokePayload,
 } from "./scene";
+import {
+  ensureWorkbookObjectZOrder,
+  normalizeWorkbookObjectZOrder,
+} from "./objectZOrder";
+import {
+  clampWorkbookObjectToPageFrame,
+  resolveWorkbookPageFrameBounds,
+  WORKBOOK_PAGE_FRAME_WIDTH,
+} from "./pageFrame";
 import { mergeBoardObjectWithPatch, mergePreviewPathPoints } from "./runtime";
 import type {
+  WorkbookBoardSettings,
   WorkbookBoardObject,
+  WorkbookChatMessage,
+  WorkbookComment,
   WorkbookConstraint,
+  WorkbookDocumentState,
   WorkbookEvent,
+  WorkbookLibraryState,
   WorkbookLayer,
   WorkbookPoint,
   WorkbookSession,
   WorkbookSessionParticipant,
   WorkbookStroke,
+  WorkbookTimerState,
 } from "./types";
 
 type ClearRequest = {
@@ -38,12 +53,12 @@ type RestoreSceneSnapshotPayload = {
   boardObjects: WorkbookBoardObject[];
   constraints: WorkbookConstraint[];
   annotationStrokes: WorkbookStroke[];
-  chatMessages: unknown[];
-  comments: unknown[];
-  timerState: unknown;
-  boardSettings: unknown;
-  libraryState: unknown;
-  documentState: unknown;
+  chatMessages: WorkbookChatMessage[];
+  comments: WorkbookComment[];
+  timerState: WorkbookTimerState | null;
+  boardSettings: WorkbookBoardSettings;
+  libraryState: WorkbookLibraryState;
+  documentState: WorkbookDocumentState;
 };
 
 type StrokePreviewPayload = {
@@ -121,6 +136,8 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
   viewportSyncEpsilon: number;
 };
 
+const WORKBOOK_PAGE_FRAME_BOUNDS = resolveWorkbookPageFrameBounds(WORKBOOK_PAGE_FRAME_WIDTH);
+
 export const applyWorkbookIncomingRealtimeEvent = (
   params: ApplyWorkbookIncomingRealtimeEventParams
 ) => {
@@ -142,9 +159,9 @@ export const applyWorkbookIncomingRealtimeEvent = (
     queueIncomingStrokePreview,
     finalizeStrokePreview,
     queueIncomingPreviewPatch,
-  applyLocalBoardObjects,
-  setSession,
-  setCanvasViewport,
+    applyLocalBoardObjects,
+    setSession,
+    setCanvasViewport,
     setIncomingEraserPreviews,
     setBoardStrokes,
     setAnnotationStrokes,
@@ -385,9 +402,15 @@ export const applyWorkbookIncomingRealtimeEvent = (
   if (event.type === "board.object.create") {
     const object = normalizeObjectPayload((event.payload as { object?: unknown })?.object);
     if (!object) return true;
+    const boundedObject = clampWorkbookObjectToPageFrame(
+      object,
+      WORKBOOK_PAGE_FRAME_BOUNDS
+    );
     objectLastCommittedEventAtRef.current.set(object.id, eventTimestamp);
     applyLocalBoardObjects((current) =>
-      current.some((item) => item.id === object.id) ? current : [...current, object]
+      current.some((item) => item.id === boundedObject.id)
+        ? current
+        : [...current, ensureWorkbookObjectZOrder(boundedObject, current)]
     );
     return true;
   }
@@ -418,7 +441,10 @@ export const applyWorkbookIncomingRealtimeEvent = (
       const next = current.map((item) => {
         if (item.id !== objectId) return item;
         found = true;
-        return mergeBoardObjectWithPatch(item, safePatch);
+        return clampWorkbookObjectToPageFrame(
+          mergeBoardObjectWithPatch(item, safePatch),
+          WORKBOOK_PAGE_FRAME_BOUNDS
+        );
       });
       return found ? next : current;
     });
@@ -498,6 +524,19 @@ export const applyWorkbookIncomingRealtimeEvent = (
       current.map((item) =>
         item.id === objectId ? { ...item, pinned: Boolean(payload.pinned) } : item
       )
+    );
+    return true;
+  }
+
+  if (event.type === "board.object.reorder") {
+    const payload = event.payload as { objectId?: unknown; zOrder?: unknown };
+    const objectId = typeof payload.objectId === "string" ? payload.objectId : "";
+    const zOrder = normalizeWorkbookObjectZOrder(payload.zOrder);
+    if (!objectId || zOrder === undefined) return true;
+    objectLastCommittedEventAtRef.current.set(objectId, eventTimestamp);
+    incomingPreviewQueuedPatchRef.current.delete(objectId);
+    applyLocalBoardObjects((current) =>
+      current.map((item) => (item.id === objectId ? { ...item, zOrder } : item))
     );
     return true;
   }

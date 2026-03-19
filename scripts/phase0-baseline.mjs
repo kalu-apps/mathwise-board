@@ -13,7 +13,7 @@ const HOTSPOT_FILES = [
   "src/features/workbook/ui/WorkbookCanvas.tsx",
   "src/mock/server.ts",
   "src/mock/db.ts",
-  "backend/src/server.ts",
+  "backend/src/nest/main.ts",
 ];
 
 const parseArgs = (argv) => {
@@ -241,4 +241,3 @@ void run().catch((error) => {
   );
   process.exit(1);
 });
-

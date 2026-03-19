@@ -10,7 +10,7 @@ import PhotoCameraRoundedIcon from "@mui/icons-material/PhotoCameraRounded";
 import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
 import type { WorkbookDocumentAsset } from "@/features/workbook/model/types";
 
-type WorkbookSessionDocsWindowProps = {
+export type WorkbookSessionDocsWindowProps = {
   pinned: boolean;
   maximized: boolean;
   canInsertImage: boolean;

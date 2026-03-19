@@ -102,6 +102,7 @@ export type WorkbookBoardObject = {
   imageName?: string;
   sides?: number;
   page?: number;
+  zOrder?: number;
   meta?: Record<string, unknown>;
   pinned?: boolean;
   locked?: boolean;
@@ -410,6 +411,7 @@ export type WorkbookEventType =
   | "board.object.update"
   | "board.object.delete"
   | "board.object.pin"
+  | "board.object.reorder"
   | "board.clear"
   | "board.clear.request"
   | "board.clear.confirm"

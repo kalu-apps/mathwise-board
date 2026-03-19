@@ -10,7 +10,7 @@ import FiberManualRecordRoundedIcon from "@mui/icons-material/FiberManualRecordR
 import UnfoldLessRoundedIcon from "@mui/icons-material/UnfoldLessRounded";
 import type { WorkbookSessionParticipant } from "@/features/workbook/model/types";
 
-type WorkbookSessionParticipantsPanelProps = {
+export type WorkbookSessionParticipantsPanelProps = {
   participantCards: WorkbookSessionParticipant[];
   currentUserId?: string;
   currentUserRole?: string;

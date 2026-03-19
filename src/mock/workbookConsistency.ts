@@ -182,7 +182,12 @@ type ObjectVersionState = {
 
 type ParsedMutation = {
   objectId: string;
-  type: "board.object.create" | "board.object.update" | "board.object.delete" | "board.object.pin";
+  type:
+    | "board.object.create"
+    | "board.object.update"
+    | "board.object.delete"
+    | "board.object.pin"
+    | "board.object.reorder";
   payload: Record<string, unknown>;
   objectPayload: Record<string, unknown> | null;
 };
@@ -208,7 +213,8 @@ const parseMutationFromIncomingEvent = (
     event.type !== "board.object.create" &&
     event.type !== "board.object.update" &&
     event.type !== "board.object.delete" &&
-    event.type !== "board.object.pin"
+    event.type !== "board.object.pin" &&
+    event.type !== "board.object.reorder"
   ) {
     return null;
   }
@@ -255,7 +261,8 @@ const parseMutationFromPersistedEvent = (
     event.type !== "board.object.create" &&
     event.type !== "board.object.update" &&
     event.type !== "board.object.delete" &&
-    event.type !== "board.object.pin"
+    event.type !== "board.object.pin" &&
+    event.type !== "board.object.reorder"
   ) {
     return null;
   }
