@@ -2,7 +2,7 @@ import { All, Controller, Req, Res } from "@nestjs/common";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { WorkbookRuntimeInfraService } from "./workbook-runtime-infra.service";
 
-const RUNTIME_API_ROUTES = ["/api/runtime", "/api/runtime/*"];
+const RUNTIME_API_ROUTES = ["/api/runtime", "/api/runtime/*path"];
 
 @Controller()
 export class WorkbookRuntimeInfraController {
