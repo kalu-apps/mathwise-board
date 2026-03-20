@@ -15,11 +15,16 @@ import {
 } from "./runtime/core/runtimeServices";
 
 const readRequiredEnv = (name: string) => String(process.env[name] ?? "").trim();
+const isEmailLike = (value: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
 
 const assertProductionRuntimeSafety = () => {
   const teacherPassword = readRequiredEnv("WHITEBOARD_TEACHER_PASSWORD");
   if (!teacherPassword) {
     throw new Error("[backend:nest] WHITEBOARD_TEACHER_PASSWORD is required.");
+  }
+  const teacherEmail = readRequiredEnv("WHITEBOARD_TEACHER_EMAIL").toLowerCase();
+  if (teacherEmail && !isEmailLike(teacherEmail)) {
+    throw new Error("[backend:nest] WHITEBOARD_TEACHER_EMAIL must be a valid email.");
   }
   if (readRequiredEnv("VITE_WHITEBOARD_TEACHER_PASSWORD")) {
     throw new Error(

@@ -14,6 +14,7 @@ export const ru = {
   auth: {
     emailLoginTitle: "Вход по email",
     emailLabel: "Email",
+    emailHint: "Email преподавателя: {email}",
     passwordLabel: "Пароль",
     passwordRequired: "Введите email и пароль",
     passwordLoginFailed: "Не удалось войти",

@@ -9,6 +9,7 @@ import {
   setWorkbookSessionLatestSeqCached,
 } from "./workbookSeqCache";
 import { sanitizeAuthSessions, sanitizeUserRecords, sanitizeWorkbookAccessLogs, sanitizeWorkbookDrafts, sanitizeWorkbookEvents, sanitizeWorkbookInvites, sanitizeWorkbookOperations, sanitizeWorkbookParticipants, sanitizeWorkbookSessions, sanitizeWorkbookSnapshots } from "./dbSanitizers";
+import { isTeacherEmail, TEACHER_USER_ID, WHITEBOARD_TEACHER_EMAIL } from "./teacherIdentity";
 
 export type UserRole = "teacher" | "student";
 
@@ -392,9 +393,9 @@ type PgWorkbookAccessLogRow = {
 };
 
 const defaultTeacherUser = (): UserRecord => ({
-  id: "teacher-axiom",
+  id: TEACHER_USER_ID,
   role: "teacher",
-  email: "teacher@axiom.demo",
+  email: WHITEBOARD_TEACHER_EMAIL,
   firstName: "Анна",
   lastName: "Викторовна",
   createdAt: new Date().toISOString(),
@@ -706,7 +707,7 @@ const ensureShape = (raw: unknown): MockDb => {
   };
 
   const users = [...next.users];
-  if (!users.some((user) => user.role === "teacher" && user.email === "teacher@axiom.demo")) {
+  if (!users.some((user) => user.role === "teacher" && (user.id === TEACHER_USER_ID || isTeacherEmail(user.email)))) {
     users.push(defaultTeacherUser());
   }
   const validUserIds = new Set(users.map((entry) => entry.id));

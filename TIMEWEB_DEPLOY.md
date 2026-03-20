@@ -24,7 +24,9 @@ CORS_ALLOWED_ORIGINS=https://board.your-domain.tld
 AUTH_COOKIE_DOMAIN=.your-domain.tld
 AUTH_COOKIE_SAME_SITE=Lax
 AUTH_COOKIE_SECURE=1
-VITE_WHITEBOARD_TEACHER_PASSWORD=<strong-password>
+WHITEBOARD_TEACHER_PASSWORD=<strong-password>
+WHITEBOARD_TEACHER_EMAIL=teacher@axiom.demo
+VITE_WHITEBOARD_TEACHER_EMAIL_HINT=teacher@axiom.demo
 
 BOARD_STORAGE_DRIVER=postgres
 DATABASE_URL=postgresql://board_app:<url-encoded-password>@10.20.0.4:5432/board_prod?sslmode=require
