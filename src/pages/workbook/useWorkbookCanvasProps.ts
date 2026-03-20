@@ -20,6 +20,21 @@ import { sanitizeFunctionGraphDrafts } from "@/features/workbook/model/functionG
 
 type CanvasProps = ComponentProps<typeof WorkbookCanvas>;
 
+const sanitizedGraphFunctionsCache = new WeakMap<
+  ReadonlyArray<GraphFunctionDraft>,
+  GraphFunctionDraft[]
+>();
+
+const getSanitizedGraphFunctions = (drafts: GraphFunctionDraft[]) => {
+  const cached = sanitizedGraphFunctionsCache.get(drafts);
+  if (cached) return cached;
+  const sanitized = sanitizeFunctionGraphDrafts(drafts, {
+    ensureNonEmpty: false,
+  });
+  sanitizedGraphFunctionsCache.set(drafts, sanitized);
+  return sanitized;
+};
+
 interface UseWorkbookCanvasPropsParams {
   visibleBoardStrokes: WorkbookStroke[];
   visibleAnnotationStrokes: WorkbookStroke[];
@@ -181,9 +196,7 @@ export const buildWorkbookCanvasProps = ({
   polygonMode,
   polygonPreset,
   textPreset,
-  graphFunctions: sanitizeFunctionGraphDrafts(graphDraftFunctions, {
-    ensureNonEmpty: false,
-  }),
+  graphFunctions: getSanitizedGraphFunctions(graphDraftFunctions),
   lineStyle,
   snapToGrid: boardSettings.snapToGrid,
   gridSize: boardSettings.gridSize,

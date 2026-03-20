@@ -17,6 +17,8 @@ type WorkbookRealtimeApplyQueueOptions = {
   maxEventsPerFrame?: number;
   maxCriticalEventsPerFrame?: number;
   maxVolatileEventsPerFrame?: number;
+  maxCriticalChunkEvents?: number;
+  maxVolatileChunkEvents?: number;
   maxVolatileQueuedEvents?: number;
 };
 
@@ -26,6 +28,8 @@ const DEFAULT_VOLATILE_FRAME_BUDGET_MS = 2;
 const DEFAULT_MAX_EVENTS_PER_FRAME = 120;
 const DEFAULT_MAX_CRITICAL_EVENTS_PER_FRAME = 72;
 const DEFAULT_MAX_VOLATILE_EVENTS_PER_FRAME = 28;
+const DEFAULT_MAX_CRITICAL_CHUNK_EVENTS = 16;
+const DEFAULT_MAX_VOLATILE_CHUNK_EVENTS = 8;
 const DEFAULT_MAX_VOLATILE_QUEUED_EVENTS = 720;
 
 const nowMs = () =>
@@ -79,6 +83,7 @@ const trimVolatileQueue = (
 const drainQueueWithBudget = (params: {
   queue: WorkbookRealtimeApplyBatch[];
   maxEvents: number;
+  maxChunkEvents: number;
   deadlineMs: number;
   applyEvents: (events: WorkbookEvent[]) => void;
   onBatchApplied?: (batch: WorkbookRealtimeApplyBatch) => void;
@@ -95,7 +100,10 @@ const drainQueueWithBudget = (params: {
     }
 
     const remainingCapacity = params.maxEvents - processedEvents;
-    const chunkSize = Math.max(1, Math.min(remainingCapacity, head.events.length));
+    const chunkSize = Math.max(
+      1,
+      Math.min(remainingCapacity, head.events.length, params.maxChunkEvents)
+    );
     const chunkEvents = head.events.splice(0, chunkSize);
     if (chunkEvents.length > 0) {
       params.applyEvents(chunkEvents);
@@ -144,6 +152,16 @@ export const createWorkbookRealtimeApplyQueue = (
     Math.floor(maxEventsPerFrame * 0.35) || DEFAULT_MAX_VOLATILE_EVENTS_PER_FRAME,
     1
   );
+  const maxCriticalChunkEvents = normalizeFinite(
+    options.maxCriticalChunkEvents,
+    DEFAULT_MAX_CRITICAL_CHUNK_EVENTS,
+    1
+  );
+  const maxVolatileChunkEvents = normalizeFinite(
+    options.maxVolatileChunkEvents,
+    DEFAULT_MAX_VOLATILE_CHUNK_EVENTS,
+    1
+  );
   const maxVolatileQueuedEvents = normalizeFinite(
     options.maxVolatileQueuedEvents,
     DEFAULT_MAX_VOLATILE_QUEUED_EVENTS,
@@ -174,6 +192,7 @@ export const createWorkbookRealtimeApplyQueue = (
     const processedCriticalEvents = drainQueueWithBudget({
       queue: criticalQueue,
       maxEvents: criticalEventsBudget,
+      maxChunkEvents: maxCriticalChunkEvents,
       deadlineMs: criticalDeadline,
       applyEvents: options.applyEvents,
       onBatchApplied: options.onBatchApplied,
@@ -194,6 +213,7 @@ export const createWorkbookRealtimeApplyQueue = (
       drainQueueWithBudget({
         queue: volatileQueue,
         maxEvents: volatileEventsBudget,
+        maxChunkEvents: maxVolatileChunkEvents,
         deadlineMs: volatileDeadline,
         applyEvents: options.applyEvents,
         onBatchApplied: options.onBatchApplied,
