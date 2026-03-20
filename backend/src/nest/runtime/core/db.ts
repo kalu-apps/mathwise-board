@@ -342,6 +342,7 @@ type PgPool = {
   query<T>(text: string, params?: readonly unknown[]): Promise<PgQueryResult<T>>;
   connect(): Promise<PgClient>;
   end(): Promise<void>;
+  on?(event: "error", listener: (error: unknown) => void): void;
   totalCount?: number;
   idleCount?: number;
   waitingCount?: number;
@@ -577,6 +578,12 @@ const ensurePgPool = async () => {
     pgPoolStatus.initAttempts += 1;
     pgPoolStatus.lastInitAt = nowIso();
     const candidate = new Pool(poolConfig);
+    candidate.on?.("error", (error: unknown) => {
+      const normalizedError = normalizeError(error);
+      pgPoolStatus.lastError = normalizedError;
+      storageError = normalizedError;
+      console.error("[runtime:db] postgres pool error", normalizedError);
+    });
     try {
       await candidate.query("SELECT 1");
       await ensurePgSchema(candidate);
