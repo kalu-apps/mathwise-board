@@ -55,6 +55,18 @@ const listeners = new Set<() => void>();
 const nowTs = () => Date.now();
 const nowIso = () => new Date().toISOString();
 
+const normalizeSnapshotVersion = (version: number) =>
+  Number.isFinite(version) ? Math.max(1, Math.trunc(version)) : 1;
+
+const createSnapshotIdempotencyKey = (
+  sessionId: string,
+  layer: WorkbookLayer,
+  version: number
+) => `snapshot-${sessionId}-${layer}-v${normalizeSnapshotVersion(version)}-${generateId()}`;
+
+const isLegacySnapshotIdempotencyKey = (task: WorkbookSnapshotPersistenceTask) =>
+  task.idempotencyKey.trim() === `snapshot-${task.sessionId}-${task.layer}`;
+
 const safeJsonClone = <T>(value: T): T => {
   try {
     return JSON.parse(JSON.stringify(value)) as T;
@@ -100,6 +112,20 @@ const clampQueueLength = () => {
 const normalizeQueue = () => {
   const now = nowTs();
   queue = queue.filter((task) => parseTs(task.expiresAt) > now);
+  queue = queue.map((task) => {
+    if (task.type !== "snapshot") return task;
+    if (!task.idempotencyKey || isLegacySnapshotIdempotencyKey(task)) {
+      return {
+        ...task,
+        idempotencyKey: createSnapshotIdempotencyKey(
+          task.sessionId,
+          task.layer,
+          task.version
+        ),
+      };
+    }
+    return task;
+  });
   const latestSnapshotByScope = new Map<string, WorkbookSnapshotPersistenceTask>();
   const next: WorkbookPersistenceTask[] = [];
   queue.forEach((task) => {
@@ -270,19 +296,20 @@ export const enqueueWorkbookSnapshotPersistence = (params: {
 }) => {
   ensureRuntime();
   const timestamp = nowIso();
+  const version = normalizeSnapshotVersion(params.version);
   const task: WorkbookSnapshotPersistenceTask = {
     id: generateId(),
     type: "snapshot",
     sessionId: params.sessionId,
     layer: params.layer,
-    version: Number.isFinite(params.version) ? Math.max(1, Math.trunc(params.version)) : 1,
+    version,
     payload: safeJsonClone(params.payload),
     createdAt: timestamp,
     updatedAt: timestamp,
     attempts: 0,
     retryAt: null,
     expiresAt: new Date(nowTs() + TASK_TTL_MS).toISOString(),
-    idempotencyKey: `snapshot-${params.sessionId}-${params.layer}`,
+    idempotencyKey: createSnapshotIdempotencyKey(params.sessionId, params.layer, version),
   };
   upsertTask(task);
   normalizeQueue();
