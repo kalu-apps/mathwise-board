@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { WorkbookPoint } from "@/features/workbook/model/types";
 import type { WorkbookStrokePreviewEntry } from "@/features/workbook/model/useWorkbookIncomingRuntimeController";
@@ -44,6 +44,27 @@ export const useWorkbookSessionCleanupEffects = ({
   smartInkOptions,
   strokePreviewExpiryMs,
 }: UseWorkbookSessionCleanupEffectsParams) => {
+  const clearLocalPreviewPatchRuntimeRef = useRef(clearLocalPreviewPatchRuntime);
+  const clearObjectSyncRuntimeRef = useRef(clearObjectSyncRuntime);
+  const clearStrokePreviewRuntimeRef = useRef(clearStrokePreviewRuntime);
+  const clearIncomingEraserPreviewRuntimeRef = useRef(clearIncomingEraserPreviewRuntime);
+
+  useEffect(() => {
+    clearLocalPreviewPatchRuntimeRef.current = clearLocalPreviewPatchRuntime;
+  }, [clearLocalPreviewPatchRuntime]);
+
+  useEffect(() => {
+    clearObjectSyncRuntimeRef.current = clearObjectSyncRuntime;
+  }, [clearObjectSyncRuntime]);
+
+  useEffect(() => {
+    clearStrokePreviewRuntimeRef.current = clearStrokePreviewRuntime;
+  }, [clearStrokePreviewRuntime]);
+
+  useEffect(() => {
+    clearIncomingEraserPreviewRuntimeRef.current = clearIncomingEraserPreviewRuntime;
+  }, [clearIncomingEraserPreviewRuntime]);
+
   useEffect(
     () => () => {
       focusResetTimersByUserRef.current.forEach((timerId) => {
@@ -89,30 +110,30 @@ export const useWorkbookSessionCleanupEffects = ({
 
   useEffect(
     () => () => {
-      clearLocalPreviewPatchRuntime();
+      clearLocalPreviewPatchRuntimeRef.current();
     },
-    [clearLocalPreviewPatchRuntime]
+    []
   );
 
   useEffect(
     () => () => {
-      clearObjectSyncRuntime();
+      clearObjectSyncRuntimeRef.current();
     },
-    [clearObjectSyncRuntime]
+    []
   );
 
   useEffect(
     () => () => {
-      clearStrokePreviewRuntime();
+      clearStrokePreviewRuntimeRef.current();
     },
-    [clearStrokePreviewRuntime]
+    []
   );
 
   useEffect(
     () => () => {
-      clearIncomingEraserPreviewRuntime();
+      clearIncomingEraserPreviewRuntimeRef.current();
     },
-    [clearIncomingEraserPreviewRuntime]
+    []
   );
 
   useEffect(() => {
