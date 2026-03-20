@@ -1,0 +1,25 @@
+# Include this snippet inside the `server` block that handles `board.mathwise.ru`.
+# Goal:
+# 1) Show maintenance page manually when `/opt/mathwise/board/MAINTENANCE_MODE` exists.
+# 2) Show the same page automatically when upstream is unavailable (502/503/504).
+
+set $mw_maintenance 0;
+if (-f /opt/mathwise/board/MAINTENANCE_MODE) {
+  set $mw_maintenance 1;
+}
+
+proxy_intercept_errors on;
+error_page 502 503 504 = @mw_maintenance;
+
+if ($mw_maintenance = 1) {
+  return 503;
+}
+
+location @mw_maintenance {
+  root /opt/mathwise/board/dist;
+  try_files /maintenance.html =503;
+
+  add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+  add_header Pragma "no-cache" always;
+  add_header Expires "0" always;
+}

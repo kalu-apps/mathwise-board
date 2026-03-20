@@ -153,6 +153,38 @@ PONG
 - Nginx проксирует `board` и `api.board` на `127.0.0.1:4173`.
 - SSL выпускается certbot для обоих доменов.
 
+### 3.1) Maintenance-страница на время релиза (рекомендуется)
+Цель: если backend перезапускается/недоступен, пользователю показывается фирменная страница обслуживания, а не `502/504`.
+
+1. В nginx-конфиг server-блока `board.mathwise.ru` добавить сниппет из:
+   - [`docs/nginx/board-maintenance.conf.example`](./docs/nginx/board-maintenance.conf.example)
+2. Убедиться, что файл существует в собранном фронте:
+   - `/opt/mathwise/board/dist/maintenance.html` (берётся из [`public/maintenance.html`](./public/maintenance.html))
+3. Перезагрузить nginx:
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Операционные команды (на `mw-app-01`, из `/opt/mathwise/board`):
+```bash
+npm run maintenance:status
+npm run maintenance:on
+npm run maintenance:off
+```
+
+По умолчанию скрипт работает с флагом `/opt/mathwise/board/MAINTENANCE_MODE` и делает `systemctl reload nginx`.
+Можно переопределить:
+```bash
+MAINTENANCE_FLAG_FILE=/custom/path/MAINTENANCE_MODE \
+MAINTENANCE_RELOAD_CMD='nginx -s reload' \
+npm run maintenance:on
+```
+
+Смысл режима:
+- `maintenance:on` => принудительно отдаётся `maintenance.html` на `board.mathwise.ru`.
+- `maintenance:off` => возврат обычного трафика.
+- Даже без флага, при `502/503/504` upstream nginx отдаст `maintenance.html` как fallback.
+
 Проверки:
 ```bash
 curl -I https://board.your-domain.tld

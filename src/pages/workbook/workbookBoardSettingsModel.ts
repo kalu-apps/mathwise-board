@@ -1,4 +1,4 @@
-export type SmartInkMode = "off" | "basic" | "full";
+export type SmartInkMode = "off" | "shape" | "text" | "formula" | "auto";
 
 export type SmartInkOptions = {
   mode: SmartInkMode;
@@ -9,40 +9,39 @@ export type SmartInkOptions = {
 };
 
 export const DEFAULT_SMART_INK_OPTIONS: SmartInkOptions = {
-  // By default pen stays a pure pen until user explicitly enables Smart Ink.
+  // По умолчанию ручка работает без автопреобразований, пока пользователь их не включит.
   mode: "off",
-  confidenceThreshold: 0.72,
-  smartShapes: true,
+  confidenceThreshold: 0.58,
+  smartShapes: false,
   smartTextOcr: false,
   smartMathOcr: false,
+};
+
+const normalizeSmartInkMode = (value: unknown): SmartInkMode => {
+  if (
+    value === "off" ||
+    value === "shape" ||
+    value === "text" ||
+    value === "formula" ||
+    value === "auto"
+  ) {
+    return value;
+  }
+  if (value === "basic") return "shape";
+  if (value === "full") return "auto";
+  return DEFAULT_SMART_INK_OPTIONS.mode;
 };
 
 export const normalizeSmartInkOptions = (
   source?: Partial<SmartInkOptions> | null
 ): SmartInkOptions => {
-  const mode: SmartInkMode =
-    source?.mode === "off" || source?.mode === "basic" || source?.mode === "full"
-      ? source.mode
-      : DEFAULT_SMART_INK_OPTIONS.mode;
+  const mode = normalizeSmartInkMode(source?.mode);
   const confidenceThresholdRaw =
     typeof source?.confidenceThreshold === "number" &&
     Number.isFinite(source.confidenceThreshold)
       ? source.confidenceThreshold
       : DEFAULT_SMART_INK_OPTIONS.confidenceThreshold;
   const confidenceThreshold = Math.max(0.35, Math.min(0.98, confidenceThresholdRaw));
-  const smartShapes =
-    typeof source?.smartShapes === "boolean"
-      ? source.smartShapes
-      : DEFAULT_SMART_INK_OPTIONS.smartShapes;
-  const smartTextOcr =
-    typeof source?.smartTextOcr === "boolean"
-      ? source.smartTextOcr
-      : DEFAULT_SMART_INK_OPTIONS.smartTextOcr;
-  const smartMathOcr =
-    typeof source?.smartMathOcr === "boolean"
-      ? source.smartMathOcr
-      : DEFAULT_SMART_INK_OPTIONS.smartMathOcr;
-
   if (mode === "off") {
     return {
       mode,
@@ -53,22 +52,41 @@ export const normalizeSmartInkOptions = (
     };
   }
 
-  if (mode === "basic") {
+  if (mode === "shape") {
     return {
       mode,
       confidenceThreshold,
-      // "Only shapes" mode must always keep shape alignment enabled.
       smartShapes: true,
       smartTextOcr: false,
       smartMathOcr: false,
     };
   }
 
+  if (mode === "text") {
+    return {
+      mode,
+      confidenceThreshold,
+      smartShapes: false,
+      smartTextOcr: true,
+      smartMathOcr: false,
+    };
+  }
+
+  if (mode === "formula") {
+    return {
+      mode,
+      confidenceThreshold,
+      smartShapes: false,
+      smartTextOcr: false,
+      smartMathOcr: true,
+    };
+  }
+
   return {
     mode,
     confidenceThreshold,
-    smartShapes,
-    smartTextOcr,
-    smartMathOcr,
+    smartShapes: true,
+    smartTextOcr: true,
+    smartMathOcr: true,
   };
 };

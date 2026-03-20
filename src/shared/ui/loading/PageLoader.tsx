@@ -1,5 +1,6 @@
 import { useDelayedLoading } from "@/shared/lib/useDelayedLoading";
 import { t } from "@/shared/i18n";
+import { MobiusLoader } from "./MobiusLoader";
 
 type PageLoaderProps = {
   title?: string;
@@ -14,7 +15,7 @@ export function PageLoader({
   title = t("common.loading"),
   description: _description,
   className,
-  minHeight = 320,
+  minHeight = "100dvh",
   showRingDelayMs = 220,
   showRingMinVisibleMs = 280,
 }: PageLoaderProps) {
@@ -42,7 +43,7 @@ export function PageLoader({
           className={`ui-loader__spinner ${showRing ? "is-visible" : ""}`}
           aria-hidden="true"
         >
-          <span className="ui-loader__spinner-core" />
+          <MobiusLoader className="ui-loader__mobius" />
         </div>
       </div>
     </section>

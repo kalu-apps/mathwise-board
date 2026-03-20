@@ -107,8 +107,8 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
               ? "Личные настройки применяются только у вас, общие синхронизируются у всех."
               : "Личные настройки письма сохраняются автоматически только для вас, а общие параметры доски синхронно обновляются у всех участников."
             : isCompactViewport
-              ? "Здесь доступны только личные настройки письма и Smart Ink."
-              : "Здесь доступны только ваши личные настройки письма и Smart Ink. Общие параметры доски изменяет преподаватель."}
+              ? "Здесь доступны только личные настройки письма и умной ручки."
+              : "Здесь доступны только ваши личные настройки письма и умной ручки. Общие параметры доски изменяет преподаватель."}
         </p>
       </div>
 
@@ -218,18 +218,18 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
             <div className="workbook-session__board-settings-card-title">
               <h4>
                 <AutoFixHighRoundedIcon fontSize="small" />
-                Smart Ink
+                Умная ручка
               </h4>
             </div>
             <p>
-              По умолчанию ручка работает как перо. Smart Ink включается только вручную и действует
-              только на ваши новые штрихи.
+              По умолчанию стоит режим «Ручка»: никаких автопреобразований. Обработка включается
+              только вручную и применяется только к вашим новым штрихам.
             </p>
           </div>
           <div className="workbook-session__board-settings-field">
             <div className="workbook-session__board-settings-field-main">
               <strong>Режим обработки</strong>
-              <small>Выберите, что именно должно автоматически распознаваться в ваших штрихах.</small>
+              <small>Коротко выберите, что именно автоматически распознавать в штрихах.</small>
             </div>
             <Select
               native
@@ -240,16 +240,20 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                 updateSmartInk({
                   mode:
                     event.target.value === "off" ||
-                    event.target.value === "basic" ||
-                    event.target.value === "full"
+                    event.target.value === "shape" ||
+                    event.target.value === "text" ||
+                    event.target.value === "formula" ||
+                    event.target.value === "auto"
                       ? event.target.value
                       : smartInkOptions.mode,
                 })
               }
             >
-              <option value="off">Выкл.</option>
-              <option value="basic">Только фигуры</option>
-              <option value="full">Фигуры + OCR / LaTeX</option>
+              <option value="off">Ручка</option>
+              <option value="shape">Фигуры</option>
+              <option value="text">Текст</option>
+              <option value="formula">Формулы</option>
+              <option value="auto">Авто</option>
             </Select>
           </div>
 
@@ -278,76 +282,21 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                   </span>
                 </div>
               </div>
-              {smartInkOptions.mode === "full" ? (
-                <div className="workbook-session__board-settings-field">
-                  <div className="workbook-session__board-settings-field-main">
-                    <strong>Выравнивать фигуры</strong>
-                    <small>Подменять рукописные прямоугольники, линии и окружности на точные объекты.</small>
-                  </div>
-                  <Switch
-                    size="small"
-                    className="workbook-session__board-settings-switch"
-                    checked={smartInkOptions.smartShapes}
-                    onChange={(event) =>
-                      updateSmartInk({
-                        smartShapes: event.target.checked,
-                      })
-                    }
-                  />
-                </div>
-              ) : (
-                <div className="workbook-session__board-settings-note">
-                  В режиме «Только фигуры» выравнивание фигур всегда включено.
-                </div>
-              )}
+              <div className="workbook-session__board-settings-note">
+                {smartInkOptions.mode === "shape"
+                  ? "Фигуры: штрихи выравниваются в точные линии, прямоугольники, окружности и многоугольники."
+                  : smartInkOptions.mode === "text"
+                    ? "Текст: рукописные символы преобразуются в текстовые объекты."
+                    : smartInkOptions.mode === "formula"
+                      ? "Формулы: математические символы и выражения преобразуются в формульные объекты."
+                      : "Авто: для каждого штриха выбирается подходящий результат между фигурами, текстом и формулами."}
+              </div>
             </>
           ) : (
             <div className="workbook-session__board-settings-note">
-              Smart Ink выключен: новые штрихи останутся рукописными без автообработки.
+              Режим «Ручка»: новые штрихи остаются рукописными без какой-либо автообработки.
             </div>
           )}
-
-          {smartInkOptions.mode === "full" ? (
-            <>
-              <div className="workbook-session__board-settings-field">
-                <div className="workbook-session__board-settings-field-main">
-                  <strong>Распознавать текст</strong>
-                  <small>Преобразовывать рукописные слова в текстовые блоки.</small>
-                </div>
-                <Switch
-                  size="small"
-                  className="workbook-session__board-settings-switch"
-                  checked={smartInkOptions.smartTextOcr}
-                  onChange={(event) =>
-                    updateSmartInk({
-                      smartTextOcr: event.target.checked,
-                    })
-                  }
-                />
-              </div>
-              <div className="workbook-session__board-settings-field">
-                <div className="workbook-session__board-settings-field-main">
-                  <strong>Распознавать формулы</strong>
-                  <small>Преобразовывать математические записи в формульные объекты LaTeX.</small>
-                </div>
-                <Switch
-                  size="small"
-                  className="workbook-session__board-settings-switch"
-                  checked={smartInkOptions.smartMathOcr}
-                  onChange={(event) =>
-                    updateSmartInk({
-                      smartMathOcr: event.target.checked,
-                    })
-                  }
-                />
-              </div>
-              {!smartInkOptions.smartTextOcr && !smartInkOptions.smartMathOcr ? (
-                <div className="workbook-session__board-settings-note">
-                  В полном режиме без OCR и LaTeX останется только автообработка фигур.
-                </div>
-              ) : null}
-            </>
-          ) : null}
         </section>
 
         {canManageSharedBoardSettings ? (
