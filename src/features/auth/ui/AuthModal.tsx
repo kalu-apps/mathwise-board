@@ -12,7 +12,6 @@ import IconButton from "@mui/material/IconButton";
 import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
 import { useAuth } from "@/features/auth/model/AuthContext";
-import { TEACHER_LOGIN_HINT_EMAIL } from "@/features/auth/model/constants";
 import { t } from "@/shared/i18n";
 
 type AuthModalProps = {
@@ -99,7 +98,6 @@ export function AuthModal({ open, onClose, initialEmail = "" }: AuthModalProps) 
             autoComplete="username"
             fullWidth
             size="small"
-            helperText={t("auth.emailHint", { email: TEACHER_LOGIN_HINT_EMAIL })}
           />
           <TextField
             label={t("auth.passwordLabel")}

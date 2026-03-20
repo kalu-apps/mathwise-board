@@ -1,35 +1,29 @@
 # Branching Policy (Mandatory)
 
-This repository uses `next-first` flow:
+This repository uses `main-only` flow:
 
-- `next` is the only regular development and integration branch.
-- `main` is release-only and production-only.
+- `main` is the single working and release branch.
+- `next` is deprecated and must not be used.
 
 ## Permanent branches
 
-- `main` — production releases only.
-- `next` — active development (`zustand` / `nest` migration and all regular features/fixes).
+- `main` — единственная основная ветка (разработка + релизы).
 
 ## Allowed flows
 
-- Regular work (default):
-  - branch from `next` as `feature/*`, `refactor/*`, `perf/*`, `chore/*`, `fix/*`, `docs/*`
-  - PR target: `next`
-- Release to production:
-  - PR `next -> main`
-- Emergency only (rare exception):
-  - branch from `main` as `hotfix/<short-name>`
-  - PR target: `main`
-  - right after merge: sync PR `main -> next` is auto-created by workflow (`hotfix-sync-pr`)
+- Default flow:
+  - implement changes directly in `main`
+  - push changes directly to `main`
+- Optional safety flow:
+  - create `feature/*`, `refactor/*`, `perf/*`, `chore/*`, `fix/*`, `docs/*` from `main`
+  - open PR target: `main`
 
 ## Forbidden
 
-- No direct pushes to `main` or `next` (PR only).
-- No regular feature/fix branches directly to `main`.
+- No work in `next`.
+- No release/sync flows вида `next -> main` или `main -> next`.
 - No dual manual implementation of the same change in two branches.
-- No cherry-pick between `main` and `next` as a normal process.
 
 ## Practical rule
 
-- Implement once in one source branch.
-- Use merges to propagate changes (`next -> main` for releases, `main -> next` only for emergency sync).
+- One source of truth is always `main`.

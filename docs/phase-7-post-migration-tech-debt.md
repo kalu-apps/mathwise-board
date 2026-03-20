@@ -9,7 +9,7 @@
 1. Удалить legacy shadow compare middleware и связанный diagnostics path.
 2. Удалить/свернуть неиспользуемые legacy feature-flag aliases.
 3. Зафиксировать единый source of truth по API contracts (Nest-first).
-4. Довести CI gates до обязательного phase6/phase7 smoke на release PR `next -> main`.
+4. Довести CI gates до обязательного phase6/phase7 smoke на PR в `main`.
 
 ## P1 (1-2 спринта)
 

@@ -38,37 +38,20 @@ jobs:
           allowed="false"
 
           if [[ "${BASE_REF}" == "main" ]]; then
-            if [[ "${HEAD_REF}" == "next" ]] \
-              || [[ "${HEAD_REF}" =~ ^hotfix/ ]]; then
-              allowed="true"
-            fi
-          elif [[ "${BASE_REF}" == "next" ]]; then
-            if [[ "${HEAD_REF}" == "main" ]] \
-              || [[ "${HEAD_REF}" =~ ^feature/ ]] \
+            if [[ "${HEAD_REF}" =~ ^feature/ ]] \
               || [[ "${HEAD_REF}" =~ ^refactor/ ]] \
               || [[ "${HEAD_REF}" =~ ^perf/ ]] \
               || [[ "${HEAD_REF}" =~ ^chore/ ]] \
               || [[ "${HEAD_REF}" =~ ^fix/ ]] \
               || [[ "${HEAD_REF}" =~ ^docs/ ]] \
+              || [[ "${HEAD_REF}" =~ ^hotfix/ ]] \
               || [[ "${HEAD_REF}" =~ ^dependabot/ ]]; then
               allowed="true"
             fi
           fi
 
           if [[ "${allowed}" != "true" ]]; then
-            fail "Invalid branch flow: '${HEAD_REF}' -> '${BASE_REF}'. Expected next-first flow. See docs/branching-policy.md"
-          fi
-
-          if [[ "${HEAD_REF}" =~ ^hotfix/ ]] && [[ "${BASE_REF}" != "main" ]]; then
-            fail "hotfix/* branches must target 'main'."
-          fi
-
-          if [[ "${HEAD_REF}" == "main" ]] && [[ "${BASE_REF}" != "next" ]]; then
-            fail "'main' as source branch is allowed only for emergency sync PR 'main -> next'."
-          fi
-
-          if [[ "${HEAD_REF}" == "next" ]] && [[ "${BASE_REF}" != "main" ]]; then
-            fail "'next' as source branch is allowed only for release PR 'next -> main'."
+            fail "Invalid branch flow: '${HEAD_REF}' -> '${BASE_REF}'. Expected main-only flow. See docs/branching-policy.md"
           fi
 
           if [[ "${HEAD_REF}" =~ ^hotfix/ ]] && [[ "${BASE_REF}" == "main" ]]; then

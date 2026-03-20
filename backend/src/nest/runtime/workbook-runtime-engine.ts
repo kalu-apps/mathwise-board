@@ -82,7 +82,6 @@ import {
   isTeacherEmail,
   TEACHER_USER_ID,
   WHITEBOARD_TEACHER_EMAIL,
-  WHITEBOARD_TEACHER_EMAIL_ALIASES,
 } from "./core/teacherIdentity";
 import {
   handleAuthDomainRoute,
@@ -2113,7 +2112,6 @@ export const handleWorkbookApiRequestByDomains = async (
           { req, res, db, method, pathname, searchParams },
           {
             authCookieName: AUTH_COOKIE_NAME,
-            teacherLogins: WHITEBOARD_TEACHER_EMAIL_ALIASES,
             teacherPassword: WHITEBOARD_TEACHER_PASSWORD,
             resolveAuthUser,
             readBody,

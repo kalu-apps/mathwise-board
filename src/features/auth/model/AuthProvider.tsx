@@ -371,7 +371,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithPassword = useCallback(async (email: string, password: string) => {
     const normalizedEmail = email.trim().toLowerCase();
-    const normalizedPassword = password.normalize("NFKC");
+    const normalizedPassword = password.normalize("NFKC").trim();
     if (!normalizedEmail || !normalizedPassword) {
       return { ok: false as const, error: t("auth.passwordRequired") };
     }
