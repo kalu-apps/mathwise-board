@@ -13,12 +13,16 @@ const updateUi = <K extends keyof ReturnType<typeof buildInitialWorkbookSessionC
   key: K,
   updater: StateUpdater<ReturnType<typeof buildInitialWorkbookSessionCoreState>["ui"][K]>
 ) => {
-  set((state) => ({
-    ui: {
-      ...state.ui,
-      [key]: resolveStateUpdater(updater, state.ui[key]),
-    },
-  }));
+  set((state) => {
+    const nextValue = resolveStateUpdater(updater, state.ui[key]);
+    if (Object.is(nextValue, state.ui[key])) return state;
+    return {
+      ui: {
+        ...state.ui,
+        [key]: nextValue,
+      },
+    };
+  });
 };
 
 const updateCollab = <
@@ -28,12 +32,16 @@ const updateCollab = <
   key: K,
   updater: StateUpdater<ReturnType<typeof buildInitialWorkbookSessionCoreState>["collab"][K]>
 ) => {
-  set((state) => ({
-    collab: {
-      ...state.collab,
-      [key]: resolveStateUpdater(updater, state.collab[key]),
-    },
-  }));
+  set((state) => {
+    const nextValue = resolveStateUpdater(updater, state.collab[key]);
+    if (Object.is(nextValue, state.collab[key])) return state;
+    return {
+      collab: {
+        ...state.collab,
+        [key]: nextValue,
+      },
+    };
+  });
 };
 
 const updateScene = <
@@ -43,12 +51,16 @@ const updateScene = <
   key: K,
   updater: StateUpdater<ReturnType<typeof buildInitialWorkbookSessionCoreState>["scene"][K]>
 ) => {
-  set((state) => ({
-    scene: {
-      ...state.scene,
-      [key]: resolveStateUpdater(updater, state.scene[key]),
-    },
-  }));
+  set((state) => {
+    const nextValue = resolveStateUpdater(updater, state.scene[key]);
+    if (Object.is(nextValue, state.scene[key])) return state;
+    return {
+      scene: {
+        ...state.scene,
+        [key]: nextValue,
+      },
+    };
+  });
 };
 
 const updateRuntime = <
@@ -58,12 +70,16 @@ const updateRuntime = <
   key: K,
   updater: StateUpdater<ReturnType<typeof buildInitialWorkbookSessionCoreState>["runtime"][K]>
 ) => {
-  set((state) => ({
-    runtime: {
-      ...state.runtime,
-      [key]: resolveStateUpdater(updater, state.runtime[key]),
-    },
-  }));
+  set((state) => {
+    const nextValue = resolveStateUpdater(updater, state.runtime[key]);
+    if (Object.is(nextValue, state.runtime[key])) return state;
+    return {
+      runtime: {
+        ...state.runtime,
+        [key]: nextValue,
+      },
+    };
+  });
 };
 
 const updateTooling = <
@@ -73,12 +89,16 @@ const updateTooling = <
   key: K,
   updater: StateUpdater<ReturnType<typeof buildInitialWorkbookSessionCoreState>["tooling"][K]>
 ) => {
-  set((state) => ({
-    tooling: {
-      ...state.tooling,
-      [key]: resolveStateUpdater(updater, state.tooling[key]),
-    },
-  }));
+  set((state) => {
+    const nextValue = resolveStateUpdater(updater, state.tooling[key]);
+    if (Object.is(nextValue, state.tooling[key])) return state;
+    return {
+      tooling: {
+        ...state.tooling,
+        [key]: nextValue,
+      },
+    };
+  });
 };
 
 const updateMedia = <
@@ -88,12 +108,16 @@ const updateMedia = <
   key: K,
   updater: StateUpdater<ReturnType<typeof buildInitialWorkbookSessionCoreState>["media"][K]>
 ) => {
-  set((state) => ({
-    media: {
-      ...state.media,
-      [key]: resolveStateUpdater(updater, state.media[key]),
-    },
-  }));
+  set((state) => {
+    const nextValue = resolveStateUpdater(updater, state.media[key]);
+    if (Object.is(nextValue, state.media[key])) return state;
+    return {
+      media: {
+        ...state.media,
+        [key]: nextValue,
+      },
+    };
+  });
 };
 
 const updatePage = <
@@ -103,12 +127,16 @@ const updatePage = <
   key: K,
   updater: StateUpdater<ReturnType<typeof buildInitialWorkbookSessionCoreState>["page"][K]>
 ) => {
-  set((state) => ({
-    page: {
-      ...state.page,
-      [key]: resolveStateUpdater(updater, state.page[key]),
-    },
-  }));
+  set((state) => {
+    const nextValue = resolveStateUpdater(updater, state.page[key]);
+    if (Object.is(nextValue, state.page[key])) return state;
+    return {
+      page: {
+        ...state.page,
+        [key]: nextValue,
+      },
+    };
+  });
 };
 
 const updateData = <
@@ -118,12 +146,16 @@ const updateData = <
   key: K,
   updater: StateUpdater<ReturnType<typeof buildInitialWorkbookSessionCoreState>["data"][K]>
 ) => {
-  set((state) => ({
-    data: {
-      ...state.data,
-      [key]: resolveStateUpdater(updater, state.data[key]),
-    },
-  }));
+  set((state) => {
+    const nextValue = resolveStateUpdater(updater, state.data[key]);
+    if (Object.is(nextValue, state.data[key])) return state;
+    return {
+      data: {
+        ...state.data,
+        [key]: nextValue,
+      },
+    };
+  });
 };
 
 export const createWorkbookSessionStoreActions = (

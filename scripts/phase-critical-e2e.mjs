@@ -247,7 +247,9 @@ const run = async () => {
     });
     checks.push({
       name: "teacher_auth_session",
-      ok: sessionResponse.status === 200 && sessionResponse.payload && sessionResponse.payload.id,
+      ok:
+        sessionResponse.status === 200 &&
+        Boolean(sessionResponse.payload && sessionResponse.payload.id),
       detail: { status: sessionResponse.status },
     });
 

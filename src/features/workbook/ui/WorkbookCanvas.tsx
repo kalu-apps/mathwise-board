@@ -101,6 +101,7 @@ import {
   COMMITTED_STROKE_BRIDGE_TIMEOUT_MS,
   type InlineTextEditDraft,
   type PendingCommittedStrokeBridge,
+  ROUND_SOLID_PRESETS,
   type ShapeDraft,
   STROKE_PREVIEW_SEND_INTERVAL_MS,
   type WorkbookCanvasProps,

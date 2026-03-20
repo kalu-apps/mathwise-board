@@ -68,6 +68,7 @@ import {
   STROKE_PREVIEW_EXPIRY_MS,
   TAB_LOCK_HEARTBEAT_MS,
   WORKBOOK_CHAT_EMOJIS,
+  MAIN_SCENE_LAYER_ID,
   getSectionVertexLabel,
   getSolidVertexLabel,
 } from "./WorkbookSessionPage.core";
@@ -1189,6 +1190,23 @@ export default function WorkbookSessionPage() {
     setSelectedConstraintId,
     setSelectedObjectId,
   ]);
+
+  const handleCanvasSelectedObjectChange = useCallback((objectId: string | null) => {
+    setSelectedConstraintId(null);
+    setSelectedObjectId(objectId);
+  }, [setSelectedConstraintId, setSelectedObjectId]);
+
+  const handleCanvasObjectCreate = useCallback(
+    (object: Parameters<typeof commitObjectCreate>[0]) => {
+      void commitObjectCreate(object);
+    },
+    [commitObjectCreate]
+  );
+
+  const getLatestCanvasObject = useCallback(
+    (objectId: string) => boardObjects.find((item) => item.id === objectId) ?? null,
+    [boardObjects]
+  );
 
   const selectedGraphTextActions = useWorkbookSelectedGraphTextActions({
     selectedObjectId,

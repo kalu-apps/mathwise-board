@@ -1,5 +1,6 @@
 import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import type { GraphFunctionDraft } from "@/features/workbook/model/functionGraph";
+import { resolveSolid3dPresetId } from "@/features/workbook/model/solid3d";
 import type { Solid3dState } from "@/features/workbook/model/solid3dState";
 import type { WorkbookBoardObject } from "@/features/workbook/model/types";
 import { areGraphFunctionDraftListsEqual } from "./WorkbookSessionPage.core";
@@ -128,6 +129,9 @@ export const useWorkbookSelectionSyncEffects = ({
   shape2dInspectorTab,
   setSelectedTextDraft,
   setSelectedTextFontSizeDraft,
+  setLineWidthDraft,
+  setSelectedLineStartLabelDraft,
+  setSelectedLineEndLabelDraft,
   setGraphFunctionsDraft,
   setGraphDraftError,
   setGraphWorkbenchTab,
@@ -188,6 +192,9 @@ export const useWorkbookSelectionSyncEffects = ({
     selectedLineObject,
     selectedLineStartLabel,
     selectedLineStrokeWidth,
+    setLineWidthDraft,
+    setSelectedLineEndLabelDraft,
+    setSelectedLineStartLabelDraft,
   ]);
 
   useEffect(() => {
