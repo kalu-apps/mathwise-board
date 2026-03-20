@@ -8,6 +8,7 @@ import {
   readWorkbookSessionLatestSeqCached,
   setWorkbookSessionLatestSeqCached,
 } from "./workbookSeqCache";
+import { sanitizeAuthSessions, sanitizeUserRecords, sanitizeWorkbookAccessLogs, sanitizeWorkbookDrafts, sanitizeWorkbookEvents, sanitizeWorkbookInvites, sanitizeWorkbookOperations, sanitizeWorkbookParticipants, sanitizeWorkbookSessions, sanitizeWorkbookSnapshots } from "./dbSanitizers";
 
 export type UserRole = "teacher" | "student";
 
@@ -438,470 +439,6 @@ const safeParseJson = <T>(value: string | null | undefined, fallback: T): T => {
   }
 };
 
-const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const readTrimmedString = (value: unknown) =>
-  typeof value === "string" ? value.trim() : "";
-
-const normalizeIsoDate = (value: unknown, fallback: string) => {
-  if (typeof value !== "string") return fallback;
-  const normalized = value.trim();
-  if (!normalized) return fallback;
-  const parsed = Date.parse(normalized);
-  if (!Number.isFinite(parsed)) return fallback;
-  return new Date(parsed).toISOString();
-};
-
-const sanitizeUserRecords = (entries: unknown[]): UserRecord[] => {
-  const sanitized: UserRecord[] = [];
-  for (const entry of entries) {
-    if (!isObjectRecord(entry)) continue;
-    const id = readTrimmedString(entry.id);
-    const email = readTrimmedString(entry.email).toLowerCase();
-    if (!id || !email) continue;
-    const role = entry.role === "teacher" || entry.role === "student" ? entry.role : "student";
-    const firstName = readTrimmedString(entry.firstName) || "Пользователь";
-    const lastName = readTrimmedString(entry.lastName);
-    const createdAt = normalizeIsoDate(entry.createdAt, nowIso());
-    const photo = readTrimmedString(entry.photo);
-    sanitized.push({
-      id,
-      role,
-      email,
-      firstName,
-      lastName,
-      createdAt,
-      ...(photo ? { photo } : {}),
-    });
-  }
-  return sanitized;
-};
-
-const sanitizeAuthSessions = (entries: unknown[]): AuthSessionRecord[] => {
-  const sanitized: AuthSessionRecord[] = [];
-  for (const entry of entries) {
-    if (!isObjectRecord(entry)) continue;
-    const token = readTrimmedString(entry.token);
-    const userId = readTrimmedString(entry.userId);
-    if (!token || !userId) continue;
-    const createdAt = normalizeIsoDate(entry.createdAt, nowIso());
-    const lastSeenAt = normalizeIsoDate(entry.lastSeenAt, createdAt);
-    const expiresAt = normalizeIsoDate(
-      entry.expiresAt,
-      new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString()
-    );
-    sanitized.push({
-      token,
-      userId,
-      createdAt,
-      lastSeenAt,
-      expiresAt,
-    });
-  }
-  return sanitized;
-};
-
-const workbookSessionKindSet = new Set<WorkbookSessionKind>(["PERSONAL", "CLASS"]);
-const workbookSessionStatusSet = new Set<WorkbookSessionStatus>([
-  "draft",
-  "in_progress",
-  "ended",
-]);
-const workbookRoleInSessionSet = new Set<WorkbookRoleInSession>(["teacher", "student"]);
-const workbookSnapshotLayerSet = new Set<WorkbookSnapshotRecord["layer"]>([
-  "board",
-  "annotations",
-]);
-const workbookAccessEventTypeSanitizeSet = new Set<WorkbookAccessEventType>([
-  "invite_resolved",
-  "invite_joined",
-  "invite_join_denied",
-  "presence_started",
-  "presence_ended",
-  "session_opened",
-]);
-const workbookAccessDeviceClassSanitizeSet = new Set<WorkbookAccessDeviceClass>([
-  "desktop",
-  "mobile",
-  "tablet",
-  "bot",
-  "unknown",
-]);
-const workbookOperationScopeSet = new Set<WorkbookOperationScope>([
-  "workbook_sessions_create",
-  "workbook_sessions_delete",
-  "workbook_invite_create",
-  "workbook_events_append",
-  "workbook_events_live",
-  "workbook_events_preview",
-  "workbook_snapshot_upsert",
-  "workbook_presence_heartbeat",
-  "workbook_presence_leave",
-]);
-const workbookParticipantPermissionKeys: Array<keyof WorkbookParticipantPermissions> = [
-  "canDraw",
-  "canAnnotate",
-  "canUseMedia",
-  "canUseChat",
-  "canInvite",
-  "canManageSession",
-  "canSelect",
-  "canDelete",
-  "canInsertImage",
-  "canClear",
-  "canExport",
-  "canUseLaser",
-];
-
-const readBoolean = (value: unknown, fallback: boolean) =>
-  typeof value === "boolean" ? value : fallback;
-
-const readNumber = (
-  value: unknown,
-  fallback: number,
-  options?: { min?: number; max?: number }
-) => {
-  const parsed = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  const min = options?.min ?? Number.MIN_SAFE_INTEGER;
-  const max = options?.max ?? Number.MAX_SAFE_INTEGER;
-  return Math.min(max, Math.max(min, parsed));
-};
-
-const normalizeNullableIsoDate = (value: unknown): string | null => {
-  if (value == null) return null;
-  if (typeof value !== "string") return null;
-  const normalized = value.trim();
-  if (!normalized) return null;
-  const parsed = Date.parse(normalized);
-  if (!Number.isFinite(parsed)) return null;
-  return new Date(parsed).toISOString();
-};
-
-const serializeUnknownJson = (value: unknown, fallback: unknown) => {
-  if (typeof value === "string") {
-    const normalized = value.trim();
-    if (normalized.length > 0) return value;
-  }
-  try {
-    return JSON.stringify(value ?? fallback);
-  } catch {
-    return JSON.stringify(fallback);
-  }
-};
-
-const defaultPermissionsByRole = (
-  roleInSession: WorkbookRoleInSession
-): WorkbookParticipantPermissions =>
-  roleInSession === "teacher"
-    ? {
-        canDraw: true,
-        canAnnotate: true,
-        canUseMedia: true,
-        canUseChat: true,
-        canInvite: true,
-        canManageSession: true,
-        canSelect: true,
-        canDelete: true,
-        canInsertImage: true,
-        canClear: true,
-        canExport: true,
-        canUseLaser: true,
-      }
-    : {
-        canDraw: false,
-        canAnnotate: false,
-        canUseMedia: true,
-        canUseChat: false,
-        canInvite: false,
-        canManageSession: false,
-        canSelect: false,
-        canDelete: false,
-        canInsertImage: false,
-        canClear: false,
-        canExport: false,
-        canUseLaser: false,
-      };
-
-const sanitizeParticipantPermissions = (
-  value: unknown,
-  roleInSession: WorkbookRoleInSession
-): WorkbookParticipantPermissions => {
-  const source = isObjectRecord(value) ? value : {};
-  const defaults = defaultPermissionsByRole(roleInSession);
-  const normalized = { ...defaults };
-  for (const key of workbookParticipantPermissionKeys) {
-    normalized[key] = readBoolean(source[key], defaults[key]);
-  }
-  return normalized;
-};
-
-const sanitizeWorkbookSessions = (entries: unknown[]): WorkbookSessionRecord[] => {
-  const sanitized: WorkbookSessionRecord[] = [];
-  for (const entry of entries) {
-    if (!isObjectRecord(entry)) continue;
-    const id = readTrimmedString(entry.id);
-    const createdBy = readTrimmedString(entry.createdBy);
-    if (!id || !createdBy) continue;
-    const kind: WorkbookSessionKind = workbookSessionKindSet.has(
-      entry.kind as WorkbookSessionKind
-    )
-      ? (entry.kind as WorkbookSessionKind)
-      : "PERSONAL";
-    const status: WorkbookSessionStatus = workbookSessionStatusSet.has(
-      entry.status as WorkbookSessionStatus
-    )
-      ? (entry.status as WorkbookSessionStatus)
-      : "draft";
-    const createdAt = normalizeIsoDate(entry.createdAt, nowIso());
-    const lastActivityAt = normalizeIsoDate(entry.lastActivityAt, createdAt);
-    const startedAt = normalizeNullableIsoDate(entry.startedAt);
-    const endedAt = normalizeNullableIsoDate(entry.endedAt);
-    const titleFallback = kind === "CLASS" ? "Индивидуальное занятие" : "Личная тетрадь";
-    const title = readTrimmedString(entry.title) || titleFallback;
-    sanitized.push({
-      id,
-      kind,
-      createdBy,
-      title,
-      status,
-      createdAt,
-      startedAt,
-      endedAt,
-      lastActivityAt,
-      context: serializeUnknownJson(entry.context, { settings: {} }),
-    });
-  }
-  return sanitized;
-};
-
-const sanitizeWorkbookParticipants = (
-  entries: unknown[]
-): WorkbookSessionParticipantRecord[] => {
-  const sanitized: WorkbookSessionParticipantRecord[] = [];
-  for (const entry of entries) {
-    if (!isObjectRecord(entry)) continue;
-    const sessionId = readTrimmedString(entry.sessionId);
-    const userId = readTrimmedString(entry.userId);
-    if (!sessionId || !userId) continue;
-    const roleInSession: WorkbookRoleInSession = workbookRoleInSessionSet.has(
-      entry.roleInSession as WorkbookRoleInSession
-    )
-      ? (entry.roleInSession as WorkbookRoleInSession)
-      : "student";
-    const joinedAt = normalizeIsoDate(entry.joinedAt, nowIso());
-    const lastSeenAt = normalizeNullableIsoDate(entry.lastSeenAt);
-    const currentVisitStartedAt = normalizeNullableIsoDate(entry.currentVisitStartedAt);
-    const lastVisitStartedAt = normalizeNullableIsoDate(entry.lastVisitStartedAt);
-    const lastVisitEndedAt = normalizeNullableIsoDate(entry.lastVisitEndedAt);
-    const lastVisitDurationMinutesRaw = readNumber(entry.lastVisitDurationMinutes, 0, { min: 0 });
-    const lastVisitDurationMinutes = Number.isFinite(lastVisitDurationMinutesRaw)
-      ? Math.floor(lastVisitDurationMinutesRaw)
-      : null;
-    const boardToolsOverride =
-      entry.boardToolsOverride === "enabled" || entry.boardToolsOverride === "disabled"
-        ? entry.boardToolsOverride
-        : null;
-    sanitized.push({
-      sessionId,
-      userId,
-      roleInSession,
-      joinedAt,
-      leftAt: normalizeNullableIsoDate(entry.leftAt),
-      isActive: readBoolean(entry.isActive, true),
-      lastSeenAt,
-      currentVisitStartedAt,
-      lastVisitStartedAt,
-      lastVisitEndedAt,
-      lastVisitDurationMinutes:
-        entry.lastVisitDurationMinutes == null ? null : lastVisitDurationMinutes,
-      boardToolsOverride,
-      permissions: sanitizeParticipantPermissions(entry.permissions, roleInSession),
-    });
-  }
-  return sanitized;
-};
-
-const sanitizeWorkbookDrafts = (entries: unknown[]): WorkbookDraftRecord[] => {
-  const sanitized: WorkbookDraftRecord[] = [];
-  for (const entry of entries) {
-    if (!isObjectRecord(entry)) continue;
-    const id = readTrimmedString(entry.id);
-    const ownerUserId = readTrimmedString(entry.ownerUserId);
-    const sessionId = readTrimmedString(entry.sessionId);
-    if (!id || !ownerUserId || !sessionId) continue;
-    const statusForCard: WorkbookSessionStatus = workbookSessionStatusSet.has(
-      entry.statusForCard as WorkbookSessionStatus
-    )
-      ? (entry.statusForCard as WorkbookSessionStatus)
-      : "draft";
-    const createdAt = normalizeIsoDate(entry.createdAt, nowIso());
-    const updatedAt = normalizeIsoDate(entry.updatedAt, createdAt);
-    sanitized.push({
-      id,
-      ownerUserId,
-      sessionId,
-      redirectSessionId: readTrimmedString(entry.redirectSessionId) || null,
-      title: readTrimmedString(entry.title) || "Черновик",
-      statusForCard,
-      createdAt,
-      updatedAt,
-      lastOpenedAt: normalizeNullableIsoDate(entry.lastOpenedAt),
-    });
-  }
-  return sanitized;
-};
-
-const sanitizeWorkbookInvites = (entries: unknown[]): WorkbookInviteRecord[] => {
-  const sanitized: WorkbookInviteRecord[] = [];
-  for (const entry of entries) {
-    if (!isObjectRecord(entry)) continue;
-    const id = readTrimmedString(entry.id);
-    const sessionId = readTrimmedString(entry.sessionId);
-    const token = readTrimmedString(entry.token);
-    const createdBy = readTrimmedString(entry.createdBy);
-    if (!id || !sessionId || !token || !createdBy) continue;
-    const maxUsesRaw = readNumber(entry.maxUses, 0, { min: 0 });
-    const maxUses = entry.maxUses == null ? null : Math.floor(maxUsesRaw);
-    const useCount = Math.floor(readNumber(entry.useCount, 0, { min: 0 }));
-    sanitized.push({
-      id,
-      sessionId,
-      token,
-      createdBy,
-      createdAt: normalizeIsoDate(entry.createdAt, nowIso()),
-      expiresAt: normalizeIsoDate(
-        entry.expiresAt,
-        new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
-      ),
-      maxUses,
-      useCount,
-      revokedAt: normalizeNullableIsoDate(entry.revokedAt),
-    });
-  }
-  return sanitized;
-};
-
-const sanitizeWorkbookOperations = (entries: unknown[]): WorkbookOperationRecord[] => {
-  const sanitized: WorkbookOperationRecord[] = [];
-  for (const entry of entries) {
-    if (!isObjectRecord(entry)) continue;
-    const id = readTrimmedString(entry.id);
-    const scopeRaw = readTrimmedString(entry.scope);
-    const actorUserId = readTrimmedString(entry.actorUserId);
-    const key = readTrimmedString(entry.key);
-    const requestFingerprint = readTrimmedString(entry.requestFingerprint);
-    if (!id || !scopeRaw || !actorUserId || !key || !requestFingerprint) continue;
-    if (!workbookOperationScopeSet.has(scopeRaw as WorkbookOperationScope)) continue;
-    const statusCode = Math.floor(readNumber(entry.statusCode, 200, { min: 100, max: 599 }));
-    const createdAt = normalizeIsoDate(entry.createdAt, nowIso());
-    const updatedAt = normalizeIsoDate(entry.updatedAt, createdAt);
-    const expiresAt = normalizeIsoDate(
-      entry.expiresAt,
-      new Date(Date.now() + 5 * 60 * 1000).toISOString()
-    );
-    sanitized.push({
-      id,
-      scope: scopeRaw as WorkbookOperationScope,
-      actorUserId,
-      key,
-      requestFingerprint,
-      statusCode,
-      responsePayload: serializeUnknownJson(entry.responsePayload, {}),
-      createdAt,
-      updatedAt,
-      expiresAt,
-    });
-  }
-  return sanitized;
-};
-
-const sanitizeWorkbookEvents = (entries: unknown[]): WorkbookEventRecord[] => {
-  const sanitized: WorkbookEventRecord[] = [];
-  for (const entry of entries) {
-    if (!isObjectRecord(entry)) continue;
-    const id = readTrimmedString(entry.id);
-    const sessionId = readTrimmedString(entry.sessionId);
-    const authorUserId = readTrimmedString(entry.authorUserId);
-    const type = readTrimmedString(entry.type);
-    if (!id || !sessionId || !authorUserId || !type) continue;
-    sanitized.push({
-      id,
-      sessionId,
-      seq: Math.floor(readNumber(entry.seq, 0, { min: 0 })),
-      authorUserId,
-      type,
-      payload: serializeUnknownJson(entry.payload, null),
-      createdAt: normalizeIsoDate(entry.createdAt, nowIso()),
-    });
-  }
-  return sanitized;
-};
-
-const sanitizeWorkbookSnapshots = (entries: unknown[]): WorkbookSnapshotRecord[] => {
-  const sanitized: WorkbookSnapshotRecord[] = [];
-  for (const entry of entries) {
-    if (!isObjectRecord(entry)) continue;
-    const id = readTrimmedString(entry.id);
-    const sessionId = readTrimmedString(entry.sessionId);
-    const layerRaw = readTrimmedString(entry.layer);
-    if (!id || !sessionId || !layerRaw) continue;
-    if (!workbookSnapshotLayerSet.has(layerRaw as WorkbookSnapshotRecord["layer"])) continue;
-    sanitized.push({
-      id,
-      sessionId,
-      layer: layerRaw as WorkbookSnapshotRecord["layer"],
-      version: Math.floor(readNumber(entry.version, 0, { min: 0 })),
-      payload: serializeUnknownJson(entry.payload, null),
-      createdAt: normalizeIsoDate(entry.createdAt, nowIso()),
-    });
-  }
-  return sanitized;
-};
-
-const sanitizeWorkbookAccessLogs = (entries: unknown[]): WorkbookAccessLogRecord[] => {
-  const sanitized: WorkbookAccessLogRecord[] = [];
-  for (const entry of entries) {
-    if (!isObjectRecord(entry)) continue;
-    const id = readTrimmedString(entry.id);
-    const sessionId = readTrimmedString(entry.sessionId);
-    if (!id || !sessionId) continue;
-    const eventTypeRaw = readTrimmedString(entry.eventType);
-    const eventType: WorkbookAccessEventType = workbookAccessEventTypeSanitizeSet.has(
-      eventTypeRaw as WorkbookAccessEventType
-    )
-      ? (eventTypeRaw as WorkbookAccessEventType)
-      : "session_opened";
-    const actorRoleRaw = readTrimmedString(entry.actorRole);
-    const actorRole: UserRole | null =
-      actorRoleRaw === "teacher" || actorRoleRaw === "student" ? actorRoleRaw : null;
-    const deviceClassRaw = readTrimmedString(entry.deviceClass);
-    const deviceClass = workbookAccessDeviceClassSanitizeSet.has(
-      deviceClassRaw as WorkbookAccessDeviceClass
-    )
-      ? (deviceClassRaw as WorkbookAccessDeviceClass)
-      : null;
-    sanitized.push({
-      id,
-      sessionId,
-      eventType,
-      actorUserId: readTrimmedString(entry.actorUserId) || null,
-      actorRole,
-      actorName: readTrimmedString(entry.actorName) || null,
-      inviteTokenHash: readTrimmedString(entry.inviteTokenHash) || null,
-      deviceIdHash: readTrimmedString(entry.deviceIdHash) || null,
-      userAgentHash: readTrimmedString(entry.userAgentHash) || null,
-      ipHash: readTrimmedString(entry.ipHash) || null,
-      userAgentFamily: readTrimmedString(entry.userAgentFamily) || null,
-      deviceClass,
-      details: serializeUnknownJson(entry.details, {}),
-      createdAt: normalizeIsoDate(entry.createdAt, nowIso()),
-    });
-  }
-  return sanitized;
-};
-
 const resolveStoragePreference = (): "auto" | "file" | "postgres" => {
   const raw = String(process.env.BOARD_STORAGE_DRIVER ?? "auto")
     .trim()
@@ -1114,33 +651,31 @@ const ensureShape = (raw: unknown): MockDb => {
   const source = typeof raw === "object" && raw ? (raw as Partial<MockDb>) : {};
   const base = createDefaultDb();
   const next: MockDb = {
-    users: Array.isArray(source.users) ? sanitizeUserRecords(source.users) : base.users,
+    users: Array.isArray(source.users) ? (sanitizeUserRecords(source.users) as UserRecord[]) : base.users,
     authSessions: Array.isArray(source.authSessions)
-      ? sanitizeAuthSessions(source.authSessions)
+      ? (sanitizeAuthSessions(source.authSessions) as AuthSessionRecord[])
       : base.authSessions,
     workbookSessions: Array.isArray(source.workbookSessions)
-      ? sanitizeWorkbookSessions(source.workbookSessions)
+      ? (sanitizeWorkbookSessions(source.workbookSessions) as WorkbookSessionRecord[])
       : base.workbookSessions,
-    workbookParticipants: Array.isArray(source.workbookParticipants)
-      ? sanitizeWorkbookParticipants(source.workbookParticipants)
-      : base.workbookParticipants,
+    workbookParticipants: Array.isArray(source.workbookParticipants) ? (sanitizeWorkbookParticipants(source.workbookParticipants) as WorkbookSessionParticipantRecord[]) : base.workbookParticipants,
     workbookDrafts: Array.isArray(source.workbookDrafts)
-      ? sanitizeWorkbookDrafts(source.workbookDrafts)
+      ? (sanitizeWorkbookDrafts(source.workbookDrafts) as WorkbookDraftRecord[])
       : base.workbookDrafts,
     workbookInvites: Array.isArray(source.workbookInvites)
-      ? sanitizeWorkbookInvites(source.workbookInvites)
+      ? (sanitizeWorkbookInvites(source.workbookInvites) as WorkbookInviteRecord[])
       : base.workbookInvites,
     workbookOperations: Array.isArray(source.workbookOperations)
-      ? sanitizeWorkbookOperations(source.workbookOperations)
+      ? (sanitizeWorkbookOperations(source.workbookOperations) as WorkbookOperationRecord[])
       : base.workbookOperations,
     workbookEvents: Array.isArray(source.workbookEvents)
-      ? sanitizeWorkbookEvents(source.workbookEvents)
+      ? (sanitizeWorkbookEvents(source.workbookEvents) as WorkbookEventRecord[])
       : base.workbookEvents,
     workbookSnapshots: Array.isArray(source.workbookSnapshots)
-      ? sanitizeWorkbookSnapshots(source.workbookSnapshots)
+      ? (sanitizeWorkbookSnapshots(source.workbookSnapshots) as WorkbookSnapshotRecord[])
       : base.workbookSnapshots,
     workbookAccessLogs: Array.isArray(source.workbookAccessLogs)
-      ? sanitizeWorkbookAccessLogs(source.workbookAccessLogs)
+      ? (sanitizeWorkbookAccessLogs(source.workbookAccessLogs) as WorkbookAccessLogRecord[])
       : base.workbookAccessLogs,
   };
 
@@ -1170,21 +705,13 @@ const ensureShape = (raw: unknown): MockDb => {
     return Array.from(map.values());
   };
 
-  const users = dedupeBy(
-    next.users,
-    (entry) => entry.id,
-    (current, candidate) => parseTs(candidate.createdAt) >= parseTs(current.createdAt)
-  );
+  const users = [...next.users];
   if (!users.some((user) => user.role === "teacher" && user.email === "teacher@axiom.demo")) {
     users.push(defaultTeacherUser());
   }
   const validUserIds = new Set(users.map((entry) => entry.id));
 
-  const authSessions = dedupeBy(
-    next.authSessions.filter((entry) => validUserIds.has(entry.userId)),
-    (entry) => entry.token,
-    (current, candidate) => parseTs(candidate.lastSeenAt) >= parseTs(current.lastSeenAt)
-  );
+  const authSessions = next.authSessions.filter((entry) => validUserIds.has(entry.userId));
 
   const sessions = dedupeBy(
     next.workbookSessions.filter((entry) => validUserIds.has(entry.createdBy)),
@@ -1204,7 +731,6 @@ const ensureShape = (raw: unknown): MockDb => {
       return candidateTs >= currentTs;
     }
   );
-
   const drafts = dedupeBy(
     next.workbookDrafts.filter(
       (entry) => validSessionIds.has(entry.sessionId) && validUserIds.has(entry.ownerUserId)
@@ -1212,7 +738,6 @@ const ensureShape = (raw: unknown): MockDb => {
     (entry) => `${entry.sessionId}:${entry.ownerUserId}`,
     (current, candidate) => parseTs(candidate.updatedAt) >= parseTs(current.updatedAt)
   );
-
   const invites = dedupeBy(
     next.workbookInvites.filter(
       (entry) => validSessionIds.has(entry.sessionId) && validUserIds.has(entry.createdBy)
@@ -1220,7 +745,6 @@ const ensureShape = (raw: unknown): MockDb => {
     (entry) => entry.token,
     (current, candidate) => parseTs(candidate.createdAt) >= parseTs(current.createdAt)
   );
-
   const operationRecords = dedupeBy(
     next.workbookOperations.filter(
       (entry) =>
@@ -1232,7 +756,6 @@ const ensureShape = (raw: unknown): MockDb => {
     (entry) => `${entry.scope}:${entry.key}`,
     (current, candidate) => parseTs(candidate.updatedAt) >= parseTs(current.updatedAt)
   );
-
   const events = dedupeBy(
     next.workbookEvents.filter((entry) => validSessionIds.has(entry.sessionId)),
     (entry) => entry.id,
@@ -1241,13 +764,11 @@ const ensureShape = (raw: unknown): MockDb => {
       return parseTs(candidate.createdAt) >= parseTs(current.createdAt);
     }
   );
-
   const snapshots = dedupeBy(
     next.workbookSnapshots.filter((entry) => validSessionIds.has(entry.sessionId)),
     (entry) => `${entry.sessionId}:${entry.layer}`,
     (current, candidate) => candidate.version >= current.version
   );
-
   const accessLogs = dedupeBy(
     next.workbookAccessLogs.filter((entry) => validSessionIds.has(entry.sessionId)),
     (entry) => entry.id,
@@ -1268,7 +789,6 @@ const ensureShape = (raw: unknown): MockDb => {
     workbookAccessLogs: accessLogs,
   };
 };
-
 const mapFileEvent = (event: WorkbookEventRecord): PersistedWorkbookEvent => ({
   id: event.id,
   sessionId: event.sessionId,
@@ -1675,26 +1195,9 @@ export const initializeDb = async () => {
       }
     }
 
-    const normalizedDb = ensureShape(loaded);
-    const loadedPayload = JSON.stringify(loaded);
-    const normalizedPayload = JSON.stringify(normalizedDb);
-    db = normalizedDb;
+    db = ensureShape(loaded);
     clearWorkbookLatestSeqCache();
     dbInitialized = true;
-    if (loadedPayload !== normalizedPayload) {
-      try {
-        if (storageDriver === "postgres") {
-          await writeDbToPostgres(normalizedPayload);
-        } else {
-          await writeDbToFile(normalizedPayload);
-        }
-      } catch (error) {
-        storageError = normalizeError(error);
-        if (isPostgresRequired()) {
-          throw error;
-        }
-      }
-    }
     ensureAccessLogCleanupTimer();
     try {
       await purgeWorkbookAccessLogs({ olderThanDays: ACCESS_LOG_RETENTION_DAYS });
