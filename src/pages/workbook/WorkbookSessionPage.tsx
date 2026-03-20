@@ -1499,6 +1499,18 @@ export default function WorkbookSessionPage() {
     getSolidVertexLabel,
   });
 
+  const handleTransformDissolveCompositionLayer = useCallback(() => {
+    const layerId = selectionViewportState.selectedObjectSceneLayerId;
+    if (!layerId || layerId === MAIN_SCENE_LAYER_ID) {
+      return;
+    }
+    void dissolveCompositionLayer(layerId);
+  }, [dissolveCompositionLayer, selectionViewportState.selectedObjectSceneLayerId]);
+
+  const handleTransformOpenGraphPanel = useCallback(() => {
+    openUtilityPanel("graph", { toggle: false });
+  }, [openUtilityPanel]);
+
   const transformPanelProps: WorkbookSessionTransformPanelProps =
     buildWorkbookSessionTransformPanelRuntimeProps({
       selectionViewportState,

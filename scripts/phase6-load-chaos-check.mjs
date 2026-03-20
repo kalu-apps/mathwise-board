@@ -12,11 +12,17 @@ const readFloat = (value, fallback, min, max) => {
   return Math.max(min, Math.min(max, parsed));
 };
 
+const readRequiredEnv = (name) => {
+  const value = String(process.env[name] ?? "").trim();
+  if (value.length > 0) return value;
+  throw new Error(`[phase6] Missing required env variable: ${name}`);
+};
+
 const baseUrl = String(process.env.PHASE6_BASE_URL ?? "http://127.0.0.1:4173")
   .trim()
   .replace(/\/+$/, "");
 const loginEmail = String(process.env.PHASE6_LOGIN_EMAIL ?? "teacher@axiom.demo").trim();
-const loginPassword = String(process.env.PHASE6_LOGIN_PASSWORD ?? "magic");
+const loginPassword = readRequiredEnv("PHASE6_LOGIN_PASSWORD");
 const concurrency = readPositiveInt(process.env.PHASE6_LOAD_CONCURRENCY, 8, 200);
 const iterationsPerWorker = readPositiveInt(process.env.PHASE6_LOAD_ITERATIONS, 30, 2000);
 const timeoutMs = readPositiveInt(process.env.PHASE6_TIMEOUT_MS, 10_000, 120_000);

@@ -3,8 +3,15 @@
 const baseUrl = String(process.env.PHASE4_BASE_URL ?? "http://127.0.0.1:4173")
   .trim()
   .replace(/\/+$/, "");
+
+const readRequiredEnv = (name) => {
+  const value = String(process.env[name] ?? "").trim();
+  if (value.length > 0) return value;
+  throw new Error(`[phase4] Missing required env variable: ${name}`);
+};
+
 const loginEmail = String(process.env.PHASE4_LOGIN_EMAIL ?? "teacher@axiom.demo").trim();
-const loginPassword = String(process.env.PHASE4_LOGIN_PASSWORD ?? "magic");
+const loginPassword = readRequiredEnv("PHASE4_LOGIN_PASSWORD");
 
 const requestJson = async (path, options = {}) => {
   const response = await fetch(`${baseUrl}${path}`, options);

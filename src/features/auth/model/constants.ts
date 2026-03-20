@@ -15,5 +15,4 @@ export const TEACHER_EMAILS = [
 ];
 
 export const TEACHER_LOGIN_HINT_EMAIL =
-  import.meta.env.VITE_WHITEBOARD_TEACHER_EMAIL_HINT?.trim().toLowerCase() ||
-  TEACHER_CANONICAL_EMAIL;
+  import.meta.env.VITE_WHITEBOARD_TEACHER_EMAIL_HINT?.trim().toLowerCase() || "";

@@ -8,11 +8,17 @@ const readPositiveInt = (value, fallback, cap) => {
   return Math.min(cap, parsed);
 };
 
+const readRequiredEnv = (name) => {
+  const value = String(process.env[name] ?? "").trim();
+  if (value.length > 0) return value;
+  throw new Error(`[phase-critical] Missing required env variable: ${name}`);
+};
+
 const baseUrl = String(process.env.PHASE_CRITICAL_BASE_URL ?? "https://api.board.mathwise.ru")
   .trim()
   .replace(/\/+$/, "");
 const teacherEmail = String(process.env.PHASE_CRITICAL_TEACHER_EMAIL ?? "teacher@axiom.demo").trim();
-const teacherPassword = String(process.env.PHASE_CRITICAL_TEACHER_PASSWORD ?? "magic");
+const teacherPassword = readRequiredEnv("PHASE_CRITICAL_TEACHER_PASSWORD");
 const studentName = String(process.env.PHASE_CRITICAL_STUDENT_NAME ?? "Student E2E").trim();
 const timeoutMs = readPositiveInt(process.env.PHASE_CRITICAL_TIMEOUT_MS, 20_000, 120_000);
 const wsTimeoutMs = readPositiveInt(process.env.PHASE_CRITICAL_WS_TIMEOUT_MS, 12_000, 120_000);

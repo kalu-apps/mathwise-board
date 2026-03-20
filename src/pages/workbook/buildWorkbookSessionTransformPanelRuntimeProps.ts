@@ -39,7 +39,7 @@ type BuildWorkbookSessionTransformPanelRuntimePropsParams = {
   canDelete: boolean;
   clampedEraserRadius: number;
   handleTransformStrokeWidthChange: (value: number) => void;
-  handleTransformDissolveCompositionLayer: (layerId: string) => void;
+  handleTransformDissolveCompositionLayer: () => void;
   handleTransformOpenGraphPanel: () => void;
   selectedGraphTextActions: SelectedGraphTextActions;
   selectedStructureActions: SelectedStructureActions;
