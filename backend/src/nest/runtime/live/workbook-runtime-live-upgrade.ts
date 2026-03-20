@@ -56,7 +56,14 @@ export const ensureWorkbookLiveSocketServer = (
       rejectUpgrade(socket, 403, "Forbidden");
       return;
     }
-    void workbookLiveSocketRuntime.ensureRuntimeSessionBridge(sessionId);
+    void workbookLiveSocketRuntime
+      .ensureRuntimeSessionBridge(sessionId)
+      .catch((error) => {
+        console.error("[workbook-live] bridge_init_failed", {
+          sessionId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
     socketServer.handleUpgrade(req, socket, head, (ws) => {
       const clientId = workbookLiveSocketRuntime.ensureId();
       const sessionClients =
@@ -70,73 +77,93 @@ export const ensureWorkbookLiveSocketServer = (
         currentClients.delete(clientId);
         if (currentClients.size === 0) {
           workbookLiveSocketRuntime.workbookLiveSocketClientsBySession.delete(sessionId);
-          void workbookLiveSocketRuntime.teardownRuntimeSessionBridgeIfIdle(sessionId);
+          void Promise.resolve(
+            workbookLiveSocketRuntime.teardownRuntimeSessionBridgeIfIdle(sessionId)
+          ).catch((error: unknown) => {
+            console.error("[workbook-live] bridge_teardown_failed", {
+              sessionId,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          });
         }
       };
 
       ws.on("message", async (rawMessage) => {
-        let parsed: { events?: unknown[] } | null = null;
         try {
-          parsed = JSON.parse(String(rawMessage)) as { events?: unknown[] };
-        } catch {
-          parsed = null;
-        }
-        const currentDb = workbookLiveSocketRuntime.getDb();
-        const currentSession = workbookLiveSocketRuntime.getWorkbookSessionById(currentDb, sessionId);
-        if (!currentSession) {
+          let parsed: { events?: unknown[] } | null = null;
           try {
-            ws.close();
+            parsed = JSON.parse(String(rawMessage)) as { events?: unknown[] };
+          } catch {
+            parsed = null;
+          }
+          const currentDb = workbookLiveSocketRuntime.getDb();
+          const currentSession = workbookLiveSocketRuntime.getWorkbookSessionById(currentDb, sessionId);
+          if (!currentSession) {
+            try {
+              ws.close();
+            } catch {
+              // ignore close failures
+            }
+            return;
+          }
+          workbookLiveSocketRuntime.applyStudentControls(currentSession, currentDb);
+          const currentParticipant = workbookLiveSocketRuntime.getWorkbookParticipant(
+            currentDb,
+            sessionId,
+            actor.id
+          );
+          if (!currentParticipant) {
+            try {
+              ws.close();
+            } catch {
+              // ignore close failures
+            }
+            return;
+          }
+          const volatileLimit = workbookLiveSocketRuntime.isVolatileRateLimitAllowed(
+            sessionId,
+            actor.id,
+            "live_ws"
+          );
+          if (!volatileLimit.allowed) {
+            try {
+              ws.close(1013, "rate_limited");
+            } catch {
+              // ignore close failures
+            }
+            return;
+          }
+          const events = Array.isArray(parsed?.events) ? parsed.events : [];
+          const sanitizedEvents = workbookLiveSocketRuntime.sanitizeWorkbookLiveEvents(
+            currentParticipant,
+            events
+          );
+          if (sanitizedEvents.length === 0) return;
+          const appendResult = await workbookLiveSocketRuntime.appendWorkbookEvents(currentDb, {
+            sessionId,
+            authorUserId: actor.id,
+            events: sanitizedEvents,
+            persist: false,
+          });
+          workbookLiveSocketRuntime.touchSessionActivity(currentSession, appendResult.timestamp);
+          workbookLiveSocketRuntime.publishWorkbookLiveEvents(currentDb, {
+            sessionId,
+            latestSeq: appendResult.latestSeq,
+            events: appendResult.events,
+            channel: "live",
+          });
+        } catch (error) {
+          console.error("[workbook-live] message_handler_failed", {
+            sessionId,
+            userId: actor.id,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          try {
+            ws.close(1011, "internal_error");
           } catch {
             // ignore close failures
           }
-          return;
         }
-        workbookLiveSocketRuntime.applyStudentControls(currentSession, currentDb);
-        const currentParticipant = workbookLiveSocketRuntime.getWorkbookParticipant(
-          currentDb,
-          sessionId,
-          actor.id
-        );
-        if (!currentParticipant) {
-          try {
-            ws.close();
-          } catch {
-            // ignore close failures
-          }
-          return;
-        }
-        const volatileLimit = workbookLiveSocketRuntime.isVolatileRateLimitAllowed(
-          sessionId,
-          actor.id,
-          "live_ws"
-        );
-        if (!volatileLimit.allowed) {
-          try {
-            ws.close(1013, "rate_limited");
-          } catch {
-            // ignore close failures
-          }
-          return;
-        }
-        const events = Array.isArray(parsed?.events) ? parsed.events : [];
-        const sanitizedEvents = workbookLiveSocketRuntime.sanitizeWorkbookLiveEvents(
-          currentParticipant,
-          events
-        );
-        if (sanitizedEvents.length === 0) return;
-        const appendResult = await workbookLiveSocketRuntime.appendWorkbookEvents(currentDb, {
-          sessionId,
-          authorUserId: actor.id,
-          events: sanitizedEvents,
-          persist: false,
-        });
-        workbookLiveSocketRuntime.touchSessionActivity(currentSession, appendResult.timestamp);
-        workbookLiveSocketRuntime.publishWorkbookLiveEvents(currentDb, {
-          sessionId,
-          latestSeq: appendResult.latestSeq,
-          events: appendResult.events,
-          channel: "live",
-        });
       });
 
       ws.on("close", cleanup);

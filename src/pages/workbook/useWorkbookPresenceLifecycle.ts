@@ -3,6 +3,7 @@ import {
   heartbeatWorkbookPresence,
   leaveWorkbookPresence,
 } from "@/features/workbook/model/api";
+import { ApiError } from "@/shared/api/client";
 import type { WorkbookSessionParticipant } from "@/features/workbook/model/types";
 import type { MutableRefObject } from "react";
 
@@ -28,7 +29,21 @@ export function useWorkbookPresenceLifecycle({
   useEffect(() => {
     if (!sessionId || !userId) return;
     let active = true;
+    let heartbeatTimerId: number | null = null;
+    let heartbeatInFlight = false;
+    let heartbeatFailureStreak = 0;
     const presenceTabId = presenceTabIdRef.current;
+    const clearHeartbeatTimer = () => {
+      if (heartbeatTimerId === null) return;
+      window.clearTimeout(heartbeatTimerId);
+      heartbeatTimerId = null;
+    };
+    const scheduleHeartbeat = (delayMs: number) => {
+      clearHeartbeatTimer();
+      heartbeatTimerId = window.setTimeout(() => {
+        void heartbeat("interval");
+      }, delayMs);
+    };
     const resolvePresenceState = () => {
       if (typeof document === "undefined" || typeof window === "undefined") {
         return "active" as const;
@@ -40,7 +55,10 @@ export function useWorkbookPresenceLifecycle({
       const hasFocus = typeof document.hasFocus === "function" ? document.hasFocus() : true;
       return document.visibilityState === "visible" && hasFocus ? "active" : "inactive";
     };
-    const heartbeat = async () => {
+    const heartbeat = async (reason: "interval" | "interaction") => {
+      if (!active || heartbeatInFlight) return;
+      heartbeatInFlight = true;
+      let nextDelayMs = presenceIntervalMs;
       try {
         const response = await heartbeatWorkbookPresence(sessionId, {
           state: resolvePresenceState(),
@@ -48,26 +66,49 @@ export function useWorkbookPresenceLifecycle({
         });
         if (!active) return;
         onHeartbeatParticipants(response.participants);
-      } catch {
-        // ignore transient presence errors
+        heartbeatFailureStreak = 0;
+        nextDelayMs = presenceIntervalMs;
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          (error.status === 401 || error.status === 403 || error.status === 404)
+        ) {
+          heartbeatFailureStreak = 0;
+          nextDelayMs = Math.max(15_000, Math.floor(presenceIntervalMs * 4));
+        } else {
+          heartbeatFailureStreak += 1;
+          const outageMaxMs = Math.max(20_000, presenceIntervalMs * 12);
+          const baseDelay = Math.max(1_000, presenceIntervalMs);
+          nextDelayMs = Math.min(
+            outageMaxMs,
+            Math.floor(baseDelay * 1.7 ** Math.max(1, heartbeatFailureStreak))
+          );
+        }
+      } finally {
+        heartbeatInFlight = false;
+        if (!active) return;
+        const jitterBase = Math.min(nextDelayMs, 3_000);
+        const jitter = Math.floor(jitterBase * 0.2 * Math.random());
+        scheduleHeartbeat(
+          reason === "interaction"
+            ? Math.min(nextDelayMs, Math.max(500, Math.floor(nextDelayMs * 0.6))) + jitter
+            : nextDelayMs + jitter
+        );
       }
     };
-    void heartbeat();
     const onVisibilityOrFocusChange = () => {
-      void heartbeat();
+      void heartbeat("interaction");
     };
     window.addEventListener("focus", onVisibilityOrFocusChange);
     window.addEventListener("blur", onVisibilityOrFocusChange);
     document.addEventListener("visibilitychange", onVisibilityOrFocusChange);
-    const intervalId = window.setInterval(() => {
-      void heartbeat();
-    }, presenceIntervalMs);
+    void heartbeat("interval");
     return () => {
       active = false;
       window.removeEventListener("focus", onVisibilityOrFocusChange);
       window.removeEventListener("blur", onVisibilityOrFocusChange);
       document.removeEventListener("visibilitychange", onVisibilityOrFocusChange);
-      window.clearInterval(intervalId);
+      clearHeartbeatTimer();
     };
   }, [
     isTeacherActor,

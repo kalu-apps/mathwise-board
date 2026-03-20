@@ -96,9 +96,11 @@ export const useWorkbookRealtimeTransport = ({
 }: UseWorkbookRealtimeTransportParams) => {
   const authBlockedRef = useRef(false);
   const authRequiredNotifiedRef = useRef(false);
+  const lastServerUnavailableAtRef = useRef(0);
   const clearAuthBlock = useCallback(() => {
     authBlockedRef.current = false;
     authRequiredNotifiedRef.current = false;
+    lastServerUnavailableAtRef.current = 0;
   }, []);
   const notifyAuthRequired = useCallback(() => {
     if (!authRequiredNotifiedRef.current) {
@@ -173,13 +175,25 @@ export const useWorkbookRealtimeTransport = ({
       pollTimerId = null;
     };
 
-    const schedulePoll = (reason: "event" | "idle" | "error" | "auth_error" | "bootstrap") => {
+    const schedulePoll = (
+      reason:
+        | "event"
+        | "idle"
+        | "error"
+        | "server_error"
+        | "auth_error"
+        | "bootstrap"
+    ) => {
       if (!active) return;
       const connected = isWorkbookStreamConnected || isWorkbookLiveConnected;
       const baseInterval = connected ? pollIntervalStreamConnectedMs : pollIntervalMs;
       if (!adaptivePollingEnabled) {
         const fallbackDelay =
-          reason === "auth_error" ? Math.max(15_000, baseInterval) : Math.max(40, baseInterval);
+          reason === "auth_error"
+            ? Math.max(15_000, baseInterval)
+            : reason === "server_error"
+              ? Math.max(8_000, baseInterval * 2)
+              : Math.max(40, baseInterval);
         clearPollTimer();
         pollTimerId = window.setTimeout(() => {
           void poll();
@@ -192,6 +206,14 @@ export const useWorkbookRealtimeTransport = ({
         idlePollStreak = 0;
         pollErrorStreak = 0;
         nextInterval = Math.max(adaptivePollingMinMs, Math.floor(baseInterval * 0.6));
+      } else if (reason === "server_error") {
+        pollErrorStreak += 1;
+        const outageMaxMs = Math.max(adaptivePollingMaxMs, 25_000);
+        const aggressiveBackoff = Math.floor(baseInterval * 2 ** Math.max(2, pollErrorStreak));
+        nextInterval = Math.max(
+          Math.max(adaptivePollingMinMs, 1_000),
+          Math.min(outageMaxMs, aggressiveBackoff)
+        );
       } else if (reason === "error") {
         pollErrorStreak += 1;
         const backoff = Math.min(
@@ -233,6 +255,7 @@ export const useWorkbookRealtimeTransport = ({
       try {
         const response = await getWorkbookEvents(sessionId, latestSeqRef.current);
         clearAuthBlock();
+        lastServerUnavailableAtRef.current = 0;
         if (!active) return;
         const unseenEvents = filterUnseenWorkbookEvents(response.events);
         if (hasWorkbookEventGap(latestSeqRef.current, unseenEvents)) {
@@ -277,6 +300,18 @@ export const useWorkbookRealtimeTransport = ({
           authBlockedRef.current = true;
           notifyAuthRequired();
           schedulePoll("auth_error");
+          return;
+        }
+        if (
+          error instanceof ApiError &&
+          (error.status >= 500 ||
+            error.code === "server_unavailable" ||
+            error.code === "timeout" ||
+            error.code === "network_error" ||
+            error.code === "network_offline")
+        ) {
+          lastServerUnavailableAtRef.current = Date.now();
+          schedulePoll("server_error");
           return;
         }
         schedulePoll("error");
@@ -341,6 +376,10 @@ export const useWorkbookRealtimeTransport = ({
       }
       if (
         !authBlockedRef.current &&
+        !(
+          lastServerUnavailableAtRef.current > 0 &&
+          Date.now() - lastServerUnavailableAtRef.current < 25_000
+        ) &&
         elapsed >= 30_000 &&
         Date.now() - lastForcedResyncAtRef.current >= 20_000
       ) {
