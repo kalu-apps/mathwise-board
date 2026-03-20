@@ -13,6 +13,7 @@ import {
   AUTH_IDLE_TIMEOUT_MS,
   AUTH_STORAGE_KEY,
   AUTH_STORAGE_TTL_MS,
+  TEACHER_LOGIN_HINT_EMAIL,
 } from "./constants";
 import { getAuthSession, logoutAuthSession, requestPasswordLogin } from "./api";
 import { t } from "@/shared/i18n";
@@ -87,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isGuestSession, setGuestSession] = useState<boolean>(() => readStorage<boolean>(AUTH_GUEST_SESSION_KEY, false));
   const [isAuthReady, setAuthReady] = useState(false);
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
-  const [authModalEmail, setAuthModalEmail] = useState("");
+  const [authModalEmail, setAuthModalEmail] = useState(TEACHER_LOGIN_HINT_EMAIL);
 
   const idleTimerRef = useRef<number | null>(null);
   const lastActivityRef = useRef<number | null>(null);
@@ -405,7 +406,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openAuthModal = useCallback((initialEmail?: string) => {
-    setAuthModalEmail((initialEmail ?? "").trim().toLowerCase());
+    setAuthModalEmail((initialEmail ?? TEACHER_LOGIN_HINT_EMAIL).trim().toLowerCase());
     setAuthModalOpen(true);
   }, []);
 

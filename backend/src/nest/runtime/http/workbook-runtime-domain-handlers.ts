@@ -30,7 +30,7 @@ type JsonResponse = (res: ServerResponse, status: number, payload: unknown) => v
 
 type AuthHandlerDeps = {
   authCookieName: string;
-  teacherLogin: string;
+  teacherLogins: ReadonlySet<string>;
   teacherPassword: string;
   resolveAuthUser: ResolveAuthUser;
   readBody: (req: IncomingMessage) => Promise<unknown>;
@@ -86,7 +86,7 @@ export const handleAuthDomainRoute = async (
     const body = (await deps.readBody(req)) as { email?: string; password?: string } | null;
     const email = String(body?.email ?? "").trim().toLowerCase();
     const password = String(body?.password ?? "");
-    if (email !== deps.teacherLogin || password !== deps.teacherPassword) {
+    if (!deps.teacherLogins.has(email) || password !== deps.teacherPassword) {
       deps.unauthorized(res, "Неверный логин или пароль.");
       return true;
     }
