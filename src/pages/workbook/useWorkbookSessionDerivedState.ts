@@ -56,7 +56,33 @@ export const useWorkbookSessionDerivedState = ({
     () => session?.participants.find((participant) => participant.userId === user?.id) ?? null,
     [session?.participants, user?.id]
   );
-  const actorPermissions = actorParticipant?.permissions ?? FALLBACK_PERMISSIONS;
+  const actorPermissions = useMemo(() => {
+    const source = actorParticipant?.permissions;
+    const asBool = (value: unknown, fallback: boolean) =>
+      typeof value === "boolean" ? value : fallback;
+
+    const canDraw = asBool(source?.canDraw, FALLBACK_PERMISSIONS.canDraw);
+    const canSelect = asBool(source?.canSelect, canDraw);
+    const canDelete = asBool(source?.canDelete, canSelect);
+
+    return {
+      canDraw,
+      canAnnotate: asBool(source?.canAnnotate, canDraw),
+      canUseMedia: asBool(source?.canUseMedia, FALLBACK_PERMISSIONS.canUseMedia),
+      canUseChat: asBool(source?.canUseChat, FALLBACK_PERMISSIONS.canUseChat),
+      canInvite: asBool(source?.canInvite, FALLBACK_PERMISSIONS.canInvite),
+      canManageSession: asBool(
+        source?.canManageSession,
+        FALLBACK_PERMISSIONS.canManageSession
+      ),
+      canSelect,
+      canDelete,
+      canInsertImage: asBool(source?.canInsertImage, canDraw),
+      canClear: asBool(source?.canClear, canDelete),
+      canExport: asBool(source?.canExport, FALLBACK_PERMISSIONS.canExport),
+      canUseLaser: asBool(source?.canUseLaser, canDraw),
+    };
+  }, [actorParticipant]);
   const canManageSession = Boolean(actorPermissions.canManageSession && !isSessionTabPassive);
   const hasParticipantBoardToolsAccess = Boolean(
     actorPermissions.canDraw &&

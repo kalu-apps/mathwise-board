@@ -43,11 +43,12 @@ export const getNowMs = () =>
     ? performance.now()
     : Date.now();
 
-export const POLL_INTERVAL_MS = 500;
-export const POLL_INTERVAL_STREAM_CONNECTED_MS = 320;
+// Fallback poll should stay lightweight; realtime stream/live channels carry primary sync.
+export const POLL_INTERVAL_MS = 1_200;
+export const POLL_INTERVAL_STREAM_CONNECTED_MS = 4_000;
 export const RESYNC_MIN_INTERVAL_MS = 4_000;
-export const ADAPTIVE_POLLING_MIN_MS = 90;
-export const ADAPTIVE_POLLING_MAX_MS = 2_400;
+export const ADAPTIVE_POLLING_MIN_MS = 320;
+export const ADAPTIVE_POLLING_MAX_MS = 8_000;
 export const PRESENCE_INTERVAL_MS = 1_000;
 export const AUTOSAVE_INTERVAL_MS = 15_000;
 export const CONTEXTBAR_DOCKED_VIEWPORT_MAX_WIDTH = 1024;
@@ -66,9 +67,10 @@ export const MAX_INCOMING_PREVIEW_PATCHES_PER_OBJECT = 20;
 export const ERASER_RADIUS_MIN = 4;
 export const ERASER_RADIUS_MAX = 160;
 export const MAX_EXPORT_CANVAS_SIDE = 8192;
-export const SNAPSHOT_OBJECT_PREP_CHUNK_SIZE = 220;
-export const SNAPSHOT_STROKE_PREP_CHUNK_SIZE = 320;
-export const SNAPSHOT_CONSTRAINT_PREP_CHUNK_SIZE = 260;
+// Smaller hydration chunks reduce long tasks during initial session open (LCP/INP path).
+export const SNAPSHOT_OBJECT_PREP_CHUNK_SIZE = 64;
+export const SNAPSHOT_STROKE_PREP_CHUNK_SIZE = 96;
+export const SNAPSHOT_CONSTRAINT_PREP_CHUNK_SIZE = 80;
 export const SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 28;
 export const PARTICIPANT_VISIBILITY_GRACE_MS = 30_000;
 export const TAB_LOCK_HEARTBEAT_MS = 2_000;

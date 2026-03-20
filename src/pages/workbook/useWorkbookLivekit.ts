@@ -188,6 +188,8 @@ export const useWorkbookLivekit = ({
   const livekitConnectInFlightRef = useRef<Promise<void> | null>(null);
   const livekitRetryTimeoutRef = useRef<number | null>(null);
   const livekitConnectAttemptRef = useRef(0);
+  const livekitDisconnectAttemptRef = useRef(0);
+  const livekitShouldBeConnectedRef = useRef(false);
   const remoteAudioBindingsRef = useRef<Map<string, RemoteAudioBinding>>(new Map());
 
   const clearLivekitRetryTimeout = useCallback(() => {
@@ -329,6 +331,7 @@ export const useWorkbookLivekit = ({
       clearLivekitRetryTimeout();
       if (options?.resetRetryState !== false) {
         livekitConnectAttemptRef.current = 0;
+        livekitDisconnectAttemptRef.current = 0;
       }
       const room = livekitRoomRef.current;
       if (!room) {
@@ -413,6 +416,9 @@ export const useWorkbookLivekit = ({
       });
       room.on(runtime.RoomEvent.Disconnected, () => {
         detachAllRemoteAudio();
+        livekitRoomRef.current = null;
+        livekitRoomSessionIdRef.current = null;
+        setIsLivekitConnected(false);
         emitMediaMetric({
           scope: "workbook",
           subsystem: "livekit",
@@ -421,6 +427,38 @@ export const useWorkbookLivekit = ({
           sessionKind: sessionKind ?? null,
           timestamp: new Date().toISOString(),
         });
+        if (
+          typeof window === "undefined" ||
+          !livekitShouldBeConnectedRef.current ||
+          livekitConnectInFlightRef.current
+        ) {
+          livekitDisconnectAttemptRef.current = 0;
+          return;
+        }
+        if (livekitRetryTimeoutRef.current !== null) return;
+        livekitDisconnectAttemptRef.current += 1;
+        const reconnectAttempt = livekitDisconnectAttemptRef.current;
+        const reconnectBaseDelayMs = Math.min(
+          20_000,
+          1_000 * 2 ** Math.max(0, reconnectAttempt - 1)
+        );
+        const reconnectDelayMs = reconnectBaseDelayMs + Math.floor(Math.random() * 500);
+        emitMediaMetric({
+          scope: "workbook",
+          subsystem: "livekit",
+          phase: "retry_scheduled",
+          sessionId,
+          sessionKind: sessionKind ?? null,
+          timestamp: new Date().toISOString(),
+          attempt: reconnectAttempt,
+          retryInMs: reconnectDelayMs,
+          errorReason: "room_disconnected",
+        });
+        livekitRetryTimeoutRef.current = window.setTimeout(() => {
+          livekitRetryTimeoutRef.current = null;
+          if (!livekitShouldBeConnectedRef.current) return;
+          void connectLivekitRoom();
+        }, reconnectDelayMs);
       });
       room.on(runtime.RoomEvent.ConnectionStateChanged, (state: unknown) => {
         setIsLivekitConnected(state === runtime.ConnectionState.Connected);
@@ -452,6 +490,7 @@ export const useWorkbookLivekit = ({
       livekitRoomSessionIdRef.current = sessionId;
       setIsLivekitConnected(true);
       livekitConnectAttemptRef.current = 0;
+      livekitDisconnectAttemptRef.current = 0;
       emitMediaMetric({
         scope: "workbook",
         subsystem: "livekit",
@@ -557,6 +596,17 @@ export const useWorkbookLivekit = ({
       setMicEnabled(false);
     }
   }, [handleMicrophoneError, micEnabled, setError]);
+
+  const shouldKeepLivekitConnected = Boolean(
+    sessionId && sessionKind === "CLASS" && canUseMedia && !isEnded && userId
+  );
+
+  useEffect(() => {
+    livekitShouldBeConnectedRef.current = shouldKeepLivekitConnected;
+    if (!shouldKeepLivekitConnected) {
+      livekitDisconnectAttemptRef.current = 0;
+    }
+  }, [shouldKeepLivekitConnected]);
 
   useEffect(() => {
     if (!sessionId || sessionKind !== "CLASS" || !canUseMedia || isEnded || !userId) {

@@ -105,7 +105,7 @@ const AUTH_SESSION_TTL_MS = (() => {
   return parsed;
 })();
 const AUTH_SESSION_PERSIST_INTERVAL_MS = 60_000;
-const ONLINE_TIMEOUT_MS = 15_000;
+const ONLINE_TIMEOUT_MS = 5_000;
 const PRESENCE_PERSIST_INTERVAL_MS = 15_000;
 const PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS = 20_000;
 const PRESENCE_TAB_ID_MAX_LENGTH = 96;
@@ -1177,19 +1177,54 @@ const defaultSettings = (): WorkbookSettings => ({
   },
 });
 
-const readSessionSettings = (session: WorkbookSessionRecord): WorkbookSettings => {
-  const parsed = safeParseJson<{ settings?: WorkbookSettings }>(session.context, {
-    settings: defaultSettings(),
-  });
-  const base = parsed.settings ?? defaultSettings();
+const normalizeWorkbookStudentControls = (
+  value: Partial<WorkbookSettings["studentControls"]> | null | undefined
+): WorkbookSettings["studentControls"] => {
+  const defaults = defaultSettings().studentControls;
+  const source = value && typeof value === "object" ? value : {};
+  const pick = <K extends keyof WorkbookSettings["studentControls"]>(key: K) =>
+    typeof source[key] === "boolean" ? source[key] : defaults[key];
+
   return {
-    ...base,
-    smartInk: normalizeWorkbookSmartInkSettings(base.smartInk),
+    canDraw: pick("canDraw"),
+    canSelect: pick("canSelect"),
+    canDelete: pick("canDelete"),
+    canInsertImage: pick("canInsertImage"),
+    canClear: pick("canClear"),
+    canExport: pick("canExport"),
+    canUseLaser: pick("canUseLaser"),
   };
 };
 
+const normalizeWorkbookSettings = (
+  value: Partial<WorkbookSettings> | null | undefined
+): WorkbookSettings => {
+  const defaults = defaultSettings();
+  const source = value && typeof value === "object" ? value : {};
+
+  return {
+    undoPolicy:
+      source.undoPolicy === "teacher_only" || source.undoPolicy === "own_only"
+        ? source.undoPolicy
+        : defaults.undoPolicy,
+    strictGeometry:
+      typeof source.strictGeometry === "boolean"
+        ? source.strictGeometry
+        : defaults.strictGeometry,
+    smartInk: normalizeWorkbookSmartInkSettings(source.smartInk),
+    studentControls: normalizeWorkbookStudentControls(source.studentControls),
+  };
+};
+
+const readSessionSettings = (session: WorkbookSessionRecord): WorkbookSettings => {
+  const parsed = safeParseJson<{ settings?: Partial<WorkbookSettings> }>(session.context, {
+    settings: defaultSettings(),
+  });
+  return normalizeWorkbookSettings(parsed.settings);
+};
+
 const writeSessionSettings = (session: WorkbookSessionRecord, settings: WorkbookSettings) => {
-  session.context = JSON.stringify({ settings });
+  session.context = JSON.stringify({ settings: normalizeWorkbookSettings(settings) });
 };
 
 const getWorkbookSessionById = (db: MockDb, sessionId: string) =>

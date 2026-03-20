@@ -200,6 +200,9 @@ export const applyWorkbookIncomingRealtimeEvent = (
     const payload = event.payload as { participants?: unknown };
     if (!Array.isArray(payload.participants)) return true;
     const participants = payload.participants as WorkbookSessionParticipant[];
+    if (userId && !participants.some((participant) => participant.userId === userId)) {
+      return true;
+    }
     setSession((current) =>
       current
         ? areParticipantsEqual(current.participants, participants)

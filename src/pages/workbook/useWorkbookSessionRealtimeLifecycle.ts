@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import type { WorkbookSessionParticipant } from "@/features/workbook/model/types";
 import { useWorkbookRealtimeApplyQueue } from "@/features/workbook/model/useWorkbookRealtimeApplyQueue";
 import {
@@ -94,6 +94,8 @@ export const useWorkbookSessionRealtimeLifecycle = ({
     clearIncomingRealtimeApplyQueue,
   });
 
+  const heartbeatUserId = presenceLifecycleParams.userId;
+
   const {
     sessionId,
     isWorkbookSessionAuthLost,
@@ -179,17 +181,22 @@ export const useWorkbookSessionRealtimeLifecycle = ({
 
   const handlePresenceParticipantsHeartbeat = useCallback(
     (participants: WorkbookSessionParticipant[]) => {
-      startTransition(() => {
-        setSession((current) =>
-          current
-            ? areParticipantsEqual(current.participants, participants)
-              ? current
-              : { ...current, participants }
-            : current
-        );
-      });
+      if (
+        heartbeatUserId &&
+        !participants.some((participant) => participant.userId === heartbeatUserId)
+      ) {
+        // Ignore incomplete heartbeat payloads to avoid transient permission/tool lockouts.
+        return;
+      }
+      setSession((current) =>
+        current
+          ? areParticipantsEqual(current.participants, participants)
+            ? current
+            : { ...current, participants }
+          : current
+      );
     },
-    [areParticipantsEqual, setSession]
+    [areParticipantsEqual, heartbeatUserId, setSession]
   );
 
   useWorkbookPresenceLifecycle({

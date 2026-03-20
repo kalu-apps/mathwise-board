@@ -1,7 +1,6 @@
 import {
   startTransition,
   useCallback,
-  useDeferredValue,
   useEffect,
   useMemo,
   type Dispatch,
@@ -242,10 +241,9 @@ export const useWorkbookSessionLocalRuntime = ({
     []
   );
 
-  const deferredParticipants = useDeferredValue(sessionParticipants ?? []);
   const participantCards = useMemo(
     () =>
-      [...deferredParticipants]
+      [...(sessionParticipants ?? [])]
         .filter(
           (participant) =>
             participant.roleInSession === "teacher" ||
@@ -267,7 +265,7 @@ export const useWorkbookSessionLocalRuntime = ({
           }
           return left.displayName.localeCompare(right.displayName, "ru");
         }),
-    [deferredParticipants, participantVisibilityGraceMs]
+    [participantVisibilityGraceMs, sessionParticipants]
   );
 
   useEffect(() => {
