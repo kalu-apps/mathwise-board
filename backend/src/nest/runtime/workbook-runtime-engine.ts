@@ -707,7 +707,13 @@ const readBody = async (req: IncomingMessage): Promise<unknown> => {
 };
 
 const pickTeacher = (db: MockDb): UserRecord => {
-  const existing = db.users.find((user) => user.role === "teacher" && user.email === WHITEBOARD_TEACHER_LOGIN);
+  const existing = db.users.find(
+    (user) =>
+      user?.role === "teacher" &&
+      user?.email === WHITEBOARD_TEACHER_LOGIN &&
+      typeof user?.id === "string" &&
+      user.id.trim().length > 0
+  );
   if (existing) return existing;
   const created: UserRecord = {
     id: "teacher-axiom",
@@ -841,7 +847,16 @@ const normalizeParticipantPermissionsInPlace = (
 
 const normalizeDbParticipantPermissions = (db: MockDb) => {
   let changed = false;
-  for (const participant of db.workbookParticipants) {
+  for (const candidate of db.workbookParticipants) {
+    if (
+      typeof candidate !== "object" ||
+      candidate === null ||
+      typeof (candidate as Partial<WorkbookSessionParticipantRecord>).sessionId !== "string" ||
+      typeof (candidate as Partial<WorkbookSessionParticipantRecord>).userId !== "string"
+    ) {
+      continue;
+    }
+    const participant = candidate as WorkbookSessionParticipantRecord;
     if (normalizeParticipantPermissionsInPlace(participant)) {
       changed = true;
     }
@@ -2083,11 +2098,10 @@ export const handleWorkbookApiRequestByDomains = async (
     return true;
   }
 
-  const db = getDb();
-  pickTeacher(db);
-  ensureDbParticipantPermissionsNormalized(db);
-
   try {
+      const db = getDb();
+      pickTeacher(db);
+      ensureDbParticipantPermissionsNormalized(db);
       if (
         domains.has("auth") &&
         (await handleAuthDomainRoute(
@@ -3112,6 +3126,11 @@ export const handleWorkbookApiRequestByDomains = async (
       notFound(res);
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown_error";
+    console.error("[workbook-runtime] request_failed", {
+      method,
+      pathname,
+      message,
+    });
     const isRuntimeTimeout = /_timeout$/i.test(message);
     const isRateLimitedError = /_rate_limited$/i.test(message);
     const statusCode =
