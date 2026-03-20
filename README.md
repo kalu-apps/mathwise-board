@@ -37,12 +37,14 @@ npm run backend:start:board
 - `VITE_API_BASE_URL=https://api.your-domain.tld` (если backend на отдельном домене)
 
 Обязательные для backend runtime:
-- `VITE_WHITEBOARD_TEACHER_PASSWORD=<strong-password>`
+- `WHITEBOARD_TEACHER_PASSWORD=<strong-password>`
 - `BOARD_STORAGE_DRIVER=postgres|file|auto`
 - `DATABASE_URL=postgresql://...` (для `BOARD_STORAGE_DRIVER=postgres` или `auto`)
 
 Опционально:
+- `WHITEBOARD_TEACHER_EMAIL=teacher@axiom.demo` (логин преподавателя; по умолчанию `teacher@axiom.demo`)
 - `VITE_PUBLIC_BASE_URL=https://board.your-domain.tld`
+- `VITE_WHITEBOARD_TEACHER_EMAIL_HINT=teacher@axiom.demo` (подсказка email в модальном окне логина)
 - `CORS_ALLOWED_ORIGINS=https://board.your-domain.tld`
 - `AUTH_COOKIE_DOMAIN=.your-domain.tld`
 - `AUTH_COOKIE_SAME_SITE=Lax|None|Strict`

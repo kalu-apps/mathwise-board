@@ -13,3 +13,7 @@ export const TEACHER_CANONICAL_EMAIL = "teacher@axiom.demo";
 export const TEACHER_EMAILS = [
   TEACHER_CANONICAL_EMAIL,
 ];
+
+export const TEACHER_LOGIN_HINT_EMAIL =
+  import.meta.env.VITE_WHITEBOARD_TEACHER_EMAIL_HINT?.trim().toLowerCase() ||
+  TEACHER_CANONICAL_EMAIL;

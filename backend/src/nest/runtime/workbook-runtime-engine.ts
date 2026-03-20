@@ -79,6 +79,12 @@ import {
 } from "./core/workbookConsistencyService";
 import { recognizeWorkbookInkLocal } from "./core/workbookInkRecognition";
 import {
+  isTeacherEmail,
+  TEACHER_USER_ID,
+  WHITEBOARD_TEACHER_EMAIL,
+  WHITEBOARD_TEACHER_EMAIL_ALIASES,
+} from "./core/teacherIdentity";
+import {
   handleAuthDomainRoute,
   handleRuntimeInfraDomainRoute,
   handleTelemetryDomainRoute,
@@ -86,7 +92,6 @@ import {
 import { handleWorkbookDomainRoute } from "./http/workbook-runtime-workbook-domain-handlers";
 import { registerWorkbookLiveSocketRuntime } from "./live/workbook-runtime-live-runtime";
 
-const WHITEBOARD_TEACHER_LOGIN = "teacher@axiom.demo";
 const WHITEBOARD_TEACHER_PASSWORD = (() => {
   const secret = String(process.env.WHITEBOARD_TEACHER_PASSWORD ?? "").trim();
   if (secret.length > 0) return secret;
@@ -710,15 +715,15 @@ const pickTeacher = (db: MockDb): UserRecord => {
   const existing = db.users.find(
     (user) =>
       user?.role === "teacher" &&
-      user?.email === WHITEBOARD_TEACHER_LOGIN &&
+      (user?.id === TEACHER_USER_ID || isTeacherEmail(user?.email)) &&
       typeof user?.id === "string" &&
       user.id.trim().length > 0
   );
   if (existing) return existing;
   const created: UserRecord = {
-    id: "teacher-axiom",
+    id: TEACHER_USER_ID,
     role: "teacher",
-    email: WHITEBOARD_TEACHER_LOGIN,
+    email: WHITEBOARD_TEACHER_EMAIL,
     firstName: "Анна",
     lastName: "Викторовна",
     createdAt: nowIso(),
@@ -2108,7 +2113,7 @@ export const handleWorkbookApiRequestByDomains = async (
           { req, res, db, method, pathname, searchParams },
           {
             authCookieName: AUTH_COOKIE_NAME,
-            teacherLogin: WHITEBOARD_TEACHER_LOGIN,
+            teacherLogins: WHITEBOARD_TEACHER_EMAIL_ALIASES,
             teacherPassword: WHITEBOARD_TEACHER_PASSWORD,
             resolveAuthUser,
             readBody,
