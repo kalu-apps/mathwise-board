@@ -107,10 +107,16 @@ export const useWorkbookSessionDerivedState = ({
   });
   const isCompactDialogViewport = useMediaQuery("(max-width: 640px)");
   const showSidebarParticipants = showCollaborationPanels && !isParticipantsCollapsed;
-  const focusPoints = useMemo(() => Object.values(focusPointsByUser), [focusPointsByUser]);
-  const pointerPoints = useMemo(() => Object.values(pointerPointsByUser), [pointerPointsByUser]);
+  const focusPoints = useMemo(
+    () => Object.values(focusPointsByUser ?? {}),
+    [focusPointsByUser]
+  );
+  const pointerPoints = useMemo(
+    () => Object.values(pointerPointsByUser ?? {}),
+    [pointerPointsByUser]
+  );
   const previewStrokes = useMemo(
-    () => Object.values(incomingStrokePreviews).map((entry) => entry.stroke),
+    () => Object.values(incomingStrokePreviews ?? {}).map((entry) => entry.stroke),
     [incomingStrokePreviews]
   );
   const areaSelectionHasContent = Boolean(
