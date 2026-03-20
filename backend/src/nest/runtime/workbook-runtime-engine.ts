@@ -196,6 +196,11 @@ const MEDIA_LIVEKIT_ENABLED =
   MEDIA_LIVEKIT_API_SECRET.length > 0;
 const PUBLIC_BASE_URL = String(process.env.VITE_PUBLIC_BASE_URL ?? "").trim().replace(/\/+$/g, "");
 
+const clamp = (value: number, min: number, max: number) => {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+};
+
 type WorkbookSettings = {
   undoPolicy: "everyone" | "teacher_only" | "own_only";
   strictGeometry: boolean;
