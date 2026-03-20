@@ -705,6 +705,29 @@ const buildInviteUrl = (req: IncomingMessage, token: string) => {
 };
 
 const readBody = async (req: IncomingMessage): Promise<unknown> => {
+  const requestWithParsedBody = req as IncomingMessage & { body?: unknown };
+  if (Object.prototype.hasOwnProperty.call(requestWithParsedBody, "body")) {
+    const parsedBody = requestWithParsedBody.body;
+    if (typeof parsedBody === "string") {
+      const trimmedBody = parsedBody.trim();
+      if (!trimmedBody) return null;
+      try {
+        return JSON.parse(trimmedBody);
+      } catch {
+        throw new Error(INVALID_JSON_BODY_ERROR);
+      }
+    }
+    if (Buffer.isBuffer(parsedBody)) {
+      const textBody = parsedBody.toString("utf-8").trim();
+      if (!textBody) return null;
+      try {
+        return JSON.parse(textBody);
+      } catch {
+        throw new Error(INVALID_JSON_BODY_ERROR);
+      }
+    }
+    return parsedBody ?? null;
+  }
   return readJsonBody(req, {
     maxBytes: WORKBOOK_REQUEST_BODY_MAX_BYTES,
   });
