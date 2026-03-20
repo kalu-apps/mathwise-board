@@ -3,7 +3,6 @@ import {
   useEffect,
   useMemo,
 } from "react";
-import { useShallow } from "zustand/react/shallow";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import "./workbookRouteStyles";
 import {
@@ -109,16 +108,7 @@ export default function WorkbookSessionPage() {
 
   const layer: WorkbookLayer = "board";
   const textPreset = "";
-  const workbookSessionUi = useWorkbookSessionStore(
-    useShallow((state) => ({
-      isSessionChatOpen: state.ui.isSessionChatOpen,
-      isSessionChatMinimized: state.ui.isSessionChatMinimized,
-      isSessionChatMaximized: state.ui.isSessionChatMaximized,
-      isParticipantsCollapsed: state.ui.isParticipantsCollapsed,
-      contextbarPosition: state.ui.contextbarPosition,
-      floatingPanelsTop: state.ui.floatingPanelsTop,
-    }))
-  );
+  const workbookSessionUi = useWorkbookSessionStore((state) => state.ui);
   const latestSeq = useWorkbookSessionStore((state) => state.collab.latestSeq);
   const realtimeSyncWarning = useWorkbookSessionStore((state) => state.collab.realtimeSyncWarning);
   const isWorkbookStreamConnected = useWorkbookSessionStore(
@@ -135,84 +125,9 @@ export default function WorkbookSessionPage() {
   const pointerPoint = useWorkbookSessionStore((state) => state.runtime.pointerPoint);
   const focusPointsByUser = useWorkbookSessionStore((state) => state.runtime.focusPointsByUser);
   const pointerPointsByUser = useWorkbookSessionStore((state) => state.runtime.pointerPointsByUser);
-  const workbookSessionTooling = useWorkbookSessionStore(
-    useShallow((state) => ({
-      tool: state.tooling.tool,
-      penToolSettings: state.tooling.penToolSettings,
-      highlighterToolSettings: state.tooling.highlighterToolSettings,
-      eraserRadius: state.tooling.eraserRadius,
-      strokeColor: state.tooling.strokeColor,
-      strokeWidth: state.tooling.strokeWidth,
-      polygonSides: state.tooling.polygonSides,
-      polygonMode: state.tooling.polygonMode,
-      polygonPreset: state.tooling.polygonPreset,
-      lineStyle: state.tooling.lineStyle,
-      lineWidthDraft: state.tooling.lineWidthDraft,
-      shape2dStrokeWidthDraft: state.tooling.shape2dStrokeWidthDraft,
-      dividerWidthDraft: state.tooling.dividerWidthDraft,
-      solid3dStrokeWidthDraft: state.tooling.solid3dStrokeWidthDraft,
-      graphExpressionDraft: state.tooling.graphExpressionDraft,
-      graphDraftFunctions: state.tooling.graphDraftFunctions,
-      selectedGraphPresetId: state.tooling.selectedGraphPresetId,
-      graphDraftError: state.tooling.graphDraftError,
-      graphFunctionsDraft: state.tooling.graphFunctionsDraft,
-      graphCatalogCursorActive: state.tooling.graphCatalogCursorActive,
-      pendingSolid3dInsertPreset: state.tooling.pendingSolid3dInsertPreset,
-      graphWorkbenchTab: state.tooling.graphWorkbenchTab,
-      activeSolidSectionId: state.tooling.activeSolidSectionId,
-      solid3dSectionPointCollecting: state.tooling.solid3dSectionPointCollecting,
-      solid3dDraftPoints: state.tooling.solid3dDraftPoints,
-    }))
-  );
-  const workbookSessionPage = useWorkbookSessionStore(
-    useShallow((state) => ({
-      spacePanActive: state.page.spacePanActive,
-      isFullscreen: state.page.isFullscreen,
-      isCompactViewport: state.page.isCompactViewport,
-      isDockedContextbarViewport: state.page.isDockedContextbarViewport,
-      utilityTab: state.page.utilityTab,
-      isUtilityPanelOpen: state.page.isUtilityPanelOpen,
-      isUtilityPanelCollapsed: state.page.isUtilityPanelCollapsed,
-      utilityPanelPosition: state.page.utilityPanelPosition,
-      utilityPanelDragState: state.page.utilityPanelDragState,
-      selectedLineStartLabelDraft: state.page.selectedLineStartLabelDraft,
-      selectedLineEndLabelDraft: state.page.selectedLineEndLabelDraft,
-      loading: state.page.loading,
-      bootstrapReady: state.page.bootstrapReady,
-      error: state.page.error,
-      saveSyncWarning: state.page.saveSyncWarning,
-      isSessionTabPassive: state.page.isSessionTabPassive,
-      copyingInviteLink: state.page.copyingInviteLink,
-      exportingSections: state.page.exportingSections,
-      isBoardPageMutationPending: state.page.isBoardPageMutationPending,
-      canvasVisibilityMode: state.page.canvasVisibilityMode,
-      docsWindow: state.page.docsWindow,
-      pendingClearRequest: state.page.pendingClearRequest,
-      awaitingClearRequest: state.page.awaitingClearRequest,
-      confirmedClearRequest: state.page.confirmedClearRequest,
-      incomingStrokePreviews: state.page.incomingStrokePreviews,
-      isSessionChatAtBottom: state.page.isSessionChatAtBottom,
-      sessionChatDraft: state.page.sessionChatDraft,
-      sessionChatReadAt: state.page.sessionChatReadAt,
-      areaSelection: state.page.areaSelection,
-    }))
-  );
-  const workbookSessionData = useWorkbookSessionStore(
-    useShallow((state) => ({
-      session: state.data.session,
-      boardStrokes: state.data.boardStrokes,
-      boardObjects: state.data.boardObjects,
-      constraints: state.data.constraints,
-      annotationStrokes: state.data.annotationStrokes,
-      chatMessages: state.data.chatMessages,
-      comments: state.data.comments,
-      timerState: state.data.timerState,
-      boardSettings: state.data.boardSettings,
-      libraryState: state.data.libraryState,
-      documentState: state.data.documentState,
-      smartInkOptions: state.data.smartInkOptions,
-    }))
-  );
+  const workbookSessionTooling = useWorkbookSessionStore((state) => state.tooling);
+  const workbookSessionPage = useWorkbookSessionStore((state) => state.page);
+  const workbookSessionData = useWorkbookSessionStore((state) => state.data);
   const workbookSessionActions = useWorkbookSessionStore((state) => state.actions);
   const workbookSessionCollab = useMemo(
     () => ({
