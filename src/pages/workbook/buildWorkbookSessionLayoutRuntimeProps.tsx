@@ -1,6 +1,7 @@
 import type { ComponentProps } from "react";
 import type {
   WorkbookSessionDataSlice,
+  WorkbookSessionUiSlice,
   WorkbookSessionPageSlice,
   WorkbookSessionSceneSlice,
   WorkbookSessionStoreActions,
@@ -28,6 +29,7 @@ type OverlaysProps = ComponentProps<typeof WorkbookSessionOverlays>;
 
 type BuildWorkbookSessionLayoutRuntimePropsInput = {
   user: { id?: string; role?: string } | null;
+  ui: WorkbookSessionUiSlice;
   page: WorkbookSessionPageSlice;
   scene: WorkbookSessionSceneSlice;
   data: WorkbookSessionDataSlice;
@@ -153,6 +155,7 @@ export interface WorkbookSessionLayoutRuntimeProps {
 // Intentionally takes grouped runtime objects from WorkbookSessionPage to keep page orchestration concise.
 export const buildWorkbookSessionLayoutRuntimeProps = ({
   user,
+  ui,
   page,
   scene,
   data,
@@ -163,6 +166,29 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
   actions,
   overlayContainer,
 }: BuildWorkbookSessionLayoutRuntimePropsInput): WorkbookSessionLayoutRuntimeProps => {
+  const normalizePoint = (
+    point: { x?: number; y?: number } | null | undefined,
+    fallback: { x: number; y: number }
+  ) => {
+    if (
+      point
+      && typeof point.x === "number"
+      && Number.isFinite(point.x)
+      && typeof point.y === "number"
+      && Number.isFinite(point.y)
+    ) {
+      return { x: point.x, y: point.y };
+    }
+    return fallback;
+  };
+
+  const sessionChatPosition = normalizePoint(ui.sessionChatPosition, { x: 24, y: 96 });
+  const contextbarPosition = normalizePoint(ui.contextbarPosition, { x: 24, y: 18 });
+  const floatingPanelsTop =
+    typeof ui.floatingPanelsTop === "number" && Number.isFinite(ui.floatingPanelsTop)
+      ? ui.floatingPanelsTop
+      : 86;
+
   const hotkeysTooltipContent = (
     <div className="workbook-session__hotkeys-tooltip">
       <strong>Горячие клавиши</strong>
@@ -186,7 +212,7 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
     currentUserRole: user?.role,
     canUseSessionChat: permissions.canUseSessionChat,
     canManageSession: permissions.canManageSession,
-    isSessionChatOpen: page.isSessionChatOpen,
+    isSessionChatOpen: ui.isSessionChatOpen,
     sessionChatUnreadCount: derived.sessionChatUnreadCount,
     onToggleSessionChat: handlers.handleToggleSessionChat,
     onCollapseParticipants: handlers.handleCollapseParticipants,
@@ -202,14 +228,14 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
 
   const sessionChatPanelProps: SessionChatPanelProps = {
     showCollaborationPanels: permissions.showCollaborationPanels,
-    isSessionChatOpen: page.isSessionChatOpen,
+    isSessionChatOpen: ui.isSessionChatOpen,
     sessionChatRef: refs.sessionChatRef,
     sessionChatListRef: refs.sessionChatListRef,
     sessionChatDragStateRef: refs.sessionChatDragStateRef,
-    isSessionChatMinimized: page.isSessionChatMinimized,
-    isSessionChatMaximized: page.isSessionChatMaximized,
+    isSessionChatMinimized: ui.isSessionChatMinimized,
+    isSessionChatMaximized: ui.isSessionChatMaximized,
     isCompactViewport: page.isCompactViewport,
-    sessionChatPosition: page.sessionChatPosition,
+    sessionChatPosition,
     participantCards: derived.participantCards,
     chatMessages: data.chatMessages,
     firstUnreadSessionChatMessageId: derived.firstUnreadSessionChatMessageId,
@@ -261,13 +287,13 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
     isFullscreen: page.isFullscreen,
     onToggleFullscreen: handlers.toggleFullscreen,
     showCollaborationPanels: permissions.showCollaborationPanels,
-    isParticipantsCollapsed: page.isParticipantsCollapsed,
+    isParticipantsCollapsed: ui.isParticipantsCollapsed,
     onToggleParticipantsCollapsed: () =>
       actions.setIsParticipantsCollapsed((current: boolean) => !current),
     contextbarRef: refs.contextbarRef,
     isDockedContextbarViewport: page.isDockedContextbarViewport,
     isCompactViewport: page.isCompactViewport,
-    contextbarPosition: page.contextbarPosition,
+    contextbarPosition,
     onContextbarDragStart: handlers.handleContextbarDragStart,
   };
 
@@ -316,7 +342,7 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
     utilityTab: page.utilityTab,
     isCompactViewport: page.isCompactViewport,
     utilityPanelPosition: page.utilityPanelPosition,
-    floatingPanelsTop: page.floatingPanelsTop,
+    floatingPanelsTop,
     onDragStart: handlers.handleUtilityPanelDragStart,
     title: handlers.utilityPanelTitle,
     setIsUtilityPanelCollapsed: actions.setIsUtilityPanelCollapsed,

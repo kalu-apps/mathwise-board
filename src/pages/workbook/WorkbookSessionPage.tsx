@@ -1800,6 +1800,7 @@ export default function WorkbookSessionPage() {
   });
   const layoutRuntimeInput = {
     user,
+    ui: workbookSessionUi,
     page: workbookSessionPage,
     scene: workbookSessionScene,
     data: workbookSessionData,
