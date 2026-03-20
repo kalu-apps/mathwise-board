@@ -42,6 +42,11 @@ export type DbIndex = {
 
 const dbIndexCache = new WeakMap<MockDb, { snapshot: DbIndexSnapshot; index: DbIndex }>();
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const readKey = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+
 const createSnapshot = (db: MockDb): DbIndexSnapshot => ({
   usersRef: db.users,
   usersLen: db.users.length,
@@ -76,12 +81,38 @@ const isSnapshotReusable = (db: MockDb, snapshot: DbIndexSnapshot) =>
   snapshot.workbookOperationsLen === db.workbookOperations.length;
 
 const buildDbIndex = (db: MockDb): DbIndex => {
-  const usersById = new Map(db.users.map((user) => [user.id, user]));
-  const authSessionsByToken = new Map(db.authSessions.map((session) => [session.token, session]));
-  const sessionsById = new Map(db.workbookSessions.map((session) => [session.id, session]));
+  const usersById = new Map<string, UserRecord>();
+  for (const candidate of db.users) {
+    if (!isRecord(candidate)) continue;
+    const id = readKey(candidate.id);
+    if (!id) continue;
+    usersById.set(id, candidate as UserRecord);
+  }
+
+  const authSessionsByToken = new Map<string, AuthSessionRecord>();
+  for (const candidate of db.authSessions) {
+    if (!isRecord(candidate)) continue;
+    const token = readKey(candidate.token);
+    if (!token) continue;
+    authSessionsByToken.set(token, candidate as AuthSessionRecord);
+  }
+
+  const sessionsById = new Map<string, WorkbookSessionRecord>();
+  for (const candidate of db.workbookSessions) {
+    if (!isRecord(candidate)) continue;
+    const id = readKey(candidate.id);
+    if (!id) continue;
+    sessionsById.set(id, candidate as WorkbookSessionRecord);
+  }
+
   const participantsBySession = new Map<string, WorkbookSessionParticipantRecord[]>();
   const participantsBySessionUser = new Map<string, WorkbookSessionParticipantRecord>();
-  db.workbookParticipants.forEach((participant) => {
+  db.workbookParticipants.forEach((candidate) => {
+    if (!isRecord(candidate)) return;
+    const sessionId = readKey(candidate.sessionId);
+    const userId = readKey(candidate.userId);
+    if (!sessionId || !userId) return;
+    const participant = candidate as WorkbookSessionParticipantRecord;
     const sessionParticipants = participantsBySession.get(participant.sessionId);
     if (sessionParticipants) {
       sessionParticipants.push(participant);
@@ -95,17 +126,31 @@ const buildDbIndex = (db: MockDb): DbIndex => {
   });
 
   const draftsBySessionOwner = new Map<string, WorkbookDraftRecord>();
-  db.workbookDrafts.forEach((draft) => {
+  db.workbookDrafts.forEach((candidate) => {
+    if (!isRecord(candidate)) return;
+    const sessionId = readKey(candidate.sessionId);
+    const ownerUserId = readKey(candidate.ownerUserId);
+    if (!sessionId || !ownerUserId) return;
+    const draft = candidate as WorkbookDraftRecord;
     draftsBySessionOwner.set(sessionOwnerKey(draft.sessionId, draft.ownerUserId), draft);
   });
 
-  const invitesByToken = new Map(db.workbookInvites.map((invite) => [invite.token, invite]));
-  const operationsByScopeKey = new Map(
-    db.workbookOperations.map((operation) => [
-      `${operation.scope}:${operation.key}`,
-      operation,
-    ])
-  );
+  const invitesByToken = new Map<string, WorkbookInviteRecord>();
+  db.workbookInvites.forEach((candidate) => {
+    if (!isRecord(candidate)) return;
+    const token = readKey(candidate.token);
+    if (!token) return;
+    invitesByToken.set(token, candidate as WorkbookInviteRecord);
+  });
+
+  const operationsByScopeKey = new Map<string, WorkbookOperationRecord>();
+  db.workbookOperations.forEach((candidate) => {
+    if (!isRecord(candidate)) return;
+    const scope = readKey(candidate.scope);
+    const key = readKey(candidate.key);
+    if (!scope || !key) return;
+    operationsByScopeKey.set(`${scope}:${key}`, candidate as WorkbookOperationRecord);
+  });
 
   return {
     usersById,
