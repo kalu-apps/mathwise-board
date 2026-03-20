@@ -52,7 +52,6 @@ export const useWorkbookSmartInkPipeline = ({
   const requestSmartInkAdapter = useCallback(
     async (strokes: WorkbookStroke[], options: SmartInkOptions) => {
       if (!sessionId) return null;
-      if (options.mode !== "full") return null;
       if (!options.smartTextOcr && !options.smartMathOcr) return null;
       try {
         const response = await recognizeWorkbookInk({
@@ -155,32 +154,48 @@ export const useWorkbookSmartInkPipeline = ({
           );
           setSelectedObjectId(objectWithZOrder.id);
         } catch {
-          setError("Не удалось применить Smart Ink преобразование.");
+          setError("Не удалось применить автопреобразование штриха.");
         }
       };
 
       const threshold = options.confidenceThreshold;
       const smartInkRuntime = await loadSmartInkRuntime();
 
-      if (options.mode === "full" && buffer.length >= 2) {
-        const batchResult = await smartInkRuntime.recognizeSmartInkBatch(
-          buffer,
-          recognitionConfig
-        );
-        if (batchResult.kind !== "none" && batchResult.confidence >= threshold) {
-          await applyRecognized(buffer, batchResult);
+      const lastStroke = buffer[buffer.length - 1];
+      if (options.smartShapes) {
+        const shapeResult = await smartInkRuntime.recognizeSmartInkStroke(lastStroke, {
+          ...recognitionConfig,
+          smartShapes: true,
+          smartTextOcr: false,
+          smartMathOcr: false,
+          handwritingAdapter: undefined,
+        });
+        if (shapeResult.kind !== "none" && shapeResult.confidence >= threshold) {
+          await applyRecognized([lastStroke], shapeResult);
           return;
         }
       }
 
-      const lastStroke = buffer[buffer.length - 1];
-      const singleResult = await smartInkRuntime.recognizeSmartInkStroke(
-        lastStroke,
-        recognitionConfig
-      );
-      if (singleResult.kind !== "none" && singleResult.confidence >= threshold) {
-        await applyRecognized([lastStroke], singleResult);
-        return;
+      if (options.smartTextOcr || options.smartMathOcr) {
+        if (buffer.length >= 2) {
+          const batchResult = await smartInkRuntime.recognizeSmartInkBatch(
+            buffer,
+            recognitionConfig
+          );
+          if (batchResult.kind !== "none" && batchResult.confidence >= threshold) {
+            await applyRecognized(buffer, batchResult);
+            return;
+          }
+        }
+
+        const singleResult = await smartInkRuntime.recognizeSmartInkStroke(
+          lastStroke,
+          recognitionConfig
+        );
+        if (singleResult.kind !== "none" && singleResult.confidence >= threshold) {
+          await applyRecognized([lastStroke], singleResult);
+          return;
+        }
       }
 
       if (smartInkStrokeBufferRef.current.length > 8) {
@@ -215,7 +230,7 @@ export const useWorkbookSmartInkPipeline = ({
         smartInkDebounceRef.current = null;
         if (configVersion !== smartInkConfigVersionRef.current) return;
         void processSmartInkBuffer(configVersion);
-      }, options.mode === "full" ? 620 : 360);
+      }, options.smartTextOcr || options.smartMathOcr ? 620 : 360);
     },
     [
       processSmartInkBuffer,

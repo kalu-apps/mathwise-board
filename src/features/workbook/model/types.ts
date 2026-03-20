@@ -196,7 +196,7 @@ export type WorkbookBoardSettings = {
   backgroundColor: string;
   snapToGrid: boolean;
   smartInk?: {
-    mode: "off" | "basic" | "full";
+    mode: "off" | "shape" | "text" | "formula" | "auto" | "basic" | "full";
     confidenceThreshold: number;
     smartShapes: boolean;
     smartTextOcr: boolean;
@@ -267,7 +267,7 @@ export type WorkbookSessionSettings = {
   undoPolicy: WorkbookUndoPolicy;
   strictGeometry: boolean;
   smartInk?: {
-    mode: "off" | "basic" | "full";
+    mode: "off" | "shape" | "text" | "formula" | "auto" | "basic" | "full";
     confidenceThreshold: number;
     smartShapes: boolean;
     smartTextOcr: boolean;

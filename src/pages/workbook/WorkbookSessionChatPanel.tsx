@@ -172,15 +172,20 @@ export function WorkbookSessionChatPanel({
                   title={participant.displayName}
                   arrow
                 >
-                  <Avatar
-                    src={participant.photo}
-                    alt={participant.displayName}
-                    className={`workbook-session__session-chat-avatar ${
+                  <span
+                    className={`workbook-session__session-chat-avatar-wrap ${
                       participant.isOnline ? "is-online" : "is-offline"
                     }`}
                   >
-                    {participant.displayName.slice(0, 1)}
-                  </Avatar>
+                    <Avatar
+                      src={participant.photo}
+                      alt={participant.displayName}
+                      className="workbook-session__session-chat-avatar"
+                    >
+                      {participant.displayName.slice(0, 1)}
+                    </Avatar>
+                    <span className="workbook-session__session-chat-avatar-presence" />
+                  </span>
                 </Tooltip>
               ))}
             </div>
@@ -220,7 +225,12 @@ export function WorkbookSessionChatPanel({
               </p>
             ) : (
               chatMessages.map((message) => (
-                <div key={message.id}>
+                <div
+                  key={message.id}
+                  className={`workbook-session__chat-item${
+                    message.authorUserId === currentUserId ? " is-own" : ""
+                  }`}
+                >
                   {firstUnreadSessionChatMessageId === message.id ? (
                     <div className="workbook-session__chat-unread-divider">Непрочитанные</div>
                   ) : null}

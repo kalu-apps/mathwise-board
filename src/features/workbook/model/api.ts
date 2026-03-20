@@ -558,7 +558,7 @@ export async function recognizeWorkbookInk(params: {
   preferMath?: boolean;
 }) {
   return api.post<{
-    provider: "mock" | "external";
+    provider: "local" | "mock" | "external";
     supported: boolean;
     result: null | {
       text?: string;
