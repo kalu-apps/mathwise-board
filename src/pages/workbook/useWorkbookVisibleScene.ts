@@ -20,7 +20,7 @@ export const useWorkbookVisibleScene = (params: UseWorkbookVisibleSceneParams) =
 
   const visibleIncomingEraserPreviews = useMemo(
     () =>
-      Object.values(params.incomingEraserPreviews).filter(
+      Object.values(params.incomingEraserPreviews ?? {}).filter(
         (preview) => preview.page === safeCurrentPage
       ),
     [params.incomingEraserPreviews, safeCurrentPage]

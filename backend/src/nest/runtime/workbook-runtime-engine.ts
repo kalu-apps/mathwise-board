@@ -485,7 +485,13 @@ const parseCookies = (req: IncomingMessage): Record<string, string> => {
     const [keyRaw, ...rest] = part.trim().split("=");
     const key = keyRaw?.trim();
     if (!key) return acc;
-    acc[key] = decodeURIComponent(rest.join("=") ?? "");
+    const rawValue = rest.join("=") ?? "";
+    try {
+      acc[key] = decodeURIComponent(rawValue);
+    } catch {
+      // Malformed legacy cookie value should not crash auth/session endpoints.
+      acc[key] = rawValue;
+    }
     return acc;
   }, {});
 };
