@@ -4,7 +4,7 @@ import { WorkbookRuntimeHttpService } from "./workbook-runtime-http.service";
 
 const WORKBOOK_API_ROUTES = [
   "/api/workbook",
-  "/api/workbook/*",
+  "/api/workbook/*path",
 ];
 
 @Controller()

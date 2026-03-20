@@ -2,7 +2,7 @@ import { All, Controller, Req, Res } from "@nestjs/common";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { WorkbookRuntimeTelemetryService } from "./workbook-runtime-telemetry.service";
 
-const TELEMETRY_API_ROUTES = ["/api/telemetry", "/api/telemetry/*"];
+const TELEMETRY_API_ROUTES = ["/api/telemetry", "/api/telemetry/*path"];
 
 @Controller()
 export class WorkbookRuntimeTelemetryController {

@@ -2,7 +2,7 @@ import { All, Controller, Req, Res } from "@nestjs/common";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { WorkbookRuntimeAuthService } from "./workbook-runtime-auth.service";
 
-const AUTH_API_ROUTES = ["/api/auth", "/api/auth/*"];
+const AUTH_API_ROUTES = ["/api/auth", "/api/auth/*path"];
 
 @Controller()
 export class WorkbookRuntimeAuthController {
