@@ -189,7 +189,7 @@ export const useWorkbookUtilityPanelController = ({
 
   const openUtilityPanel = useCallback(
     (
-      tab: "settings" | "graph" | "transform" | "layers",
+      tab: "settings" | "graph" | "transform",
       options?: {
         toggle?: boolean;
         anchorObject?: WorkbookBoardObject | null;
@@ -397,7 +397,6 @@ export const useWorkbookUtilityPanelController = ({
   const utilityPanelTitle = useMemo(() => {
     if (utilityTab === "settings") return "Настройки доски";
     if (utilityTab === "graph") return "График функции";
-    if (utilityTab === "layers") return "Слои";
     return "Трансформации";
   }, [utilityTab]);
 

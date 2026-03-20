@@ -4,6 +4,7 @@ import { WorkbookSessionUtilityPanelTabs } from "./WorkbookSessionUtilityPanelTa
 import { WorkbookSessionChatPanel } from "./WorkbookSessionChatPanel";
 import { WorkbookSessionOverlays } from "./WorkbookSessionOverlays";
 import type { WorkbookSessionParticipantsPanelProps } from "./WorkbookSessionParticipantsPanel";
+import { InlineMobiusLoader } from "@/shared/ui/loading";
 
 const WorkbookSessionParticipantsPanel = lazy(async () => ({
   default: (await import("./WorkbookSessionParticipantsPanel")).WorkbookSessionParticipantsPanel,
@@ -48,7 +49,11 @@ export function WorkbookSessionSidebar({
         <Suspense
           fallback={
             <div className="workbook-session__card">
-              <p className="workbook-session__hint">Загрузка участников...</p>
+              <InlineMobiusLoader
+                size="compact"
+                label="Загрузка участников..."
+                centered
+              />
             </div>
           }
         >

@@ -5,7 +5,6 @@ import type {
   WorkbookBoardSettings,
   WorkbookStroke,
 } from "@/features/workbook/model/types";
-import { DEFAULT_SMART_INK_OPTIONS } from "./workbookBoardSettingsModel";
 import {
   buildBoardSettingsDiffPatch,
   cloneSerializable,
@@ -81,10 +80,7 @@ export const useWorkbookBoardSettingsPages = ({
           {
             type: "board.settings.update",
             payload: {
-              boardSettings: {
-                ...nextSettings,
-                smartInk: DEFAULT_SMART_INK_OPTIONS,
-              },
+              boardSettings: nextSettings,
             },
           },
         ],

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Alert, Button, CircularProgress, TextField } from "@mui/material";
+import { Alert, Button, TextField } from "@mui/material";
 import "./workbookRouteStyles";
 import { joinWorkbookInvite, resolveWorkbookInvite } from "@/features/workbook/model/api";
 import { getAuthSession } from "@/features/auth/model/api";
@@ -9,6 +9,7 @@ import { AuthAmbientScene } from "@/features/auth-ambient/ui/AuthAmbientScene";
 import { ApiError } from "@/shared/api/client";
 import { t } from "@/shared/i18n";
 import { prefetchWorkbookSessionRuntime } from "./prefetchWorkbookSessionRuntime";
+import { InlineMobiusLoader } from "@/shared/ui/loading";
 
 export default function WorkbookInviteJoinPage() {
   const { token = "" } = useParams();
@@ -177,8 +178,12 @@ export default function WorkbookInviteJoinPage() {
         <h1>{t("workbookInvite.title")}</h1>
         {state.loading ? (
           <div className="workbook-invite__loading">
-            <CircularProgress size={24} />
-            <span>{t("workbookInvite.checkingInvite")}</span>
+            <InlineMobiusLoader
+              size="hero"
+              label={t("workbookInvite.checkingInvite")}
+              centered
+              stacked
+            />
           </div>
         ) : null}
         {state.error ? <Alert severity="error">{state.error}</Alert> : null}

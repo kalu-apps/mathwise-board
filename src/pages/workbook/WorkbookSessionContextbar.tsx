@@ -18,11 +18,15 @@ import CenterFocusStrongRoundedIcon from "@mui/icons-material/CenterFocusStrongR
 import FullscreenRoundedIcon from "@mui/icons-material/FullscreenRounded";
 import FullscreenExitRoundedIcon from "@mui/icons-material/FullscreenExitRounded";
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
-import LayersRoundedIcon from "@mui/icons-material/LayersRounded";
+import NavigateBeforeRoundedIcon from "@mui/icons-material/NavigateBeforeRounded";
+import NavigateNextRoundedIcon from "@mui/icons-material/NavigateNextRounded";
+import AddRoundedIcon from "@mui/icons-material/AddRounded";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import UndoRoundedIcon from "@mui/icons-material/UndoRounded";
 import RedoRoundedIcon from "@mui/icons-material/RedoRounded";
 import type { WorkbookPoint } from "@/features/workbook/model/types";
 import type { WorkbookUtilityTab } from "@/features/workbook/model/workbookSessionUiTypes";
+import type { WorkbookBoardPageOption } from "./WorkbookSessionBoardSettingsPanel";
 
 interface WorkbookSessionContextbarProps {
   overlayContainer?: HTMLElement;
@@ -36,7 +40,15 @@ interface WorkbookSessionContextbarProps {
   canAccessBoardSettingsPanel: boolean;
   isUtilityPanelOpen: boolean;
   utilityTab: WorkbookUtilityTab;
-  openUtilityPanel: (tab: "settings" | "graph" | "transform" | "layers") => void;
+  openUtilityPanel: (tab: "settings" | "graph" | "transform") => void;
+  boardPageOptions: WorkbookBoardPageOption[];
+  currentBoardPage: number;
+  totalBoardPages: number;
+  canManageBoardPages: boolean;
+  isBoardPageMutationPending: boolean;
+  onSelectBoardPage: (page: number) => void;
+  onAddBoardPage: () => void;
+  onDeleteBoardPage: (page: number) => void;
   canUseUndo: boolean;
   undoDepth: number;
   redoDepth: number;
@@ -74,6 +86,14 @@ export function WorkbookSessionContextbar({
   isUtilityPanelOpen,
   utilityTab,
   openUtilityPanel,
+  boardPageOptions,
+  currentBoardPage,
+  totalBoardPages,
+  canManageBoardPages,
+  isBoardPageMutationPending,
+  onSelectBoardPage,
+  onAddBoardPage,
+  onDeleteBoardPage,
   canUseUndo,
   undoDepth,
   redoDepth,
@@ -97,6 +117,20 @@ export function WorkbookSessionContextbar({
   contextbarPosition,
   onContextbarDragStart,
 }: WorkbookSessionContextbarProps) {
+  const safeCurrentBoardPage = Math.max(1, Math.round(currentBoardPage || 1));
+  const safeTotalBoardPages = Math.max(
+    safeCurrentBoardPage,
+    Math.round(totalBoardPages || 1)
+  );
+  const pagesWithContent = boardPageOptions.reduce(
+    (count, option) => count + (option.hasContent ? 1 : 0),
+    0
+  );
+  const canMutatePages = canManageBoardPages && !isBoardPageMutationPending;
+  const canGoPrev = canMutatePages && safeCurrentBoardPage > 1;
+  const canGoNext = canMutatePages && safeCurrentBoardPage < safeTotalBoardPages;
+  const canDeleteCurrentPage = canMutatePages && safeTotalBoardPages > 1;
+
   return (
     <div
       ref={contextbarRef}
@@ -173,19 +207,63 @@ export function WorkbookSessionContextbar({
             </IconButton>
           </span>
         </Tooltip>
-        <Tooltip title="Слои" placement="bottom" arrow>
-          <span>
-            <IconButton
-              size="small"
-              className={`workbook-session__toolbar-icon ${
-                isUtilityPanelOpen && utilityTab === "layers" ? "is-active" : ""
-              }`}
-              onClick={() => openUtilityPanel("layers")}
-            >
-              <LayersRoundedIcon />
-            </IconButton>
-          </span>
-        </Tooltip>
+        <div className="workbook-session__contextbar-inline workbook-session__page-switcher">
+          <Tooltip title="Предыдущая страница" placement="bottom" arrow>
+            <span>
+              <IconButton
+                size="small"
+                className="workbook-session__toolbar-icon"
+                disabled={!canGoPrev}
+                onClick={() => onSelectBoardPage(safeCurrentBoardPage - 1)}
+              >
+                <NavigateBeforeRoundedIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip
+            title={`Текущая страница: ${safeCurrentBoardPage}. Всего страниц: ${safeTotalBoardPages}. Страниц с контентом: ${pagesWithContent}.`}
+            placement="bottom"
+            arrow
+          >
+            <span className="workbook-session__page-badge">Стр. {safeCurrentBoardPage}</span>
+          </Tooltip>
+          <Tooltip title="Следующая страница" placement="bottom" arrow>
+            <span>
+              <IconButton
+                size="small"
+                className="workbook-session__toolbar-icon"
+                disabled={!canGoNext}
+                onClick={() => onSelectBoardPage(safeCurrentBoardPage + 1)}
+              >
+                <NavigateNextRoundedIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Добавить страницу" placement="bottom" arrow>
+            <span>
+              <IconButton
+                size="small"
+                className="workbook-session__toolbar-icon"
+                disabled={!canMutatePages}
+                onClick={onAddBoardPage}
+              >
+                <AddRoundedIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Удалить текущую страницу" placement="bottom" arrow>
+            <span>
+              <IconButton
+                size="small"
+                className="workbook-session__toolbar-icon"
+                disabled={!canDeleteCurrentPage}
+                onClick={() => onDeleteBoardPage(safeCurrentBoardPage)}
+              >
+                <DeleteOutlineRoundedIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </div>
         <Tooltip title="Отменить" placement="bottom" arrow>
           <span>
             <IconButton

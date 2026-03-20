@@ -43,6 +43,7 @@ type BuildWorkbookSessionLayoutRuntimePropsInput = {
     showCollaborationPanels: boolean;
     canClear: boolean;
     canAccessBoardSettingsPanel: boolean;
+    canManageSharedBoardSettings: boolean;
     canUseUndo: boolean;
     canInsertImage: boolean;
     canDelete: boolean;
@@ -65,7 +66,7 @@ type BuildWorkbookSessionLayoutRuntimePropsInput = {
     selectedObjectSupportsTransformPanel: UtilityPanelTabsProps["selectedObjectSupportsTransformPanel"];
     settingsPanelProps: UtilityPanelTabsProps["settingsPanelProps"];
     graphPanelProps: UtilityPanelTabsProps["graphPanelProps"];
-    layersPanelProps: UtilityPanelTabsProps["layersPanelProps"];
+    boardPageOptions: UtilityPanelTabsProps["settingsPanelProps"]["pageOptions"];
     transformPanelProps: UtilityPanelTabsProps["transformPanelProps"];
     isCompactDialogViewport: OverlaysProps["isCompactDialogViewport"];
     contextMenuSection: OverlaysProps["contextMenuSection"];
@@ -94,6 +95,9 @@ type BuildWorkbookSessionLayoutRuntimePropsInput = {
     exportBoardAsPdf: ContextbarProps["exportBoardAsPdf"];
     handleMenuClearBoard: ContextbarProps["onMenuClearBoard"];
     openUtilityPanel: ContextbarProps["openUtilityPanel"];
+    handleSelectBoardPage: ContextbarProps["onSelectBoardPage"];
+    handleAddBoardPage: ContextbarProps["onAddBoardPage"];
+    handleDeleteBoardPage: ContextbarProps["onDeleteBoardPage"];
     handleUndo: ContextbarProps["onUndo"];
     handleRedo: ContextbarProps["onRedo"];
     zoomOut: ContextbarProps["onZoomOut"];
@@ -181,6 +185,15 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
     }
     return fallback;
   };
+  const safeCurrentBoardPage = Math.max(
+    1,
+    Math.round(data.boardSettings.currentPage || 1)
+  );
+  const safeTotalBoardPages = Math.max(
+    safeCurrentBoardPage,
+    Math.round(data.boardSettings.pagesCount || 1),
+    derived.boardPageOptions[derived.boardPageOptions.length - 1]?.page ?? 1
+  );
 
   const sessionChatPosition = normalizePoint(ui.sessionChatPosition, { x: 24, y: 96 });
   const contextbarPosition = normalizePoint(ui.contextbarPosition, { x: 24, y: 18 });
@@ -272,6 +285,14 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
     isUtilityPanelOpen: page.isUtilityPanelOpen,
     utilityTab: page.utilityTab,
     openUtilityPanel: handlers.openUtilityPanel,
+    boardPageOptions: derived.boardPageOptions,
+    currentBoardPage: safeCurrentBoardPage,
+    totalBoardPages: safeTotalBoardPages,
+    canManageBoardPages: permissions.canManageSharedBoardSettings,
+    isBoardPageMutationPending: page.isBoardPageMutationPending,
+    onSelectBoardPage: handlers.handleSelectBoardPage,
+    onAddBoardPage: handlers.handleAddBoardPage,
+    onDeleteBoardPage: handlers.handleDeleteBoardPage,
     canUseUndo: permissions.canUseUndo,
     undoDepth: page.undoDepth,
     redoDepth: page.redoDepth,
@@ -355,7 +376,6 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
     selectedObjectSupportsTransformPanel: derived.selectedObjectSupportsTransformPanel,
     settingsPanelProps: derived.settingsPanelProps,
     graphPanelProps: derived.graphPanelProps,
-    layersPanelProps: derived.layersPanelProps,
     transformPanelProps: derived.transformPanelProps,
   };
 

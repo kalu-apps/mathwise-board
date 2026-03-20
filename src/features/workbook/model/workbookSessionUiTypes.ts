@@ -32,7 +32,7 @@ export type WorkbookAreaSelectionClipboard = {
   strokes: WorkbookStroke[];
 };
 
-export type WorkbookUtilityTab = "settings" | "graph" | "transform" | "layers";
+export type WorkbookUtilityTab = "settings" | "graph" | "transform";
 
 export type WorkbookCanvasVisibilityMode = "viewport" | "full";
 

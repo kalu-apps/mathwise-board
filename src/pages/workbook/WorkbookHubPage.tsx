@@ -4,14 +4,12 @@ import {
   Alert,
   Avatar,
   Button,
-  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   IconButton,
   Skeleton,
-  Stack,
   Tooltip,
   Typography,
 } from "@mui/material";
@@ -37,6 +35,7 @@ import {
 import type { WorkbookDraftCard, WorkbookInviteInfo } from "@/features/workbook/model/types";
 import { prefetchWorkbookSessionRuntime } from "./prefetchWorkbookSessionRuntime";
 import { APP_DATA_UPDATED_EVENT } from "@/shared/lib/dataUpdateBus";
+import { InlineMobiusLoader } from "@/shared/ui/loading";
 
 type HubScope = "class" | "personal";
 
@@ -427,10 +426,12 @@ export default function WorkbookHubPage() {
       <section className="workbook-launch workbook-entry-shell workbook-entry-shell--launch">
         <AuthAmbientScene variant="launch" />
         <article className="workbook-launch__card">
-          <Stack direction="row" spacing={1.5} alignItems="center">
-            <CircularProgress size={22} />
-            <Typography variant="body2">{t("route.loadingPage")}</Typography>
-          </Stack>
+          <InlineMobiusLoader
+            size="hero"
+            label={t("route.loadingPage")}
+            centered
+            stacked
+          />
         </article>
       </section>
     );
@@ -652,7 +653,7 @@ export default function WorkbookHubPage() {
                             variant="text"
                             startIcon={
                               isCopying ? (
-                                <CircularProgress size={14} />
+                                <InlineMobiusLoader size="tiny" decorative />
                               ) : (
                                 <ContentCopyRoundedIcon fontSize="small" />
                               )
@@ -670,7 +671,7 @@ export default function WorkbookHubPage() {
                             variant="text"
                             startIcon={
                               isRenaming ? (
-                                <CircularProgress size={14} />
+                                <InlineMobiusLoader size="tiny" decorative />
                               ) : (
                                 <EditRoundedIcon fontSize="small" />
                               )

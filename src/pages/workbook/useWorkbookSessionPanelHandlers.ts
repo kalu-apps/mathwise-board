@@ -27,8 +27,6 @@ export type UseWorkbookSessionPanelHandlersParams = {
   selectDocumentAsset: (assetId: string) => void;
   setDocumentPage: (page: number) => void;
   setDocumentZoom: (zoom: number) => void;
-  dissolveCompositionLayer: (layerId: string) => void;
-  removeObjectFromComposition: (objectId: string, layerId: string) => void;
   createFunctionGraphPlane: () => void;
   selectGraphPlane: (planeId: string) => void;
   updateFunctionGraphAppearance: (patch: { axisColor?: string; planeColor?: string }) => void;
@@ -54,8 +52,6 @@ export const useWorkbookSessionPanelHandlers = ({
   selectDocumentAsset,
   setDocumentPage,
   setDocumentZoom,
-  dissolveCompositionLayer,
-  removeObjectFromComposition,
   createFunctionGraphPlane,
   selectGraphPlane,
   updateFunctionGraphAppearance,
@@ -118,20 +114,6 @@ export const useWorkbookSessionPanelHandlers = ({
       setDocumentZoom(zoom);
     },
     [setDocumentZoom]
-  );
-
-  const handleLayersPanelDissolveLayer = useCallback(
-    (layerId: string) => {
-      dissolveCompositionLayer(layerId);
-    },
-    [dissolveCompositionLayer]
-  );
-
-  const handleLayersPanelRemoveObject = useCallback(
-    (objectId: string, layerId: string) => {
-      removeObjectFromComposition(objectId, layerId);
-    },
-    [removeObjectFromComposition]
   );
 
   const handleGraphPanelCreatePlane = useCallback(() => {
@@ -244,8 +226,6 @@ export const useWorkbookSessionPanelHandlers = ({
     handleDocsWindowSelectAsset,
     handleDocsWindowPageChange,
     handleDocsWindowZoomChange,
-    handleLayersPanelDissolveLayer,
-    handleLayersPanelRemoveObject,
     handleGraphPanelCreatePlane,
     handleGraphPanelSelectPlane,
     handleGraphPanelAxisColorChange,

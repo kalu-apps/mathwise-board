@@ -1360,8 +1360,24 @@ const resolveTeacherLastVisitDurationMinutes = (db: MockDb, session: WorkbookSes
   }
   const key = resolveParticipantPresenceKey(session.id, teacherParticipant.userId);
   const activeTabs = presenceActiveTabsByParticipant.get(key);
-  if (activeTabs?.size && teacherParticipant.currentVisitStartedAt) {
-    return resolveDurationMinutes(teacherParticipant.currentVisitStartedAt, nowIso());
+  const currentVisitStartedAt = teacherParticipant.currentVisitStartedAt;
+  if (currentVisitStartedAt) {
+    const hasActiveTabs = Boolean(activeTabs?.size);
+    const isOnlineNow = isParticipantOnline(teacherParticipant);
+    if (hasActiveTabs || isOnlineNow) {
+      return resolveDurationMinutes(currentVisitStartedAt, nowIso());
+    }
+    const inferredEndedAt = teacherParticipant.leftAt ?? teacherParticipant.lastSeenAt ?? null;
+    const inferredDuration = inferredEndedAt
+      ? resolveDurationMinutes(currentVisitStartedAt, inferredEndedAt)
+      : null;
+    if (
+      typeof inferredDuration === "number" &&
+      Number.isFinite(inferredDuration) &&
+      inferredDuration > 0
+    ) {
+      return inferredDuration;
+    }
   }
   if (
     typeof teacherParticipant.lastVisitDurationMinutes === "number" &&

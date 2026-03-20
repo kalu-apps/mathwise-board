@@ -2,6 +2,8 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useState,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import "./workbookRouteStyles";
@@ -72,7 +74,8 @@ import {
   getSolidVertexLabel,
 } from "./WorkbookSessionPage.core";
 import {
-  getWorkbookObjectTypeLabel,
+  supportsGraphUtilityPanel,
+  supportsTransformUtilityPanel,
 } from "./WorkbookSessionPage.geometry";
 import type { WorkbookSessionTransformPanelProps } from "./WorkbookSessionTransformPanel.types";
 import { useWorkbookPdfExport } from "./useWorkbookPdfExport";
@@ -94,6 +97,11 @@ import { useWorkbookSessionDerivedState } from "./useWorkbookSessionDerivedState
 import { applyWorkbookIncomingEventsBatch } from "./applyWorkbookIncomingEventsBatch";
 import { buildWorkbookSessionTransformPanelRuntimeProps } from "./buildWorkbookSessionTransformPanelRuntimeProps";
 import { buildWorkbookSessionUtilityPanelProps } from "./buildWorkbookSessionUtilityPanelProps";
+import {
+  WorkbookSessionToolSettingsPopover,
+  type WorkbookToolSettingsPopoverState,
+  type WorkbookToolSettingsPopoverTool,
+} from "./WorkbookSessionToolSettingsPopover";
 
 export default function WorkbookSessionPage() {
   const { user, isAuthReady } = useAuth();
@@ -438,7 +446,6 @@ export default function WorkbookSessionPage() {
     normalizedSceneLayers,
     activeSceneLayerId,
     getObjectSceneLayerId,
-    compositionLayerEntries,
   } = useWorkbookSessionDerivedState({
     sessionId,
     user,
@@ -478,6 +485,27 @@ export default function WorkbookSessionPage() {
     eraserRadiusMin: ERASER_RADIUS_MIN,
     eraserRadiusMax: ERASER_RADIUS_MAX,
   });
+  const [toolSettingsPopoverState, setToolSettingsPopoverState] =
+    useState<WorkbookToolSettingsPopoverState>(null);
+  const handleCloseToolSettingsPopover = useCallback(() => {
+    setToolSettingsPopoverState(null);
+  }, []);
+  const handleToolContextMenu = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>, nextTool: WorkbookTool) => {
+      let menuTool: WorkbookToolSettingsPopoverTool | null = null;
+      if (nextTool === "pen" || nextTool === "highlighter" || nextTool === "eraser") {
+        menuTool = nextTool;
+      }
+      if (!menuTool) return;
+      event.preventDefault();
+      setToolSettingsPopoverState({
+        tool: menuTool,
+        x: event.clientX,
+        y: event.clientY,
+      });
+    },
+    []
+  );
 
   const {
     scheduleLocalPreviewBoardObjectPatch,
@@ -1075,7 +1103,6 @@ export default function WorkbookSessionPage() {
 
   const {
     createCompositionFromAreaSelection,
-    removeObjectFromComposition,
     dissolveCompositionLayer,
   } = useWorkbookCompositionLayerHandlers({
     canSelect,
@@ -1089,33 +1116,46 @@ export default function WorkbookSessionPage() {
     setError,
   });
 
-  const focusObjectInWorkspace = useCallback((objectId: string) => {
-    const targetObject = boardObjects.find((item) => item.id === objectId) ?? null;
-    setSelectedConstraintId(null);
-    setSelectedObjectId(objectId);
-    resetToolRuntimeToSelect();
-    openUtilityPanel("transform", {
-      toggle: false,
-      anchorObject: targetObject,
-    });
-  }, [
-    boardObjects,
-    openUtilityPanel,
-    resetToolRuntimeToSelect,
-    setSelectedConstraintId,
-    setSelectedObjectId,
-  ]);
-
-  const handleCanvasSelectedObjectChange = useCallback((objectId: string | null) => {
-    setSelectedConstraintId(null);
-    setSelectedObjectId(objectId);
-  }, [setSelectedConstraintId, setSelectedObjectId]);
+  const handleCanvasSelectedObjectChange = useCallback(
+    (nextObjectId: string | null) => {
+      const suppressedObjectId = suppressAutoPanelSelectionRef.current;
+      setSelectedConstraintId(null);
+      setSelectedObjectId(nextObjectId);
+      if (!nextObjectId) return;
+      if (suppressedObjectId === nextObjectId) {
+        suppressAutoPanelSelectionRef.current = null;
+        return;
+      }
+      const targetObject = boardObjects.find((item) => item.id === nextObjectId) ?? null;
+      if (supportsGraphUtilityPanel(targetObject)) {
+        openUtilityPanel("graph", {
+          toggle: false,
+          anchorObject: targetObject,
+        });
+        return;
+      }
+      if (supportsTransformUtilityPanel(targetObject)) {
+        openUtilityPanel("transform", {
+          toggle: false,
+          anchorObject: targetObject,
+        });
+      }
+    },
+    [
+      boardObjects,
+      openUtilityPanel,
+      setSelectedConstraintId,
+      setSelectedObjectId,
+      suppressAutoPanelSelectionRef,
+    ]
+  );
 
   const handleCanvasObjectCreate = useCallback(
     (object: Parameters<typeof commitObjectCreate>[0]) => {
+      suppressAutoPanelSelectionRef.current = object.id;
       void commitObjectCreate(object);
     },
-    [commitObjectCreate]
+    [commitObjectCreate, suppressAutoPanelSelectionRef]
   );
 
   const getLatestCanvasObject = useCallback(
@@ -1366,12 +1406,6 @@ export default function WorkbookSessionPage() {
     setDocumentZoom: (zoom) => {
       void updateDocumentState({ zoom });
     },
-    dissolveCompositionLayer: (layerId) => {
-      void dissolveCompositionLayer(layerId);
-    },
-    removeObjectFromComposition: (objectId, layerId) => {
-      void removeObjectFromComposition(objectId, layerId);
-    },
     createFunctionGraphPlane: () => {
       void mathPresetCreationHandlers.createFunctionGraphPlane();
     },
@@ -1506,26 +1540,12 @@ export default function WorkbookSessionPage() {
     setMicEnabled,
   });
 
-  const { settingsPanelProps, graphPanelProps, layersPanelProps } =
+  const { settingsPanelProps, graphPanelProps } =
     buildWorkbookSessionUtilityPanelProps({
       settings: {
         boardSettings,
         onSharedBoardSettingsChange: handleSharedBoardSettingsChange,
         boardPageOptions: selectionViewportState.boardPageOptions,
-        onSelectBoardPage: handleSelectBoardPage,
-        onAddBoardPage: handleAddBoardPage,
-        onDeleteBoardPage: handleDeleteBoardPage,
-        isBoardPageMutationPending,
-        smartInkOptions,
-        setSmartInkOptions,
-        penToolSettings,
-        highlighterToolSettings,
-        clampedEraserRadius,
-        onPenToolSettingsChange: handlePenToolSettingsChange,
-        onHighlighterToolSettingsChange: handleHighlighterToolSettingsChange,
-        onEraserRadiusChange: handleEraserRadiusChange,
-        eraserRadiusMin: ERASER_RADIUS_MIN,
-        eraserRadiusMax: ERASER_RADIUS_MAX,
         canManageSharedBoardSettings,
       },
       graph: {
@@ -1558,14 +1578,6 @@ export default function WorkbookSessionPage() {
         onToggleGraphFunctionVisibility: panelHandlers.handleGraphPanelToggleVisibility,
         onReflectGraphFunctionByAxis: panelHandlers.handleGraphPanelReflectFunction,
       },
-      layers: {
-        compositionLayerEntries,
-        getObjectTypeLabel: getWorkbookObjectTypeLabel,
-        onDissolveLayer: panelHandlers.handleLayersPanelDissolveLayer,
-        onFocusObject: focusObjectInWorkspace,
-        onRemoveObject: panelHandlers.handleLayersPanelRemoveObject,
-        onDeleteObject: canvasHandlers.handleCanvasObjectDelete,
-      },
     });
 
   const {
@@ -1588,6 +1600,7 @@ export default function WorkbookSessionPage() {
     setPolygonMode,
     setPolygonPreset,
     setPolygonSides,
+    onToolContextMenu: handleToolContextMenu,
   });
   const beforeCatalogToolButtons = useMemo(
     () => toolButtonsBeforeCatalog.map(renderToolButton),
@@ -1729,6 +1742,7 @@ export default function WorkbookSessionPage() {
       showCollaborationPanels,
       canClear,
       canAccessBoardSettingsPanel,
+      canManageSharedBoardSettings,
       canUseUndo,
       canInsertImage,
       canDelete,
@@ -1753,7 +1767,7 @@ export default function WorkbookSessionPage() {
         selectionViewportState.selectedObjectSupportsTransformPanel,
       settingsPanelProps,
       graphPanelProps,
-      layersPanelProps,
+      boardPageOptions: selectionViewportState.boardPageOptions,
       transformPanelProps,
       isCompactDialogViewport,
       contextMenuSection: selectionViewportState.contextMenuSection,
@@ -1783,6 +1797,9 @@ export default function WorkbookSessionPage() {
       exportBoardAsPdf,
       handleMenuClearBoard,
       openUtilityPanel,
+      handleSelectBoardPage,
+      handleAddBoardPage,
+      handleDeleteBoardPage,
       handleUndo,
       handleRedo,
       zoomOut,
@@ -1898,6 +1915,21 @@ export default function WorkbookSessionPage() {
           overlaysProps={overlaysProps}
         />
       </div>
+
+      <WorkbookSessionToolSettingsPopover
+        state={toolSettingsPopoverState}
+        onClose={handleCloseToolSettingsPopover}
+        penToolSettings={penToolSettings}
+        highlighterToolSettings={highlighterToolSettings}
+        eraserRadius={clampedEraserRadius}
+        eraserRadiusMin={ERASER_RADIUS_MIN}
+        eraserRadiusMax={ERASER_RADIUS_MAX}
+        smartInkOptions={smartInkOptions}
+        setSmartInkOptions={setSmartInkOptions}
+        onPenToolSettingsChange={handlePenToolSettingsChange}
+        onHighlighterToolSettingsChange={handleHighlighterToolSettingsChange}
+        onEraserRadiusChange={handleEraserRadiusChange}
+      />
     </section>
   );
 }

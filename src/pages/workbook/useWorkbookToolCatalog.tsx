@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type ReactNode } from "react";
+import { useCallback, useMemo, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { Tooltip } from "@mui/material";
 import BorderColorRoundedIcon from "@mui/icons-material/BorderColorRounded";
 import PanToolRoundedIcon from "@mui/icons-material/PanToolRounded";
@@ -45,6 +45,7 @@ type UseWorkbookToolCatalogParams = {
   setPolygonMode: (nextMode: "regular" | "points") => void;
   setPolygonPreset: (nextPreset: WorkbookPolygonPreset) => void;
   setPolygonSides: (nextSides: number) => void;
+  onToolContextMenu: (event: ReactMouseEvent<HTMLButtonElement>, tool: WorkbookTool) => void;
 };
 
 export const useWorkbookToolCatalog = ({
@@ -60,6 +61,7 @@ export const useWorkbookToolCatalog = ({
   setPolygonMode,
   setPolygonPreset,
   setPolygonSides,
+  onToolContextMenu,
 }: UseWorkbookToolCatalogParams) => {
   const toolButtons = useMemo<Array<ToolButton>>(
     () => [
@@ -138,6 +140,7 @@ export const useWorkbookToolCatalog = ({
                 }
                 activateTool(item.tool);
               }}
+              onContextMenu={(event) => onToolContextMenu(event, item.tool)}
               aria-label={item.label}
               title={item.label}
             >
@@ -156,6 +159,7 @@ export const useWorkbookToolCatalog = ({
       createFunctionGraphPlane,
       resetToolRuntimeToSelect,
       tool,
+      onToolContextMenu,
     ]
   );
 

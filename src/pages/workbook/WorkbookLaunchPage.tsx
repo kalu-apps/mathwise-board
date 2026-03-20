@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Button, CircularProgress, Stack, Typography } from "@mui/material";
+import { Alert, Button, Typography } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import "./workbookRouteStyles";
 import { useAuth } from "@/features/auth/model/AuthContext";
@@ -10,6 +10,7 @@ import {
 } from "@/features/workbook/model/api";
 import { prefetchWorkbookSessionRuntime } from "./prefetchWorkbookSessionRuntime";
 import { t } from "@/shared/i18n";
+import { InlineMobiusLoader } from "@/shared/ui/loading";
 
 const toSessionPath = (sessionId: string) =>
   `/workbook/session/${encodeURIComponent(sessionId)}`;
@@ -88,10 +89,12 @@ export default function WorkbookLaunchPage() {
       <section className="workbook-launch workbook-entry-shell workbook-entry-shell--launch">
         <AuthAmbientScene variant="launch" />
         <article className="workbook-launch__card">
-          <Stack direction="row" spacing={1.5} alignItems="center">
-            <CircularProgress size={22} />
-            <Typography variant="body2">{t("route.loadingPage")}</Typography>
-          </Stack>
+          <InlineMobiusLoader
+            size="hero"
+            label={t("route.loadingPage")}
+            centered
+            stacked
+          />
         </article>
       </section>
     );
@@ -107,10 +110,12 @@ export default function WorkbookLaunchPage() {
         </Typography>
         {error ? <Alert severity="error">{error}</Alert> : null}
         {!isAuthReady || loading ? (
-          <Stack direction="row" spacing={1.5} alignItems="center">
-            <CircularProgress size={20} />
-            <Typography variant="body2">{t("route.loadingPage")}</Typography>
-          </Stack>
+          <InlineMobiusLoader
+            size="hero"
+            label={t("route.loadingPage")}
+            centered
+            stacked
+          />
         ) : null}
         {isAuthReady && user?.role === "student" ? (
           <Alert severity="warning" className="workbook-launch__student-alert">

@@ -162,39 +162,108 @@ export const useWorkbookSmartInkPipeline = ({
       const smartInkRuntime = await loadSmartInkRuntime();
 
       const lastStroke = buffer[buffer.length - 1];
-      if (options.smartShapes) {
-        const shapeResult = await smartInkRuntime.recognizeSmartInkStroke(lastStroke, {
-          ...recognitionConfig,
-          smartShapes: true,
-          smartTextOcr: false,
-          smartMathOcr: false,
-          handwritingAdapter: undefined,
-        });
-        if (shapeResult.kind !== "none" && shapeResult.confidence >= threshold) {
-          await applyRecognized([lastStroke], shapeResult);
-          return;
-        }
-      }
+      const shapeCandidate = options.smartShapes
+        ? await smartInkRuntime.recognizeSmartInkStroke(lastStroke, {
+            ...recognitionConfig,
+            smartShapes: true,
+            smartTextOcr: false,
+            smartMathOcr: false,
+            handwritingAdapter: undefined,
+          })
+        : null;
 
-      if (options.smartTextOcr || options.smartMathOcr) {
+      const runOcrCandidate = async (
+        ocrOptions: Pick<SmartInkOptions, "smartTextOcr" | "smartMathOcr">
+      ): Promise<{ result: SmartInkDetectedResult; strokes: WorkbookStroke[] } | null> => {
+        if (!ocrOptions.smartTextOcr && !ocrOptions.smartMathOcr) {
+          return null;
+        }
+        const ocrConfig = {
+          ...recognitionConfig,
+          smartShapes: false,
+          smartTextOcr: ocrOptions.smartTextOcr,
+          smartMathOcr: ocrOptions.smartMathOcr,
+          handwritingAdapter: async (input: {
+            stroke: WorkbookStroke;
+            points: WorkbookPoint[];
+          }) => {
+            const sourceStrokes =
+              buffer.length > 1 && input.points.length > input.stroke.points.length + 2
+                ? buffer
+                : [input.stroke];
+            return requestSmartInkAdapter(sourceStrokes, {
+              ...options,
+              smartShapes: false,
+              smartTextOcr: ocrOptions.smartTextOcr,
+              smartMathOcr: ocrOptions.smartMathOcr,
+            });
+          },
+        };
+
+        const candidates: Array<{ result: SmartInkDetectedResult; strokes: WorkbookStroke[] }> = [];
         if (buffer.length >= 2) {
-          const batchResult = await smartInkRuntime.recognizeSmartInkBatch(
-            buffer,
-            recognitionConfig
-          );
-          if (batchResult.kind !== "none" && batchResult.confidence >= threshold) {
-            await applyRecognized(buffer, batchResult);
-            return;
+          const batchResult = await smartInkRuntime.recognizeSmartInkBatch(buffer, ocrConfig);
+          if (batchResult.kind !== "none") {
+            candidates.push({ result: batchResult, strokes: buffer });
           }
         }
-
-        const singleResult = await smartInkRuntime.recognizeSmartInkStroke(
-          lastStroke,
-          recognitionConfig
+        const singleResult = await smartInkRuntime.recognizeSmartInkStroke(lastStroke, ocrConfig);
+        if (singleResult.kind !== "none") {
+          candidates.push({ result: singleResult, strokes: [lastStroke] });
+        }
+        if (!candidates.length) return null;
+        return candidates.reduce((best, current) =>
+          current.result.confidence > best.result.confidence ? current : best
         );
-        if (singleResult.kind !== "none" && singleResult.confidence >= threshold) {
-          await applyRecognized([lastStroke], singleResult);
+      };
+
+      const textCandidate =
+        options.mode === "text" || options.mode === "auto"
+          ? await runOcrCandidate({ smartTextOcr: true, smartMathOcr: false })
+          : null;
+      const formulaCandidate =
+        options.mode === "formula" || options.mode === "auto"
+          ? await runOcrCandidate({ smartTextOcr: false, smartMathOcr: true })
+          : null;
+
+      if (options.mode === "shape") {
+        if (
+          shapeCandidate &&
+          shapeCandidate.kind !== "none" &&
+          shapeCandidate.confidence >= threshold
+        ) {
+          await applyRecognized([lastStroke], shapeCandidate);
           return;
+        }
+      } else if (options.mode === "text") {
+        if (textCandidate && textCandidate.result.confidence >= threshold) {
+          await applyRecognized(textCandidate.strokes, textCandidate.result);
+          return;
+        }
+      } else if (options.mode === "formula") {
+        if (formulaCandidate && formulaCandidate.result.confidence >= threshold) {
+          await applyRecognized(formulaCandidate.strokes, formulaCandidate.result);
+          return;
+        }
+      } else {
+        const autoCandidates: Array<{ result: SmartInkDetectedResult; strokes: WorkbookStroke[] }> = [];
+        if (shapeCandidate && shapeCandidate.kind !== "none") {
+          autoCandidates.push({ result: shapeCandidate, strokes: [lastStroke] });
+        }
+        if (textCandidate) {
+          autoCandidates.push(textCandidate);
+        }
+        if (formulaCandidate) {
+          autoCandidates.push(formulaCandidate);
+        }
+        if (autoCandidates.length) {
+          const bestCandidate = autoCandidates.reduce((best, current) =>
+            current.result.confidence > best.result.confidence ? current : best
+          );
+          if (bestCandidate.result.confidence >= threshold) {
+            await applyRecognized(bestCandidate.strokes, bestCandidate.result);
+            return;
+          }
         }
       }
 

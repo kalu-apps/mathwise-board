@@ -1314,6 +1314,80 @@ textarea {
   gap: 8px;
 }
 
+.ui-mobius-loader {
+  --ui-mobius-size: var(--loader-mobius-size);
+  --ui-mobius-stroke: var(--loader-mobius-stroke);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--text-secondary);
+}
+
+.ui-mobius-loader--centered {
+  width: 100%;
+  justify-content: center;
+}
+
+.ui-mobius-loader--stacked {
+  flex-direction: column;
+  text-align: center;
+}
+
+.ui-mobius-loader__spinner {
+  width: var(--ui-mobius-size);
+  height: calc(var(--ui-mobius-size) * 0.7);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.ui-mobius-loader__spinner .ui-loader__mobius-track,
+.ui-mobius-loader__spinner .ui-loader__mobius-accent {
+  stroke-width: var(--ui-mobius-stroke);
+}
+
+.ui-mobius-loader__label {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.ui-mobius-loader--hero {
+  --ui-mobius-size: clamp(64px, 7vw, 96px);
+  --ui-mobius-stroke: clamp(2.8px, 0.22vw + 2px, 4.2px);
+  gap: 12px;
+}
+
+.ui-mobius-loader--hero .ui-mobius-loader__label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ui-mobius-loader--panel {
+  --ui-mobius-size: clamp(42px, 4.8vw, 66px);
+  --ui-mobius-stroke: clamp(2.2px, 0.14vw + 1.8px, 3.2px);
+}
+
+.ui-mobius-loader--compact {
+  --ui-mobius-size: clamp(24px, 2.8vw, 34px);
+  --ui-mobius-stroke: clamp(1.8px, 0.08vw + 1.4px, 2.6px);
+  gap: 8px;
+}
+
+.ui-mobius-loader--tiny {
+  --ui-mobius-size: 14px;
+  --ui-mobius-stroke: 1.6px;
+  gap: 0;
+  line-height: 0;
+}
+
+.ui-mobius-loader--tiny .ui-mobius-loader__label {
+  display: none;
+}
+
 @keyframes ds-loader-mobius-pulse {
   0%,
   100% {
