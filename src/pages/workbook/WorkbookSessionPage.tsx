@@ -1677,7 +1677,7 @@ export default function WorkbookSessionPage() {
   }, [dirtyRef, fromPath, navigate, persistSnapshots, setError]);
 
   if (loading) {
-    return <PageLoader minHeight="30vh" />;
+    return <PageLoader />;
   }
 
   if (!session) {

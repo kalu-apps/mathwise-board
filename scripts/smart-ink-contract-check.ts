@@ -66,18 +66,27 @@ const cases: ContractCase[] = [
     },
   },
   {
-    name: "basic mode is strictly shape-only",
+    name: "shape mode is strictly figure-only",
     run: () => {
       const options = normalizeSmartInkOptions({
-        mode: "basic",
+        mode: "shape",
         smartShapes: false,
         smartTextOcr: true,
         smartMathOcr: true,
       });
-      assert(options.mode === "basic", "Expected mode=basic");
-      assert(options.smartShapes === true, "Expected smartShapes=true in basic mode");
-      assert(options.smartTextOcr === false, "Expected smartTextOcr=false in basic mode");
-      assert(options.smartMathOcr === false, "Expected smartMathOcr=false in basic mode");
+      assert(options.mode === "shape", "Expected mode=shape");
+      assert(options.smartShapes === true, "Expected smartShapes=true in shape mode");
+      assert(options.smartTextOcr === false, "Expected smartTextOcr=false in shape mode");
+      assert(options.smartMathOcr === false, "Expected smartMathOcr=false in shape mode");
+    },
+  },
+  {
+    name: "legacy full/basic modes are normalized",
+    run: () => {
+      const legacyBasic = normalizeSmartInkOptions({ mode: "basic" as never });
+      assert(legacyBasic.mode === "shape", "Expected legacy basic -> shape");
+      const legacyFull = normalizeSmartInkOptions({ mode: "full" as never });
+      assert(legacyFull.mode === "auto", "Expected legacy full -> auto");
     },
   },
   {

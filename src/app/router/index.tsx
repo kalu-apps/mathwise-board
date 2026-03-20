@@ -19,7 +19,6 @@ const WorkbookLaunchPage = lazy(
 
 const routeSuspenseFallback = (
   <PageLoader
-    minHeight="28vh"
     title={t("route.loadingPage")}
     showRingDelayMs={180}
     showRingMinVisibleMs={220}
