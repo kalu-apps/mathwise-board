@@ -8,6 +8,7 @@ import {
   readWorkbookSessionLatestSeqCached,
   setWorkbookSessionLatestSeqCached,
 } from "./workbookSeqCache";
+import { sanitizeAuthSessions, sanitizeUserRecords, sanitizeWorkbookAccessLogs, sanitizeWorkbookDrafts, sanitizeWorkbookEvents, sanitizeWorkbookInvites, sanitizeWorkbookOperations, sanitizeWorkbookParticipants, sanitizeWorkbookSessions, sanitizeWorkbookSnapshots } from "./dbSanitizers";
 
 export type UserRole = "teacher" | "student";
 
@@ -650,37 +651,33 @@ const ensureShape = (raw: unknown): MockDb => {
   const source = typeof raw === "object" && raw ? (raw as Partial<MockDb>) : {};
   const base = createDefaultDb();
   const next: MockDb = {
-    users: Array.isArray(source.users) ? source.users : base.users,
-    authSessions: Array.isArray(source.authSessions) ? source.authSessions : base.authSessions,
+    users: Array.isArray(source.users) ? (sanitizeUserRecords(source.users) as UserRecord[]) : base.users,
+    authSessions: Array.isArray(source.authSessions)
+      ? (sanitizeAuthSessions(source.authSessions) as AuthSessionRecord[])
+      : base.authSessions,
     workbookSessions: Array.isArray(source.workbookSessions)
-      ? source.workbookSessions
+      ? (sanitizeWorkbookSessions(source.workbookSessions) as WorkbookSessionRecord[])
       : base.workbookSessions,
-    workbookParticipants: Array.isArray(source.workbookParticipants)
-      ? source.workbookParticipants
-      : base.workbookParticipants,
+    workbookParticipants: Array.isArray(source.workbookParticipants) ? (sanitizeWorkbookParticipants(source.workbookParticipants) as WorkbookSessionParticipantRecord[]) : base.workbookParticipants,
     workbookDrafts: Array.isArray(source.workbookDrafts)
-      ? source.workbookDrafts
+      ? (sanitizeWorkbookDrafts(source.workbookDrafts) as WorkbookDraftRecord[])
       : base.workbookDrafts,
     workbookInvites: Array.isArray(source.workbookInvites)
-      ? source.workbookInvites
+      ? (sanitizeWorkbookInvites(source.workbookInvites) as WorkbookInviteRecord[])
       : base.workbookInvites,
     workbookOperations: Array.isArray(source.workbookOperations)
-      ? source.workbookOperations
+      ? (sanitizeWorkbookOperations(source.workbookOperations) as WorkbookOperationRecord[])
       : base.workbookOperations,
     workbookEvents: Array.isArray(source.workbookEvents)
-      ? source.workbookEvents
+      ? (sanitizeWorkbookEvents(source.workbookEvents) as WorkbookEventRecord[])
       : base.workbookEvents,
     workbookSnapshots: Array.isArray(source.workbookSnapshots)
-      ? source.workbookSnapshots
+      ? (sanitizeWorkbookSnapshots(source.workbookSnapshots) as WorkbookSnapshotRecord[])
       : base.workbookSnapshots,
     workbookAccessLogs: Array.isArray(source.workbookAccessLogs)
-      ? source.workbookAccessLogs
+      ? (sanitizeWorkbookAccessLogs(source.workbookAccessLogs) as WorkbookAccessLogRecord[])
       : base.workbookAccessLogs,
   };
-
-  if (!next.users.some((user) => user.role === "teacher" && user.email === "teacher@axiom.demo")) {
-    next.users.push(defaultTeacherUser());
-  }
 
   const parseTs = (value: string | null | undefined) => {
     const parsed = Date.parse(String(value ?? ""));
@@ -708,13 +705,20 @@ const ensureShape = (raw: unknown): MockDb => {
     return Array.from(map.values());
   };
 
+  const users = [...next.users];
+  if (!users.some((user) => user.role === "teacher" && user.email === "teacher@axiom.demo")) {
+    users.push(defaultTeacherUser());
+  }
+  const validUserIds = new Set(users.map((entry) => entry.id));
+
+  const authSessions = next.authSessions.filter((entry) => validUserIds.has(entry.userId));
+
   const sessions = dedupeBy(
-    next.workbookSessions,
+    next.workbookSessions.filter((entry) => validUserIds.has(entry.createdBy)),
     (entry) => entry.id,
     (current, candidate) => parseTs(candidate.lastActivityAt) >= parseTs(current.lastActivityAt)
   );
   const validSessionIds = new Set(sessions.map((entry) => entry.id));
-  const validUserIds = new Set(next.users.map((entry) => entry.id));
 
   const participants = dedupeBy(
     next.workbookParticipants.filter(
@@ -727,7 +731,6 @@ const ensureShape = (raw: unknown): MockDb => {
       return candidateTs >= currentTs;
     }
   );
-
   const drafts = dedupeBy(
     next.workbookDrafts.filter(
       (entry) => validSessionIds.has(entry.sessionId) && validUserIds.has(entry.ownerUserId)
@@ -735,7 +738,6 @@ const ensureShape = (raw: unknown): MockDb => {
     (entry) => `${entry.sessionId}:${entry.ownerUserId}`,
     (current, candidate) => parseTs(candidate.updatedAt) >= parseTs(current.updatedAt)
   );
-
   const invites = dedupeBy(
     next.workbookInvites.filter(
       (entry) => validSessionIds.has(entry.sessionId) && validUserIds.has(entry.createdBy)
@@ -743,7 +745,6 @@ const ensureShape = (raw: unknown): MockDb => {
     (entry) => entry.token,
     (current, candidate) => parseTs(candidate.createdAt) >= parseTs(current.createdAt)
   );
-
   const operationRecords = dedupeBy(
     next.workbookOperations.filter(
       (entry) =>
@@ -755,7 +756,6 @@ const ensureShape = (raw: unknown): MockDb => {
     (entry) => `${entry.scope}:${entry.key}`,
     (current, candidate) => parseTs(candidate.updatedAt) >= parseTs(current.updatedAt)
   );
-
   const events = dedupeBy(
     next.workbookEvents.filter((entry) => validSessionIds.has(entry.sessionId)),
     (entry) => entry.id,
@@ -764,13 +764,11 @@ const ensureShape = (raw: unknown): MockDb => {
       return parseTs(candidate.createdAt) >= parseTs(current.createdAt);
     }
   );
-
   const snapshots = dedupeBy(
     next.workbookSnapshots.filter((entry) => validSessionIds.has(entry.sessionId)),
     (entry) => `${entry.sessionId}:${entry.layer}`,
     (current, candidate) => candidate.version >= current.version
   );
-
   const accessLogs = dedupeBy(
     next.workbookAccessLogs.filter((entry) => validSessionIds.has(entry.sessionId)),
     (entry) => entry.id,
@@ -779,6 +777,8 @@ const ensureShape = (raw: unknown): MockDb => {
 
   return {
     ...next,
+    users,
+    authSessions,
     workbookSessions: sessions,
     workbookParticipants: participants,
     workbookDrafts: drafts,
@@ -789,7 +789,6 @@ const ensureShape = (raw: unknown): MockDb => {
     workbookAccessLogs: accessLogs,
   };
 };
-
 const mapFileEvent = (event: WorkbookEventRecord): PersistedWorkbookEvent => ({
   id: event.id,
   sessionId: event.sessionId,
