@@ -1,7 +1,8 @@
 export const WORKBOOK_PDF_IMPORT_MAX_BYTES = 15 * 1024 * 1024;
 export const WORKBOOK_IMAGE_IMPORT_MAX_BYTES = 20 * 1024 * 1024;
-export const WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS = 46_000;
-export const WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS = 72_000;
+// Keep payloads bounded for stability, but allow noticeably better visual quality.
+export const WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS = 96_000;
+export const WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS = 180_000;
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
   "png",
