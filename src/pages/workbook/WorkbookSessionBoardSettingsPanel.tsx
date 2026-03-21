@@ -60,6 +60,10 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
         {canManageSharedBoardSettings ? (
           <section className="workbook-session__board-settings-card">
             <div className="workbook-session__board-settings-card-head">
+              <div className="workbook-session__board-settings-page-meta workbook-session__board-settings-page-meta--top">
+                <span>Текущая страница: {safeCurrentPage}</span>
+                <span>Всего страниц: {totalPages}</span>
+              </div>
               <div className="workbook-session__board-settings-card-title">
                 <h4>
                   <CropFreeRoundedIcon fontSize="small" />
@@ -111,11 +115,8 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
               />
             </div>
             <div className="workbook-session__board-settings-field workbook-session__board-settings-field--grid">
-              <div className="workbook-session__board-settings-field-main">
+              <div className="workbook-session__board-settings-grid-row">
                 <strong>Размер сетки</strong>
-                <small>Плотность рабочей разметки на полотне.</small>
-              </div>
-              <div className="workbook-session__board-settings-grid-layout">
                 <div className="workbook-session__board-settings-range workbook-session__board-settings-range--grid">
                   <input
                     type="range"
@@ -132,45 +133,42 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                     {Math.round(sharedBoardSettings.gridSize)}
                   </span>
                 </div>
-                <div className="workbook-session__board-settings-color-stack">
-                  <div className="workbook-session__board-settings-color-field">
-                    <span>Фон доски</span>
-                    <label>
-                      <input
-                        type="color"
-                        value={sharedBoardSettings.backgroundColor}
-                        onChange={(event) =>
-                          onSharedBoardSettingsChange({
-                            backgroundColor: event.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                  </div>
-                  <div className="workbook-session__board-settings-color-field">
-                    <span>Цвет сетки</span>
-                    <label>
-                      <input
-                        type="color"
-                        value={
-                          sharedBoardSettings.gridColor.startsWith("#")
-                            ? sharedBoardSettings.gridColor
-                            : "#8893be"
-                        }
-                        onChange={(event) =>
-                          onSharedBoardSettingsChange({
-                            gridColor: event.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                  </div>
-                </div>
               </div>
             </div>
-            <div className="workbook-session__board-settings-page-meta">
-              <span>Текущая страница: {safeCurrentPage}</span>
-              <span>Всего страниц: {totalPages}</span>
+            <div className="workbook-session__board-settings-field workbook-session__board-settings-field--colors">
+              <div className="workbook-session__board-settings-field-main">
+                <strong>Фон доски и сетка</strong>
+              </div>
+              <div className="workbook-session__board-settings-color-inline">
+                <label className="workbook-session__board-settings-color-inline-item">
+                  <span>Фон доски</span>
+                  <input
+                    type="color"
+                    value={sharedBoardSettings.backgroundColor}
+                    onChange={(event) =>
+                      onSharedBoardSettingsChange({
+                        backgroundColor: event.target.value,
+                      })
+                    }
+                  />
+                </label>
+                <label className="workbook-session__board-settings-color-inline-item">
+                  <span>Цвет сетки</span>
+                  <input
+                    type="color"
+                    value={
+                      sharedBoardSettings.gridColor.startsWith("#")
+                        ? sharedBoardSettings.gridColor
+                        : "#8893be"
+                    }
+                    onChange={(event) =>
+                      onSharedBoardSettingsChange({
+                        gridColor: event.target.value,
+                      })
+                    }
+                  />
+                </label>
+              </div>
             </div>
             <div className="workbook-session__board-settings-note">
               Переключение, добавление и удаление страниц доступны в верхней панели контекста рядом с масштабом.

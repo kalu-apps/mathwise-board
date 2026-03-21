@@ -78,7 +78,12 @@ export const useWorkbookSessionContextbar = ({
       return;
     }
     const updateFloatingPanelsTop = () => {
-      const headRect = sessionHeadRef.current?.getBoundingClientRect() ?? null;
+      const pageHeader =
+        sessionHeadRef.current
+        ?? (typeof document !== "undefined"
+          ? (document.querySelector(".header") as HTMLElement | null)
+          : null);
+      const headRect = pageHeader?.getBoundingClientRect() ?? null;
       if (!headRect) {
         setFloatingPanelsTop(86);
         return;

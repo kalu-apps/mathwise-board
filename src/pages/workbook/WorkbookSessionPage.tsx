@@ -1633,6 +1633,18 @@ export default function WorkbookSessionPage() {
     navigate(fromPath, { replace: true });
   }, [dirtyRef, fromPath, navigate, persistSnapshots, setError]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onSessionHeaderBack = (event: Event) => {
+      event.preventDefault();
+      void handleBack();
+    };
+    window.addEventListener("workbook:session-back-request", onSessionHeaderBack);
+    return () => {
+      window.removeEventListener("workbook:session-back-request", onSessionHeaderBack);
+    };
+  }, [handleBack]);
+
   if (loading) {
     return <PageLoader />;
   }
@@ -1869,9 +1881,6 @@ export default function WorkbookSessionPage() {
         docsInputRef={docsInputRef}
         onLoadBoardFile={handleLoadBoardFile}
         onDocsUpload={handleDocsUpload}
-        sessionHeadRef={sessionHeadRef}
-        session={session}
-        onBack={handleBack}
         error={error}
         setError={setError}
         saveSyncWarning={saveSyncWarning}
@@ -1879,6 +1888,7 @@ export default function WorkbookSessionPage() {
         realtimeSyncWarning={realtimeSyncWarning}
         setRealtimeSyncWarning={setRealtimeSyncWarning}
         isFullscreen={isFullscreen}
+        isEnded={session.status === "ended"}
         pendingClearRequest={pendingClearRequest}
         currentUserId={user?.id}
         onConfirmClear={handleConfirmClear}

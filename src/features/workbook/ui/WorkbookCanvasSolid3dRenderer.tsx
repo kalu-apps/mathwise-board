@@ -663,15 +663,74 @@ export const renderWorkbookCanvasSolid3dObject = ({
               strokeWidth={Math.max(1, strokeWidth * 0.82)}
               opacity={0.88}
             />
-            <line
-              x1={center.x}
-              y1={domeTop}
-              x2={center.x}
-              y2={baseY}
+            <path
+              d={`M ${center.x - radius} ${baseY} Q ${center.x} ${domeTop} ${center.x + radius} ${baseY}`}
+              fill="none"
               stroke={lineColor}
-              strokeWidth={Math.max(1, strokeWidth * 0.75)}
-              strokeDasharray={hideHiddenEdges ? undefined : "5 4"}
-              opacity={hideHiddenEdges ? 0.85 : 0.72}
+              strokeWidth={Math.max(1, strokeWidth * 0.74)}
+              opacity={0.56}
+            />
+          </g>
+        );
+      }
+
+      if (presetId === "torus") {
+        const outerRx = Math.max(16, baseRx);
+        const outerRy = Math.max(11, baseRy * 0.78);
+        const tilt = Math.abs(Math.sin((view.rotationX * Math.PI) / 180));
+        const holeRx = Math.max(7, outerRx * (0.44 - tilt * 0.06));
+        const holeRy = Math.max(4, outerRy * (0.36 + tilt * 0.14));
+        const donutPath = [
+          `M ${center.x - outerRx} ${center.y}`,
+          `A ${outerRx} ${outerRy} 0 1 0 ${center.x + outerRx} ${center.y}`,
+          `A ${outerRx} ${outerRy} 0 1 0 ${center.x - outerRx} ${center.y}`,
+          `M ${center.x - holeRx} ${center.y}`,
+          `A ${holeRx} ${holeRy} 0 1 1 ${center.x + holeRx} ${center.y}`,
+          `A ${holeRx} ${holeRy} 0 1 1 ${center.x - holeRx} ${center.y}`,
+        ].join(" ");
+        return (
+          <g>
+            <path
+              d={donutPath}
+              fill={fillColor}
+              fillOpacity={0.86}
+              fillRule="evenodd"
+              stroke={lineColor}
+              strokeWidth={strokeWidth}
+            />
+            {!hideHiddenEdges ? (
+              <>
+                <path
+                  d={ellipseBackPath(center.x, center.y, outerRx, outerRy)}
+                  fill="none"
+                  stroke={lineColor}
+                  strokeWidth={Math.max(1, strokeWidth * 0.74)}
+                  strokeDasharray="6 5"
+                  opacity={0.52}
+                />
+                <path
+                  d={ellipseBackPath(center.x, center.y, holeRx, holeRy)}
+                  fill="none"
+                  stroke={lineColor}
+                  strokeWidth={Math.max(1, strokeWidth * 0.72)}
+                  strokeDasharray="5 4"
+                  opacity={0.5}
+                />
+              </>
+            ) : null}
+            <path
+              d={ellipseFrontPath(center.x, center.y, outerRx, outerRy)}
+              fill="none"
+              stroke={lineColor}
+              strokeWidth={Math.max(1, strokeWidth * 0.82)}
+              opacity={0.9}
+            />
+            <path
+              d={ellipseFrontPath(center.x, center.y, holeRx, holeRy)}
+              fill="none"
+              stroke={lineColor}
+              strokeWidth={Math.max(1, strokeWidth * 0.8)}
+              opacity={0.88}
             />
           </g>
         );
@@ -820,7 +879,7 @@ export const renderWorkbookCanvasSolid3dObject = ({
           ) : null}
         </defs>
         <g transform={transform} clipPath={shouldUseClipPath ? `url(#${clipPathId})` : undefined}>
-          {isRoundPreset ? (
+          {isRoundPreset && roundBodyNode ? (
             roundBodyNode
           ) : (
             <>
