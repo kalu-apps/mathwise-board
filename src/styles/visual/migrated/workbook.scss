@@ -3810,33 +3810,38 @@
 
 .workbook-session:fullscreen,
 .workbook-session.is-fullscreen {
-  width: 100%;
-  height: 100%;
+  width: 100dvw;
+  height: 100dvh;
+  min-height: 100dvh;
   max-width: none;
   max-height: none;
   margin: 0;
   border-radius: 0;
   box-shadow: none;
-  padding: 10px;
+  padding: 0;
   box-sizing: border-box;
   background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
   display: flex;
   flex-direction: column;
-  gap: var(--fluid-gap-sm);
+  gap: 0;
   overflow: hidden;
 }
 
 .workbook-session:fullscreen .workbook-session__layout,
 .workbook-session.is-fullscreen .workbook-session__layout {
   flex: 1 1 auto;
+  height: 100%;
   min-height: 0;
   align-items: stretch;
+  gap: 0;
 }
 
 .workbook-session:fullscreen .workbook-session__workspace,
 .workbook-session.is-fullscreen .workbook-session__workspace {
   border: none;
   box-shadow: none;
+  border-radius: 0;
+  padding: 0;
   min-height: 0;
   height: 100%;
   display: grid;
