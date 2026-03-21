@@ -234,11 +234,13 @@ const isEllipseLike = (
   points: WorkbookPoint[],
   bounds: StrokeBounds
 ): { matched: boolean; confidence: number } => {
-  if (points.length < 6) return { matched: false, confidence: 0 };
+  if (points.length < 5) return { matched: false, confidence: 0 };
   if (bounds.width < 12 || bounds.height < 12) return { matched: false, confidence: 0 };
   const center = { x: bounds.centerX, y: bounds.centerY };
   const radiusX = Math.max(1, bounds.width / 2);
   const radiusY = Math.max(1, bounds.height / 2);
+  const aspectRatio =
+    Math.min(bounds.width, bounds.height) / Math.max(1, Math.max(bounds.width, bounds.height));
   const normalizedDistances = points.map((point) =>
     Math.hypot((point.x - center.x) / radiusX, (point.y - center.y) / radiusY)
   );
@@ -249,7 +251,7 @@ const isEllipseLike = (
     normalizedDistances.length;
   const std = Math.sqrt(variance);
   const outlierRatio =
-    normalizedDistances.filter((value) => Math.abs(value - mean) > 0.36).length /
+    normalizedDistances.filter((value) => Math.abs(value - mean) > 0.44).length /
     normalizedDistances.length;
   const boxArea = Math.max(1, bounds.width * bounds.height);
   const contourAreaRatio = polygonArea(points) / boxArea;
@@ -262,17 +264,24 @@ const isEllipseLike = (
   );
   const coverageScore = clamp((angularCoverage - 0.54) / 0.46, 0, 1);
   const outlierScore = clamp(1 - outlierRatio / 0.3, 0, 1);
+  const aspectScore = clamp((aspectRatio - 0.16) / 0.38, 0, 1);
   const confidence = clamp(
-    0.45 + stdScore * 0.22 + areaScore * 0.16 + coverageScore * 0.17 + outlierScore * 0.13,
-    0.52,
-    0.95
+    0.49 +
+      stdScore * 0.2 +
+      areaScore * 0.16 +
+      coverageScore * 0.16 +
+      outlierScore * 0.12 +
+      aspectScore * 0.1,
+    0.56,
+    0.97
   );
   const matched =
-    std <= 0.29 &&
-    contourAreaRatio >= 0.47 &&
-    contourAreaRatio <= 0.92 &&
-    angularCoverage >= 0.68 &&
-    outlierRatio <= 0.2;
+    std <= 0.34 &&
+    contourAreaRatio >= 0.42 &&
+    contourAreaRatio <= 0.95 &&
+    angularCoverage >= 0.6 &&
+    outlierRatio <= 0.28 &&
+    aspectRatio >= 0.16;
   return {
     matched,
     confidence,
@@ -323,13 +332,22 @@ const detectSmartShape = (stroke: WorkbookStroke): SmartInkRecognitionResult => 
   }
   const start = points[0];
   const end = points[points.length - 1];
+  const center = { x: bounds.centerX, y: bounds.centerY };
+  const angularCoverage = estimateAngularCoverage(points, center);
   const closeThreshold = Math.max(
     10,
     diagonal * 0.26,
     Math.min(bounds.width, bounds.height) * 0.32
   );
-  const isClosed = distance(start, end) <= closeThreshold;
-  const epsilon = clamp(diagonal * 0.035, 2.5, 20);
+  const expandedCloseThreshold = Math.max(
+    closeThreshold,
+    diagonal * 0.48,
+    Math.min(bounds.width, bounds.height) * 0.58
+  );
+  const endGap = distance(start, end);
+  const loopByCoverage = angularCoverage >= 0.72 && length >= Math.max(26, diagonal * 2.05);
+  const isClosed = endGap <= closeThreshold || (endGap <= expandedCloseThreshold && loopByCoverage);
+  const epsilon = clamp(diagonal * (isClosed ? 0.028 : 0.035), 2, 16);
   const simplifiedRaw = simplifyRdp(points, epsilon);
   const simplified = isClosed ? normalizePolygonVertices(simplifiedRaw) : simplifiedRaw;
   const maxDeviationFromLine = points.reduce((max, point) => {
@@ -359,6 +377,24 @@ const detectSmartShape = (stroke: WorkbookStroke): SmartInkRecognitionResult => 
   }
 
   if (isClosed && simplified.length >= 3) {
+    const ellipseMatch = isEllipseLike(points, bounds);
+    if (ellipseMatch.matched) {
+      return {
+        kind: "shape",
+        object: createBaseObject(stroke, {
+          type: "ellipse",
+          x: bounds.minX,
+          y: bounds.minY,
+          width: Math.max(1, bounds.width),
+          height: Math.max(1, bounds.height),
+          meta: {
+            showLabels: true,
+            smartInk: true,
+          },
+        }),
+        confidence: ellipseMatch.confidence,
+      };
+    }
     if (simplified.length === 3) {
       const polygonBounds = getBounds(simplified);
       return {
@@ -395,25 +431,7 @@ const detectSmartShape = (stroke: WorkbookStroke): SmartInkRecognitionResult => 
         confidence: SMART_INK_SHAPE_CONFIDENCE.rectangle,
       };
     }
-    const ellipseMatch = isEllipseLike(points, bounds);
-    if (ellipseMatch.matched) {
-      return {
-        kind: "shape",
-        object: createBaseObject(stroke, {
-          type: "ellipse",
-          x: bounds.minX,
-          y: bounds.minY,
-          width: Math.max(1, bounds.width),
-          height: Math.max(1, bounds.height),
-          meta: {
-            showLabels: true,
-            smartInk: true,
-          },
-        }),
-        confidence: ellipseMatch.confidence,
-      };
-    }
-    if (simplified.length >= 5 && simplified.length <= 8) {
+    if (simplified.length >= 5 && simplified.length <= 10) {
       const polygonBounds = getBounds(simplified);
       return {
         kind: "shape",

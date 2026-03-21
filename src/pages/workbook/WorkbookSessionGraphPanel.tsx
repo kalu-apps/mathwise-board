@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { Alert, Button, IconButton, TextField, Tooltip } from "@mui/material";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import SwapHorizRoundedIcon from "@mui/icons-material/SwapHorizRounded";
 import SwapVertRoundedIcon from "@mui/icons-material/SwapVertRounded";
 import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
@@ -135,6 +136,7 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                   <Tooltip title="Убрать фон" arrow>
                     <IconButton
                       size="small"
+                      className="workbook-session__graph-plane-reset-btn"
                       onClick={onClearPlaneBackground}
                       aria-label="Убрать фон плоскости"
                     >
@@ -238,14 +240,6 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                             }
                             onBlur={onCommitGraphExpressions}
                           />
-                          <IconButton
-                            size="small"
-                            className="workbook-session__graph-delete-btn"
-                            onClick={() => onRemoveGraphFunction(item.id)}
-                            disabled={graphTabFunctions.length <= 1}
-                          >
-                            <CloseRoundedIcon fontSize="small" />
-                          </IconButton>
                         </div>
                         <div className="workbook-session__graph-card-actions">
                           <button
@@ -279,6 +273,16 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                           >
                             <SwapHorizRoundedIcon fontSize="small" />
                             <span>OY</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="workbook-session__graph-inline-action workbook-session__graph-inline-action--danger"
+                            onClick={() => onRemoveGraphFunction(item.id)}
+                            disabled={graphTabFunctions.length <= 1}
+                            aria-label="Удалить функцию"
+                          >
+                            <DeleteOutlineRoundedIcon fontSize="small" />
+                            <span>Удалить</span>
                           </button>
                         </div>
                       </div>

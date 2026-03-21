@@ -72,7 +72,9 @@ const getRecognitionScore = (result: SmartInkDetectedResult) => {
 
 const getThresholdGrace = (result: SmartInkDetectedResult) => {
   if (result.kind === "shape") {
-    return result.object.type === "ellipse" ? 0.1 : 0.05;
+    if (result.object.type === "ellipse") return 0.14;
+    if (result.object.type === "polygon") return 0.08;
+    return 0.07;
   }
   if (result.kind === "text") {
     const textValue = typeof result.object.text === "string" ? result.object.text.trim() : "";
@@ -87,8 +89,16 @@ const getThresholdGrace = (result: SmartInkDetectedResult) => {
   return latexValue.length ? 0.14 : 0.1;
 };
 
-const passesConfidenceThreshold = (result: SmartInkDetectedResult, threshold: number) => {
-  const effectiveThreshold = Math.max(0.35, threshold - getThresholdGrace(result));
+const passesConfidenceThreshold = (
+  result: SmartInkDetectedResult,
+  threshold: number,
+  mode: SmartInkOptions["mode"]
+) => {
+  let effectiveThreshold = threshold - getThresholdGrace(result);
+  if (mode === "shape" && result.kind === "shape") {
+    effectiveThreshold -= result.object.type === "ellipse" ? 0.08 : 0.06;
+  }
+  effectiveThreshold = Math.max(0.3, effectiveThreshold);
   return result.confidence >= effectiveThreshold;
 };
 
@@ -317,18 +327,24 @@ export const useWorkbookSmartInkPipeline = ({
         if (
           shapeCandidate &&
           shapeCandidate.kind !== "none" &&
-          passesConfidenceThreshold(shapeCandidate, threshold)
+          passesConfidenceThreshold(shapeCandidate, threshold, options.mode)
         ) {
           await applyRecognized([lastStroke], shapeCandidate);
           return;
         }
       } else if (options.mode === "text") {
-        if (textCandidate && passesConfidenceThreshold(textCandidate.result, threshold)) {
+        if (
+          textCandidate &&
+          passesConfidenceThreshold(textCandidate.result, threshold, options.mode)
+        ) {
           await applyRecognized(textCandidate.strokes, textCandidate.result);
           return;
         }
       } else if (options.mode === "formula") {
-        if (formulaCandidate && passesConfidenceThreshold(formulaCandidate.result, threshold)) {
+        if (
+          formulaCandidate &&
+          passesConfidenceThreshold(formulaCandidate.result, threshold, options.mode)
+        ) {
           await applyRecognized(formulaCandidate.strokes, formulaCandidate.result);
           return;
         }
@@ -347,7 +363,7 @@ export const useWorkbookSmartInkPipeline = ({
           const bestCandidate = autoCandidates.reduce((best, current) =>
             getRecognitionScore(current.result) > getRecognitionScore(best.result) ? current : best
           );
-          if (passesConfidenceThreshold(bestCandidate.result, threshold)) {
+          if (passesConfidenceThreshold(bestCandidate.result, threshold, options.mode)) {
             await applyRecognized(bestCandidate.strokes, bestCandidate.result);
             return;
           }

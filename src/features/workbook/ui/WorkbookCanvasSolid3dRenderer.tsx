@@ -4,7 +4,6 @@ import { resolveSolid3dPresetId } from "../model/solid3d";
 import { readSolid3dState } from "../model/solid3dState";
 import type { ProjectedSolidVertex } from "../model/solid3dGeometry";
 import {
-  computeSectionMetrics,
   computeSectionPolygon,
   getSolid3dMesh,
   projectSolidPointForObject,
@@ -232,7 +231,6 @@ export const renderWorkbookCanvasSolid3dObject = ({
           .filter((section) => section.visible)
           .map((section) => {
             const sectionData = computeSectionPolygon(mesh, section);
-            const metrics = computeSectionMetrics(sectionData.polygon);
             const points = sectionData.polygon.map((point) =>
               projectSolidPointForObject({
                 point,
@@ -243,7 +241,6 @@ export const renderWorkbookCanvasSolid3dObject = ({
             return {
               section,
               points,
-              metrics,
             };
           })
           .filter((item) => item.points.length >= 2)
@@ -621,6 +618,10 @@ export const renderWorkbookCanvasSolid3dObject = ({
           4,
           sphereRy * (0.22 + Math.abs(Math.sin((view.rotationX * Math.PI) / 180)) * 0.1)
         );
+        const meridianRx = Math.max(
+          4,
+          sphereRx * (0.22 + Math.abs(Math.sin((view.rotationY * Math.PI) / 180)) * 0.08)
+        );
         return (
           <g>
             <ellipse
@@ -649,6 +650,23 @@ export const renderWorkbookCanvasSolid3dObject = ({
               stroke={lineColor}
               strokeWidth={Math.max(1, strokeWidth * 0.82)}
               opacity={0.9}
+            />
+            {!hideHiddenEdges ? (
+              <path
+                d={`M ${center.x} ${center.y - sphereRy} A ${meridianRx} ${sphereRy} 0 0 1 ${center.x} ${center.y + sphereRy}`}
+                fill="none"
+                stroke={lineColor}
+                strokeWidth={Math.max(1, strokeWidth * 0.68)}
+                strokeDasharray="6 5"
+                opacity={0.5}
+              />
+            ) : null}
+            <path
+              d={`M ${center.x} ${center.y - sphereRy} A ${meridianRx} ${sphereRy} 0 0 0 ${center.x} ${center.y + sphereRy}`}
+              fill="none"
+              stroke={lineColor}
+              strokeWidth={Math.max(1, strokeWidth * 0.7)}
+              opacity={0.66}
             />
           </g>
         );
@@ -692,6 +710,18 @@ export const renderWorkbookCanvasSolid3dObject = ({
               strokeWidth={Math.max(1, strokeWidth * 0.74)}
               opacity={0.56}
             />
+            {!hideHiddenEdges ? (
+              <line
+                x1={center.x}
+                y1={domeTop}
+                x2={center.x}
+                y2={baseY}
+                stroke={lineColor}
+                strokeWidth={Math.max(1, strokeWidth * 0.64)}
+                strokeDasharray="6 5"
+                opacity={0.46}
+              />
+            ) : null}
           </g>
         );
       }
@@ -754,6 +784,18 @@ export const renderWorkbookCanvasSolid3dObject = ({
               strokeWidth={Math.max(1, strokeWidth * 0.8)}
               opacity={0.88}
             />
+            {!hideHiddenEdges ? (
+              <line
+                x1={center.x - outerRx}
+                y1={center.y}
+                x2={center.x + outerRx}
+                y2={center.y}
+                stroke={lineColor}
+                strokeWidth={Math.max(1, strokeWidth * 0.62)}
+                strokeDasharray="6 5"
+                opacity={0.44}
+              />
+            ) : null}
           </g>
         );
       }
@@ -809,6 +851,18 @@ export const renderWorkbookCanvasSolid3dObject = ({
               stroke={lineColor}
               strokeWidth={Math.max(1, strokeWidth * 0.82)}
             />
+            {!hideHiddenEdges ? (
+              <line
+                x1={apex.x}
+                y1={apex.y}
+                x2={bottom.center.x}
+                y2={bottom.center.y}
+                stroke={lineColor}
+                strokeWidth={Math.max(1, strokeWidth * 0.66)}
+                strokeDasharray="6 5"
+                opacity={0.5}
+              />
+            ) : null}
           </g>
         );
       }
@@ -877,6 +931,18 @@ export const renderWorkbookCanvasSolid3dObject = ({
             stroke={lineColor}
             strokeWidth={Math.max(1, strokeWidth * 0.82)}
           />
+          {!hideHiddenEdges ? (
+            <line
+              x1={top.center.x}
+              y1={top.center.y}
+              x2={bottom.center.x}
+              y2={bottom.center.y}
+              stroke={lineColor}
+              strokeWidth={Math.max(1, strokeWidth * 0.66)}
+              strokeDasharray="6 5"
+              opacity={0.48}
+            />
+          ) : null}
         </g>
       );
     })();
@@ -901,7 +967,9 @@ export const renderWorkbookCanvasSolid3dObject = ({
           ) : null}
         </defs>
         <g transform={transform} clipPath={shouldUseClipPath ? `url(#${clipPathId})` : undefined}>
-          {faceRenderData.length > 0 ? (
+          {isRoundPreset && roundBodyNode ? (
+            roundBodyNode
+          ) : faceRenderData.length > 0 ? (
             <>
               {faceRenderData.map((face) => {
                 const fillColor = faceColors[String(face.index)] || faceFill;
@@ -937,8 +1005,6 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 />
               ))}
             </>
-          ) : isRoundPreset && roundBodyNode ? (
-            roundBodyNode
           ) : null}
           {angleMarkRenderData.map((mark) => (
             <g key={`${object.id}-angle-mark-${mark.id}`}>
@@ -1008,50 +1074,29 @@ export const renderWorkbookCanvasSolid3dObject = ({
           {sectionLines.map((line) => {
             const polygon = sectionPolygonsById.get(line.section.id);
             if (polygon && polygon.points.length >= 2) {
+              const points = polygon.points.map((point) => `${point.x},${point.y}`).join(" ");
               return (
                 <g key={`${object.id}-section-${line.section.id}`}>
-                  <polyline
-                    points={polygon.points.map((point) => `${point.x},${point.y}`).join(" ")}
-                    fill={line.hasPolygon ? `${line.section.color}22` : "none"}
-                    stroke={line.section.color}
-                    strokeWidth={line.section.thickness}
-                    strokeDasharray={line.hasPolygon ? undefined : "7 5"}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                  />
                   {line.hasPolygon ? (
-                    <g>
-                      {polygon.metrics.sideLengths.map((sideLength, index) => {
-                        const a = polygon.points[index];
-                        const b = polygon.points[(index + 1) % polygon.points.length];
-                        const center = {
-                          x: (a.x + b.x) / 2,
-                          y: (a.y + b.y) / 2,
-                        };
-                        return (
-                          <text
-                            key={`${line.section.id}-side-${index}`}
-                            x={center.x + 4}
-                            y={center.y - 3}
-                            fill={line.section.color}
-                            fontSize={10}
-                            fontWeight={700}
-                          >
-                            {sideLength.toFixed(1)}
-                          </text>
-                        );
-                      })}
-                      <text
-                        x={polygon.points[0].x + 8}
-                        y={polygon.points[0].y + 16}
-                        fill={line.section.color}
-                        fontSize={10}
-                        fontWeight={700}
-                      >
-                        S={polygon.metrics.area.toFixed(1)}
-                      </text>
-                    </g>
-                  ) : null}
+                    <polygon
+                      points={points}
+                      fill={`${line.section.color}22`}
+                      stroke={line.section.color}
+                      strokeWidth={line.section.thickness}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                    />
+                  ) : (
+                    <polyline
+                      points={points}
+                      fill="none"
+                      stroke={line.section.color}
+                      strokeWidth={line.section.thickness}
+                      strokeDasharray="7 5"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                    />
+                  )}
                 </g>
               );
             }
