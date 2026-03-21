@@ -86,14 +86,15 @@ export function useWorkbookPresenceLifecycle({
         }
       } finally {
         heartbeatInFlight = false;
-        if (!active) return;
-        const jitterBase = Math.min(nextDelayMs, 3_000);
-        const jitter = Math.floor(jitterBase * 0.2 * Math.random());
-        scheduleHeartbeat(
-          reason === "interaction"
-            ? Math.min(nextDelayMs, Math.max(500, Math.floor(nextDelayMs * 0.6))) + jitter
-            : nextDelayMs + jitter
-        );
+        if (active) {
+          const jitterBase = Math.min(nextDelayMs, 3_000);
+          const jitter = Math.floor(jitterBase * 0.2 * Math.random());
+          scheduleHeartbeat(
+            reason === "interaction"
+              ? Math.min(nextDelayMs, Math.max(500, Math.floor(nextDelayMs * 0.6))) + jitter
+              : nextDelayMs + jitter
+          );
+        }
       }
     };
     const onVisibilityOrFocusChange = () => {
