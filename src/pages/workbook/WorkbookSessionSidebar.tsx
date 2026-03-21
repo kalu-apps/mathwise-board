@@ -35,30 +35,32 @@ export function WorkbookSessionSidebar({
   overlaysProps,
 }: WorkbookSessionSidebarProps) {
   return (
-    <aside
-      className="workbook-session__sidebar"
-      style={
-        !isCompactViewport && showSidebarParticipants
-          ? ({
-              ["--workbook-floating-top" as string]: `${floatingPanelsTop}px`,
-            } as CSSProperties)
-          : undefined
-      }
-    >
+    <>
       {showSidebarParticipants ? (
-        <Suspense
-          fallback={
-            <div className="workbook-session__card">
-              <InlineMobiusLoader
-                size="compact"
-                label="Загрузка участников..."
-                centered
-              />
-            </div>
+        <div
+          className="workbook-session__sidebar"
+          style={
+            !isCompactViewport
+              ? ({
+                  ["--workbook-floating-top" as string]: `${floatingPanelsTop}px`,
+                } as CSSProperties)
+              : undefined
           }
         >
-          <WorkbookSessionParticipantsPanel {...participantsPanelProps} />
-        </Suspense>
+          <Suspense
+            fallback={
+              <div className="workbook-session__card">
+                <InlineMobiusLoader
+                  size="compact"
+                  label="Загрузка участников..."
+                  centered
+                />
+              </div>
+            }
+          >
+            <WorkbookSessionParticipantsPanel {...participantsPanelProps} />
+          </Suspense>
+        </div>
       ) : null}
 
       <WorkbookSessionUtilityPanelChrome {...utilityPanelChromeProps}>
@@ -68,6 +70,6 @@ export function WorkbookSessionSidebar({
       <WorkbookSessionChatPanel {...sessionChatPanelProps} />
 
       <WorkbookSessionOverlays {...overlaysProps} />
-    </aside>
+    </>
   );
 }
