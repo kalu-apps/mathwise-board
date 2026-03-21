@@ -33,7 +33,7 @@ import type {
   WorkbookTimerState,
   WorkbookStroke,
 } from "@/features/workbook/model/types";
-import { ApiError } from "@/shared/api/client";
+import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import { generateId } from "@/shared/lib/id";
 import {
   DEFAULT_BOARD_SETTINGS,
@@ -43,6 +43,9 @@ import {
 import { normalizeSceneLayersForBoard } from "./WorkbookSessionPage.geometry";
 
 type SetState<T> = (value: T | ((current: T) => T)) => void;
+
+const WORKBOOK_DOCUMENT_SYNC_IMAGE_MAX_DATA_URL_CHARS = 96_000;
+const WORKBOOK_DOCUMENT_SYNC_RENDERED_IMAGE_MAX_DATA_URL_CHARS = 64_000;
 
 type UseWorkbookSessionDocumentHandlersParams = {
   canInsertImage: boolean;
@@ -131,10 +134,12 @@ export const useWorkbookSessionDocumentHandlers = ({
 
   const syncUploadedDocumentAsset = useCallback(
     async (assetId: string, asset: WorkbookDocumentAssetLike) => {
-      await appendEventsAndApply([
+      const buildSyncEvents = (
+        syncAsset: WorkbookDocumentAssetLike
+      ): WorkbookClientEventInput[] => [
         {
           type: "document.asset.add",
-          payload: { asset },
+          payload: { asset: syncAsset },
         },
         {
           type: "document.state.update",
@@ -143,7 +148,99 @@ export const useWorkbookSessionDocumentHandlers = ({
             page: 1,
           },
         },
-      ]);
+      ];
+      const compactAssetForSync = async (
+        sourceAsset: WorkbookDocumentAssetLike
+      ): Promise<WorkbookDocumentAssetLike> => {
+        let changed = false;
+        let compactedUrl = sourceAsset.url;
+        if (typeof compactedUrl === "string" && compactedUrl.startsWith("data:image/")) {
+          const nextUrl = await optimizeImageDataUrl(compactedUrl, {
+            maxEdge: 1_200,
+            quality: 0.64,
+            maxChars: WORKBOOK_DOCUMENT_SYNC_IMAGE_MAX_DATA_URL_CHARS,
+          });
+          if (nextUrl.length < compactedUrl.length) {
+            compactedUrl = nextUrl;
+            changed = true;
+          }
+        }
+        let compactedRenderedPages = sourceAsset.renderedPages;
+        if (Array.isArray(sourceAsset.renderedPages) && sourceAsset.renderedPages.length > 0) {
+          const nextRenderedPages = await Promise.all(
+            sourceAsset.renderedPages.map(async (renderedPage) => {
+              if (
+                typeof renderedPage.imageUrl !== "string" ||
+                !renderedPage.imageUrl.startsWith("data:image/")
+              ) {
+                return renderedPage;
+              }
+              const compactedRenderedImageUrl = await optimizeImageDataUrl(
+                renderedPage.imageUrl,
+                {
+                  maxEdge: 980,
+                  quality: 0.6,
+                  maxChars: WORKBOOK_DOCUMENT_SYNC_RENDERED_IMAGE_MAX_DATA_URL_CHARS,
+                }
+              );
+              if (compactedRenderedImageUrl.length < renderedPage.imageUrl.length) {
+                changed = true;
+                return {
+                  ...renderedPage,
+                  imageUrl: compactedRenderedImageUrl,
+                };
+              }
+              return renderedPage;
+            })
+          );
+          compactedRenderedPages = nextRenderedPages;
+        }
+        if (!changed) return sourceAsset;
+        return {
+          ...sourceAsset,
+          url: compactedUrl,
+          renderedPages: compactedRenderedPages,
+        };
+      };
+
+      let syncAsset = asset;
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        try {
+          await appendEventsAndApply(buildSyncEvents(syncAsset));
+          return;
+        } catch (error) {
+          const isConflict =
+            error instanceof ApiError &&
+            error.code === "conflict" &&
+            error.status === 409;
+          if (isConflict && attempt < 2) {
+            await new Promise<void>((resolve) => {
+              window.setTimeout(resolve, 180 * (attempt + 1));
+            });
+            continue;
+          }
+          if (error instanceof ApiError && error.status === 413) {
+            const compactedAsset = await compactAssetForSync(syncAsset);
+            if (compactedAsset !== syncAsset) {
+              syncAsset = compactedAsset;
+              if (attempt >= 3) {
+                throw error;
+              }
+              await new Promise<void>((resolve) => {
+                window.setTimeout(resolve, 120);
+              });
+              continue;
+            }
+          }
+          if (isRecoverableApiError(error) && attempt < 3) {
+            await new Promise<void>((resolve) => {
+              window.setTimeout(resolve, 220 * (attempt + 1));
+            });
+            continue;
+          }
+          throw error;
+        }
+      }
     },
     [appendEventsAndApply]
   );
@@ -264,10 +361,20 @@ export const useWorkbookSessionDocumentHandlers = ({
         if (!created) return;
         try {
           await syncUploadedDocumentAsset(assetId, syncedAsset);
-        } catch {
-          setError(
-            "Изображение добавлено на доску, но не удалось синхронизировать его в окне документов."
-          );
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 413) {
+            setError(
+              "Изображение добавлено на доску, но объём данных для окна документов оказался слишком большим."
+            );
+          } else if (error instanceof ApiError && error.status === 409) {
+            setError(
+              "Изображение добавлено на доску, но синхронизация окна документов столкнулась с конфликтом. Повторите действие."
+            );
+          } else {
+            setError(
+              "Изображение добавлено на доску, но не удалось синхронизировать его в окне документов."
+            );
+          }
         }
         void upsertLibraryItem({
           id: generateId(),
