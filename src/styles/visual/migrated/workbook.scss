@@ -447,27 +447,6 @@
   grid-template-columns: minmax(0, 1fr);
   position: relative;
 }
-.workbook-session__layout-contextbar-row {
-  position: fixed;
-  left: 24px;
-  top: 18px;
-  z-index: 60;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  max-width: calc(100vw - 24px);
-  pointer-events: auto;
-}
-.workbook-session__layout-contextbar-row .workbook-session__contextbar-dock {
-  position: static;
-  left: auto;
-  top: auto;
-  z-index: auto;
-  max-width: calc(100vw - 82px);
-}
-.workbook-session__session-back.MuiIconButton-root {
-  flex: 0 0 auto;
-}
 .workbook-session__layout--sidebar-overlay .workbook-session__sidebar {
   position: fixed;
   top: var(--workbook-floating-top, 86px);
@@ -487,6 +466,25 @@
   min-width: 0;
   max-width: 100%;
   overflow-x: clip;
+}
+.workbook-session__workspace-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+.workbook-session__workspace-head .workbook-session__contextbar-dock {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+.workbook-session__workspace-head .workbook-session__contextbar {
+  width: 100%;
+  max-width: 100%;
+}
+.workbook-session__session-back.MuiIconButton-root {
+  flex: 0 0 auto;
 }
 .workbook-session__file-input {
   display: none;
@@ -3832,10 +3830,6 @@
   height: calc(100vh - 230px);
 }
 
-.workbook-session:fullscreen .workbook-session__layout-contextbar-row {
-  top: 10px;
-}
-
 .workbook-session:fullscreen .workbook-session__tools {
   top: 66px;
   max-height: calc(100vh - 210px);
@@ -4143,22 +4137,7 @@
     user-select: auto;
   }
 
-  .workbook-session__layout-contextbar-row {
-    position: sticky;
-    left: auto;
-    top: 8px;
-    width: 100%;
-    max-width: 100%;
-    z-index: 20;
-    align-items: stretch;
-  }
-
-  .workbook-session__layout-contextbar-row .workbook-session__contextbar-dock {
-    flex: 1 1 auto;
-    max-width: 100%;
-  }
-
-  .workbook-session__layout-contextbar-row .workbook-session__session-back.MuiIconButton-root {
+  .workbook-session__workspace-head .workbook-session__session-back.MuiIconButton-root {
     width: 36px;
     height: 36px;
   }
