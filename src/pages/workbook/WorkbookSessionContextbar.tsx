@@ -30,7 +30,7 @@ import type { WorkbookUtilityTab } from "@/features/workbook/model/workbookSessi
 import type { WorkbookBoardPageOption } from "./WorkbookSessionBoardSettingsPanel";
 
 interface WorkbookSessionContextbarProps {
-  overlayContainer?: HTMLElement;
+  overlayContainer?: Element | null;
   menuAnchor: HTMLElement | null;
   setMenuAnchor: (anchor: HTMLElement | null) => void;
   exportBoardAsPdf: () => Promise<void> | void;

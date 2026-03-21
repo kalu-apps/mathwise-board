@@ -18,6 +18,7 @@ type ToolPaintSettings = {
 
 type WorkbookSessionToolSettingsPopoverProps = {
   state: WorkbookToolSettingsPopoverState;
+  overlayContainer?: Element | null;
   onClose: () => void;
   penToolSettings: ToolPaintSettings;
   highlighterToolSettings: ToolPaintSettings;
@@ -39,6 +40,7 @@ const TOOL_TITLES: Record<WorkbookToolSettingsPopoverTool, string> = {
 
 export function WorkbookSessionToolSettingsPopover({
   state,
+  overlayContainer,
   onClose,
   penToolSettings,
   highlighterToolSettings,
@@ -64,6 +66,7 @@ export function WorkbookSessionToolSettingsPopover({
 
   return (
     <Popover
+      container={overlayContainer}
       open={Boolean(state)}
       onClose={onClose}
       disableAutoFocus
@@ -127,68 +130,39 @@ export function WorkbookSessionToolSettingsPopover({
                 </div>
               </div>
               <div className="workbook-session__tool-settings-cluster">
-                <div className="workbook-session__tool-settings-cluster-title">
-                  Режим и порог уверенности
-                </div>
-                <div className="workbook-session__tool-settings-split">
-                  <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
-                    <div className="workbook-session__tool-settings-field-main">
-                      <strong>Режим</strong>
-                    </div>
-                    <Select
-                      size="small"
-                      className="workbook-session__tool-settings-select"
-                      value={smartInkOptions.mode}
-                      onChange={(event) =>
-                        updateSmartInk({
-                          mode:
-                            event.target.value === "off" ||
-                            event.target.value === "shape" ||
-                            event.target.value === "text" ||
-                            event.target.value === "formula" ||
-                            event.target.value === "auto"
-                              ? event.target.value
-                              : smartInkOptions.mode,
-                        })
-                      }
-                      inputProps={{
-                        name: "pen-smart-ink-mode",
-                        id: "pen-smart-ink-mode",
-                      }}
-                    >
-                      <MenuItem value="off">Ручка</MenuItem>
-                      <MenuItem value="shape">Фигуры</MenuItem>
-                      <MenuItem value="text">Текст</MenuItem>
-                      <MenuItem value="formula">Формулы</MenuItem>
-                      <MenuItem value="auto">Авто</MenuItem>
-                    </Select>
+                <div className="workbook-session__tool-settings-cluster-title">Режим Smart Ink</div>
+                <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
+                  <div className="workbook-session__tool-settings-field-main">
+                    <strong>Режим</strong>
                   </div>
-                  <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
-                    <div className="workbook-session__tool-settings-field-main">
-                      <strong>Порог уверенности</strong>
-                    </div>
-                    <div className="workbook-session__tool-settings-range">
-                      <input
-                        type="range"
-                        name="pen-confidence-threshold"
-                        min={0.35}
-                        max={0.98}
-                        step={0.01}
-                        value={smartInkOptions.confidenceThreshold}
-                        disabled={smartInkOptions.mode === "off"}
-                        onChange={(event) =>
-                          updateSmartInk({
-                            confidenceThreshold: Number(event.target.value),
-                          })
-                        }
-                      />
-                      <span>
-                        {smartInkOptions.mode === "off"
-                          ? "off"
-                          : `${Math.round(smartInkOptions.confidenceThreshold * 100)}%`}
-                      </span>
-                    </div>
-                  </div>
+                  <Select
+                    size="small"
+                    className="workbook-session__tool-settings-select"
+                    value={smartInkOptions.mode}
+                    MenuProps={{
+                      container: overlayContainer,
+                    }}
+                    onChange={(event) =>
+                      updateSmartInk({
+                        mode:
+                          event.target.value === "off" ||
+                          event.target.value === "shape" ||
+                          event.target.value === "text" ||
+                          event.target.value === "formula"
+                            ? event.target.value
+                            : smartInkOptions.mode,
+                      })
+                    }
+                    inputProps={{
+                      name: "pen-smart-ink-mode",
+                      id: "pen-smart-ink-mode",
+                    }}
+                  >
+                    <MenuItem value="off">Ручка</MenuItem>
+                    <MenuItem value="shape">Фигуры</MenuItem>
+                    <MenuItem value="text">Текст</MenuItem>
+                    <MenuItem value="formula">Формулы</MenuItem>
+                  </Select>
                 </div>
               </div>
             </>

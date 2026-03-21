@@ -2758,16 +2758,18 @@
 
 .workbook-session__solid-card-toggle-stack {
   display: grid;
-  justify-items: end;
   gap: 6px;
 }
 
 .workbook-session__solid-card-row--toggle {
-  width: fit-content;
-  min-width: min(100%, 320px);
+  width: 100%;
+  min-width: 0;
   grid-template-columns: minmax(0, 1fr) auto;
-  justify-items: end;
-  text-align: right;
+  text-align: left;
+}
+
+.workbook-session__solid-card-row--toggle > :last-child {
+  justify-self: end;
 }
 
 .workbook-session__solid-input .MuiInputBase-root {

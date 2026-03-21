@@ -44,9 +44,6 @@ type SmartInkAdapterResponse = {
 const SMART_INK_ADAPTER_CACHE_TTL_MS = 5000;
 const SMART_INK_ADAPTER_ERROR_CACHE_TTL_MS = 450;
 
-const getStrokePointsCount = (strokes: WorkbookStroke[]) =>
-  strokes.reduce((sum, stroke) => sum + stroke.points.length, 0);
-
 const getRecognitionScore = (result: SmartInkDetectedResult) => {
   let score = result.confidence;
   if (result.kind === "shape") {
@@ -71,37 +68,6 @@ const getRecognitionScore = (result: SmartInkDetectedResult) => {
   return score;
 };
 
-const getThresholdGrace = (result: SmartInkDetectedResult) => {
-  if (result.kind === "shape") {
-    if (result.object.type === "ellipse") return 0.14;
-    if (result.object.type === "polygon") return 0.08;
-    return 0.07;
-  }
-  if (result.kind === "text") {
-    const textValue = typeof result.object.text === "string" ? result.object.text.trim() : "";
-    return textValue.length >= 4 ? 0.12 : 0.08;
-  }
-  const latexValue =
-    result.object.meta &&
-    typeof result.object.meta === "object" &&
-    typeof result.object.meta.latex === "string"
-      ? result.object.meta.latex.trim()
-      : "";
-  return latexValue.length ? 0.14 : 0.1;
-};
-
-const passesConfidenceThreshold = (
-  result: SmartInkDetectedResult,
-  threshold: number,
-  mode: SmartInkOptions["mode"]
-) => {
-  let effectiveThreshold = threshold - getThresholdGrace(result);
-  if (mode === "shape" && result.kind === "shape") {
-    effectiveThreshold -= result.object.type === "ellipse" ? 0.08 : 0.06;
-  }
-  effectiveThreshold = Math.max(0.3, effectiveThreshold);
-  return result.confidence >= effectiveThreshold;
-};
 
 export const useWorkbookSmartInkPipeline = ({
   sessionId,
@@ -252,7 +218,6 @@ export const useWorkbookSmartInkPipeline = ({
         }
       };
 
-      const threshold = options.confidenceThreshold;
       const smartInkRuntime = await loadSmartInkRuntime();
 
       const lastStroke = buffer[buffer.length - 1];
@@ -263,6 +228,7 @@ export const useWorkbookSmartInkPipeline = ({
             smartTextOcr: false,
             smartMathOcr: false,
             handwritingAdapter: undefined,
+            forceShapeCoercion: true,
           })
         : null;
 
@@ -272,15 +238,13 @@ export const useWorkbookSmartInkPipeline = ({
         if (!ocrOptions.smartTextOcr && !ocrOptions.smartMathOcr) {
           return null;
         }
-        // Skip very short/noisy inputs where OCR almost never returns useful output.
-        if (getStrokePointsCount(buffer) < 10 && lastStroke.points.length < 8) {
-          return null;
-        }
         const ocrConfig = {
           ...recognitionConfig,
           smartShapes: false,
           smartTextOcr: ocrOptions.smartTextOcr,
           smartMathOcr: ocrOptions.smartMathOcr,
+          forceTextFallback: ocrOptions.smartTextOcr,
+          forceFormulaFallback: ocrOptions.smartMathOcr,
           handwritingAdapter: async (input: {
             stroke: WorkbookStroke;
             points: WorkbookPoint[];
@@ -316,58 +280,28 @@ export const useWorkbookSmartInkPipeline = ({
       };
 
       const textCandidate =
-        options.mode === "text" || options.mode === "auto"
+        options.mode === "text"
           ? await runOcrCandidate({ smartTextOcr: true, smartMathOcr: false })
           : null;
       const formulaCandidate =
-        options.mode === "formula" || options.mode === "auto"
+        options.mode === "formula"
           ? await runOcrCandidate({ smartTextOcr: false, smartMathOcr: true })
           : null;
 
       if (options.mode === "shape") {
-        if (
-          shapeCandidate &&
-          shapeCandidate.kind !== "none" &&
-          passesConfidenceThreshold(shapeCandidate, threshold, options.mode)
-        ) {
+        if (shapeCandidate && shapeCandidate.kind !== "none") {
           await applyRecognized([lastStroke], shapeCandidate);
           return;
         }
       } else if (options.mode === "text") {
-        if (
-          textCandidate &&
-          passesConfidenceThreshold(textCandidate.result, threshold, options.mode)
-        ) {
+        if (textCandidate) {
           await applyRecognized(textCandidate.strokes, textCandidate.result);
           return;
         }
       } else if (options.mode === "formula") {
-        if (
-          formulaCandidate &&
-          passesConfidenceThreshold(formulaCandidate.result, threshold, options.mode)
-        ) {
+        if (formulaCandidate) {
           await applyRecognized(formulaCandidate.strokes, formulaCandidate.result);
           return;
-        }
-      } else {
-        const autoCandidates: Array<{ result: SmartInkDetectedResult; strokes: WorkbookStroke[] }> = [];
-        if (shapeCandidate && shapeCandidate.kind !== "none") {
-          autoCandidates.push({ result: shapeCandidate, strokes: [lastStroke] });
-        }
-        if (textCandidate) {
-          autoCandidates.push(textCandidate);
-        }
-        if (formulaCandidate) {
-          autoCandidates.push(formulaCandidate);
-        }
-        if (autoCandidates.length) {
-          const bestCandidate = autoCandidates.reduce((best, current) =>
-            getRecognitionScore(current.result) > getRecognitionScore(best.result) ? current : best
-          );
-          if (passesConfidenceThreshold(bestCandidate.result, threshold, options.mode)) {
-            await applyRecognized(bestCandidate.strokes, bestCandidate.result);
-            return;
-          }
         }
       }
 
@@ -404,9 +338,7 @@ export const useWorkbookSmartInkPipeline = ({
           ? 220
           : options.mode === "text" || options.mode === "formula"
             ? 460
-            : options.smartTextOcr || options.smartMathOcr
-              ? 520
-              : 320;
+            : 320;
       smartInkDebounceRef.current = window.setTimeout(() => {
         smartInkDebounceRef.current = null;
         if (configVersion !== smartInkConfigVersionRef.current) return;

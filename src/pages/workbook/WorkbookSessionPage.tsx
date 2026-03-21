@@ -1670,7 +1670,8 @@ export default function WorkbookSessionPage() {
   }
 
   const overlayContainer =
-    typeof document !== "undefined" ? document.body : undefined;
+    sessionRootRef.current ??
+    (typeof document !== "undefined" ? document.body : undefined);
   // react-hooks/refs false-positive: refs are forwarded into runtime props and not dereferenced here.
   // eslint-disable-next-line react-hooks/refs
   const canvasProps = buildWorkbookCanvasProps({
@@ -1927,6 +1928,7 @@ export default function WorkbookSessionPage() {
 
       <WorkbookSessionToolSettingsPopover
         state={toolSettingsPopoverState}
+        overlayContainer={overlayContainer}
         onClose={handleCloseToolSettingsPopover}
         penToolSettings={penToolSettings}
         highlighterToolSettings={highlighterToolSettings}
