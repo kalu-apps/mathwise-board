@@ -650,8 +650,10 @@ export const projectPointForView = (point: Vec3, view: Solid3dViewState) => {
   const z1 = -point.x * Math.sin(rotationY) + point.z * Math.cos(rotationY);
   const y2 = point.y * Math.cos(rotationX) - z1 * Math.sin(rotationX);
   const z2 = point.y * Math.sin(rotationX) + z1 * Math.cos(rotationX);
-  // Mild depth perspective keeps circular solids volumetric even at top angles.
-  const perspective = Math.max(0.62, Math.min(1.45, 1 + z2 * 0.00165));
+  const perspective =
+    view.projection === "perspective"
+      ? Math.max(0.56, Math.min(1.8, 1 + z2 * 0.00195))
+      : 1;
   const zoom = Math.max(0.4, Math.min(2.4, view.zoom));
   return {
     x: x1 * perspective * zoom + view.panX * 100,

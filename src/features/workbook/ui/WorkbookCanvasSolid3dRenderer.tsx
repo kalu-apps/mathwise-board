@@ -141,6 +141,19 @@ export const renderWorkbookCanvasSolid3dObject = ({
         }, [])
       : [];
     faceRenderData.sort((left, right) => right.depth - left.depth);
+    const faceDepthRange = faceRenderData.reduce(
+      (acc, face) => ({
+        min: Math.min(acc.min, face.depth),
+        max: Math.max(acc.max, face.depth),
+      }),
+      { min: Number.POSITIVE_INFINITY, max: Number.NEGATIVE_INFINITY }
+    );
+    const depthSpan =
+      Number.isFinite(faceDepthRange.min) &&
+      Number.isFinite(faceDepthRange.max) &&
+      faceDepthRange.max > faceDepthRange.min
+        ? faceDepthRange.max - faceDepthRange.min
+        : 1;
 
     const visibleFaceIds = new Set(
       faceRenderData
@@ -187,14 +200,23 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 const from = projectedVertices[fromIndex];
                 const to = projectedVertices[toIndex];
                 if (!from || !to) return acc;
-                const isFront = faces.some((faceIndex) => visibleFaceIds.has(faceIndex));
-                if (!isFront && hideHiddenEdges) return acc;
+                const frontFaceCount = faces.reduce(
+                  (sum, faceIndex) => sum + (visibleFaceIds.has(faceIndex) ? 1 : 0),
+                  0
+                );
+                const isFront = frontFaceCount > 0;
+                if (isRoundPreset) {
+                  const isSilhouette = frontFaceCount > 0 && frontFaceCount < faces.length;
+                  if (!isSilhouette) return acc;
+                } else if (!isFront && hideHiddenEdges) {
+                  return acc;
+                }
                 acc.push({
                   key,
                   from,
                   to,
                   depth: (from.depth + to.depth) / 2,
-                  dashed: !isFront,
+                  dashed: isRoundPreset ? false : !isFront,
                 });
                 return acc;
               },
@@ -879,20 +901,24 @@ export const renderWorkbookCanvasSolid3dObject = ({
           ) : null}
         </defs>
         <g transform={transform} clipPath={shouldUseClipPath ? `url(#${clipPathId})` : undefined}>
-          {isRoundPreset && roundBodyNode ? (
-            roundBodyNode
-          ) : (
+          {faceRenderData.length > 0 ? (
             <>
               {faceRenderData.map((face) => {
                 const fillColor = faceColors[String(face.index)] || faceFill;
+                const depthWeight =
+                  depthSpan > 0 ? (face.depth - faceDepthRange.min) / depthSpan : 0.5;
+                const roundOpacity = Math.max(
+                  0.22,
+                  Math.min(0.92, 0.24 + depthWeight * 0.58 + (face.isFront ? 0.08 : 0))
+                );
                 return (
-                    <path
-                      key={`${object.id}-face-${face.index}`}
-                      d={`${toPath(face.points)} Z`}
-                      fill={fillColor}
-                    fillOpacity={face.isFront ? 0.82 : 0.3}
-                    stroke={color}
-                    strokeWidth={strokeWidth * 0.78}
+                  <path
+                    key={`${object.id}-face-${face.index}`}
+                    d={`${toPath(face.points)} Z`}
+                    fill={fillColor}
+                    fillOpacity={isRoundPreset ? roundOpacity : face.isFront ? 0.82 : 0.3}
+                    stroke={isRoundPreset ? "none" : color}
+                    strokeWidth={isRoundPreset ? 0 : strokeWidth * 0.78}
                   />
                 );
               })}
@@ -904,14 +930,16 @@ export const renderWorkbookCanvasSolid3dObject = ({
                   x2={edge.to.x}
                   y2={edge.to.y}
                   stroke={edgeColors[edge.key] || color}
-                  strokeWidth={Math.max(1, strokeWidth * 0.76)}
+                  strokeWidth={Math.max(1, strokeWidth * (isRoundPreset ? 0.62 : 0.76))}
                   strokeDasharray={edge.dashed ? "5 4" : undefined}
-                  opacity={edge.dashed ? 0.62 : 0.94}
+                  opacity={edge.dashed ? 0.62 : isRoundPreset ? 0.8 : 0.94}
                   strokeLinecap="round"
                 />
               ))}
             </>
-          )}
+          ) : isRoundPreset && roundBodyNode ? (
+            roundBodyNode
+          ) : null}
           {angleMarkRenderData.map((mark) => (
             <g key={`${object.id}-angle-mark-${mark.id}`}>
               {mark.renderedStyle === "right_square" ? (
