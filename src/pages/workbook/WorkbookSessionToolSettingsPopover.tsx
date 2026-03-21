@@ -1,7 +1,4 @@
-import type { Dispatch, SetStateAction } from "react";
-import { MenuItem, Popover, Select } from "@mui/material";
-import type { SmartInkOptions } from "./workbookBoardSettingsModel";
-import { normalizeSmartInkOptions } from "./workbookBoardSettingsModel";
+import { Popover } from "@mui/material";
 
 export type WorkbookToolSettingsPopoverTool = "pen" | "highlighter" | "eraser";
 
@@ -26,8 +23,6 @@ type WorkbookSessionToolSettingsPopoverProps = {
   eraserRadius: number;
   eraserRadiusMin: number;
   eraserRadiusMax: number;
-  smartInkOptions: SmartInkOptions;
-  setSmartInkOptions: Dispatch<SetStateAction<SmartInkOptions>>;
   onPenToolSettingsChange: (patch: Partial<ToolPaintSettings>) => void;
   onHighlighterToolSettingsChange: (patch: Partial<ToolPaintSettings>) => void;
   onEraserRadiusChange: (value: number) => void;
@@ -49,8 +44,6 @@ export function WorkbookSessionToolSettingsPopover({
   eraserRadius,
   eraserRadiusMin,
   eraserRadiusMax,
-  smartInkOptions,
-  setSmartInkOptions,
   onPenToolSettingsChange,
   onHighlighterToolSettingsChange,
   onEraserRadiusChange,
@@ -61,15 +54,6 @@ export function WorkbookSessionToolSettingsPopover({
         ? overlayContainer ?? document.body
         : document.body
       : overlayContainer;
-
-  const updateSmartInk = (patch: Partial<SmartInkOptions>) => {
-    setSmartInkOptions((current) =>
-      normalizeSmartInkOptions({
-        ...current,
-        ...patch,
-      })
-    );
-  };
 
   const tool = state?.tool ?? null;
 
@@ -136,42 +120,6 @@ export function WorkbookSessionToolSettingsPopover({
                       <span>{penToolSettings.width} px</span>
                     </div>
                   </div>
-                </div>
-              </div>
-              <div className="workbook-session__tool-settings-cluster">
-                <div className="workbook-session__tool-settings-cluster-title">Режим Smart Ink</div>
-                <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
-                  <div className="workbook-session__tool-settings-field-main">
-                    <strong>Режим</strong>
-                  </div>
-                  <Select
-                    size="small"
-                    className="workbook-session__tool-settings-select"
-                    value={smartInkOptions.mode}
-                    MenuProps={{
-                      container: portalContainer,
-                    }}
-                    onChange={(event) =>
-                      updateSmartInk({
-                        mode:
-                          event.target.value === "off" ||
-                          event.target.value === "shape" ||
-                          event.target.value === "text" ||
-                          event.target.value === "formula"
-                            ? event.target.value
-                            : smartInkOptions.mode,
-                      })
-                    }
-                    inputProps={{
-                      name: "pen-smart-ink-mode",
-                      id: "pen-smart-ink-mode",
-                    }}
-                  >
-                    <MenuItem value="off">Ручка</MenuItem>
-                    <MenuItem value="shape">Фигуры</MenuItem>
-                    <MenuItem value="text">Текст</MenuItem>
-                    <MenuItem value="formula">Формулы</MenuItem>
-                  </Select>
                 </div>
               </div>
             </>

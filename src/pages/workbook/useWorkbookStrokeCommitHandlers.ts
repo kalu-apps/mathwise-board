@@ -38,7 +38,6 @@ type UseWorkbookStrokeCommitHandlersParams = {
     updater: (current: WorkbookStroke[]) => WorkbookStroke[]
   ) => void;
   appendEventsAndApply: AppendEventsAndApply;
-  queueSmartInkStroke: (stroke: WorkbookStroke) => void;
   setError: (value: string | null) => void;
   setSaveSyncWarning: (value: string | null) => void;
   setBoardStrokes: SetState<WorkbookStroke[]>;
@@ -62,7 +61,6 @@ export const useWorkbookStrokeCommitHandlers = ({
   finalizeStrokePreview,
   applyLocalStrokeCollection,
   appendEventsAndApply,
-  queueSmartInkStroke,
   setError,
   setSaveSyncWarning,
   setBoardStrokes,
@@ -98,8 +96,6 @@ export const useWorkbookStrokeCommitHandlers = ({
         ...stroke,
         page: Math.max(1, stroke.page ?? boardSettingsCurrentPage),
       };
-      const isBoardPenStroke =
-        strokeWithPage.layer === "board" && strokeWithPage.tool === "pen";
       finalizeStrokePreview(strokeWithPage.id);
       applyLocalStrokeCollection(strokeWithPage.layer, (current) =>
         current.some((item) => item.id === strokeWithPage.id)
@@ -110,28 +106,23 @@ export const useWorkbookStrokeCommitHandlers = ({
         appendEventsAndApply([{ type, payload: { stroke: strokeWithPage } }]);
       try {
         await persistStroke();
-        if (isBoardPenStroke) {
-          queueSmartInkStroke(strokeWithPage);
-        }
       } catch (error) {
-        if (isBoardPenStroke && error instanceof ApiError && error.code === "conflict") {
+        if (error instanceof ApiError && error.code === "conflict") {
           try {
             await new Promise<void>((resolve) => {
               window.setTimeout(resolve, 220);
             });
             await persistStroke();
-            queueSmartInkStroke(strokeWithPage);
             return;
           } catch (retryError) {
             error = retryError;
           }
         }
-        if (isBoardPenStroke && isRecoverableApiError(error)) {
+        if (isRecoverableApiError(error)) {
           markDirty();
           setSaveSyncWarning(
             "Связь нестабильна. Продолжаем синхронизацию изменений доски."
           );
-          queueSmartInkStroke(strokeWithPage);
           return;
         }
         applyLocalStrokeCollection(strokeWithPage.layer, (current) =>
@@ -147,7 +138,6 @@ export const useWorkbookStrokeCommitHandlers = ({
       canDraw,
       finalizeStrokePreview,
       markDirty,
-      queueSmartInkStroke,
       sessionId,
       setError,
       setSaveSyncWarning,

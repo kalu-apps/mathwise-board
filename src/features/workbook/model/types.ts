@@ -195,13 +195,6 @@ export type WorkbookBoardSettings = {
   gridColor: string;
   backgroundColor: string;
   snapToGrid: boolean;
-  smartInk?: {
-    mode: "off" | "shape" | "text" | "formula" | "auto" | "basic" | "full";
-    confidenceThreshold: number;
-    smartShapes: boolean;
-    smartTextOcr: boolean;
-    smartMathOcr: boolean;
-  };
   showPageNumbers: boolean;
   currentPage: number;
   pagesCount: number;
@@ -266,13 +259,6 @@ export type WorkbookDocumentState = {
 export type WorkbookSessionSettings = {
   undoPolicy: WorkbookUndoPolicy;
   strictGeometry: boolean;
-  smartInk?: {
-    mode: "off" | "shape" | "text" | "formula" | "auto" | "basic" | "full";
-    confidenceThreshold: number;
-    smartShapes: boolean;
-    smartTextOcr: boolean;
-    smartMathOcr: boolean;
-  };
   studentControls: {
     canDraw: boolean;
     canSelect: boolean;

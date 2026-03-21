@@ -25,6 +25,7 @@ interface UseWorkbookSessionChatEventHandlersParams {
 
 interface FilterUnseenWorkbookEventsOptions {
   allowLiveReplay?: boolean;
+  ignoreSeqGuard?: boolean;
 }
 
 export function useWorkbookSessionChatEventHandlers({
@@ -145,6 +146,7 @@ export function useWorkbookSessionChatEventHandlers({
           options?.allowLiveReplay && isLiveReplayableWorkbookEventType(event.type)
         );
         if (
+          !options?.ignoreSeqGuard &&
           !allowReplay &&
           !isVolatileWorkbookEventType(event.type) &&
           typeof event?.seq === "number" &&

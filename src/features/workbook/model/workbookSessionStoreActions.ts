@@ -292,7 +292,6 @@ export const createWorkbookSessionStoreActions = (
   setBoardSettings: (updater) => updateData(set, "boardSettings", updater),
   setLibraryState: (updater) => updateData(set, "libraryState", updater),
   setDocumentState: (updater) => updateData(set, "documentState", updater),
-  setSmartInkOptions: (updater) => updateData(set, "smartInkOptions", updater),
   resetForSession: () => {
     set(buildInitialWorkbookSessionCoreState());
   },

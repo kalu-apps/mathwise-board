@@ -16,9 +16,200 @@ import type {
 } from "@/features/workbook/model/types";
 import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 
+type SnapshotCompactionLevel = "moderate" | "aggressive" | "minimal";
+
 const SNAPSHOT_OBJECT_IMAGE_MAX_DATA_URL_CHARS = 42_000;
 const SNAPSHOT_ASSET_IMAGE_MAX_DATA_URL_CHARS = 56_000;
 const SNAPSHOT_RENDERED_PAGE_IMAGE_MAX_DATA_URL_CHARS = 36_000;
+const SNAPSHOT_OBJECT_IMAGE_AGGRESSIVE_MAX_DATA_URL_CHARS = 18_000;
+const SNAPSHOT_ASSET_IMAGE_AGGRESSIVE_MAX_DATA_URL_CHARS = 24_000;
+const SNAPSHOT_RENDERED_PAGE_IMAGE_AGGRESSIVE_MAX_DATA_URL_CHARS = 12_000;
+const SNAPSHOT_OBJECT_IMAGE_MINIMAL_MAX_DATA_URL_CHARS = 8_000;
+const SNAPSHOT_PREEMPTIVE_COMPACTION_DATA_URL_CHARS = 160_000;
+
+const isImageDataUrl = (value: unknown): value is string =>
+  typeof value === "string" && value.startsWith("data:image/");
+
+const isDataUrl = (value: unknown): value is string =>
+  typeof value === "string" && value.startsWith("data:");
+
+const resolveSnapshotCompactionProfile = (level: SnapshotCompactionLevel) => {
+  if (level === "minimal") {
+    return {
+      object: { maxEdge: 560, quality: 0.44, maxChars: SNAPSHOT_OBJECT_IMAGE_MINIMAL_MAX_DATA_URL_CHARS },
+      asset: { maxEdge: 820, quality: 0.46, maxChars: SNAPSHOT_OBJECT_IMAGE_MINIMAL_MAX_DATA_URL_CHARS },
+      renderedPage: {
+        maxEdge: 620,
+        quality: 0.42,
+        maxChars: SNAPSHOT_OBJECT_IMAGE_MINIMAL_MAX_DATA_URL_CHARS,
+      },
+      dropAssetPayloadForAll: true,
+      warning:
+        "Снимок доски сохранён в минимальном компактном режиме, чтобы избежать переполнения.",
+    };
+  }
+
+  if (level === "aggressive") {
+    return {
+      object: { maxEdge: 860, quality: 0.52, maxChars: SNAPSHOT_OBJECT_IMAGE_AGGRESSIVE_MAX_DATA_URL_CHARS },
+      asset: { maxEdge: 980, quality: 0.54, maxChars: SNAPSHOT_ASSET_IMAGE_AGGRESSIVE_MAX_DATA_URL_CHARS },
+      renderedPage: {
+        maxEdge: 760,
+        quality: 0.48,
+        maxChars: SNAPSHOT_RENDERED_PAGE_IMAGE_AGGRESSIVE_MAX_DATA_URL_CHARS,
+      },
+      dropAssetPayloadForAll: false,
+      warning:
+        "Снимок доски сохранён в усиленном компактном режиме из-за большого объёма данных.",
+    };
+  }
+
+  return {
+    object: { maxEdge: 1_050, quality: 0.6, maxChars: SNAPSHOT_OBJECT_IMAGE_MAX_DATA_URL_CHARS },
+    asset: { maxEdge: 1_250, quality: 0.64, maxChars: SNAPSHOT_ASSET_IMAGE_MAX_DATA_URL_CHARS },
+    renderedPage: {
+      maxEdge: 980,
+      quality: 0.58,
+      maxChars: SNAPSHOT_RENDERED_PAGE_IMAGE_MAX_DATA_URL_CHARS,
+    },
+    dropAssetPayloadForAll: false,
+    warning: "Снимок доски сохранён в компактном режиме, чтобы избежать лимита размера.",
+  };
+};
+
+const collectReferencedAssetIds = (boardObjects: WorkbookBoardObject[]) => {
+  const referencedAssetIds = new Set<string>();
+  boardObjects.forEach((object) => {
+    if (!object.meta || typeof object.meta !== "object") return;
+    const assetId = object.meta[WORKBOOK_IMAGE_ASSET_META_KEY];
+    if (typeof assetId === "string" && assetId.trim().length > 0) {
+      referencedAssetIds.add(assetId.trim());
+    }
+  });
+  return referencedAssetIds;
+};
+
+const estimateEmbeddedDataUrlChars = (
+  boardObjects: WorkbookBoardObject[],
+  documentState: WorkbookDocumentState
+) => {
+  const objectChars = boardObjects.reduce((sum, object) => {
+    if (object.type !== "image") return sum;
+    return sum + (isImageDataUrl(object.imageUrl) ? object.imageUrl.length : 0);
+  }, 0);
+  const assetChars = documentState.assets.reduce((sum, asset) => {
+    const assetUrlChars = isDataUrl(asset.url) ? asset.url.length : 0;
+    const renderedPagesChars = Array.isArray(asset.renderedPages)
+      ? asset.renderedPages.reduce(
+          (renderedSum, renderedPage) =>
+            renderedSum + (isImageDataUrl(renderedPage.imageUrl) ? renderedPage.imageUrl.length : 0),
+          0
+        )
+      : 0;
+    return sum + assetUrlChars + renderedPagesChars;
+  }, 0);
+  return objectChars + assetChars;
+};
+
+const compactSnapshotState = async (params: {
+  boardObjects: WorkbookBoardObject[];
+  documentState: WorkbookDocumentState;
+  level: SnapshotCompactionLevel;
+}) => {
+  const profile = resolveSnapshotCompactionProfile(params.level);
+  const referencedAssetIds = collectReferencedAssetIds(params.boardObjects);
+  const compactedObjects = await Promise.all(
+    params.boardObjects.map(async (object) => {
+      if (object.type !== "image" || !isImageDataUrl(object.imageUrl)) {
+        return object;
+      }
+      const hasAssetReference =
+        Boolean(object.meta) &&
+        typeof object.meta === "object" &&
+        typeof object.meta[WORKBOOK_IMAGE_ASSET_META_KEY] === "string";
+      if (hasAssetReference) {
+        return {
+          ...object,
+          imageUrl: undefined,
+        };
+      }
+      const compactedImageUrl = await optimizeImageDataUrl(object.imageUrl, profile.object);
+      if (compactedImageUrl === object.imageUrl && params.level === "minimal") {
+        return {
+          ...object,
+          imageUrl: undefined,
+        };
+      }
+      if (compactedImageUrl === object.imageUrl) return object;
+      return {
+        ...object,
+        imageUrl: compactedImageUrl,
+      };
+    })
+  );
+  const compactedAssets = await Promise.all(
+    params.documentState.assets.map(async (asset) => {
+      const shouldKeepImagePayload =
+        !profile.dropAssetPayloadForAll && referencedAssetIds.has(asset.id);
+      if (!shouldKeepImagePayload) {
+        return {
+          ...asset,
+          url: isDataUrl(asset.url) ? "data:," : asset.url,
+          renderedPages: undefined,
+        };
+      }
+      let nextUrl = asset.url;
+      if (isImageDataUrl(nextUrl)) {
+        nextUrl = await optimizeImageDataUrl(nextUrl, profile.asset);
+      } else if (isDataUrl(nextUrl)) {
+        nextUrl = "data:,";
+      }
+      const nextRenderedPages = Array.isArray(asset.renderedPages)
+        ? await Promise.all(
+            asset.renderedPages.map(async (renderedPage) => {
+              if (!isImageDataUrl(renderedPage.imageUrl)) {
+                return renderedPage;
+              }
+              const compactedRenderedImageUrl = await optimizeImageDataUrl(
+                renderedPage.imageUrl,
+                profile.renderedPage
+              );
+              if (
+                compactedRenderedImageUrl === renderedPage.imageUrl &&
+                params.level === "minimal"
+              ) {
+                return {
+                  ...renderedPage,
+                  imageUrl: "data:,",
+                };
+              }
+              if (compactedRenderedImageUrl === renderedPage.imageUrl) {
+                return renderedPage;
+              }
+              return {
+                ...renderedPage,
+                imageUrl: compactedRenderedImageUrl,
+              };
+            })
+          )
+        : asset.renderedPages;
+      return {
+        ...asset,
+        url: nextUrl,
+        renderedPages: nextRenderedPages,
+      };
+    })
+  );
+
+  return {
+    objects: compactedObjects,
+    document: {
+      ...params.documentState,
+      assets: compactedAssets,
+    },
+    warning: profile.warning,
+  };
+};
 
 interface UseWorkbookPersistSnapshotsParams {
   sessionId: string;
@@ -112,18 +303,21 @@ export function useWorkbookPersistSnapshots({
         pendingAutosaveAfterSaveRef.current = true;
         setSaveState("saving");
       };
-      try {
+      const persistStateSnapshots = async (
+        nextBoardObjects: WorkbookBoardObject[],
+        nextDocumentState: WorkbookDocumentState
+      ) => {
         const encodedSnapshots = await encodeWorkbookSceneSnapshots({
           boardState: {
             strokes: boardStrokes,
-            objects: boardObjects,
+            objects: nextBoardObjects,
             constraints,
             chat: chatMessages,
             comments,
             timer: timerState,
             boardSettings,
             library: libraryState,
-            document: documentState,
+            document: nextDocumentState,
           },
           annotationState: {
             strokes: annotationStrokes,
@@ -131,136 +325,67 @@ export function useWorkbookPersistSnapshots({
           },
         });
         await persistEncodedSnapshots(encodedSnapshots);
+      };
+
+      const persistCompactedSnapshots = async (
+        levels: SnapshotCompactionLevel[]
+      ): Promise<{ warning: string } | null> => {
+        let lastError: unknown = null;
+        for (const level of levels) {
+          try {
+            const compacted = await compactSnapshotState({
+              boardObjects,
+              documentState,
+              level,
+            });
+            await persistStateSnapshots(compacted.objects, compacted.document);
+            return { warning: compacted.warning };
+          } catch (error) {
+            lastError = error;
+            if (error instanceof ApiError && error.status === 413) {
+              continue;
+            }
+            throw error;
+          }
+        }
+        if (lastError) {
+          throw lastError;
+        }
+        return null;
+      };
+
+      let compactionAttempted = false;
+      try {
+        const shouldPreemptiveCompact =
+          estimateEmbeddedDataUrlChars(boardObjects, documentState) >=
+          SNAPSHOT_PREEMPTIVE_COMPACTION_DATA_URL_CHARS;
+        if (shouldPreemptiveCompact) {
+          compactionAttempted = true;
+          const compacted = await persistCompactedSnapshots(["moderate", "aggressive", "minimal"]);
+          if (compacted) {
+            markSnapshotSaved();
+            setSaveSyncWarning(compacted.warning);
+            return true;
+          }
+        }
+
+        await persistStateSnapshots(boardObjects, documentState);
         markSnapshotSaved();
         return true;
       } catch (error) {
         let currentError = error;
-        if (error instanceof ApiError && error.status === 413) {
+        if (error instanceof ApiError && error.status === 413 && !compactionAttempted) {
           try {
-            const referencedAssetIds = new Set<string>();
-            boardObjects.forEach((object) => {
-              if (!object.meta || typeof object.meta !== "object") return;
-              const assetId = object.meta[WORKBOOK_IMAGE_ASSET_META_KEY];
-              if (typeof assetId === "string" && assetId.length > 0) {
-                referencedAssetIds.add(assetId);
-              }
-            });
-            if (typeof documentState.activeAssetId === "string" && documentState.activeAssetId) {
-              referencedAssetIds.add(documentState.activeAssetId);
+            const compacted = await persistCompactedSnapshots([
+              "moderate",
+              "aggressive",
+              "minimal",
+            ]);
+            if (compacted) {
+              markSnapshotSaved();
+              setSaveSyncWarning(compacted.warning);
+              return true;
             }
-            const compactedObjects = await Promise.all(
-              boardObjects.map(async (object) => {
-                if (
-                  object.type !== "image" ||
-                  typeof object.imageUrl !== "string" ||
-                  !object.imageUrl.startsWith("data:image/")
-                ) {
-                  return object;
-                }
-                const hasAssetReference =
-                  Boolean(object.meta) &&
-                  typeof object.meta === "object" &&
-                  typeof object.meta[WORKBOOK_IMAGE_ASSET_META_KEY] === "string";
-                if (hasAssetReference) {
-                  return {
-                    ...object,
-                    imageUrl: undefined,
-                  };
-                }
-                const compactedImageUrl = await optimizeImageDataUrl(object.imageUrl, {
-                  maxEdge: 1_050,
-                  quality: 0.6,
-                  maxChars: SNAPSHOT_OBJECT_IMAGE_MAX_DATA_URL_CHARS,
-                });
-                if (compactedImageUrl === object.imageUrl) return object;
-                return {
-                  ...object,
-                  imageUrl: compactedImageUrl,
-                };
-              })
-            );
-            const compactedAssets = await Promise.all(
-              documentState.assets.map(async (asset) => {
-                const shouldKeepImagePayload = referencedAssetIds.has(asset.id);
-                if (!shouldKeepImagePayload) {
-                  return {
-                    ...asset,
-                    url:
-                      typeof asset.url === "string" && asset.url.startsWith("data:")
-                        ? "data:,"
-                        : asset.url,
-                    renderedPages: undefined,
-                  };
-                }
-                let nextUrl = asset.url;
-                if (typeof nextUrl === "string" && nextUrl.startsWith("data:image/")) {
-                  nextUrl = await optimizeImageDataUrl(nextUrl, {
-                    maxEdge: 1_250,
-                    quality: 0.64,
-                    maxChars: SNAPSHOT_ASSET_IMAGE_MAX_DATA_URL_CHARS,
-                  });
-                }
-                const nextRenderedPages = Array.isArray(asset.renderedPages)
-                  ? await Promise.all(
-                      asset.renderedPages.map(async (renderedPage) => {
-                        if (
-                          typeof renderedPage.imageUrl !== "string" ||
-                          !renderedPage.imageUrl.startsWith("data:image/")
-                        ) {
-                          return renderedPage;
-                        }
-                        const compactedRenderedImageUrl = await optimizeImageDataUrl(
-                          renderedPage.imageUrl,
-                          {
-                            maxEdge: 980,
-                            quality: 0.58,
-                            maxChars: SNAPSHOT_RENDERED_PAGE_IMAGE_MAX_DATA_URL_CHARS,
-                          }
-                        );
-                        if (compactedRenderedImageUrl === renderedPage.imageUrl) {
-                          return renderedPage;
-                        }
-                        return {
-                          ...renderedPage,
-                          imageUrl: compactedRenderedImageUrl,
-                        };
-                      })
-                    )
-                  : asset.renderedPages;
-                return {
-                  ...asset,
-                  url: nextUrl,
-                  renderedPages: nextRenderedPages,
-                };
-              })
-            );
-
-            const compactedEncodedSnapshots = await encodeWorkbookSceneSnapshots({
-              boardState: {
-                strokes: boardStrokes,
-                objects: compactedObjects,
-                constraints,
-                chat: chatMessages,
-                comments,
-                timer: timerState,
-                boardSettings,
-                library: libraryState,
-                document: {
-                  ...documentState,
-                  assets: compactedAssets,
-                },
-              },
-              annotationState: {
-                strokes: annotationStrokes,
-                chat: [],
-              },
-            });
-            await persistEncodedSnapshots(compactedEncodedSnapshots);
-            markSnapshotSaved();
-            setSaveSyncWarning(
-              "Снимок доски сохранён в компактном режиме, чтобы избежать лимита размера."
-            );
-            return true;
           } catch (compactionError) {
             currentError = compactionError;
           }

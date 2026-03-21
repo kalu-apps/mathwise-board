@@ -6,7 +6,6 @@ import type { WorkbookStrokePreviewEntry } from "@/features/workbook/model/useWo
 type UseWorkbookSessionCleanupEffectsParams = {
   focusResetTimersByUserRef: MutableRefObject<Map<string, number>>;
   autosaveDebounceRef: MutableRefObject<number | null>;
-  smartInkDebounceRef: MutableRefObject<number | null>;
   volatileSyncTimerRef: MutableRefObject<number | null>;
   viewportSyncQueuedOffsetRef: MutableRefObject<WorkbookPoint | null>;
   eraserPreviewQueuedByGestureRef: MutableRefObject<Map<string, unknown>>;
@@ -18,17 +17,12 @@ type UseWorkbookSessionCleanupEffectsParams = {
   setIncomingStrokePreviews: Dispatch<
     SetStateAction<Record<string, WorkbookStrokePreviewEntry>>
   >;
-  smartInkOptionsRef: MutableRefObject<unknown>;
-  smartInkConfigVersionRef: MutableRefObject<number>;
-  smartInkStrokeBufferRef: MutableRefObject<unknown[]>;
-  smartInkOptions: unknown;
   strokePreviewExpiryMs: number;
 };
 
 export const useWorkbookSessionCleanupEffects = ({
   focusResetTimersByUserRef,
   autosaveDebounceRef,
-  smartInkDebounceRef,
   volatileSyncTimerRef,
   viewportSyncQueuedOffsetRef,
   eraserPreviewQueuedByGestureRef,
@@ -38,10 +32,6 @@ export const useWorkbookSessionCleanupEffects = ({
   clearStrokePreviewRuntime,
   clearIncomingEraserPreviewRuntime,
   setIncomingStrokePreviews,
-  smartInkOptionsRef,
-  smartInkConfigVersionRef,
-  smartInkStrokeBufferRef,
-  smartInkOptions,
   strokePreviewExpiryMs,
 }: UseWorkbookSessionCleanupEffectsParams) => {
   const clearLocalPreviewPatchRuntimeRef = useRef(clearLocalPreviewPatchRuntime);
@@ -80,16 +70,6 @@ export const useWorkbookSessionCleanupEffects = ({
       if (autosaveDebounceRef.current !== null) {
         window.clearTimeout(autosaveDebounceRef.current);
         autosaveDebounceRef.current = null;
-      }
-    },
-    []
-  );
-
-  useEffect(
-    () => () => {
-      if (smartInkDebounceRef.current !== null) {
-        window.clearTimeout(smartInkDebounceRef.current);
-        smartInkDebounceRef.current = null;
       }
     },
     []
@@ -156,14 +136,4 @@ export const useWorkbookSessionCleanupEffects = ({
       window.clearInterval(intervalId);
     };
   }, [setIncomingStrokePreviews, strokePreviewExpiryMs]);
-
-  useEffect(() => {
-    smartInkOptionsRef.current = smartInkOptions;
-    smartInkConfigVersionRef.current += 1;
-    smartInkStrokeBufferRef.current = [];
-    if (smartInkDebounceRef.current !== null) {
-      window.clearTimeout(smartInkDebounceRef.current);
-      smartInkDebounceRef.current = null;
-    }
-  }, [smartInkOptions]);
 };

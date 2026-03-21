@@ -19,7 +19,6 @@ import type {
   WorkbookTimerState,
 } from "@/features/workbook/model/types";
 import { ApiError } from "@/shared/api/client";
-import { DEFAULT_SMART_INK_OPTIONS } from "./workbookBoardSettingsModel";
 import {
   DEFAULT_BOARD_SETTINGS,
   DEFAULT_LIBRARY,
@@ -76,8 +75,6 @@ export const useWorkbookSessionLoadSession = ({
   boardSettingsCommitTimerRef,
   latestSeqRef,
   processedEventIdsRef,
-  smartInkStrokeBufferRef,
-  smartInkProcessedStrokeIdsRef,
   dirtyRef,
   undoStackRef,
   redoStackRef,
@@ -305,7 +302,6 @@ export const useWorkbookSessionLoadSession = ({
                 ...DEFAULT_BOARD_SETTINGS,
                 ...normalizedBoard.boardSettings,
                 ...normalizedLayers,
-                smartInk: DEFAULT_SMART_INK_OPTIONS,
                 title:
                   normalizedBoard.boardSettings.title ||
                   sessionData.title ||
@@ -329,8 +325,6 @@ export const useWorkbookSessionLoadSession = ({
             setLatestSeq(loadedLatestSeq);
             latestSeqRef.current = loadedLatestSeq;
             processedEventIdsRef.current.clear();
-            smartInkStrokeBufferRef.current = [];
-            smartInkProcessedStrokeIdsRef.current = new Set();
             clearObjectSyncRuntime();
             clearStrokePreviewRuntime();
             clearIncomingEraserPreviewRuntime();
@@ -468,7 +462,7 @@ export const useWorkbookSessionLoadSession = ({
       recoverChatMessagesFromEvents, authRequiredRef, loadSessionRequestIdRef,
       firstInteractiveMetricReportedRef, queuedBoardSettingsCommitRef,
       queuedBoardSettingsHistoryBeforeRef, boardSettingsCommitTimerRef, latestSeqRef,
-      processedEventIdsRef, smartInkStrokeBufferRef, smartInkProcessedStrokeIdsRef, dirtyRef,
+      processedEventIdsRef, dirtyRef,
       undoStackRef, redoStackRef, focusResetTimersByUserRef, boardObjectsRef, boardObjectIndexByIdRef,
     ]
   );

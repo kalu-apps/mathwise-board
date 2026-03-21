@@ -26,9 +26,6 @@ type ApplyWorkbookIncomingSessionMetaEventParams = {
     sceneLayers: WorkbookBoardSettings["sceneLayers"];
     activeSceneLayerId: string;
   };
-  normalizeSmartInkOptions: (
-    value: WorkbookSessionSettings["smartInk"] | undefined
-  ) => WorkbookSessionSettings["smartInk"];
   setDocumentState: Dispatch<SetStateAction<WorkbookDocumentState>>;
   setConstraints: Dispatch<SetStateAction<WorkbookConstraint[]>>;
   setSelectedConstraintId: Dispatch<SetStateAction<string | null>>;
@@ -56,7 +53,6 @@ export const applyWorkbookIncomingSessionMetaEvent = (
   const {
     event,
     normalizeSceneLayersForBoard,
-    normalizeSmartInkOptions,
     setDocumentState,
     setConstraints,
     setSelectedConstraintId,
@@ -304,7 +300,6 @@ export const applyWorkbookIncomingSessionMetaEvent = (
                 ...current.settings.studentControls,
                 ...incomingSettings.studentControls,
               },
-              smartInk: normalizeSmartInkOptions(incomingSettings.smartInk),
             },
           }
         : current

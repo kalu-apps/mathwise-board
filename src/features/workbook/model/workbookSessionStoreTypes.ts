@@ -33,7 +33,6 @@ import type {
   WorkbookIncomingEraserPreviewEntry,
   WorkbookStrokePreviewEntry,
 } from "./useWorkbookIncomingRuntimeController";
-import type { SmartInkOptions } from "@/pages/workbook/workbookBoardSettingsModel";
 
 export type StateUpdater<T> = T | ((current: T) => T);
 
@@ -140,7 +139,6 @@ export type WorkbookSessionDataSlice = {
   boardSettings: WorkbookBoardSettings;
   libraryState: WorkbookLibraryState;
   documentState: WorkbookDocumentState;
-  smartInkOptions: SmartInkOptions;
 };
 
 export type WorkbookSessionStoreActions = {
@@ -284,7 +282,6 @@ export type WorkbookSessionStoreActions = {
   setBoardSettings: (updater: StateUpdater<WorkbookBoardSettings>) => void;
   setLibraryState: (updater: StateUpdater<WorkbookLibraryState>) => void;
   setDocumentState: (updater: StateUpdater<WorkbookDocumentState>) => void;
-  setSmartInkOptions: (updater: StateUpdater<SmartInkOptions>) => void;
   resetForSession: () => void;
 };
 

@@ -21,22 +21,6 @@ import type {
   WorkbookTool,
 } from "@/features/workbook/model/types";
 import { generateId } from "@/shared/lib/id";
-import { DEFAULT_SMART_INK_OPTIONS } from "./workbookBoardSettingsModel";
-
-export type SmartInkRuntime = typeof import("@/features/workbook/model/smartInk");
-
-let smartInkRuntimePromise: Promise<SmartInkRuntime> | null = null;
-
-export const loadSmartInkRuntime = () => {
-  if (smartInkRuntimePromise) {
-    return smartInkRuntimePromise;
-  }
-  smartInkRuntimePromise = import("@/features/workbook/model/smartInk").catch((error) => {
-    smartInkRuntimePromise = null;
-    throw error;
-  });
-  return smartInkRuntimePromise;
-};
 
 export const getNowMs = () =>
   typeof performance !== "undefined" && typeof performance.now === "function"
@@ -196,7 +180,6 @@ export const defaultWidthByTool: Partial<Record<WorkbookTool, number>> = {
 export const DEFAULT_SETTINGS: WorkbookSessionSettings = {
   undoPolicy: "teacher_only",
   strictGeometry: false,
-  smartInk: DEFAULT_SMART_INK_OPTIONS,
   studentControls: {
     canDraw: true,
     canSelect: true,
@@ -215,7 +198,6 @@ export const DEFAULT_BOARD_SETTINGS: WorkbookBoardSettings = {
   gridColor: "rgba(92, 129, 192, 0.32)",
   backgroundColor: "#ffffff",
   snapToGrid: false,
-  smartInk: DEFAULT_SMART_INK_OPTIONS,
   showPageNumbers: false,
   currentPage: 1,
   pagesCount: 1,

@@ -12,9 +12,7 @@ import type {
 import {
   DEFAULT_BOARD_SETTINGS,
   DEFAULT_LIBRARY,
-  DEFAULT_SETTINGS,
 } from "@/pages/workbook/WorkbookSessionPage.core";
-import { normalizeSmartInkOptions } from "@/pages/workbook/workbookBoardSettingsModel";
 
 const COMPACT_VIEWPORT_MAX_WIDTH = 760;
 const DOCKED_CONTEXTBAR_MAX_WIDTH = 1024;
@@ -175,7 +173,6 @@ export const initialDataSlice = (): WorkbookSessionDataSlice => ({
     zoom: 1,
     annotations: [],
   },
-  smartInkOptions: normalizeSmartInkOptions(DEFAULT_SETTINGS.smartInk),
 });
 
 export const buildInitialWorkbookSessionCoreState = (): WorkbookSessionStoreCoreState => ({

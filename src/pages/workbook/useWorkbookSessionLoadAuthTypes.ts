@@ -58,8 +58,6 @@ export type WorkbookSessionLoadAndAuthParams = {
   boardSettingsCommitTimerRef: MutableRefObject<number | null>;
   latestSeqRef: MutableRefObject<number>;
   processedEventIdsRef: MutableRefObject<Set<string>>;
-  smartInkStrokeBufferRef: MutableRefObject<WorkbookStroke[]>;
-  smartInkProcessedStrokeIdsRef: MutableRefObject<Set<string>>;
   dirtyRef: MutableRefObject<boolean>;
   undoStackRef: MutableRefObject<WorkbookHistoryEntry[]>;
   redoStackRef: MutableRefObject<WorkbookHistoryEntry[]>;

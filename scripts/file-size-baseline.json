@@ -15,7 +15,6 @@
   "src/features/workbook/model/sceneGeometry.ts": 614,
   "src/features/workbook/model/sceneVisibility.ts": 610,
   "src/features/workbook/model/api.ts": 593,
-  "src/features/workbook/model/smartInk.ts": 574,
   "src/features/workbook/model/sceneRender.ts": 563,
   "src/pages/workbook/useWorkbookRealtimeTransport.ts": 543,
   "src/features/workbook/model/functionGraph.ts": 526,

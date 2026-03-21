@@ -10,7 +10,6 @@ import type { useWorkbookSessionHistoryRuntime } from "./useWorkbookSessionHisto
 import type { useWorkbookSessionLocalRuntime } from "./useWorkbookSessionLocalRuntime";
 import type { WorkbookHistoryOperation } from "./WorkbookSessionPage.geometry";
 import { normalizeSceneLayersForBoard } from "./WorkbookSessionPage.geometry";
-import { normalizeSmartInkOptions } from "./workbookBoardSettingsModel";
 import {
   ERASER_PREVIEW_END_EXPIRY_MS,
   ERASER_PREVIEW_EXPIRY_MS,
@@ -132,7 +131,6 @@ export const applyWorkbookIncomingEventsBatch = ({
         applyWorkbookIncomingSessionMetaEvent({
           event,
           normalizeSceneLayersForBoard,
-          normalizeSmartInkOptions,
           setDocumentState: actions.setDocumentState,
           setConstraints: actions.setConstraints,
           setSelectedConstraintId: actions.setSelectedConstraintId,

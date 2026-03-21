@@ -569,24 +569,3 @@ export async function renderWorkbookPdfPages(params: {
     }>;
   }>("/workbook/pdf/render", params, { notifyDataUpdate: false });
 }
-
-export async function recognizeWorkbookInk(params: {
-  sessionId: string;
-  strokes: Array<{
-    id: string;
-    points: Array<{ x: number; y: number }>;
-    width: number;
-    color: string;
-  }>;
-  preferMath?: boolean;
-}) {
-  return api.post<{
-    provider: "local" | "mock" | "external";
-    supported: boolean;
-    result: null | {
-      text?: string;
-      latex?: string;
-      confidence?: number;
-    };
-  }>("/workbook/ink/recognize", params, { notifyDataUpdate: false });
-}

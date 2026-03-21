@@ -36,7 +36,10 @@ type UseWorkbookEventCommitPipelineParams = {
   buildHistoryEntryFromEvents: (
     events: WorkbookClientEventInput[]
   ) => WorkbookHistoryEntry | null;
-  filterUnseenWorkbookEvents: (events: WorkbookEvent[]) => WorkbookEvent[];
+  filterUnseenWorkbookEvents: (
+    events: WorkbookEvent[],
+    options?: { allowLiveReplay?: boolean; ignoreSeqGuard?: boolean }
+  ) => WorkbookEvent[];
   markDirty: () => void;
   handleRealtimeAuthRequired: (status: 401 | 403 | 404) => void;
   handleRealtimeConflict: () => void;
@@ -145,7 +148,10 @@ export const useWorkbookEventCommitPipeline = ({
           latestSeq: response.latestSeq,
           events: response.events,
         });
-        const unseenEvents = filterUnseenWorkbookEvents(response.events);
+        const unseenEvents = filterUnseenWorkbookEvents(response.events, {
+          // Persist-ack is authoritative for our own write; do not drop it by seq race.
+          ignoreSeqGuard: true,
+        });
         if (unseenEvents.length > 0) {
           enqueueIncomingRealtimeApply({
             channel: "persist",
