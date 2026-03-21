@@ -144,11 +144,9 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
   onUpdateSolid3dSection,
   onDeleteSolid3dSection,
   getSolidVertexLabel,
-  getSectionVertexLabel,
 }: WorkbookSessionTransformPanelProps) {
   return (
     <div className="workbook-session__card">
-      <h3>Трансформации</h3>
       <div className="workbook-session__geometry">
         {!selectedObject ? (
           <p className="workbook-session__hint">Выберите объект для настройки.</p>

@@ -205,7 +205,7 @@ type WorkbookSettings = {
   undoPolicy: "everyone" | "teacher_only" | "own_only";
   strictGeometry: boolean;
   smartInk: {
-    mode: "off" | "shape" | "text" | "formula" | "auto";
+    mode: "off" | "shape" | "text" | "formula";
     confidenceThreshold: number;
     smartShapes: boolean;
     smartTextOcr: boolean;
@@ -1090,15 +1090,15 @@ const buildWorkbookLivekitTokenPayload = (
   };
 };
 
-type WorkbookSmartInkMode = "off" | "shape" | "text" | "formula" | "auto";
+type WorkbookSmartInkMode = "off" | "shape" | "text" | "formula";
 type WorkbookSmartInkSettings = WorkbookSettings["smartInk"];
 
 const normalizeWorkbookSmartInkMode = (value: unknown): WorkbookSmartInkMode => {
-  if (value === "shape" || value === "text" || value === "formula" || value === "auto") {
+  if (value === "shape" || value === "text" || value === "formula") {
     return value;
   }
   if (value === "basic") return "shape";
-  if (value === "full") return "auto";
+  if (value === "full" || value === "auto") return "shape";
   return "off";
 };
 
@@ -1151,11 +1151,11 @@ const normalizeWorkbookSmartInkSettings = (
     };
   }
   return {
-    mode,
+    mode: "off",
     confidenceThreshold,
-    smartShapes: true,
-    smartTextOcr: true,
-    smartMathOcr: true,
+    smartShapes: false,
+    smartTextOcr: false,
+    smartMathOcr: false,
   };
 };
 

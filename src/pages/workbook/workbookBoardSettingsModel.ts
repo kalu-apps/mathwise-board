@@ -1,4 +1,4 @@
-export type SmartInkMode = "off" | "shape" | "text" | "formula" | "auto";
+export type SmartInkMode = "off" | "shape" | "text" | "formula";
 
 export type SmartInkOptions = {
   mode: SmartInkMode;
@@ -18,17 +18,11 @@ export const DEFAULT_SMART_INK_OPTIONS: SmartInkOptions = {
 };
 
 const normalizeSmartInkMode = (value: unknown): SmartInkMode => {
-  if (
-    value === "off" ||
-    value === "shape" ||
-    value === "text" ||
-    value === "formula" ||
-    value === "auto"
-  ) {
+  if (value === "off" || value === "shape" || value === "text" || value === "formula") {
     return value;
   }
   if (value === "basic") return "shape";
-  if (value === "full") return "auto";
+  if (value === "full" || value === "auto") return "shape";
   return DEFAULT_SMART_INK_OPTIONS.mode;
 };
 
@@ -81,12 +75,11 @@ export const normalizeSmartInkOptions = (
       smartMathOcr: true,
     };
   }
-
   return {
-    mode,
+    mode: "off",
     confidenceThreshold,
-    smartShapes: true,
-    smartTextOcr: true,
-    smartMathOcr: true,
+    smartShapes: false,
+    smartTextOcr: false,
+    smartMathOcr: false,
   };
 };

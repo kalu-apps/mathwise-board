@@ -16,6 +16,9 @@ export type SmartInkRecognitionConfig = {
   smartShapes?: boolean;
   smartTextOcr?: boolean;
   smartMathOcr?: boolean;
+  forceShapeCoercion?: boolean;
+  forceTextFallback?: boolean;
+  forceFormulaFallback?: boolean;
   handwritingAdapter?: (input: {
     stroke: WorkbookStroke;
     points: WorkbookPoint[];
@@ -230,6 +233,25 @@ const isRectangleLike = (points: WorkbookPoint[], bounds: StrokeBounds) => {
   return true;
 };
 
+const countSharpCorners = (points: WorkbookPoint[], thresholdDeg = 138) => {
+  if (points.length < 3) return 0;
+  let count = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const previous = points[(index - 1 + points.length) % points.length];
+    const next = points[(index + 1) % points.length];
+    const inVec = normalizeVector(toVector(current, previous));
+    const outVec = normalizeVector(toVector(current, next));
+    if (inVec.len < 1e-6 || outVec.len < 1e-6) continue;
+    const cosine = clamp(dot(inVec, outVec), -1, 1);
+    const angleDeg = (Math.acos(cosine) * 180) / Math.PI;
+    if (angleDeg <= thresholdDeg) {
+      count += 1;
+    }
+  }
+  return count;
+};
+
 const isEllipseLike = (
   points: WorkbookPoint[],
   bounds: StrokeBounds
@@ -317,7 +339,10 @@ const normalizePolygonVertices = (points: WorkbookPoint[]) => {
   return output;
 };
 
-const detectSmartShape = (stroke: WorkbookStroke): SmartInkRecognitionResult => {
+const detectSmartShape = (
+  stroke: WorkbookStroke,
+  options?: { forceCoercion?: boolean }
+): SmartInkRecognitionResult => {
   const deduped = dedupePoints(stroke.points);
   if (deduped.length < 2) {
     return { kind: "none" };
@@ -376,8 +401,9 @@ const detectSmartShape = (stroke: WorkbookStroke): SmartInkRecognitionResult => 
     };
   }
 
-  if (isClosed && simplified.length >= 3) {
-    const ellipseMatch = isEllipseLike(points, bounds);
+  const ellipseMatch = isClosed && simplified.length >= 3 ? isEllipseLike(points, bounds) : null;
+
+  if (isClosed && simplified.length >= 3 && ellipseMatch) {
     if (ellipseMatch.matched) {
       return {
         kind: "shape",
@@ -453,6 +479,138 @@ const detectSmartShape = (stroke: WorkbookStroke): SmartInkRecognitionResult => 
     }
   }
 
+  if (options?.forceCoercion) {
+    const closeByCoverage = angularCoverage >= 0.58 && length >= Math.max(24, diagonal * 1.45);
+    const treatedAsClosed = isClosed || closeByCoverage;
+    if (!treatedAsClosed) {
+      return {
+        kind: "shape",
+        object: createBaseObject(stroke, {
+          type: "line",
+          x: start.x,
+          y: start.y,
+          width: end.x - start.x,
+          height: end.y - start.y,
+          meta: {
+            lineKind: "line",
+            lineStyle: "solid",
+            smartInk: true,
+          },
+        }),
+        confidence: 0.62,
+      };
+    }
+
+    const fallbackRaw = simplifyRdp(points, clamp(diagonal * 0.045, 3, 20));
+    const fallbackPoints = normalizePolygonVertices(fallbackRaw);
+    const fallbackVertices = fallbackPoints.length >= 3 ? fallbackPoints : simplified;
+    const fallbackBounds = getBounds(fallbackVertices.length >= 2 ? fallbackVertices : points);
+    const sharpCorners = countSharpCorners(fallbackVertices);
+    const likelyEllipse =
+      (ellipseMatch?.confidence ?? 0) >= 0.62 ||
+      sharpCorners <= 2 ||
+      fallbackVertices.length > 10 ||
+      (angularCoverage >= 0.66 &&
+        Math.min(bounds.width, bounds.height) / Math.max(1, Math.max(bounds.width, bounds.height)) >=
+          0.2);
+
+    if (likelyEllipse) {
+      return {
+        kind: "shape",
+        object: createBaseObject(stroke, {
+          type: "ellipse",
+          x: bounds.minX,
+          y: bounds.minY,
+          width: Math.max(1, bounds.width),
+          height: Math.max(1, bounds.height),
+          meta: {
+            showLabels: true,
+            smartInk: true,
+          },
+        }),
+        confidence: clamp((ellipseMatch?.confidence ?? 0.64) + 0.05, 0.58, 0.94),
+      };
+    }
+
+    if (fallbackVertices.length === 3 || sharpCorners === 3) {
+      const trianglePoints =
+        fallbackVertices.length === 3
+          ? fallbackVertices
+          : downsamplePoints(fallbackVertices, 3).slice(0, 3);
+      const triangleBounds = getBounds(trianglePoints);
+      return {
+        kind: "shape",
+        object: createBaseObject(stroke, {
+          type: "triangle",
+          x: triangleBounds.minX,
+          y: triangleBounds.minY,
+          width: Math.max(1, triangleBounds.width),
+          height: Math.max(1, triangleBounds.height),
+          points: trianglePoints,
+          meta: {
+            showLabels: true,
+            smartInk: true,
+          },
+        }),
+        confidence: 0.66,
+      };
+    }
+
+    if (fallbackVertices.length === 4 && isRectangleLike(fallbackVertices, fallbackBounds)) {
+      return {
+        kind: "shape",
+        object: createBaseObject(stroke, {
+          type: "rectangle",
+          x: fallbackBounds.minX,
+          y: fallbackBounds.minY,
+          width: Math.max(1, fallbackBounds.width),
+          height: Math.max(1, fallbackBounds.height),
+          meta: {
+            showLabels: true,
+            smartInk: true,
+          },
+        }),
+        confidence: 0.68,
+      };
+    }
+
+    if (fallbackVertices.length >= 3 && fallbackVertices.length <= 8) {
+      return {
+        kind: "shape",
+        object: createBaseObject(stroke, {
+          type: "polygon",
+          x: fallbackBounds.minX,
+          y: fallbackBounds.minY,
+          width: Math.max(1, fallbackBounds.width),
+          height: Math.max(1, fallbackBounds.height),
+          points: fallbackVertices,
+          sides: fallbackVertices.length,
+          meta: {
+            showLabels: true,
+            smartInk: true,
+          },
+        }),
+        confidence: 0.64,
+      };
+    }
+
+    return {
+      kind: "shape",
+      object: createBaseObject(stroke, {
+        type: "ellipse",
+        x: bounds.minX,
+        y: bounds.minY,
+        width: Math.max(1, bounds.width),
+        height: Math.max(1, bounds.height),
+        meta: {
+          showLabels: true,
+          smartInk: true,
+        },
+      }),
+      confidence: 0.6,
+    };
+  }
+
   return { kind: "none" };
 };
 
@@ -508,6 +666,49 @@ const buildTextOrFormulaObject = (
   };
 };
 
+const buildForcedTextOrFormulaFallback = (
+  stroke: WorkbookStroke,
+  bounds: StrokeBounds,
+  mode: "text" | "formula"
+): SmartInkRecognitionResult => {
+  if (mode === "formula") {
+    return {
+      kind: "formula",
+      confidence: 0.46,
+      object: createBaseObject(stroke, {
+        type: "formula",
+        x: bounds.minX,
+        y: bounds.minY,
+        width: Math.max(92, bounds.width),
+        height: Math.max(42, bounds.height),
+        text: "f(x)",
+        meta: {
+          latex: "",
+          smartInk: true,
+          forcedFallback: true,
+        },
+      }),
+    };
+  }
+  return {
+    kind: "text",
+    confidence: 0.46,
+    object: createBaseObject(stroke, {
+      type: "text",
+      x: bounds.minX,
+      y: bounds.minY,
+      width: Math.max(82, bounds.width),
+      height: Math.max(30, bounds.height),
+      text: "Текст",
+      fontSize: 18,
+      meta: {
+        smartInk: true,
+        forcedFallback: true,
+      },
+    }),
+  };
+};
+
 export async function recognizeSmartInkStroke(
   stroke: WorkbookStroke,
   config?: SmartInkRecognitionConfig
@@ -515,12 +716,19 @@ export async function recognizeSmartInkStroke(
   if (!stroke.points.length) return { kind: "none" };
   const points = dedupePoints(stroke.points);
   const bounds = getBounds(points);
+  const strokePathLength = pathLength(points);
   const smartShapes = config?.smartShapes !== false;
   const smartTextOcr = Boolean(config?.smartTextOcr);
   const smartMathOcr = Boolean(config?.smartMathOcr);
+  const forceShapeCoercion = Boolean(config?.forceShapeCoercion);
+  const forceTextFallback = Boolean(config?.forceTextFallback);
+  const forceFormulaFallback = Boolean(config?.forceFormulaFallback);
 
   if (smartShapes) {
-    const shapeResult = detectSmartShape({ ...stroke, points });
+    const shapeResult = detectSmartShape(
+      { ...stroke, points },
+      { forceCoercion: forceShapeCoercion }
+    );
     if (shapeResult.kind !== "none") return shapeResult;
   }
 
@@ -542,6 +750,15 @@ export async function recognizeSmartInkStroke(
       }
     } catch {
       return { kind: "none" };
+    }
+  }
+
+  if (strokePathLength >= 14 && Math.max(bounds.width, bounds.height) >= 10) {
+    if (smartMathOcr && forceFormulaFallback) {
+      return buildForcedTextOrFormulaFallback(stroke, bounds, "formula");
+    }
+    if (smartTextOcr && forceTextFallback) {
+      return buildForcedTextOrFormulaFallback(stroke, bounds, "text");
     }
   }
 

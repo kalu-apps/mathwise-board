@@ -393,6 +393,7 @@ const buildVersionPlan = (params: {
   type: ParsedMutation["type"];
 }) => {
   const currentVersion = params.current?.version ?? 0;
+  const isDeleteMutation = params.type === "board.object.delete";
   if (workbookConsistencyConfig.strictObjectVersion && params.expectedVersion === null) {
     return { ok: false as const, reason: "missing_expected_version" as const, actualVersion: currentVersion };
   }
@@ -403,9 +404,25 @@ const buildVersionPlan = (params: {
     return { ok: false as const, reason: "object_already_exists" as const, actualVersion: currentVersion };
   }
   if (params.type !== "board.object.create" && !params.current) {
+    if (isDeleteMutation) {
+      // Repeated/stale deletes are idempotent: accept and keep version tracking stable.
+      return {
+        ok: true as const,
+        nextVersion: Math.max(1, currentVersion),
+        actualVersion: currentVersion,
+      };
+    }
     return { ok: false as const, reason: "object_not_found" as const, actualVersion: 0 };
   }
   if (params.type !== "board.object.create" && params.current?.deleted) {
+    if (isDeleteMutation) {
+      // Deleting an already deleted object should not fail the whole event batch.
+      return {
+        ok: true as const,
+        nextVersion: Math.max(1, currentVersion),
+        actualVersion: currentVersion,
+      };
+    }
     return { ok: false as const, reason: "object_deleted" as const, actualVersion: currentVersion };
   }
   return { ok: true as const, nextVersion: currentVersion + 1, actualVersion: currentVersion };
