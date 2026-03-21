@@ -42,6 +42,7 @@ type SmartInkAdapterResponse = {
 } | null;
 
 const SMART_INK_ADAPTER_CACHE_TTL_MS = 5000;
+const SMART_INK_ADAPTER_ERROR_CACHE_TTL_MS = 450;
 
 const getStrokePointsCount = (strokes: WorkbookStroke[]) =>
   strokes.reduce((sum, stroke) => sum + stroke.points.length, 0);
@@ -165,7 +166,7 @@ export const useWorkbookSmartInkPipeline = ({
       } catch {
         adapterCacheRef.current.set(cacheKey, {
           value: null,
-          expiresAt: now + Math.round(SMART_INK_ADAPTER_CACHE_TTL_MS / 2),
+          expiresAt: now + SMART_INK_ADAPTER_ERROR_CACHE_TTL_MS,
         });
         return null;
       }

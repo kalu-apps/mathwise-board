@@ -1,6 +1,6 @@
 import { useCallback, type MutableRefObject } from "react";
 import { generateId } from "@/shared/lib/id";
-import { isRecoverableApiError } from "@/shared/api/client";
+import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import {
   mergeBoardObjectPatches,
   mergeBoardObjectWithPatch,
@@ -98,18 +98,42 @@ export const useWorkbookStrokeCommitHandlers = ({
         ...stroke,
         page: Math.max(1, stroke.page ?? boardSettingsCurrentPage),
       };
+      const isBoardPenStroke =
+        strokeWithPage.layer === "board" && strokeWithPage.tool === "pen";
       finalizeStrokePreview(strokeWithPage.id);
       applyLocalStrokeCollection(strokeWithPage.layer, (current) =>
         current.some((item) => item.id === strokeWithPage.id)
           ? current
           : [...current, strokeWithPage]
       );
+      const persistStroke = () =>
+        appendEventsAndApply([{ type, payload: { stroke: strokeWithPage } }]);
       try {
-        await appendEventsAndApply([{ type, payload: { stroke: strokeWithPage } }]);
-        if (stroke.layer === "board" && stroke.tool === "pen") {
+        await persistStroke();
+        if (isBoardPenStroke) {
           queueSmartInkStroke(strokeWithPage);
         }
-      } catch {
+      } catch (error) {
+        if (isBoardPenStroke && error instanceof ApiError && error.code === "conflict") {
+          try {
+            await new Promise<void>((resolve) => {
+              window.setTimeout(resolve, 220);
+            });
+            await persistStroke();
+            queueSmartInkStroke(strokeWithPage);
+            return;
+          } catch (retryError) {
+            error = retryError;
+          }
+        }
+        if (isBoardPenStroke && isRecoverableApiError(error)) {
+          markDirty();
+          setSaveSyncWarning(
+            "Связь нестабильна. Продолжаем синхронизацию изменений доски."
+          );
+          queueSmartInkStroke(strokeWithPage);
+          return;
+        }
         applyLocalStrokeCollection(strokeWithPage.layer, (current) =>
           current.filter((item) => item.id !== strokeWithPage.id)
         );
@@ -122,9 +146,11 @@ export const useWorkbookStrokeCommitHandlers = ({
       boardSettingsCurrentPage,
       canDraw,
       finalizeStrokePreview,
+      markDirty,
       queueSmartInkStroke,
       sessionId,
       setError,
+      setSaveSyncWarning,
     ]
   );
 
