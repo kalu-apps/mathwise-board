@@ -1930,6 +1930,7 @@ export default function WorkbookSessionPage() {
       <WorkbookSessionToolSettingsPopover
         state={toolSettingsPopoverState}
         overlayContainer={overlayContainer}
+        isFullscreen={isFullscreen}
         onClose={handleCloseToolSettingsPopover}
         penToolSettings={penToolSettings}
         highlighterToolSettings={highlighterToolSettings}

@@ -208,22 +208,28 @@ export const useWorkbookSmartInkPipeline = ({
         try {
           let applied = false;
           let attempt = 0;
-          while (!applied && attempt < 2) {
+          const maxAttempts = 5;
+          while (!applied && attempt < maxAttempts) {
             try {
               await appendEventsAndApply(events);
               applied = true;
             } catch (error) {
               const canRetryConflict =
-                error instanceof ApiError && error.code === "conflict" && attempt === 0;
+                error instanceof ApiError && error.code === "conflict";
               const canRetryRecoverable =
-                isRecoverableApiError(error) && attempt === 0;
+                isRecoverableApiError(error);
               if (!canRetryConflict && !canRetryRecoverable) {
                 throw error;
               }
-              await new Promise<void>((resolve) => {
-                window.setTimeout(resolve, canRetryConflict ? 220 : 320);
-              });
               attempt += 1;
+              if (attempt >= maxAttempts) {
+                throw error;
+              }
+              const baseDelay = canRetryConflict ? 220 : 320;
+              const delay = Math.min(1200, baseDelay * attempt);
+              await new Promise<void>((resolve) => {
+                window.setTimeout(resolve, delay);
+              });
             }
           }
           if (!applied) {
