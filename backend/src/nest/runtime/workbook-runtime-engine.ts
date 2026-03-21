@@ -49,6 +49,11 @@ import {
   WORKBOOK_PDF_RENDER_MAX_BYTES,
 } from "./core/workbookPdfService";
 import {
+  createWorkbookAssetReadStream,
+  persistWorkbookAssetFromDataUrl,
+  readWorkbookAssetById,
+} from "./core/workbookAssetStore";
+import {
   workbookEventStore,
   workbookSnapshotStore,
 } from "./core/workbookStores";
@@ -158,7 +163,7 @@ const WORKBOOK_DEVICE_ID_HEADER = "x-workbook-device-id";
 const WORKBOOK_ACCESS_LOG_HASH_SALT = String(process.env.WORKBOOK_ACCESS_LOG_HASH_SALT ?? "").trim();
 const WORKBOOK_REQUEST_BODY_MAX_BYTES = readPositiveInt(
   "WORKBOOK_REQUEST_BODY_MAX_BYTES",
-  12 * 1024 * 1024
+  40 * 1024 * 1024
 );
 const WORKBOOK_VOLATILE_RATE_LIMIT_CAPACITY = readPositiveInt(
   "WORKBOOK_VOLATILE_RATE_LIMIT_CAPACITY",
@@ -2342,6 +2347,9 @@ export const handleWorkbookApiRequestByDomains = async (
             recordWorkbookAccessEvent,
             decodeWorkbookPdfDataUrl,
             renderWorkbookPdfPagesViaPoppler,
+            persistWorkbookAssetFromDataUrl,
+            readWorkbookAssetById,
+            createWorkbookAssetReadStream,
             sanitizePermissionPatch,
             normalizeParticipantPermissions,
             hasBoardToolsPermissionPatch,
@@ -3207,6 +3215,10 @@ export const handleWorkbookApiRequestByDomains = async (
     const statusCode =
       message === REQUEST_BODY_TOO_LARGE_ERROR
         ? 413
+        : message === "workbook_asset_too_large"
+          ? 413
+          : message === "workbook_asset_invalid_data_url"
+            ? 400
         : message === INVALID_JSON_BODY_ERROR
           ? 400
           : isRateLimitedError

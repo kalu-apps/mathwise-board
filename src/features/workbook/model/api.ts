@@ -569,3 +569,25 @@ export async function renderWorkbookPdfPages(params: {
     }>;
   }>("/workbook/pdf/render", params, { notifyDataUpdate: false });
 }
+
+export async function uploadWorkbookAsset(params: {
+  sessionId: string;
+  fileName: string;
+  dataUrl: string;
+  mimeType?: string;
+}) {
+  return api.post<{
+    assetId: string;
+    url: string;
+    mimeType: string;
+    sizeBytes: number;
+  }>(
+    `/workbook/sessions/${encodeURIComponent(params.sessionId)}/assets`,
+    {
+      fileName: params.fileName,
+      dataUrl: params.dataUrl,
+      mimeType: params.mimeType,
+    },
+    { notifyDataUpdate: false, timeoutMs: 60_000 }
+  );
+}
