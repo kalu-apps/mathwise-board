@@ -1,6 +1,7 @@
 import { useCallback, useRef, type MutableRefObject } from "react";
 import { recognizeWorkbookInk } from "@/features/workbook/model/api";
 import { ensureWorkbookObjectZOrder } from "@/features/workbook/model/objectZOrder";
+import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import type {
   WorkbookBoardObject,
   WorkbookPoint,
@@ -205,7 +206,29 @@ export const useWorkbookSmartInkPipeline = ({
           })),
         ];
         try {
-          await appendEventsAndApply(events);
+          let applied = false;
+          let attempt = 0;
+          while (!applied && attempt < 2) {
+            try {
+              await appendEventsAndApply(events);
+              applied = true;
+            } catch (error) {
+              const canRetryConflict =
+                error instanceof ApiError && error.code === "conflict" && attempt === 0;
+              const canRetryRecoverable =
+                isRecoverableApiError(error) && attempt === 0;
+              if (!canRetryConflict && !canRetryRecoverable) {
+                throw error;
+              }
+              await new Promise<void>((resolve) => {
+                window.setTimeout(resolve, canRetryConflict ? 220 : 320);
+              });
+              attempt += 1;
+            }
+          }
+          if (!applied) {
+            throw new Error("smart_ink_apply_failed");
+          }
           strokes.forEach((stroke) => {
             smartInkProcessedStrokeIdsRef.current.add(stroke.id);
           });
