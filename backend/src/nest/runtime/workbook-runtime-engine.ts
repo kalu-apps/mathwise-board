@@ -1374,7 +1374,9 @@ const resolveTeacherLastVisitDurationMinutes = (db: MockDb, session: WorkbookSes
         (entry) =>
           entry.sessionId === session.id &&
           entry.actorUserId === teacherParticipant.userId &&
-          (entry.eventType === "presence_started" || entry.eventType === "presence_ended")
+          (entry.eventType === "presence_started" ||
+            entry.eventType === "presence_ended" ||
+            entry.eventType === "session_opened")
       )
       .map((entry) => ({
         type: entry.eventType,
@@ -1384,15 +1386,24 @@ const resolveTeacherLastVisitDurationMinutes = (db: MockDb, session: WorkbookSes
       .sort((left, right) => {
         if (left.ts !== right.ts) return left.ts - right.ts;
         if (left.type === right.type) return 0;
-        return left.type === "presence_started" ? -1 : 1;
+        const leftPriority =
+          left.type === "presence_ended" ? 2 : left.type === "session_opened" ? 0 : 1;
+        const rightPriority =
+          right.type === "presence_ended" ? 2 : right.type === "session_opened" ? 0 : 1;
+        return leftPriority - rightPriority;
       });
 
     let totalMs = 0;
     let activeStartTs: number | null = null;
 
     presenceEvents.forEach((event) => {
-      if (event.type === "presence_started") {
+      if (event.type === "presence_started" || event.type === "session_opened") {
         if (activeStartTs === null) {
+          activeStartTs = event.ts;
+          return;
+        }
+        if (event.type === "session_opened" && event.ts > activeStartTs) {
+          totalMs += event.ts - activeStartTs;
           activeStartTs = event.ts;
         }
         return;
@@ -2710,11 +2721,18 @@ export const handleWorkbookApiRequestByDomains = async (
           forbidden(res);
           return;
         }
+        const openedAt = nowIso();
         participant.isActive = true;
         participant.leftAt = null;
-        participant.lastSeenAt = nowIso();
-        touchSessionActivity(session);
-        ensureDraftForOwner(db, session, actor.id).lastOpenedAt = nowIso();
+        participant.lastSeenAt = openedAt;
+        if (!participant.currentVisitStartedAt) {
+          participant.currentVisitStartedAt = openedAt;
+          participant.lastVisitStartedAt = openedAt;
+          participant.lastVisitEndedAt = null;
+          participant.lastVisitDurationMinutes = null;
+        }
+        touchSessionActivity(session, openedAt);
+        ensureDraftForOwner(db, session, actor.id).lastOpenedAt = openedAt;
         saveDb();
         await recordWorkbookAccessEvent({
           req,
