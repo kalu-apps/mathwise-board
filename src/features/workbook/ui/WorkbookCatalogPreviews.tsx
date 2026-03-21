@@ -58,9 +58,26 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
         : null}
       {presetId === "cylinder" ? (
         <>
-          <ellipse cx={60} cy={30} rx={24} ry={7} fill="none" stroke="#111827" strokeWidth={2} />
+          <path d={pathArc(60, 30, 24, 7, "front")} fill="none" stroke="#111827" strokeWidth={2} />
+          <path
+            d={pathArc(60, 30, 24, 7, "back")}
+            fill="none"
+            stroke="#111827"
+            strokeWidth={2}
+            strokeDasharray="6 5"
+          />
           <line x1={36} y1={30} x2={36} y2={74} stroke="#111827" strokeWidth={2} />
           <line x1={84} y1={30} x2={84} y2={74} stroke="#111827" strokeWidth={2} />
+          <line
+            x1={60}
+            y1={30}
+            x2={60}
+            y2={74}
+            stroke="#111827"
+            strokeWidth={1.5}
+            strokeDasharray="6 5"
+            opacity={0.7}
+          />
           <path d={pathArc(60, 74, 24, 7, "front")} fill="none" stroke="#111827" strokeWidth={2} />
           <path
             d={pathArc(60, 74, 24, 7, "back")}
@@ -75,6 +92,16 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
         <>
           <line x1={60} y1={18} x2={36} y2={76} stroke="#111827" strokeWidth={2} />
           <line x1={60} y1={18} x2={84} y2={76} stroke="#111827" strokeWidth={2} />
+          <line
+            x1={60}
+            y1={18}
+            x2={60}
+            y2={76}
+            stroke="#111827"
+            strokeWidth={1.5}
+            strokeDasharray="6 5"
+            opacity={0.72}
+          />
           <path d={pathArc(60, 76, 24, 7, "front")} fill="none" stroke="#111827" strokeWidth={2} />
           <path
             d={pathArc(60, 76, 24, 7, "back")}
@@ -87,9 +114,26 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
       ) : null}
       {presetId === "truncated_cone" ? (
         <>
-          <ellipse cx={60} cy={28} rx={13} ry={4} fill="none" stroke="#111827" strokeWidth={2} />
+          <path d={pathArc(60, 28, 13, 4, "front")} fill="none" stroke="#111827" strokeWidth={2} />
+          <path
+            d={pathArc(60, 28, 13, 4, "back")}
+            fill="none"
+            stroke="#111827"
+            strokeWidth={2}
+            strokeDasharray="6 5"
+          />
           <line x1={47} y1={28} x2={36} y2={76} stroke="#111827" strokeWidth={2} />
           <line x1={73} y1={28} x2={84} y2={76} stroke="#111827" strokeWidth={2} />
+          <line
+            x1={60}
+            y1={28}
+            x2={60}
+            y2={76}
+            stroke="#111827"
+            strokeWidth={1.5}
+            strokeDasharray="6 5"
+            opacity={0.72}
+          />
           <path d={pathArc(60, 76, 24, 7, "front")} fill="none" stroke="#111827" strokeWidth={2} />
           <path
             d={pathArc(60, 76, 24, 7, "back")}
@@ -102,28 +146,43 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
       ) : null}
       {presetId === "sphere" ? (
         <>
-          <circle
+          <ellipse
             cx={60}
             cy={50}
-            r={28}
+            rx={28}
+            ry={24}
             fill="rgba(63, 78, 145, 0.08)"
             stroke="#111827"
             strokeWidth={2}
           />
-          <path d={pathArc(60, 50, 28, 7, "front")} fill="none" stroke="#111827" strokeWidth={2} />
+          <path d={pathArc(60, 50, 28, 7, "front")} fill="none" stroke="#111827" strokeWidth={1.8} />
           <path
             d={pathArc(60, 50, 28, 7, "back")}
             fill="none"
             stroke="#111827"
-            strokeWidth={2}
+            strokeWidth={1.8}
             strokeDasharray="6 5"
+          />
+          <path
+            d="M 60 26 A 9 24 0 0 0 60 74"
+            fill="none"
+            stroke="#111827"
+            strokeWidth={1.6}
+          />
+          <path
+            d="M 60 26 A 9 24 0 0 1 60 74"
+            fill="none"
+            stroke="#111827"
+            strokeWidth={1.4}
+            strokeDasharray="6 5"
+            opacity={0.8}
           />
         </>
       ) : null}
       {presetId === "hemisphere" ? (
         <>
           <path
-            d="M 32 58 A 28 28 0 0 1 88 58"
+            d="M 32 58 A 28 28 0 0 1 88 58 L 88 58 L 32 58 Z"
             fill="rgba(63, 78, 145, 0.08)"
             stroke="#111827"
             strokeWidth={2}
@@ -135,6 +194,16 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             stroke="#111827"
             strokeWidth={2}
             strokeDasharray="6 5"
+          />
+          <line
+            x1={60}
+            y1={30}
+            x2={60}
+            y2={58}
+            stroke="#111827"
+            strokeWidth={1.4}
+            strokeDasharray="6 5"
+            opacity={0.72}
           />
         </>
       ) : null}
@@ -149,13 +218,31 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             stroke="#111827"
             strokeWidth={2}
           />
-          <ellipse cx={60} cy={50} rx={14} ry={8} fill="none" stroke="#111827" strokeWidth={2} />
+          <path d={pathArc(60, 50, 30, 18, "front")} fill="none" stroke="#111827" strokeWidth={2} />
           <path
             d={pathArc(60, 50, 30, 8, "back")}
             fill="none"
             stroke="#111827"
             strokeWidth={2}
             strokeDasharray="6 5"
+          />
+          <path d={pathArc(60, 50, 14, 8, "front")} fill="none" stroke="#111827" strokeWidth={1.8} />
+          <path
+            d={pathArc(60, 50, 14, 8, "back")}
+            fill="none"
+            stroke="#111827"
+            strokeWidth={1.8}
+            strokeDasharray="6 5"
+          />
+          <line
+            x1={30}
+            y1={50}
+            x2={90}
+            y2={50}
+            stroke="#111827"
+            strokeWidth={1.4}
+            strokeDasharray="6 5"
+            opacity={0.72}
           />
         </>
       ) : null}

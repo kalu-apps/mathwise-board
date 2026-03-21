@@ -2275,6 +2275,13 @@
   }
 }
 
+.workbook-session__graph-plane-reset-btn.MuiIconButton-root,
+.workbook-session__graph-plane-reset-btn.MuiIconButton-root:hover {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
 .workbook-session__graph-builder-list {
   display: grid;
   gap: 8px;
@@ -2313,7 +2320,7 @@
 }
 
 .workbook-session__graph-builder-item-main--inline {
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 6px;
 }
 
@@ -2368,40 +2375,25 @@
   box-shadow: none;
 }
 
-.workbook-session__graph-delete-btn {
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  box-shadow: none;
-  color: var(--text-secondary);
-}
-
-.workbook-session__graph-delete-btn {
-  justify-self: end;
-}
-
-.workbook-session__graph-delete-btn:hover {
-  color: var(--brand-strong);
-  background: color-mix(in srgb, #8da4ff 10%, transparent);
-}
-
 .workbook-session__graph-card-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 6px;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  justify-items: center;
 }
 
 .workbook-session__graph-inline-action {
-  border: none;
-  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--brand-soft) 18%, var(--border-subtle));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
   box-shadow: none;
-  padding: 0;
-  min-height: 24px;
+  padding: 4px 6px;
+  min-height: 26px;
+  width: 100%;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   color: var(--text-secondary);
   font-size: 11px;
@@ -2414,10 +2406,23 @@
 
 .workbook-session__graph-inline-action:hover {
   color: var(--brand-strong);
+  border-color: color-mix(in srgb, var(--brand-strong) 28%, var(--border-subtle));
+  background: color-mix(in srgb, #8da4ff 8%, var(--surface-elevated));
 }
 
 .workbook-session__graph-inline-action svg {
   font-size: 16px;
+}
+
+.workbook-session__graph-inline-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.workbook-session__graph-inline-action--danger:hover:not(:disabled) {
+  color: color-mix(in srgb, #d13f55 86%, var(--text-primary));
+  border-color: color-mix(in srgb, #d13f55 46%, var(--border-subtle));
+  background: color-mix(in srgb, #ffbac5 16%, var(--surface-elevated));
 }
 
 .workbook-session__graph-chip-action {
