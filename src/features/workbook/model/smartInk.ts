@@ -352,7 +352,10 @@ const detectSmartShape = (
   const bounds = getBounds(points);
   const diagonal = Math.hypot(bounds.width, bounds.height);
   const length = pathLength(points);
-  if (length < 18) {
+  if (length < 6) {
+    return { kind: "none" };
+  }
+  if (length < 18 && !options?.forceCoercion) {
     return { kind: "none" };
   }
   const start = points[0];

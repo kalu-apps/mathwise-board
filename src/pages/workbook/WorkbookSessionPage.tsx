@@ -460,6 +460,7 @@ export default function WorkbookSessionPage() {
     boardSettings,
     boardObjects,
   });
+  const showSidebarParticipantsInLayout = showSidebarParticipants && !isFullscreen;
   const {
     clampedEraserRadius,
     resetToolRuntimeToSelect,
@@ -1900,7 +1901,7 @@ export default function WorkbookSessionPage() {
 
       <div
         className={`workbook-session__layout${
-          showSidebarParticipants
+          showSidebarParticipantsInLayout
             ? " workbook-session__layout--sidebar-overlay"
             : " workbook-session__layout--workspace"
         }`}
@@ -1916,7 +1917,7 @@ export default function WorkbookSessionPage() {
         />
         <WorkbookSessionSidebar
           isCompactViewport={isCompactViewport}
-          showSidebarParticipants={showSidebarParticipants}
+          showSidebarParticipants={showSidebarParticipantsInLayout}
           floatingPanelsTop={floatingPanelsTop}
           participantsPanelProps={participantsPanelProps}
           utilityPanelChromeProps={utilityPanelChromeProps}

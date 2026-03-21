@@ -53,6 +53,9 @@ export function WorkbookSessionToolSettingsPopover({
   onHighlighterToolSettingsChange,
   onEraserRadiusChange,
 }: WorkbookSessionToolSettingsPopoverProps) {
+  const portalContainer =
+    typeof document !== "undefined" ? document.body : overlayContainer;
+
   const updateSmartInk = (patch: Partial<SmartInkOptions>) => {
     setSmartInkOptions((current) =>
       normalizeSmartInkOptions({
@@ -66,7 +69,7 @@ export function WorkbookSessionToolSettingsPopover({
 
   return (
     <Popover
-      container={overlayContainer}
+      container={portalContainer}
       open={Boolean(state)}
       onClose={onClose}
       disableAutoFocus
@@ -140,7 +143,7 @@ export function WorkbookSessionToolSettingsPopover({
                     className="workbook-session__tool-settings-select"
                     value={smartInkOptions.mode}
                     MenuProps={{
-                      container: overlayContainer,
+                      container: portalContainer,
                     }}
                     onChange={(event) =>
                       updateSmartInk({
