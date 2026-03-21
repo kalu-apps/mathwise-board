@@ -1358,6 +1358,47 @@ const resolveTeacherLastVisitDurationMinutes = (db: MockDb, session: WorkbookSes
   if (!teacherParticipant || teacherParticipant.roleInSession !== "teacher") {
     return null;
   }
+  const resolveLatestTeacherEventTs = (startedAfterTs?: number | null) => {
+    const lowerBound =
+      typeof startedAfterTs === "number" && Number.isFinite(startedAfterTs)
+        ? startedAfterTs
+        : null;
+    let latestTs: number | null = null;
+    db.workbookEvents.forEach((event) => {
+      if (event.sessionId !== session.id || event.authorUserId !== teacherParticipant.userId) {
+        return;
+      }
+      const ts = new Date(event.createdAt).getTime();
+      if (!Number.isFinite(ts)) return;
+      if (typeof lowerBound === "number" && ts < lowerBound) return;
+      if (latestTs === null || ts > latestTs) {
+        latestTs = ts;
+      }
+    });
+    return latestTs;
+  };
+  const resolveKnownVisitEndTs = (startedAfterTs?: number | null) => {
+    const lowerBound =
+      typeof startedAfterTs === "number" && Number.isFinite(startedAfterTs)
+        ? startedAfterTs
+        : null;
+    const candidateTs: number[] = [];
+    const collectIsoTs = (value: string | null | undefined) => {
+      const ts = new Date(String(value ?? "")).getTime();
+      if (!Number.isFinite(ts)) return;
+      if (typeof lowerBound === "number" && ts < lowerBound) return;
+      candidateTs.push(ts);
+    };
+    collectIsoTs(teacherParticipant.leftAt);
+    collectIsoTs(teacherParticipant.lastSeenAt);
+    collectIsoTs(session.endedAt);
+    const latestTeacherEventTs = resolveLatestTeacherEventTs(lowerBound);
+    if (typeof latestTeacherEventTs === "number" && Number.isFinite(latestTeacherEventTs)) {
+      candidateTs.push(latestTeacherEventTs);
+    }
+    if (!candidateTs.length) return null;
+    return Math.max(...candidateTs);
+  };
   const resolveSessionElapsedMinutes = () => {
     const startedAt = session.startedAt ?? session.createdAt;
     if (!startedAt) return null;
@@ -1427,16 +1468,15 @@ const resolveTeacherLastVisitDurationMinutes = (db: MockDb, session: WorkbookSes
     }
 
     if (activeStartTs !== null) {
+      const knownVisitEndTs = resolveKnownVisitEndTs(activeStartTs);
       const runningVisitEndTs = teacherParticipant.isActive
-        ? nowTs()
-        : new Date(
-            teacherParticipant.leftAt ??
-              teacherParticipant.lastSeenAt ??
-              session.endedAt ??
-              session.lastActivityAt ??
-              nowIso()
-          ).getTime();
-      if (Number.isFinite(runningVisitEndTs) && runningVisitEndTs > activeStartTs) {
+        ? Math.max(nowTs(), knownVisitEndTs ?? 0)
+        : knownVisitEndTs;
+      if (
+        typeof runningVisitEndTs === "number" &&
+        Number.isFinite(runningVisitEndTs) &&
+        runningVisitEndTs > activeStartTs
+      ) {
         totalMs += runningVisitEndTs - activeStartTs;
       }
     }
@@ -1465,10 +1505,12 @@ const resolveTeacherLastVisitDurationMinutes = (db: MockDb, session: WorkbookSes
     if (hasActiveTabs || isOnlineNow) {
       return resolveDurationMinutes(currentVisitStartedAt, nowIso());
     }
-    const inferredEndedAt = teacherParticipant.leftAt ?? teacherParticipant.lastSeenAt ?? null;
-    const inferredDuration = inferredEndedAt
-      ? resolveDurationMinutes(currentVisitStartedAt, inferredEndedAt)
-      : null;
+    const currentVisitStartedAtTs = new Date(currentVisitStartedAt).getTime();
+    const inferredEndedTs = resolveKnownVisitEndTs(currentVisitStartedAtTs);
+    const inferredDuration =
+      typeof inferredEndedTs === "number" && Number.isFinite(inferredEndedTs)
+        ? resolveDurationMinutes(currentVisitStartedAt, new Date(inferredEndedTs).toISOString())
+        : null;
     if (
       typeof inferredDuration === "number" &&
       Number.isFinite(inferredDuration) &&
