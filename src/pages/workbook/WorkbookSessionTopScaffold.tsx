@@ -5,20 +5,13 @@ import type {
 import {
   Alert,
   Button,
-  Chip,
-  IconButton,
 } from "@mui/material";
-import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
-import type { WorkbookSession } from "@/features/workbook/model/types";
 
 interface WorkbookSessionTopScaffoldProps {
   boardFileInputRef: MutableRefObject<HTMLInputElement | null>;
   docsInputRef: MutableRefObject<HTMLInputElement | null>;
   onLoadBoardFile: ChangeEventHandler<HTMLInputElement>;
   onDocsUpload: ChangeEventHandler<HTMLInputElement>;
-  sessionHeadRef: MutableRefObject<HTMLElement | null>;
-  session: WorkbookSession;
-  onBack: () => Promise<void> | void;
   error: string | null;
   setError: (value: string | null) => void;
   saveSyncWarning: string | null;
@@ -26,6 +19,7 @@ interface WorkbookSessionTopScaffoldProps {
   realtimeSyncWarning: string | null;
   setRealtimeSyncWarning: (value: string | null) => void;
   isFullscreen: boolean;
+  isEnded: boolean;
   pendingClearRequest: {
     authorUserId: string;
   } | null;
@@ -39,9 +33,6 @@ export function WorkbookSessionTopScaffold({
   docsInputRef,
   onLoadBoardFile,
   onDocsUpload,
-  sessionHeadRef,
-  session,
-  onBack,
   error,
   setError,
   saveSyncWarning,
@@ -49,6 +40,7 @@ export function WorkbookSessionTopScaffold({
   realtimeSyncWarning,
   setRealtimeSyncWarning,
   isFullscreen,
+  isEnded,
   pendingClearRequest,
   currentUserId,
   onConfirmClear,
@@ -70,23 +62,6 @@ export function WorkbookSessionTopScaffold({
         className="workbook-session__file-input"
         onChange={onDocsUpload}
       />
-
-      <header className="workbook-session__head" ref={sessionHeadRef}>
-        <div className="workbook-session__head-main">
-          <IconButton
-            className="workbook-session__back"
-            onClick={() => void onBack()}
-            aria-label="Назад"
-          >
-            <ArrowBackRoundedIcon />
-          </IconButton>
-          {session.status === "ended" ? (
-            <div className="workbook-session__head-meta">
-              <Chip size="small" label="Завершено" color="default" />
-            </div>
-          ) : null}
-        </div>
-      </header>
 
       {error ? (
         <Alert
@@ -126,7 +101,7 @@ export function WorkbookSessionTopScaffold({
 
       {pendingClearRequest &&
       pendingClearRequest.authorUserId !== currentUserId &&
-      session.status !== "ended" ? (
+      !isEnded ? (
         <Alert
           severity="warning"
           action={
