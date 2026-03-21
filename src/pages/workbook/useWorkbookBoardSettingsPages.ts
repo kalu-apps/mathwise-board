@@ -5,6 +5,7 @@ import type {
   WorkbookBoardSettings,
   WorkbookStroke,
 } from "@/features/workbook/model/types";
+import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import {
   buildBoardSettingsDiffPatch,
   cloneSerializable,
@@ -75,28 +76,52 @@ export const useWorkbookBoardSettingsPages = ({
       const inversePatch = historyBefore
         ? buildBoardSettingsDiffPatch(nextSettings, historyBefore)
         : null;
-      await appendEventsAndApply(
-        [
-          {
-            type: "board.settings.update",
-            payload: {
-              boardSettings: nextSettings,
-            },
-          },
-        ],
+      const persistEvents: WorkbookClientEventInput[] = [
         {
-          historyEntry:
-            forwardPatch && inversePatch
-              ? {
-                  forward: [{ kind: "patch_board_settings", patch: forwardPatch }],
-                  inverse: [{ kind: "patch_board_settings", patch: inversePatch }],
-                  createdAt: new Date().toISOString(),
-                }
-              : null,
+          type: "board.settings.update",
+          payload: {
+            boardSettings: nextSettings,
+          },
+        },
+      ];
+      const historyEntry =
+        forwardPatch && inversePatch
+          ? {
+              forward: [{ kind: "patch_board_settings", patch: forwardPatch }],
+              inverse: [{ kind: "patch_board_settings", patch: inversePatch }],
+              createdAt: new Date().toISOString(),
+            }
+          : null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          await appendEventsAndApply(persistEvents, { historyEntry });
+          break;
+        } catch (error) {
+          const isConflict =
+            error instanceof ApiError &&
+            error.code === "conflict" &&
+            error.status === 409;
+          if (isConflict && attempt < 2) {
+            await new Promise<void>((resolve) => {
+              window.setTimeout(resolve, 170 * (attempt + 1));
+            });
+            continue;
+          }
+          if (isRecoverableApiError(error) && attempt < 2) {
+            await new Promise<void>((resolve) => {
+              window.setTimeout(resolve, 220 * (attempt + 1));
+            });
+            continue;
+          }
+          throw error;
         }
-      );
+      }
       queuedBoardSettingsHistoryBeforeRef.current = null;
     } catch {
+      if (historyBefore) {
+        boardSettingsRef.current = historyBefore;
+        setBoardSettings(historyBefore);
+      }
       setError("Не удалось сохранить настройки доски.");
     } finally {
       boardSettingsCommitInFlightRef.current = false;
@@ -106,10 +131,12 @@ export const useWorkbookBoardSettingsPages = ({
     }
   }, [
     appendEventsAndApply,
+    boardSettingsRef,
     boardSettingsCommitInFlightRef,
     canManageSharedBoardSettings,
     queuedBoardSettingsCommitRef,
     queuedBoardSettingsHistoryBeforeRef,
+    setBoardSettings,
     setError,
   ]);
 

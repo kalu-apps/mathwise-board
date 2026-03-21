@@ -20,7 +20,7 @@ import type {
   WorkbookLibraryState,
 } from "@/features/workbook/model/types";
 import { generateId } from "@/shared/lib/id";
-import { ApiError } from "@/shared/api/client";
+import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import {
   buildBoardObjectDiffPatch,
   clampBoardObjectToPageFrame,
@@ -167,10 +167,37 @@ export const useWorkbookObjectMutationHandlers = ({
       };
       try {
         sendWorkbookLiveEvents([createEvent]);
-        await appendEventsAndApply([
+        const persistEvents: WorkbookClientEventInput[] = [
           ...(options?.auxiliaryEvents ?? []),
           createEvent,
-        ]);
+        ];
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            await appendEventsAndApply(persistEvents);
+            break;
+          } catch (error) {
+            const isConflict =
+              error instanceof ApiError &&
+              error.code === "conflict" &&
+              error.status === 409;
+            if (isConflict) {
+              if (attempt === 0) {
+                await new Promise<void>((resolve) => {
+                  window.setTimeout(resolve, 180);
+                });
+                continue;
+              }
+              handleRealtimeConflict();
+            }
+            if (isRecoverableApiError(error) && attempt < 2) {
+              await new Promise<void>((resolve) => {
+                window.setTimeout(resolve, 160 * (attempt + 1));
+              });
+              continue;
+            }
+            throw error;
+          }
+        }
         if (objectWithZOrder.type === "image" && objectWithZOrder.imageUrl) {
           const now = new Date().toISOString();
           void upsertLibraryItem({
@@ -193,7 +220,7 @@ export const useWorkbookObjectMutationHandlers = ({
         setSelectedObjectId((current) =>
           current === objectWithZOrder.id ? null : current
         );
-        setError("Не удалось создать объект.");
+      setError("Не удалось создать объект.");
         return false;
       }
     },
@@ -206,6 +233,7 @@ export const useWorkbookObjectMutationHandlers = ({
       setError,
       sendWorkbookLiveEvents,
       appendEventsAndApply,
+      handleRealtimeConflict,
       upsertLibraryItem,
       userId,
       setSelectedObjectId,

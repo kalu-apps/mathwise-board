@@ -2,6 +2,7 @@ import { useCallback, type MutableRefObject } from "react";
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import { ensureWorkbookObjectZOrder } from "@/features/workbook/model/objectZOrder";
 import type { WorkbookBoardObject } from "@/features/workbook/model/types";
+import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import { generateId } from "@/shared/lib/id";
 import {
   clampBoardObjectToPageFrame,
@@ -252,18 +253,39 @@ export const useWorkbookSelectedStructureActions = ({
       boardObjectsRef.current
     );
 
-    try {
-      await appendEventsAndApply([
-        {
-          type: "board.object.create",
-          payload: { object: createdWithZOrder },
-        },
-        ...deleteEvents,
-      ]);
-      setSelectedObjectId(createdWithZOrder.id);
-    } catch {
-      setError("Не удалось объединить точки.");
+    const mergeEvents: WorkbookClientEventInput[] = [
+      {
+        type: "board.object.create",
+        payload: { object: createdWithZOrder },
+      },
+      ...deleteEvents,
+    ];
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await appendEventsAndApply(mergeEvents);
+        setSelectedObjectId(createdWithZOrder.id);
+        return;
+      } catch (error) {
+        const isConflict =
+          error instanceof ApiError &&
+          error.code === "conflict" &&
+          error.status === 409;
+        if (isConflict && attempt < 2) {
+          await new Promise<void>((resolve) => {
+            window.setTimeout(resolve, 160 * (attempt + 1));
+          });
+          continue;
+        }
+        if (isRecoverableApiError(error) && attempt < 2) {
+          await new Promise<void>((resolve) => {
+            window.setTimeout(resolve, 210 * (attempt + 1));
+          });
+          continue;
+        }
+        break;
+      }
     }
+    setError("Не удалось объединить точки.");
   }, [activeSceneLayerId, appendEventsAndApply, boardObjects, boardObjectsRef, canDelete, canDraw, sessionId, setError, setSelectedObjectId, userId]);
 
   return {
