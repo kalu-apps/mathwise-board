@@ -51,7 +51,9 @@ type WorkbookSessionTransformPanelSolid3dProps = Pick<
   | "onUpdateSolid3dSection"
   | "onDeleteSolid3dSection"
   | "getSolidVertexLabel"
-  | "getSectionVertexLabel"
+  | "canToggleSelectedObjectLabels"
+  | "selectedObjectShowLabels"
+  | "onUpdateSelectedObjectMeta"
 >;
 
 export function WorkbookSessionTransformPanelSolid3d({
@@ -94,7 +96,9 @@ export function WorkbookSessionTransformPanelSolid3d({
   onUpdateSolid3dSection,
   onDeleteSolid3dSection,
   getSolidVertexLabel,
-  getSectionVertexLabel,
+  canToggleSelectedObjectLabels,
+  selectedObjectShowLabels,
+  onUpdateSelectedObjectMeta,
 }: WorkbookSessionTransformPanelSolid3dProps) {
   const solid3dSectionSummaries = useMemo(
     () =>
@@ -105,21 +109,14 @@ export function WorkbookSessionTransformPanelSolid3d({
             : [];
         const vertexCount = polygon.length;
         const isPolygonal = !selectedSolidIsCurved && vertexCount >= 3;
-        const resolvedLabels = Array.from({ length: vertexCount }, (_, index) => {
-          const raw = section.vertexLabels[index];
-          return typeof raw === "string" && raw.trim()
-            ? raw.trim()
-            : getSectionVertexLabel(index);
-        });
         return {
           sectionId: section.id,
           vertexCount,
           isPolygonal,
-          labelPreview: isPolygonal ? resolvedLabels.slice(0, 4).join(", ") : "",
           supportPointCount: section.points.length,
         };
       }),
-    [getSectionVertexLabel, selectedSolid3dState?.sections, selectedSolidIsCurved, selectedSolidMesh]
+    [selectedSolid3dState?.sections, selectedSolidIsCurved, selectedSolidMesh]
   );
 
   return (
@@ -213,17 +210,33 @@ export function WorkbookSessionTransformPanelSolid3d({
                     />
                   </div>
                 </div>
-                <div className="workbook-session__solid-card-row">
-                  <span>
-                    {selectedSolidIsCurved
-                      ? "Скрыть вспомогательные контуры"
-                      : "Пунктир скрыт"}
-                  </span>
-                  <Switch
-                    size="small"
-                    checked={selectedSolidHiddenEdges}
-                    onChange={(event) => void onSetSolid3dHiddenEdges(event.target.checked)}
-                  />
+                <div className="workbook-session__solid-card-toggle-stack">
+                  <div className="workbook-session__solid-card-row workbook-session__solid-card-row--toggle">
+                    <span>
+                      {selectedSolidIsCurved
+                        ? "Скрыть вспомогательные контуры"
+                        : "Скрыть пунктир"}
+                    </span>
+                    <Switch
+                      size="small"
+                      checked={selectedSolidHiddenEdges}
+                      onChange={(event) => void onSetSolid3dHiddenEdges(event.target.checked)}
+                    />
+                  </div>
+                  {canToggleSelectedObjectLabels ? (
+                    <div className="workbook-session__solid-card-row workbook-session__solid-card-row--toggle">
+                      <span>Показывать названия вершин/точек</span>
+                      <Switch
+                        size="small"
+                        checked={selectedObjectShowLabels}
+                        onChange={(event) =>
+                          void onUpdateSelectedObjectMeta({
+                            showLabels: event.target.checked,
+                          })
+                        }
+                      />
+                    </div>
+                  ) : null}
                 </div>
                 {selectedSolidIsCurved ? (
                   <p className="workbook-session__hint">
@@ -533,7 +546,7 @@ export function WorkbookSessionTransformPanelSolid3d({
           </div>
 
           {isSolid3dPointCollectionActive ? (
-            <Alert severity="info">
+            <Alert severity="info" className="workbook-session__hint-alert--compact">
               Кликните по ребру или вершине 3D-фигуры, чтобы добавить точку сечения.
               {solid3dDraftPoints
                 ? ` Точки: ${solid3dDraftPoints.points.length}/${solid3dDraftPointLimit}.`
@@ -581,6 +594,7 @@ export function WorkbookSessionTransformPanelSolid3d({
                         />
                         <IconButton
                           size="small"
+                          className="workbook-session__solid-section-delete"
                           onClick={(event) => {
                             event.stopPropagation();
                             void onDeleteSolid3dSection(section.id);
@@ -608,17 +622,9 @@ export function WorkbookSessionTransformPanelSolid3d({
                           Для тел с круговым основанием вершины сечения не используются.
                         </p>
                       ) : summary?.isPolygonal ? (
-                        <>
-                          <p className="workbook-session__hint">
-                            Переименовывайте вершины сечения правым кликом прямо на доске.
-                          </p>
-                          {summary.labelPreview ? (
-                            <div className="workbook-session__solid-section-preview">
-                              {summary.labelPreview}
-                              {summary.vertexCount > 4 ? " ..." : ""}
-                            </div>
-                          ) : null}
-                        </>
+                        <p className="workbook-session__hint">
+                          Переименовывайте вершины сечения правым кликом прямо на доске.
+                        </p>
                       ) : (
                         <p className="workbook-session__hint">
                           Сечение сохранено как плоскость пересечения. Контур появится, когда

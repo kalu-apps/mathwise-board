@@ -1353,98 +1353,73 @@ const serializeSession = (db: MockDb, session: WorkbookSessionRecord, actorUserI
   };
 };
 
-const resolveTeacherLastVisitDurationMinutes = (db: MockDb, session: WorkbookSessionRecord) => {
-  const teacherParticipant = getWorkbookParticipant(db, session.id, session.createdBy);
-  if (!teacherParticipant || teacherParticipant.roleInSession !== "teacher") {
+const resolveSessionPresenceDurationMinutes = (db: MockDb, session: WorkbookSessionRecord) => {
+  const participants = getWorkbookParticipants(db, session.id);
+  if (!participants.length) {
     return null;
   }
-  const resolveLatestTeacherEventTs = (startedAfterTs?: number | null) => {
-    const lowerBound =
-      typeof startedAfterTs === "number" && Number.isFinite(startedAfterTs)
-        ? startedAfterTs
-        : null;
-    let latestTs: number | null = null;
-    db.workbookEvents.forEach((event) => {
-      if (event.sessionId !== session.id || event.authorUserId !== teacherParticipant.userId) {
-        return;
-      }
-      const ts = new Date(event.createdAt).getTime();
-      if (!Number.isFinite(ts)) return;
-      if (typeof lowerBound === "number" && ts < lowerBound) return;
-      if (latestTs === null || ts > latestTs) {
-        latestTs = ts;
-      }
-    });
-    return latestTs;
+
+  const parseIsoTs = (value: string | null | undefined) => {
+    if (!value) return NaN;
+    return new Date(value).getTime();
   };
-  const resolveKnownVisitEndTs = (startedAfterTs?: number | null) => {
-    const lowerBound =
-      typeof startedAfterTs === "number" && Number.isFinite(startedAfterTs)
-        ? startedAfterTs
-        : null;
-    const candidateTs: number[] = [];
-    const collectIsoTs = (value: string | null | undefined) => {
-      const ts = new Date(String(value ?? "")).getTime();
-      if (!Number.isFinite(ts)) return;
-      if (typeof lowerBound === "number" && ts < lowerBound) return;
-      candidateTs.push(ts);
-    };
-    collectIsoTs(teacherParticipant.leftAt);
-    collectIsoTs(teacherParticipant.lastSeenAt);
-    collectIsoTs(session.endedAt);
-    const latestTeacherEventTs = resolveLatestTeacherEventTs(lowerBound);
-    if (typeof latestTeacherEventTs === "number" && Number.isFinite(latestTeacherEventTs)) {
-      candidateTs.push(latestTeacherEventTs);
-    }
-    if (!candidateTs.length) return null;
-    return Math.max(...candidateTs);
-  };
-  const resolveSessionElapsedMinutes = () => {
-    const startedAt = session.startedAt ?? session.createdAt;
-    if (!startedAt) return null;
-    const endedAt =
-      session.status === "ended"
-        ? session.endedAt ?? session.lastActivityAt ?? nowIso()
-        : nowIso();
-    return resolveDurationMinutes(startedAt, endedAt);
+  const pushInterval = (
+    intervals: Array<{ startTs: number; endTs: number }>,
+    startTs: number,
+    endTs: number
+  ) => {
+    if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs <= startTs) return;
+    intervals.push({ startTs, endTs });
   };
 
-  const resolveTeacherTotalDurationMinutesFromAccessLogs = () => {
-    const presenceEvents = db.workbookAccessLogs
-      .filter(
-        (entry) =>
-          entry.sessionId === session.id &&
-          entry.actorUserId === teacherParticipant.userId &&
-          (entry.eventType === "presence_started" ||
-            entry.eventType === "presence_ended" ||
-            entry.eventType === "session_opened")
-      )
-      .map((entry) => ({
+  const participantByUserId = new Map(
+    participants.map((participant) => [participant.userId, participant] as const)
+  );
+
+  const eventsByUser = db.workbookAccessLogs
+    .filter(
+      (entry) =>
+        entry.sessionId === session.id &&
+        typeof entry.actorUserId === "string" &&
+        participantByUserId.has(entry.actorUserId) &&
+        (entry.eventType === "session_opened" ||
+          entry.eventType === "presence_started" ||
+          entry.eventType === "presence_ended")
+    )
+    .reduce<Map<string, Array<{ type: string; ts: number }>>>((acc, entry) => {
+      const actorUserId = entry.actorUserId as string;
+      const ts = parseIsoTs(entry.createdAt);
+      if (!Number.isFinite(ts)) return acc;
+      const bucket = acc.get(actorUserId) ?? [];
+      bucket.push({
         type: entry.eventType,
-        ts: new Date(entry.createdAt).getTime(),
-      }))
-      .filter((entry) => Number.isFinite(entry.ts))
-      .sort((left, right) => {
-        if (left.ts !== right.ts) return left.ts - right.ts;
-        if (left.type === right.type) return 0;
-        const leftPriority =
-          left.type === "presence_ended" ? 2 : left.type === "session_opened" ? 0 : 1;
-        const rightPriority =
-          right.type === "presence_ended" ? 2 : right.type === "session_opened" ? 0 : 1;
-        return leftPriority - rightPriority;
+        ts,
       });
+      acc.set(actorUserId, bucket);
+      return acc;
+    }, new Map());
 
-    let totalMs = 0;
+  const now = nowTs();
+  const intervals: Array<{ startTs: number; endTs: number }> = [];
+  participants.forEach((participant) => {
+    const events = (eventsByUser.get(participant.userId) ?? []).sort((left, right) => {
+      if (left.ts !== right.ts) return left.ts - right.ts;
+      const leftPriority = left.type === "presence_ended" ? 1 : 0;
+      const rightPriority = right.type === "presence_ended" ? 1 : 0;
+      return leftPriority - rightPriority;
+    });
+
     let activeStartTs: number | null = null;
-
-    presenceEvents.forEach((event) => {
-      if (event.type === "presence_started" || event.type === "session_opened") {
+    events.forEach((event) => {
+      const isStartEvent =
+        event.type === "session_opened" || event.type === "presence_started";
+      if (isStartEvent) {
         if (activeStartTs === null) {
           activeStartTs = event.ts;
           return;
         }
-        if (event.type === "session_opened" && event.ts > activeStartTs) {
-          totalMs += event.ts - activeStartTs;
+        if (event.ts > activeStartTs) {
+          pushInterval(intervals, activeStartTs, event.ts);
           activeStartTs = event.ts;
         }
         return;
@@ -1454,13 +1429,11 @@ const resolveTeacherLastVisitDurationMinutes = (db: MockDb, session: WorkbookSes
         activeStartTs = null;
         return;
       }
-      totalMs += event.ts - activeStartTs;
+      pushInterval(intervals, activeStartTs, event.ts);
       activeStartTs = null;
     });
 
-    const currentVisitStartedAtTs = teacherParticipant.currentVisitStartedAt
-      ? new Date(teacherParticipant.currentVisitStartedAt).getTime()
-      : NaN;
+    const currentVisitStartedAtTs = parseIsoTs(participant.currentVisitStartedAt);
     if (Number.isFinite(currentVisitStartedAtTs)) {
       if (activeStartTs === null || currentVisitStartedAtTs < activeStartTs) {
         activeStartTs = currentVisitStartedAtTs;
@@ -1468,78 +1441,81 @@ const resolveTeacherLastVisitDurationMinutes = (db: MockDb, session: WorkbookSes
     }
 
     if (activeStartTs !== null) {
-      const knownVisitEndTs = resolveKnownVisitEndTs(activeStartTs);
-      const runningVisitEndTs = teacherParticipant.isActive
-        ? Math.max(nowTs(), knownVisitEndTs ?? 0)
-        : knownVisitEndTs;
-      if (
-        typeof runningVisitEndTs === "number" &&
-        Number.isFinite(runningVisitEndTs) &&
-        runningVisitEndTs > activeStartTs
-      ) {
-        totalMs += runningVisitEndTs - activeStartTs;
+      const activeStart = activeStartTs;
+      const endCandidates = [
+        parseIsoTs(participant.leftAt),
+        parseIsoTs(participant.lastSeenAt),
+        parseIsoTs(participant.lastVisitEndedAt),
+        parseIsoTs(session.endedAt),
+        parseIsoTs(session.lastActivityAt),
+      ].filter((value) => Number.isFinite(value) && value > activeStart);
+      if (participant.isActive || isParticipantOnline(participant) || participant.currentVisitStartedAt) {
+        endCandidates.push(now);
       }
+      const resolvedEndTs = endCandidates.length ? Math.max(...endCandidates) : NaN;
+      if (Number.isFinite(resolvedEndTs)) {
+        pushInterval(intervals, activeStart, resolvedEndTs);
+      }
+      return;
     }
 
-    if (!Number.isFinite(totalMs) || totalMs <= 0) {
+    const lastVisitStartedAtTs = parseIsoTs(participant.lastVisitStartedAt);
+    const lastVisitEndedAtTs = parseIsoTs(participant.lastVisitEndedAt);
+    if (Number.isFinite(lastVisitStartedAtTs) && Number.isFinite(lastVisitEndedAtTs)) {
+      pushInterval(intervals, lastVisitStartedAtTs, lastVisitEndedAtTs);
+      return;
+    }
+
+    if (
+      typeof participant.lastVisitDurationMinutes === "number" &&
+      Number.isFinite(participant.lastVisitDurationMinutes) &&
+      participant.lastVisitDurationMinutes > 0 &&
+      Number.isFinite(lastVisitEndedAtTs)
+    ) {
+      pushInterval(
+        intervals,
+        lastVisitEndedAtTs - participant.lastVisitDurationMinutes * 60_000,
+        lastVisitEndedAtTs
+      );
+    }
+  });
+
+  if (!intervals.length) {
+    const sessionStartedAt = parseIsoTs(session.startedAt ?? session.createdAt);
+    const sessionEndedAt =
+      session.status === "ended"
+        ? parseIsoTs(session.endedAt ?? session.lastActivityAt)
+        : now;
+    if (!Number.isFinite(sessionStartedAt) || !Number.isFinite(sessionEndedAt)) {
       return null;
     }
-    return Math.max(1, Math.round(totalMs / 60000));
-  };
-
-  const totalDurationFromAccessLogs = resolveTeacherTotalDurationMinutesFromAccessLogs();
-  if (
-    typeof totalDurationFromAccessLogs === "number" &&
-    Number.isFinite(totalDurationFromAccessLogs) &&
-    totalDurationFromAccessLogs > 0
-  ) {
-    return totalDurationFromAccessLogs;
+    return Math.max(1, Math.round((sessionEndedAt - sessionStartedAt) / 60_000));
   }
 
-  const key = resolveParticipantPresenceKey(session.id, teacherParticipant.userId);
-  const activeTabs = presenceActiveTabsByParticipant.get(key);
-  const currentVisitStartedAt = teacherParticipant.currentVisitStartedAt;
-  if (currentVisitStartedAt) {
-    const hasActiveTabs = Boolean(activeTabs?.size);
-    const isOnlineNow = isParticipantOnline(teacherParticipant);
-    if (hasActiveTabs || isOnlineNow) {
-      return resolveDurationMinutes(currentVisitStartedAt, nowIso());
+  intervals.sort((left, right) => {
+    if (left.startTs !== right.startTs) return left.startTs - right.startTs;
+    return left.endTs - right.endTs;
+  });
+
+  let mergedTotalMs = 0;
+  let currentStart = intervals[0].startTs;
+  let currentEnd = intervals[0].endTs;
+  for (let index = 1; index < intervals.length; index += 1) {
+    const interval = intervals[index];
+    if (interval.startTs <= currentEnd) {
+      currentEnd = Math.max(currentEnd, interval.endTs);
+      continue;
     }
-    const currentVisitStartedAtTs = new Date(currentVisitStartedAt).getTime();
-    const inferredEndedTs = resolveKnownVisitEndTs(currentVisitStartedAtTs);
-    const inferredDuration =
-      typeof inferredEndedTs === "number" && Number.isFinite(inferredEndedTs)
-        ? resolveDurationMinutes(currentVisitStartedAt, new Date(inferredEndedTs).toISOString())
-        : null;
-    if (
-      typeof inferredDuration === "number" &&
-      Number.isFinite(inferredDuration) &&
-      inferredDuration > 0
-    ) {
-      return inferredDuration;
-    }
+    mergedTotalMs += currentEnd - currentStart;
+    currentStart = interval.startTs;
+    currentEnd = interval.endTs;
   }
-  if (
-    typeof teacherParticipant.lastVisitDurationMinutes === "number" &&
-    Number.isFinite(teacherParticipant.lastVisitDurationMinutes) &&
-    teacherParticipant.lastVisitDurationMinutes > 0
-  ) {
-    return teacherParticipant.lastVisitDurationMinutes;
+  mergedTotalMs += currentEnd - currentStart;
+
+  if (!Number.isFinite(mergedTotalMs) || mergedTotalMs <= 0) {
+    return null;
   }
-  if (teacherParticipant.lastVisitStartedAt && teacherParticipant.lastVisitEndedAt) {
-    const durationFromLatestVisit = resolveDurationMinutes(
-      teacherParticipant.lastVisitStartedAt,
-      teacherParticipant.lastVisitEndedAt
-    );
-    if (
-      typeof durationFromLatestVisit === "number" &&
-      Number.isFinite(durationFromLatestVisit) &&
-      durationFromLatestVisit > 0
-    ) {
-      return durationFromLatestVisit;
-    }
-  }
-  return resolveSessionElapsedMinutes();
+  return Math.max(1, Math.round(mergedTotalMs / 60_000));
 };
 
 const serializeDraft = (db: MockDb, draft: WorkbookDraftRecord, actorUserId: string) => {
@@ -1559,7 +1535,7 @@ const serializeDraft = (db: MockDb, draft: WorkbookDraftRecord, actorUserId: str
     createdAt: draft.createdAt,
     startedAt: session.startedAt ?? null,
     endedAt: session.endedAt ?? null,
-    durationMinutes: resolveTeacherLastVisitDurationMinutes(db, session),
+    durationMinutes: resolveSessionPresenceDurationMinutes(db, session),
     canEdit: actorParticipant.permissions.canDraw || actorParticipant.permissions.canSelect,
     canInvite: actorParticipant.permissions.canInvite,
     canDelete: actorParticipant.permissions.canManageSession,

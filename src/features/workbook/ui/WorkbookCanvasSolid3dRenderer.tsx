@@ -809,10 +809,49 @@ export const renderWorkbookCanvasSolid3dObject = ({
         };
         const bottom = roundBottomStats;
         if (!bottom) return null;
+        const bottomRy = Math.max(4, ellipseDepth);
+        const apexDx = apex.x - bottom.center.x;
+        const apexDy = apex.y - bottom.center.y;
+        const apexDistance = Math.hypot(apexDx, apexDy);
+        const minVisualApexOffset = Math.max(18, bottomRy * 1.9);
+        const normalizedApex = apexDistance > 1e-3
+          ? { x: apexDx / apexDistance, y: apexDy / apexDistance }
+          : { x: 0, y: -1 };
+        const visualApex =
+          apexDistance >= minVisualApexOffset
+            ? apex
+            : {
+                ...apex,
+                x: bottom.center.x + normalizedApex.x * minVisualApexOffset * 0.34,
+                y: bottom.center.y + normalizedApex.y * minVisualApexOffset,
+              };
+        const topViewBlend = Math.max(
+          0,
+          Math.min(1, 1 - apexDistance / Math.max(1, bottom.rx * 0.82 + bottomRy * 0.82))
+        );
+        const leftCtrl = {
+          x: (visualApex.x + bottom.minX) * 0.5 - bottom.rx * (0.08 + topViewBlend * 0.05),
+          y:
+            (visualApex.y + bottom.center.y) * 0.5 -
+            Math.max(10, bottomRy * (0.42 + topViewBlend * 0.18)),
+        };
+        const rightCtrl = {
+          x: (visualApex.x + bottom.maxX) * 0.5 + bottom.rx * (0.08 + topViewBlend * 0.05),
+          y:
+            (visualApex.y + bottom.center.y) * 0.5 -
+            Math.max(10, bottomRy * (0.42 + topViewBlend * 0.18)),
+        };
+        const midRingCenter = {
+          x: visualApex.x + (bottom.center.x - visualApex.x) * 0.58,
+          y: visualApex.y + (bottom.center.y - visualApex.y) * 0.58,
+        };
+        const midRingRx = Math.max(7, bottom.rx * (0.42 + topViewBlend * 0.08));
+        const midRingRy = Math.max(3, bottomRy * (0.56 + topViewBlend * 0.1));
+        const helperOpacity = 0.42 + topViewBlend * 0.18;
         return (
           <g>
             <path
-              d={`M ${bottom.minX} ${bottom.center.y} A ${bottom.rx} ${Math.max(4, ellipseDepth)} 0 0 0 ${bottom.maxX} ${bottom.center.y} L ${apex.x} ${apex.y} Z`}
+              d={`M ${bottom.minX} ${bottom.center.y} A ${bottom.rx} ${bottomRy} 0 0 0 ${bottom.maxX} ${bottom.center.y} Q ${rightCtrl.x} ${rightCtrl.y} ${visualApex.x} ${visualApex.y} Q ${leftCtrl.x} ${leftCtrl.y} ${bottom.minX} ${bottom.center.y} Z`}
               fill={fillColor}
               fillOpacity={0.86}
               stroke={lineColor}
@@ -820,7 +859,7 @@ export const renderWorkbookCanvasSolid3dObject = ({
             />
             {!hideHiddenEdges ? (
               <path
-                d={`M ${bottom.minX} ${bottom.center.y} A ${bottom.rx} ${Math.max(4, ellipseDepth)} 0 0 1 ${bottom.maxX} ${bottom.center.y}`}
+                d={`M ${bottom.minX} ${bottom.center.y} A ${bottom.rx} ${bottomRy} 0 0 1 ${bottom.maxX} ${bottom.center.y}`}
                 fill="none"
                 stroke={lineColor}
                 strokeWidth={Math.max(1, strokeWidth * 0.78)}
@@ -829,40 +868,69 @@ export const renderWorkbookCanvasSolid3dObject = ({
               />
             ) : null}
             <path
-              d={`M ${bottom.minX} ${bottom.center.y} A ${bottom.rx} ${Math.max(4, ellipseDepth)} 0 0 0 ${bottom.maxX} ${bottom.center.y}`}
+              d={`M ${bottom.minX} ${bottom.center.y} A ${bottom.rx} ${bottomRy} 0 0 0 ${bottom.maxX} ${bottom.center.y}`}
               fill="none"
               stroke={lineColor}
               strokeWidth={Math.max(1, strokeWidth * 0.82)}
               opacity={0.9}
             />
-            <line
-              x1={apex.x}
-              y1={apex.y}
-              x2={bottom.minX}
-              y2={bottom.center.y}
+            <path
+              d={`M ${visualApex.x} ${visualApex.y} Q ${leftCtrl.x} ${leftCtrl.y} ${bottom.minX} ${bottom.center.y}`}
               stroke={lineColor}
+              fill="none"
               strokeWidth={Math.max(1, strokeWidth * 0.82)}
             />
-            <line
-              x1={apex.x}
-              y1={apex.y}
-              x2={bottom.maxX}
-              y2={bottom.center.y}
+            <path
+              d={`M ${visualApex.x} ${visualApex.y} Q ${rightCtrl.x} ${rightCtrl.y} ${bottom.maxX} ${bottom.center.y}`}
               stroke={lineColor}
+              fill="none"
               strokeWidth={Math.max(1, strokeWidth * 0.82)}
             />
             {!hideHiddenEdges ? (
-              <line
-                x1={apex.x}
-                y1={apex.y}
-                x2={bottom.center.x}
-                y2={bottom.center.y}
-                stroke={lineColor}
-                strokeWidth={Math.max(1, strokeWidth * 0.66)}
-                strokeDasharray="6 5"
-                opacity={0.5}
-              />
+              <>
+                <path
+                  d={ellipseBackPath(midRingCenter.x, midRingCenter.y, midRingRx, midRingRy)}
+                  fill="none"
+                  stroke={lineColor}
+                  strokeWidth={Math.max(1, strokeWidth * 0.66)}
+                  strokeDasharray="6 5"
+                  opacity={helperOpacity}
+                />
+                <path
+                  d={`M ${visualApex.x} ${visualApex.y} Q ${midRingCenter.x - midRingRx * 0.4} ${midRingCenter.y - midRingRy * 0.95} ${midRingCenter.x - midRingRx} ${midRingCenter.y}`}
+                  fill="none"
+                  stroke={lineColor}
+                  strokeWidth={Math.max(1, strokeWidth * 0.62)}
+                  strokeDasharray="6 5"
+                  opacity={helperOpacity}
+                />
+                <path
+                  d={`M ${visualApex.x} ${visualApex.y} Q ${midRingCenter.x + midRingRx * 0.4} ${midRingCenter.y - midRingRy * 0.95} ${midRingCenter.x + midRingRx} ${midRingCenter.y}`}
+                  fill="none"
+                  stroke={lineColor}
+                  strokeWidth={Math.max(1, strokeWidth * 0.62)}
+                  strokeDasharray="6 5"
+                  opacity={helperOpacity}
+                />
+                <line
+                  x1={visualApex.x}
+                  y1={visualApex.y}
+                  x2={bottom.center.x}
+                  y2={bottom.center.y}
+                  stroke={lineColor}
+                  strokeWidth={Math.max(1, strokeWidth * 0.62)}
+                  strokeDasharray="6 5"
+                  opacity={0.45 + topViewBlend * 0.1}
+                />
+              </>
             ) : null}
+            <path
+              d={ellipseFrontPath(midRingCenter.x, midRingCenter.y, midRingRx, midRingRy)}
+              fill="none"
+              stroke={lineColor}
+              strokeWidth={Math.max(1, strokeWidth * 0.7)}
+              opacity={0.56 + topViewBlend * 0.08}
+            />
           </g>
         );
       }
