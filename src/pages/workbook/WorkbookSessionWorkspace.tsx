@@ -1,5 +1,4 @@
 import { Suspense, lazy, type MutableRefObject } from "react";
-import { WorkbookSessionContextbar } from "./WorkbookSessionContextbar";
 import { WorkbookSessionBoardShell } from "./WorkbookSessionBoardShell";
 import type { WorkbookSessionDocsWindowProps } from "./WorkbookSessionDocsWindow";
 
@@ -10,7 +9,6 @@ const WorkbookSessionDocsWindow = lazy(async () => ({
 type WorkbookSessionWorkspaceProps = {
   workspaceRef: MutableRefObject<HTMLDivElement | null>;
   graphCatalogCursorActive: boolean;
-  contextbarProps: React.ComponentProps<typeof WorkbookSessionContextbar>;
   boardShellProps: React.ComponentProps<typeof WorkbookSessionBoardShell>;
   docsWindowOpen: boolean;
   docsWindowProps: WorkbookSessionDocsWindowProps;
@@ -19,7 +17,6 @@ type WorkbookSessionWorkspaceProps = {
 export function WorkbookSessionWorkspace({
   workspaceRef,
   graphCatalogCursorActive,
-  contextbarProps,
   boardShellProps,
   docsWindowOpen,
   docsWindowProps,
@@ -31,7 +28,6 @@ export function WorkbookSessionWorkspace({
       }`}
       ref={workspaceRef}
     >
-      <WorkbookSessionContextbar {...contextbarProps} />
       <WorkbookSessionBoardShell {...boardShellProps} />
 
       {docsWindowOpen ? (

@@ -1,7 +1,6 @@
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Button, IconButton, Tooltip } from "@mui/material";
 import CalculateIcon from "@mui/icons-material/Calculate";
-import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
 import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
 import LogoutIcon from "@mui/icons-material/Logout";
@@ -15,8 +14,6 @@ export function Header() {
   const { user, isGuestSession, logout, openAuthModal } = useAuth();
   const { mode, toggleMode } = useThemeMode();
   const navigate = useNavigate();
-  const location = useLocation();
-  const isWorkbookSessionRoute = location.pathname.startsWith("/workbook/session/");
 
   const handleLogoClick = () => {
     navigate("/workbook");
@@ -26,19 +23,6 @@ export function Header() {
     event.stopPropagation();
     logout();
     navigate("/", { replace: true });
-  };
-
-  const handleSessionBack = () => {
-    if (typeof window !== "undefined") {
-      const backEvent = new CustomEvent("workbook:session-back-request", {
-        cancelable: true,
-      });
-      const shouldContinueDefaultNavigation = window.dispatchEvent(backEvent);
-      if (!shouldContinueDefaultNavigation) {
-        return;
-      }
-    }
-    navigate("/workbook", { replace: true });
   };
 
   return (
@@ -53,18 +37,6 @@ export function Header() {
           >
             <CalculateIcon className="header__logo-icon" />
           </IconButton>
-          {isWorkbookSessionRoute ? (
-            <Tooltip title="Вернуться к тетрадям">
-              <IconButton
-                className="header__session-back"
-                onClick={handleSessionBack}
-                size="small"
-                aria-label="Вернуться к тетрадям"
-              >
-                <ArrowBackRoundedIcon />
-              </IconButton>
-            </Tooltip>
-          ) : null}
         </div>
 
         <div className="header__right">
