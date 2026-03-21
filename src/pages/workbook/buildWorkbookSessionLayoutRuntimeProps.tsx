@@ -105,7 +105,7 @@ type BuildWorkbookSessionLayoutRuntimePropsInput = {
     resetZoom: ContextbarProps["onResetZoom"];
     requestDocsUpload: ContextbarProps["onRequestDocsUpload"];
     toggleFullscreen: ContextbarProps["onToggleFullscreen"];
-    handleContextbarDragStart: ContextbarProps["onContextbarDragStart"];
+    handleCopyInviteLink: ContextbarProps["onCopyInviteLink"];
     handleDocsWindowTogglePinned: WorkbookSessionDocsWindowProps["onTogglePinned"];
     handleDocsWindowToggleMaximized: WorkbookSessionDocsWindowProps["onToggleMaximized"];
     handleDocsWindowClose: WorkbookSessionDocsWindowProps["onClose"];
@@ -196,7 +196,6 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
   );
 
   const sessionChatPosition = normalizePoint(ui.sessionChatPosition, { x: 24, y: 96 });
-  const contextbarPosition = normalizePoint(ui.contextbarPosition, { x: 24, y: 18 });
   const floatingPanelsTop =
     typeof ui.floatingPanelsTop === "number" && Number.isFinite(ui.floatingPanelsTop)
       ? ui.floatingPanelsTop
@@ -311,11 +310,13 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
     isParticipantsCollapsed: ui.isParticipantsCollapsed,
     onToggleParticipantsCollapsed: () =>
       actions.setIsParticipantsCollapsed((current: boolean) => !current),
+    showInviteLinkButton:
+      permissions.canManageSession && data.session?.kind === "CLASS",
+    copyingInviteLink: page.copyingInviteLink,
+    onCopyInviteLink: handlers.handleCopyInviteLink,
     contextbarRef: refs.contextbarRef,
     isDockedContextbarViewport: page.isDockedContextbarViewport,
     isCompactViewport: page.isCompactViewport,
-    contextbarPosition,
-    onContextbarDragStart: handlers.handleContextbarDragStart,
   };
 
   const boardShellProps: BoardShellProps = {

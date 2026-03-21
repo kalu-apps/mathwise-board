@@ -9,7 +9,6 @@ import {
   IconButton,
 } from "@mui/material";
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
-import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import type { WorkbookSession } from "@/features/workbook/model/types";
 
 interface WorkbookSessionTopScaffoldProps {
@@ -20,9 +19,6 @@ interface WorkbookSessionTopScaffoldProps {
   sessionHeadRef: MutableRefObject<HTMLElement | null>;
   session: WorkbookSession;
   onBack: () => Promise<void> | void;
-  canManageSession: boolean;
-  copyingInviteLink: boolean;
-  onCopyInviteLink: () => Promise<void> | void;
   error: string | null;
   setError: (value: string | null) => void;
   saveSyncWarning: string | null;
@@ -46,9 +42,6 @@ export function WorkbookSessionTopScaffold({
   sessionHeadRef,
   session,
   onBack,
-  canManageSession,
-  copyingInviteLink,
-  onCopyInviteLink,
   error,
   setError,
   saveSyncWarning,
@@ -87,28 +80,10 @@ export function WorkbookSessionTopScaffold({
           >
             <ArrowBackRoundedIcon />
           </IconButton>
-          <div>
+          {session.status === "ended" ? (
             <div className="workbook-session__head-meta">
-              <Chip
-                size="small"
-                label={session.kind === "CLASS" ? "Индивидуальное занятие" : "Личная тетрадь"}
-              />
-              {session.status === "ended" ? (
-                <Chip size="small" label="Завершено" color="default" />
-              ) : null}
+              <Chip size="small" label="Завершено" color="default" />
             </div>
-          </div>
-        </div>
-        <div className="workbook-session__head-actions">
-          {canManageSession && session.kind === "CLASS" ? (
-            <Button
-              variant="outlined"
-              startIcon={<ContentCopyRoundedIcon />}
-              onClick={() => void onCopyInviteLink()}
-              disabled={copyingInviteLink}
-            >
-              {copyingInviteLink ? "Копируем..." : "Скопировать ссылку приглашения"}
-            </Button>
           ) : null}
         </div>
       </header>

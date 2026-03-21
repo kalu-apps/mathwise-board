@@ -12,7 +12,7 @@ import type {
   WorkbookStroke,
   WorkbookTimerState,
 } from "@/features/workbook/model/types";
-import { ApiError } from "@/shared/api/client";
+import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 
 interface UseWorkbookPersistSnapshotsParams {
   sessionId: string;
@@ -128,6 +128,15 @@ export function useWorkbookPersistSnapshots({
           handleRealtimeAuthRequired(error.status);
           return false;
         }
+        if (isRecoverableApiError(error)) {
+          setSaveState("saving");
+          setSaveSyncWarning(
+            "Связь нестабильна. Автосохранение продолжит синхронизацию при восстановлении соединения."
+          );
+          pendingAutosaveAfterSaveRef.current = true;
+          return false;
+        }
+
         setSaveState("error");
         setSaveSyncWarning(
           "Автосохранение временно недоступно. Не закрывайте вкладку: повторяем синхронизацию."
@@ -136,7 +145,7 @@ export function useWorkbookPersistSnapshots({
       } finally {
         isSavingRef.current = false;
         if (pendingAutosaveAfterSaveRef.current) {
-          scheduleAutosave(320);
+          scheduleAutosave(1_400);
         }
       }
     },

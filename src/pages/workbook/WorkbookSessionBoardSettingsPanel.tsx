@@ -40,10 +40,6 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
     Math.round(sharedBoardSettings.pagesCount || 1),
     safePageOptions[safePageOptions.length - 1]?.page ?? 1
   );
-  const pagesWithContent = safePageOptions.reduce(
-    (count, option) => count + (option.hasContent ? 1 : 0),
-    0
-  );
 
   return (
     <div className="workbook-session__card workbook-session__board-settings">
@@ -114,66 +110,67 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                 }
               />
             </div>
-            <div className="workbook-session__board-settings-field">
+            <div className="workbook-session__board-settings-field workbook-session__board-settings-field--grid">
               <div className="workbook-session__board-settings-field-main">
                 <strong>Размер сетки</strong>
                 <small>Плотность рабочей разметки на полотне.</small>
               </div>
-              <div className="workbook-session__board-settings-range">
-                <input
-                  type="range"
-                  min={8}
-                  max={96}
-                  value={sharedBoardSettings.gridSize}
-                  onChange={(event) =>
-                    onSharedBoardSettingsChange({
-                      gridSize: Number(event.target.value),
-                    })
-                  }
-                />
-                <span className="workbook-session__board-settings-range-value">
-                  {Math.round(sharedBoardSettings.gridSize)}
-                </span>
-              </div>
-            </div>
-            <div className="workbook-session__board-settings-color-grid">
-              <div className="workbook-session__board-settings-color-field">
-                <span>Фон доски</span>
-                <label>
+              <div className="workbook-session__board-settings-grid-layout">
+                <div className="workbook-session__board-settings-range workbook-session__board-settings-range--grid">
                   <input
-                    type="color"
-                    value={sharedBoardSettings.backgroundColor}
+                    type="range"
+                    min={8}
+                    max={96}
+                    value={sharedBoardSettings.gridSize}
                     onChange={(event) =>
                       onSharedBoardSettingsChange({
-                        backgroundColor: event.target.value,
+                        gridSize: Number(event.target.value),
                       })
                     }
                   />
-                </label>
-              </div>
-              <div className="workbook-session__board-settings-color-field">
-                <span>Цвет сетки</span>
-                <label>
-                  <input
-                    type="color"
-                    value={
-                      sharedBoardSettings.gridColor.startsWith("#")
-                        ? sharedBoardSettings.gridColor
-                        : "#8893be"
-                    }
-                    onChange={(event) =>
-                      onSharedBoardSettingsChange({
-                        gridColor: event.target.value,
-                      })
-                    }
-                  />
-                </label>
+                  <span className="workbook-session__board-settings-range-value">
+                    {Math.round(sharedBoardSettings.gridSize)}
+                  </span>
+                </div>
+                <div className="workbook-session__board-settings-color-stack">
+                  <div className="workbook-session__board-settings-color-field">
+                    <span>Фон доски</span>
+                    <label>
+                      <input
+                        type="color"
+                        value={sharedBoardSettings.backgroundColor}
+                        onChange={(event) =>
+                          onSharedBoardSettingsChange({
+                            backgroundColor: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="workbook-session__board-settings-color-field">
+                    <span>Цвет сетки</span>
+                    <label>
+                      <input
+                        type="color"
+                        value={
+                          sharedBoardSettings.gridColor.startsWith("#")
+                            ? sharedBoardSettings.gridColor
+                            : "#8893be"
+                        }
+                        onChange={(event) =>
+                          onSharedBoardSettingsChange({
+                            gridColor: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
             <div className="workbook-session__board-settings-page-meta">
               <span>Текущая страница: {safeCurrentPage}</span>
               <span>Всего страниц: {totalPages}</span>
-              <span>Страниц с контентом: {pagesWithContent}</span>
             </div>
             <div className="workbook-session__board-settings-note">
               Переключение, добавление и удаление страниц доступны в верхней панели контекста рядом с масштабом.
@@ -198,7 +195,6 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
             <div className="workbook-session__board-settings-page-meta">
               <span>Текущая страница: {safeCurrentPage}</span>
               <span>Всего страниц: {totalPages}</span>
-              <span>Страниц с контентом: {pagesWithContent}</span>
             </div>
             <div className="workbook-session__board-settings-note">
               Переключение страниц и изменение структуры доски доступны только у преподавателя.

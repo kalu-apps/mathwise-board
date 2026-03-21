@@ -32,6 +32,7 @@ const THRESHOLDS = {
   CLS: { poor: 0.25, needsImprovement: 0.1 },
   LONG_TASK: { poor: 500, needsImprovement: 200 },
 } as const;
+const MAX_REASONABLE_INP_MS = 60_000;
 
 const IS_DEV = typeof import.meta !== "undefined" && Boolean(import.meta.env?.DEV);
 
@@ -156,6 +157,8 @@ const createMonitoringSession = () => {
       for (const rawEntry of list.getEntries() as EventTimingEntry[]) {
         const duration = rawEntry.duration;
         if (!Number.isFinite(duration) || duration <= 0) continue;
+        if (duration > MAX_REASONABLE_INP_MS) continue;
+        if (!Number.isFinite(rawEntry.startTime) || rawEntry.startTime <= 0) continue;
 
         maxInp = Math.max(maxInp, duration);
         const interactionId =

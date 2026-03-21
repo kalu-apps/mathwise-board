@@ -1358,6 +1358,93 @@ const resolveTeacherLastVisitDurationMinutes = (db: MockDb, session: WorkbookSes
   if (!teacherParticipant || teacherParticipant.roleInSession !== "teacher") {
     return null;
   }
+  const resolveSessionElapsedMinutes = () => {
+    const startedAt = session.startedAt ?? session.createdAt;
+    if (!startedAt) return null;
+    const endedAt =
+      session.status === "ended"
+        ? session.endedAt ?? session.lastActivityAt ?? nowIso()
+        : nowIso();
+    return resolveDurationMinutes(startedAt, endedAt);
+  };
+
+  const resolveTeacherTotalDurationMinutesFromAccessLogs = () => {
+    const presenceEvents = db.workbookAccessLogs
+      .filter(
+        (entry) =>
+          entry.sessionId === session.id &&
+          entry.actorUserId === teacherParticipant.userId &&
+          (entry.eventType === "presence_started" || entry.eventType === "presence_ended")
+      )
+      .map((entry) => ({
+        type: entry.eventType,
+        ts: new Date(entry.createdAt).getTime(),
+      }))
+      .filter((entry) => Number.isFinite(entry.ts))
+      .sort((left, right) => {
+        if (left.ts !== right.ts) return left.ts - right.ts;
+        if (left.type === right.type) return 0;
+        return left.type === "presence_started" ? -1 : 1;
+      });
+
+    let totalMs = 0;
+    let activeStartTs: number | null = null;
+
+    presenceEvents.forEach((event) => {
+      if (event.type === "presence_started") {
+        if (activeStartTs === null) {
+          activeStartTs = event.ts;
+        }
+        return;
+      }
+      if (activeStartTs === null) return;
+      if (event.ts <= activeStartTs) {
+        activeStartTs = null;
+        return;
+      }
+      totalMs += event.ts - activeStartTs;
+      activeStartTs = null;
+    });
+
+    const currentVisitStartedAtTs = teacherParticipant.currentVisitStartedAt
+      ? new Date(teacherParticipant.currentVisitStartedAt).getTime()
+      : NaN;
+    if (Number.isFinite(currentVisitStartedAtTs)) {
+      if (activeStartTs === null || currentVisitStartedAtTs < activeStartTs) {
+        activeStartTs = currentVisitStartedAtTs;
+      }
+    }
+
+    if (activeStartTs !== null) {
+      const runningVisitEndTs = teacherParticipant.isActive
+        ? nowTs()
+        : new Date(
+            teacherParticipant.leftAt ??
+              teacherParticipant.lastSeenAt ??
+              session.endedAt ??
+              session.lastActivityAt ??
+              nowIso()
+          ).getTime();
+      if (Number.isFinite(runningVisitEndTs) && runningVisitEndTs > activeStartTs) {
+        totalMs += runningVisitEndTs - activeStartTs;
+      }
+    }
+
+    if (!Number.isFinite(totalMs) || totalMs <= 0) {
+      return null;
+    }
+    return Math.max(1, Math.round(totalMs / 60000));
+  };
+
+  const totalDurationFromAccessLogs = resolveTeacherTotalDurationMinutesFromAccessLogs();
+  if (
+    typeof totalDurationFromAccessLogs === "number" &&
+    Number.isFinite(totalDurationFromAccessLogs) &&
+    totalDurationFromAccessLogs > 0
+  ) {
+    return totalDurationFromAccessLogs;
+  }
+
   const key = resolveParticipantPresenceKey(session.id, teacherParticipant.userId);
   const activeTabs = presenceActiveTabsByParticipant.get(key);
   const currentVisitStartedAt = teacherParticipant.currentVisitStartedAt;
@@ -1387,12 +1474,19 @@ const resolveTeacherLastVisitDurationMinutes = (db: MockDb, session: WorkbookSes
     return teacherParticipant.lastVisitDurationMinutes;
   }
   if (teacherParticipant.lastVisitStartedAt && teacherParticipant.lastVisitEndedAt) {
-    return resolveDurationMinutes(
+    const durationFromLatestVisit = resolveDurationMinutes(
       teacherParticipant.lastVisitStartedAt,
       teacherParticipant.lastVisitEndedAt
     );
+    if (
+      typeof durationFromLatestVisit === "number" &&
+      Number.isFinite(durationFromLatestVisit) &&
+      durationFromLatestVisit > 0
+    ) {
+      return durationFromLatestVisit;
+    }
   }
-  return null;
+  return resolveSessionElapsedMinutes();
 };
 
 const serializeDraft = (db: MockDb, draft: WorkbookDraftRecord, actorUserId: string) => {

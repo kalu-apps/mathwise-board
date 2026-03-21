@@ -3,6 +3,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  Button,
   IconButton,
   Menu,
   MenuItem,
@@ -12,6 +13,7 @@ import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
 import HelpOutlineRoundedIcon from "@mui/icons-material/HelpOutlineRounded";
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import ZoomInRoundedIcon from "@mui/icons-material/ZoomInRounded";
 import ZoomOutRoundedIcon from "@mui/icons-material/ZoomOutRounded";
 import CenterFocusStrongRoundedIcon from "@mui/icons-material/CenterFocusStrongRounded";
@@ -24,7 +26,6 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import UndoRoundedIcon from "@mui/icons-material/UndoRounded";
 import RedoRoundedIcon from "@mui/icons-material/RedoRounded";
-import type { WorkbookPoint } from "@/features/workbook/model/types";
 import type { WorkbookUtilityTab } from "@/features/workbook/model/workbookSessionUiTypes";
 import type { WorkbookBoardPageOption } from "./WorkbookSessionBoardSettingsPanel";
 
@@ -66,11 +67,12 @@ interface WorkbookSessionContextbarProps {
   showCollaborationPanels: boolean;
   isParticipantsCollapsed: boolean;
   onToggleParticipantsCollapsed: () => void;
+  showInviteLinkButton: boolean;
+  copyingInviteLink: boolean;
+  onCopyInviteLink: () => Promise<void> | void;
   contextbarRef: MutableRefObject<HTMLDivElement | null>;
   isDockedContextbarViewport: boolean;
   isCompactViewport: boolean;
-  contextbarPosition: WorkbookPoint;
-  onContextbarDragStart: (event: React.PointerEvent<HTMLDivElement>) => void;
 }
 
 export function WorkbookSessionContextbar({
@@ -111,11 +113,12 @@ export function WorkbookSessionContextbar({
   showCollaborationPanels,
   isParticipantsCollapsed,
   onToggleParticipantsCollapsed,
+  showInviteLinkButton,
+  copyingInviteLink,
+  onCopyInviteLink,
   contextbarRef,
   isDockedContextbarViewport,
   isCompactViewport,
-  contextbarPosition,
-  onContextbarDragStart,
 }: WorkbookSessionContextbarProps) {
   const safeCurrentBoardPage = Math.max(1, Math.round(currentBoardPage || 1));
   const safeTotalBoardPages = Math.max(
@@ -138,16 +141,7 @@ export function WorkbookSessionContextbar({
         isDockedContextbarViewport ? " is-docked" : ""
       }${
         isCompactViewport ? " is-compact" : ""
-      }`}
-      onPointerDown={onContextbarDragStart}
-      style={
-        isDockedContextbarViewport
-          ? undefined
-          : {
-              left: contextbarPosition.x,
-              top: contextbarPosition.y,
-            }
-      }
+      } is-static`}
     >
       <div className="workbook-session__contextbar">
         <Menu
@@ -207,63 +201,61 @@ export function WorkbookSessionContextbar({
             </IconButton>
           </span>
         </Tooltip>
-        <div className="workbook-session__contextbar-inline workbook-session__page-switcher">
-          <Tooltip title="Предыдущая страница" placement="bottom" arrow>
-            <span>
-              <IconButton
-                size="small"
-                className="workbook-session__toolbar-icon"
-                disabled={!canGoPrev}
-                onClick={() => onSelectBoardPage(safeCurrentBoardPage - 1)}
-              >
-                <NavigateBeforeRoundedIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip
-            title={`Текущая страница: ${safeCurrentBoardPage}. Всего страниц: ${safeTotalBoardPages}. Страниц с контентом: ${pagesWithContent}.`}
-            placement="bottom"
-            arrow
-          >
-            <span className="workbook-session__page-badge">Стр. {safeCurrentBoardPage}</span>
-          </Tooltip>
-          <Tooltip title="Следующая страница" placement="bottom" arrow>
-            <span>
-              <IconButton
-                size="small"
-                className="workbook-session__toolbar-icon"
-                disabled={!canGoNext}
-                onClick={() => onSelectBoardPage(safeCurrentBoardPage + 1)}
-              >
-                <NavigateNextRoundedIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title="Добавить страницу" placement="bottom" arrow>
-            <span>
-              <IconButton
-                size="small"
-                className="workbook-session__toolbar-icon"
-                disabled={!canMutatePages}
-                onClick={onAddBoardPage}
-              >
-                <AddRoundedIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title="Удалить текущую страницу" placement="bottom" arrow>
-            <span>
-              <IconButton
-                size="small"
-                className="workbook-session__toolbar-icon"
-                disabled={!canDeleteCurrentPage}
-                onClick={() => onDeleteBoardPage(safeCurrentBoardPage)}
-              >
-                <DeleteOutlineRoundedIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
-        </div>
+        <Tooltip title="Предыдущая страница" placement="bottom" arrow>
+          <span>
+            <IconButton
+              size="small"
+              className="workbook-session__toolbar-icon"
+              disabled={!canGoPrev}
+              onClick={() => onSelectBoardPage(safeCurrentBoardPage - 1)}
+            >
+              <NavigateBeforeRoundedIcon />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip
+          title={`Текущая страница: ${safeCurrentBoardPage}. Всего страниц: ${safeTotalBoardPages}. Страниц с контентом: ${pagesWithContent}.`}
+          placement="bottom"
+          arrow
+        >
+          <span className="workbook-session__page-badge">Стр. {safeCurrentBoardPage}</span>
+        </Tooltip>
+        <Tooltip title="Следующая страница" placement="bottom" arrow>
+          <span>
+            <IconButton
+              size="small"
+              className="workbook-session__toolbar-icon"
+              disabled={!canGoNext}
+              onClick={() => onSelectBoardPage(safeCurrentBoardPage + 1)}
+            >
+              <NavigateNextRoundedIcon />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="Добавить страницу" placement="bottom" arrow>
+          <span>
+            <IconButton
+              size="small"
+              className="workbook-session__toolbar-icon"
+              disabled={!canMutatePages}
+              onClick={onAddBoardPage}
+            >
+              <AddRoundedIcon />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="Удалить текущую страницу" placement="bottom" arrow>
+          <span>
+            <IconButton
+              size="small"
+              className="workbook-session__toolbar-icon"
+              disabled={!canDeleteCurrentPage}
+              onClick={() => onDeleteBoardPage(safeCurrentBoardPage)}
+            >
+              <DeleteOutlineRoundedIcon />
+            </IconButton>
+          </span>
+        </Tooltip>
         <Tooltip title="Отменить" placement="bottom" arrow>
           <span>
             <IconButton
@@ -365,6 +357,22 @@ export function WorkbookSessionContextbar({
             </IconButton>
           </span>
         </Tooltip>
+        {showInviteLinkButton ? (
+          <Tooltip title="Скопировать ссылку приглашения" placement="bottom" arrow>
+            <span className="workbook-session__invite-link-wrap">
+              <Button
+                size="small"
+                variant="outlined"
+                className="workbook-session__invite-link-button"
+                startIcon={<ContentCopyRoundedIcon />}
+                onClick={() => void onCopyInviteLink()}
+                disabled={copyingInviteLink}
+              >
+                Ссылка-приглашение
+              </Button>
+            </span>
+          </Tooltip>
+        ) : null}
         {showCollaborationPanels ? (
           <Tooltip
             title={
@@ -375,7 +383,9 @@ export function WorkbookSessionContextbar({
             placement="bottom"
             arrow
           >
-            <span>
+            <span
+              className={showInviteLinkButton ? "workbook-session__participants-toggle-wrap" : ""}
+            >
               <IconButton
                 size="small"
                 className={`workbook-session__toolbar-icon ${

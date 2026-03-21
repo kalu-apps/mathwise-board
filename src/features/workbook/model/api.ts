@@ -1,5 +1,6 @@
 import { api, isRecoverableApiError } from "@/shared/api/client";
 import { buildApiUrl } from "@/shared/api/base";
+import { generateId } from "@/shared/lib/id";
 import type { User } from "@/entities/user/model/types";
 import type { WorkbookClientEventInput } from "./events";
 import {
@@ -396,11 +397,16 @@ export async function appendWorkbookEvents(params: {
   sessionId: string;
   events: WorkbookClientEventInput[];
 }) {
+  const idempotencyKey = `event-${generateId()}`;
   try {
     const response = await api.post<{ events: WorkbookEvent[]; latestSeq: number }>(
       `/workbook/sessions/${encodeURIComponent(params.sessionId)}/events`,
       { events: params.events },
-      { notifyDataUpdate: false }
+      {
+        notifyDataUpdate: false,
+        idempotencyKey,
+        idempotencyPrefix: "workbook-events",
+      }
     );
     void flushWorkbookPersistenceQueue();
     return response;
@@ -409,6 +415,7 @@ export async function appendWorkbookEvents(params: {
       enqueueWorkbookEventsPersistence({
         sessionId: params.sessionId,
         events: params.events,
+        idempotencyKey,
       });
     }
     throw error;
@@ -485,17 +492,33 @@ export async function saveWorkbookSnapshot(params: {
   version: number;
   payload: unknown;
 }) {
+  const normalizedVersion = Number.isFinite(params.version)
+    ? Math.max(1, Math.trunc(params.version))
+    : 1;
+  const requestPayload = {
+    ...params,
+    version: normalizedVersion,
+  };
+  const idempotencyKey = `snapshot-${params.sessionId}-${params.layer}-v${normalizedVersion}-${generateId()}`;
   try {
     const response = await api.put<WorkbookSnapshot>(
       `/workbook/sessions/${encodeURIComponent(params.sessionId)}/snapshot`,
-      params,
-      { notifyDataUpdate: false }
+      requestPayload,
+      {
+        notifyDataUpdate: false,
+        idempotencyKey,
+        idempotencyPrefix: "workbook-snapshot",
+        timeoutMs: 45_000,
+      }
     );
     void flushWorkbookPersistenceQueue();
     return response;
   } catch (error) {
     if (isRecoverableApiError(error)) {
-      enqueueWorkbookSnapshotPersistence(params);
+      enqueueWorkbookSnapshotPersistence({
+        ...params,
+        idempotencyKey,
+      });
     }
     throw error;
   }

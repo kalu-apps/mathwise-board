@@ -266,9 +266,11 @@ export const dropWorkbookPersistenceTasksForSession = (sessionId: string) => {
 export const enqueueWorkbookEventsPersistence = (params: {
   sessionId: string;
   events: WorkbookClientEventInput[];
+  idempotencyKey?: string;
 }) => {
   ensureRuntime();
   const timestamp = nowIso();
+  const idempotencyKey = params.idempotencyKey?.trim() || `event-${generateId()}`;
   const task: WorkbookEventsPersistenceTask = {
     id: generateId(),
     type: "events",
@@ -279,7 +281,7 @@ export const enqueueWorkbookEventsPersistence = (params: {
     attempts: 0,
     retryAt: null,
     expiresAt: new Date(nowTs() + TASK_TTL_MS).toISOString(),
-    idempotencyKey: `event-${generateId()}`,
+    idempotencyKey,
   };
   upsertTask(task);
   normalizeQueue();
@@ -293,10 +295,14 @@ export const enqueueWorkbookSnapshotPersistence = (params: {
   layer: WorkbookLayer;
   version: number;
   payload: unknown;
+  idempotencyKey?: string;
 }) => {
   ensureRuntime();
   const timestamp = nowIso();
   const version = normalizeSnapshotVersion(params.version);
+  const idempotencyKey =
+    params.idempotencyKey?.trim() ||
+    createSnapshotIdempotencyKey(params.sessionId, params.layer, version);
   const task: WorkbookSnapshotPersistenceTask = {
     id: generateId(),
     type: "snapshot",
@@ -309,7 +315,7 @@ export const enqueueWorkbookSnapshotPersistence = (params: {
     attempts: 0,
     retryAt: null,
     expiresAt: new Date(nowTs() + TASK_TTL_MS).toISOString(),
-    idempotencyKey: createSnapshotIdempotencyKey(params.sessionId, params.layer, version),
+    idempotencyKey,
   };
   upsertTask(task);
   normalizeQueue();
@@ -343,6 +349,21 @@ export const flushWorkbookPersistenceQueue = async () => {
           error instanceof ApiError &&
           (error.status === 401 || error.status === 403 || error.status === 404)
         ) {
+          const dropped = removeTasksBySessionId(task.sessionId);
+          if (dropped === 0) {
+            queue.shift();
+          }
+          persistQueue();
+          emit();
+          continue;
+        }
+        if (
+          error instanceof ApiError &&
+          error.status === 409 &&
+          error.code === "conflict"
+        ) {
+          // Version conflicts mean persisted writes are stale relative to current board state.
+          // Drop pending tasks for this session to avoid repeated conflict storms on every flush.
           const dropped = removeTasksBySessionId(task.sessionId);
           if (dropped === 0) {
             queue.shift();

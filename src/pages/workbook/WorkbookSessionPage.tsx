@@ -315,7 +315,6 @@ export default function WorkbookSessionPage() {
     error,
     saveSyncWarning,
     isSessionTabPassive,
-    copyingInviteLink,
     exportingSections,
     isBoardPageMutationPending,
     canvasVisibilityMode,
@@ -573,7 +572,7 @@ export default function WorkbookSessionPage() {
     processedEventIdsRef,
   });
 
-  const { handleContextbarDragStart } = useWorkbookSessionContextbar({
+  useWorkbookSessionContextbar({
     contextbarStorageKey,
     isCompactViewport,
     isDockedContextbarViewport,
@@ -1807,7 +1806,7 @@ export default function WorkbookSessionPage() {
       resetZoom,
       requestDocsUpload: () => docsInputRef.current?.click(),
       toggleFullscreen,
-      handleContextbarDragStart,
+      handleCopyInviteLink,
       handleDocsWindowTogglePinned: panelHandlers.handleDocsWindowTogglePinned,
       handleDocsWindowToggleMaximized: panelHandlers.handleDocsWindowToggleMaximized,
       handleDocsWindowClose: panelHandlers.handleDocsWindowClose,
@@ -1873,9 +1872,6 @@ export default function WorkbookSessionPage() {
         sessionHeadRef={sessionHeadRef}
         session={session}
         onBack={handleBack}
-        canManageSession={canManageSession}
-        copyingInviteLink={copyingInviteLink}
-        onCopyInviteLink={handleCopyInviteLink}
         error={error}
         setError={setError}
         saveSyncWarning={saveSyncWarning}

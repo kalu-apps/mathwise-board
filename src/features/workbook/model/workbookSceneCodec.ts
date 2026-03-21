@@ -55,7 +55,7 @@ let workerInstance: Worker | null = null;
 let nextRequestId = 1;
 let workerUnsupported = false;
 const pendingWorkerRequests = new Map<number, PendingWorkerRequest>();
-const WORKBOOK_SCENE_CODEC_WORKER_TIMEOUT_MS = 4_000;
+const WORKBOOK_SCENE_CODEC_WORKER_TIMEOUT_MS = 25_000;
 
 const rejectAllPendingWorkerRequests = (reason: string) => {
   pendingWorkerRequests.forEach((request) => {
