@@ -204,6 +204,7 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                 {graphTabFunctions.length === 0 ? (
                   <Alert
                     severity="info"
+                    className="workbook-session__hint-alert--compact"
                     action={
                       <Button size="small" onClick={onSelectCatalogTab}>
                         Каталог

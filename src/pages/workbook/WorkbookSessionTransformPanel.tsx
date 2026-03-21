@@ -173,7 +173,10 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
             </Button>
           </div>
         ) : null}
-        {selectedObject && canToggleSelectedObjectLabels && !selectedShape2dObject ? (
+        {selectedObject &&
+        selectedObject.type !== "solid3d" &&
+        canToggleSelectedObjectLabels &&
+        !selectedShape2dObject ? (
           <div className="workbook-session__settings-row">
             <span>Показывать названия вершин/точек</span>
             <Switch
@@ -237,7 +240,9 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
             onUpdateSolid3dSection={onUpdateSolid3dSection}
             onDeleteSolid3dSection={onDeleteSolid3dSection}
             getSolidVertexLabel={getSolidVertexLabel}
-            getSectionVertexLabel={getSectionVertexLabel}
+            canToggleSelectedObjectLabels={canToggleSelectedObjectLabels}
+            selectedObjectShowLabels={selectedObjectShowLabels}
+            onUpdateSelectedObjectMeta={onUpdateSelectedObjectMeta}
           />
         ) : tool === "eraser" ? (
           <div className="workbook-session__settings">
