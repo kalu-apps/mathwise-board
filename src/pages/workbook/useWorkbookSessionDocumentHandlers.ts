@@ -184,8 +184,8 @@ export const useWorkbookSessionDocumentHandlers = ({
         const sourceDataUrl = await readFileAsDataUrl(file);
         const documentAssetUrl = isImage
           ? await optimizeImageDataUrl(sourceDataUrl, {
-              maxEdge: 1_080,
-              quality: 0.68,
+              maxEdge: 1_600,
+              quality: 0.82,
               maxChars: WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS,
             })
           : sourceDataUrl;
@@ -214,15 +214,15 @@ export const useWorkbookSessionDocumentHandlers = ({
           ? resolvePrimaryDocumentRenderedPage(renderedPages, 1)
           : null;
         const objectImageUrl = isImage
-          ? await optimizeImageDataUrl(documentAssetUrl, {
-              maxEdge: 820,
-              quality: 0.58,
+          ? await optimizeImageDataUrl(sourceDataUrl, {
+              maxEdge: 1_200,
+              quality: 0.74,
               maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
             })
           : renderedPage?.imageUrl
             ? await optimizeImageDataUrl(renderedPage.imageUrl, {
-                maxEdge: 820,
-                quality: 0.58,
+                maxEdge: 1_100,
+                quality: 0.72,
                 maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
               })
             : undefined;
@@ -330,15 +330,17 @@ export const useWorkbookSessionDocumentHandlers = ({
         : null;
     const snapshotImageUrl =
       active.type === "image"
-        ? await optimizeImageDataUrl(active.url, {
-            maxEdge: 820,
-            quality: 0.58,
-            maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
-          })
+        ? active.url.length <= WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS
+          ? active.url
+          : await optimizeImageDataUrl(active.url, {
+              maxEdge: 1_200,
+              quality: 0.74,
+              maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
+            })
         : renderedPage
           ? await optimizeImageDataUrl(renderedPage.imageUrl, {
-              maxEdge: 820,
-              quality: 0.58,
+              maxEdge: 1_100,
+              quality: 0.72,
               maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
             })
           : undefined;

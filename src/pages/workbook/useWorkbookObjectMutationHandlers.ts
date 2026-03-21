@@ -130,8 +130,8 @@ export const useWorkbookObjectMutationHandlers = ({
         objectWithPage = {
           ...objectWithPage,
           imageUrl: await optimizeImageDataUrl(objectWithPage.imageUrl, {
-            maxEdge: 820,
-            quality: 0.58,
+            maxEdge: 1_200,
+            quality: 0.72,
             maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
           }),
         };
