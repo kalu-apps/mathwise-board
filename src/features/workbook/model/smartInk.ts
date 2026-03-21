@@ -63,6 +63,9 @@ const SMART_INK_OCR_CONFIDENCE_FALLBACK = {
   text: 0.56,
 } as const;
 
+const SMART_INK_SHAPE_SAMPLE_LIMIT = 140;
+const SMART_INK_ELLIPSE_IDEAL_AREA_RATIO = Math.PI / 4;
+
 const resolveConfidence = (source: unknown, fallback: number) => {
   if (typeof source === "number" && Number.isFinite(source)) {
     return clamp(source, 0.01, 0.99);
@@ -112,6 +115,24 @@ const dedupePoints = (points: WorkbookPoint[], minDistance = 1.1) => {
       output.push(point);
     }
   });
+  return output;
+};
+
+const downsamplePoints = (points: WorkbookPoint[], maxPoints: number) => {
+  if (points.length <= maxPoints || maxPoints <= 2) return points;
+  const output: WorkbookPoint[] = [];
+  const step = (points.length - 1) / (maxPoints - 1);
+  let lastIndex = -1;
+  for (let index = 0; index < maxPoints; index += 1) {
+    const sourceIndex = Math.round(index * step);
+    if (sourceIndex === lastIndex) continue;
+    output.push(points[sourceIndex]);
+    lastIndex = sourceIndex;
+  }
+  const lastPoint = points[points.length - 1];
+  if (output[output.length - 1] !== lastPoint) {
+    output.push(lastPoint);
+  }
   return output;
 };
 
@@ -177,6 +198,21 @@ const normalizeVector = (vector: { x: number; y: number }) => {
 
 const dot = (a: { x: number; y: number }, b: { x: number; y: number }) => a.x * b.x + a.y * b.y;
 
+const estimateAngularCoverage = (points: WorkbookPoint[], center: { x: number; y: number }) => {
+  const bins = 24;
+  const visited = new Set<number>();
+  points.forEach((point) => {
+    const angle = Math.atan2(point.y - center.y, point.x - center.x);
+    const normalized = angle < 0 ? angle + Math.PI * 2 : angle;
+    const bucket = Math.min(
+      bins - 1,
+      Math.max(0, Math.floor((normalized / (Math.PI * 2)) * bins))
+    );
+    visited.add(bucket);
+  });
+  return visited.size / bins;
+};
+
 const isRectangleLike = (points: WorkbookPoint[], bounds: StrokeBounds) => {
   if (points.length !== 4) return false;
   const minSide = Math.max(6, Math.min(bounds.width, bounds.height) * 0.16);
@@ -194,9 +230,12 @@ const isRectangleLike = (points: WorkbookPoint[], bounds: StrokeBounds) => {
   return true;
 };
 
-const isEllipseLike = (points: WorkbookPoint[], bounds: StrokeBounds) => {
-  if (points.length < 6) return false;
-  if (bounds.width < 12 || bounds.height < 12) return false;
+const isEllipseLike = (
+  points: WorkbookPoint[],
+  bounds: StrokeBounds
+): { matched: boolean; confidence: number } => {
+  if (points.length < 6) return { matched: false, confidence: 0 };
+  if (bounds.width < 12 || bounds.height < 12) return { matched: false, confidence: 0 };
   const center = { x: bounds.centerX, y: bounds.centerY };
   const radiusX = Math.max(1, bounds.width / 2);
   const radiusY = Math.max(1, bounds.height / 2);
@@ -209,9 +248,35 @@ const isEllipseLike = (points: WorkbookPoint[], bounds: StrokeBounds) => {
     normalizedDistances.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
     normalizedDistances.length;
   const std = Math.sqrt(variance);
+  const outlierRatio =
+    normalizedDistances.filter((value) => Math.abs(value - mean) > 0.36).length /
+    normalizedDistances.length;
   const boxArea = Math.max(1, bounds.width * bounds.height);
   const contourAreaRatio = polygonArea(points) / boxArea;
-  return std <= 0.22 && contourAreaRatio >= 0.56 && contourAreaRatio <= 0.9;
+  const angularCoverage = estimateAngularCoverage(points, center);
+  const stdScore = clamp(1 - std / 0.31, 0, 1);
+  const areaScore = clamp(
+    1 - Math.abs(contourAreaRatio - SMART_INK_ELLIPSE_IDEAL_AREA_RATIO) / 0.36,
+    0,
+    1
+  );
+  const coverageScore = clamp((angularCoverage - 0.54) / 0.46, 0, 1);
+  const outlierScore = clamp(1 - outlierRatio / 0.3, 0, 1);
+  const confidence = clamp(
+    0.45 + stdScore * 0.22 + areaScore * 0.16 + coverageScore * 0.17 + outlierScore * 0.13,
+    0.52,
+    0.95
+  );
+  const matched =
+    std <= 0.29 &&
+    contourAreaRatio >= 0.47 &&
+    contourAreaRatio <= 0.92 &&
+    angularCoverage >= 0.68 &&
+    outlierRatio <= 0.2;
+  return {
+    matched,
+    confidence,
+  };
 };
 
 const createBaseObject = (
@@ -248,19 +313,26 @@ const detectSmartShape = (stroke: WorkbookStroke): SmartInkRecognitionResult => 
   if (deduped.length < 2) {
     return { kind: "none" };
   }
-  const bounds = getBounds(deduped);
+  const sampled = downsamplePoints(deduped, SMART_INK_SHAPE_SAMPLE_LIMIT);
+  const points = sampled.length >= 2 ? sampled : deduped;
+  const bounds = getBounds(points);
   const diagonal = Math.hypot(bounds.width, bounds.height);
-  const length = pathLength(deduped);
+  const length = pathLength(points);
   if (length < 18) {
     return { kind: "none" };
   }
-  const start = deduped[0];
-  const end = deduped[deduped.length - 1];
-  const isClosed = distance(start, end) <= Math.max(8, diagonal * 0.18);
+  const start = points[0];
+  const end = points[points.length - 1];
+  const closeThreshold = Math.max(
+    10,
+    diagonal * 0.26,
+    Math.min(bounds.width, bounds.height) * 0.32
+  );
+  const isClosed = distance(start, end) <= closeThreshold;
   const epsilon = clamp(diagonal * 0.035, 2.5, 20);
-  const simplifiedRaw = simplifyRdp(deduped, epsilon);
+  const simplifiedRaw = simplifyRdp(points, epsilon);
   const simplified = isClosed ? normalizePolygonVertices(simplifiedRaw) : simplifiedRaw;
-  const maxDeviationFromLine = deduped.reduce((max, point) => {
+  const maxDeviationFromLine = points.reduce((max, point) => {
     const value = perpendicularDistance(point, start, end);
     return value > max ? value : max;
   }, 0);
@@ -323,7 +395,8 @@ const detectSmartShape = (stroke: WorkbookStroke): SmartInkRecognitionResult => 
         confidence: SMART_INK_SHAPE_CONFIDENCE.rectangle,
       };
     }
-    if (isEllipseLike(deduped, bounds)) {
+    const ellipseMatch = isEllipseLike(points, bounds);
+    if (ellipseMatch.matched) {
       return {
         kind: "shape",
         object: createBaseObject(stroke, {
@@ -337,7 +410,7 @@ const detectSmartShape = (stroke: WorkbookStroke): SmartInkRecognitionResult => 
             smartInk: true,
           },
         }),
-        confidence: SMART_INK_SHAPE_CONFIDENCE.ellipse,
+        confidence: ellipseMatch.confidence,
       };
     }
     if (simplified.length >= 5 && simplified.length <= 8) {

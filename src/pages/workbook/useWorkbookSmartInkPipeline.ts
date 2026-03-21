@@ -1,4 +1,4 @@
-import { useCallback, type MutableRefObject } from "react";
+import { useCallback, useRef, type MutableRefObject } from "react";
 import { recognizeWorkbookInk } from "@/features/workbook/model/api";
 import { ensureWorkbookObjectZOrder } from "@/features/workbook/model/objectZOrder";
 import type {
@@ -35,6 +35,63 @@ type UseWorkbookSmartInkPipelineParams = {
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
 };
 
+type SmartInkAdapterResponse = {
+  text?: string;
+  latex?: string;
+  confidence?: number;
+} | null;
+
+const SMART_INK_ADAPTER_CACHE_TTL_MS = 5000;
+
+const getStrokePointsCount = (strokes: WorkbookStroke[]) =>
+  strokes.reduce((sum, stroke) => sum + stroke.points.length, 0);
+
+const getRecognitionScore = (result: SmartInkDetectedResult) => {
+  let score = result.confidence;
+  if (result.kind === "shape") {
+    score += result.object.type === "ellipse" ? 0.05 : 0.02;
+    return score;
+  }
+  if (result.kind === "text") {
+    const textValue = typeof result.object.text === "string" ? result.object.text.trim() : "";
+    if (textValue.length >= 5) score += 0.08;
+    else if (textValue.length >= 2) score += 0.04;
+    return score;
+  }
+  const textValue = typeof result.object.text === "string" ? result.object.text.trim() : "";
+  const latexValue =
+    result.object.meta &&
+    typeof result.object.meta === "object" &&
+    typeof result.object.meta.latex === "string"
+      ? result.object.meta.latex.trim()
+      : "";
+  if (latexValue.length) score += 0.1;
+  if (textValue.length >= 2) score += 0.03;
+  return score;
+};
+
+const getThresholdGrace = (result: SmartInkDetectedResult) => {
+  if (result.kind === "shape") {
+    return result.object.type === "ellipse" ? 0.1 : 0.05;
+  }
+  if (result.kind === "text") {
+    const textValue = typeof result.object.text === "string" ? result.object.text.trim() : "";
+    return textValue.length >= 4 ? 0.12 : 0.08;
+  }
+  const latexValue =
+    result.object.meta &&
+    typeof result.object.meta === "object" &&
+    typeof result.object.meta.latex === "string"
+      ? result.object.meta.latex.trim()
+      : "";
+  return latexValue.length ? 0.14 : 0.1;
+};
+
+const passesConfidenceThreshold = (result: SmartInkDetectedResult, threshold: number) => {
+  const effectiveThreshold = Math.max(0.35, threshold - getThresholdGrace(result));
+  return result.confidence >= effectiveThreshold;
+};
+
 export const useWorkbookSmartInkPipeline = ({
   sessionId,
   boardSettingsCurrentPage,
@@ -49,10 +106,27 @@ export const useWorkbookSmartInkPipeline = ({
   smartInkConfigVersionRef,
   boardObjectsRef,
 }: UseWorkbookSmartInkPipelineParams) => {
+  const adapterCacheRef = useRef<Map<string, { expiresAt: number; value: SmartInkAdapterResponse }>>(
+    new Map()
+  );
+
   const requestSmartInkAdapter = useCallback(
     async (strokes: WorkbookStroke[], options: SmartInkOptions) => {
       if (!sessionId) return null;
       if (!options.smartTextOcr && !options.smartMathOcr) return null;
+      const cacheKey = `${options.smartTextOcr ? "text" : "no-text"}:${options.smartMathOcr ? "math" : "no-math"}:${strokes
+        .map((stroke) => stroke.id)
+        .join(",")}`;
+      const now = Date.now();
+      const cached = adapterCacheRef.current.get(cacheKey);
+      if (cached && cached.expiresAt > now) {
+        return cached.value;
+      }
+      for (const [key, entry] of adapterCacheRef.current.entries()) {
+        if (entry.expiresAt <= now) {
+          adapterCacheRef.current.delete(key);
+        }
+      }
       try {
         const response = await recognizeWorkbookInk({
           sessionId,
@@ -65,7 +139,7 @@ export const useWorkbookSmartInkPipeline = ({
           preferMath: options.smartMathOcr,
         });
         if (!response || !response.result) return null;
-        return {
+        const value = {
           text: response.result.text ?? "",
           latex: response.result.latex ?? undefined,
           confidence:
@@ -73,7 +147,16 @@ export const useWorkbookSmartInkPipeline = ({
               ? response.result.confidence
               : undefined,
         };
+        adapterCacheRef.current.set(cacheKey, {
+          value,
+          expiresAt: now + SMART_INK_ADAPTER_CACHE_TTL_MS,
+        });
+        return value;
       } catch {
+        adapterCacheRef.current.set(cacheKey, {
+          value: null,
+          expiresAt: now + Math.round(SMART_INK_ADAPTER_CACHE_TTL_MS / 2),
+        });
         return null;
       }
     },
@@ -178,6 +261,10 @@ export const useWorkbookSmartInkPipeline = ({
         if (!ocrOptions.smartTextOcr && !ocrOptions.smartMathOcr) {
           return null;
         }
+        // Skip very short/noisy inputs where OCR almost never returns useful output.
+        if (getStrokePointsCount(buffer) < 10 && lastStroke.points.length < 8) {
+          return null;
+        }
         const ocrConfig = {
           ...recognitionConfig,
           smartShapes: false,
@@ -213,7 +300,7 @@ export const useWorkbookSmartInkPipeline = ({
         }
         if (!candidates.length) return null;
         return candidates.reduce((best, current) =>
-          current.result.confidence > best.result.confidence ? current : best
+          getRecognitionScore(current.result) > getRecognitionScore(best.result) ? current : best
         );
       };
 
@@ -230,18 +317,18 @@ export const useWorkbookSmartInkPipeline = ({
         if (
           shapeCandidate &&
           shapeCandidate.kind !== "none" &&
-          shapeCandidate.confidence >= threshold
+          passesConfidenceThreshold(shapeCandidate, threshold)
         ) {
           await applyRecognized([lastStroke], shapeCandidate);
           return;
         }
       } else if (options.mode === "text") {
-        if (textCandidate && textCandidate.result.confidence >= threshold) {
+        if (textCandidate && passesConfidenceThreshold(textCandidate.result, threshold)) {
           await applyRecognized(textCandidate.strokes, textCandidate.result);
           return;
         }
       } else if (options.mode === "formula") {
-        if (formulaCandidate && formulaCandidate.result.confidence >= threshold) {
+        if (formulaCandidate && passesConfidenceThreshold(formulaCandidate.result, threshold)) {
           await applyRecognized(formulaCandidate.strokes, formulaCandidate.result);
           return;
         }
@@ -258,9 +345,9 @@ export const useWorkbookSmartInkPipeline = ({
         }
         if (autoCandidates.length) {
           const bestCandidate = autoCandidates.reduce((best, current) =>
-            current.result.confidence > best.result.confidence ? current : best
+            getRecognitionScore(current.result) > getRecognitionScore(best.result) ? current : best
           );
-          if (bestCandidate.result.confidence >= threshold) {
+          if (passesConfidenceThreshold(bestCandidate.result, threshold)) {
             await applyRecognized(bestCandidate.strokes, bestCandidate.result);
             return;
           }
@@ -295,11 +382,19 @@ export const useWorkbookSmartInkPipeline = ({
         window.clearTimeout(smartInkDebounceRef.current);
       }
       const configVersion = smartInkConfigVersionRef.current;
+      const debounceMs =
+        options.mode === "shape"
+          ? 220
+          : options.mode === "text" || options.mode === "formula"
+            ? 460
+            : options.smartTextOcr || options.smartMathOcr
+              ? 520
+              : 320;
       smartInkDebounceRef.current = window.setTimeout(() => {
         smartInkDebounceRef.current = null;
         if (configVersion !== smartInkConfigVersionRef.current) return;
         void processSmartInkBuffer(configVersion);
-      }, options.smartTextOcr || options.smartMathOcr ? 620 : 360);
+      }, debounceMs);
     },
     [
       processSmartInkBuffer,
