@@ -19,6 +19,7 @@ type ToolPaintSettings = {
 type WorkbookSessionToolSettingsPopoverProps = {
   state: WorkbookToolSettingsPopoverState;
   overlayContainer?: Element | null;
+  isFullscreen?: boolean;
   onClose: () => void;
   penToolSettings: ToolPaintSettings;
   highlighterToolSettings: ToolPaintSettings;
@@ -41,6 +42,7 @@ const TOOL_TITLES: Record<WorkbookToolSettingsPopoverTool, string> = {
 export function WorkbookSessionToolSettingsPopover({
   state,
   overlayContainer,
+  isFullscreen = false,
   onClose,
   penToolSettings,
   highlighterToolSettings,
@@ -54,7 +56,11 @@ export function WorkbookSessionToolSettingsPopover({
   onEraserRadiusChange,
 }: WorkbookSessionToolSettingsPopoverProps) {
   const portalContainer =
-    typeof document !== "undefined" ? document.body : overlayContainer;
+    typeof document !== "undefined"
+      ? isFullscreen
+        ? overlayContainer ?? document.body
+        : document.body
+      : overlayContainer;
 
   const updateSmartInk = (patch: Partial<SmartInkOptions>) => {
     setSmartInkOptions((current) =>
