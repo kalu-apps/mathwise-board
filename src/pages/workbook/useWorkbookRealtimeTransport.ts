@@ -43,7 +43,7 @@ type UseWorkbookRealtimeTransportParams = {
   enqueueIncomingRealtimeApply: EnqueueIncomingRealtimeApply;
   filterUnseenWorkbookEvents: (
     events: WorkbookEvent[],
-    options?: { allowLiveReplay?: boolean }
+    options?: { allowLiveReplay?: boolean; ignoreSeqGuard?: boolean }
   ) => WorkbookEvent[];
   latestSeqRef: MutableRefObject<number>;
   sessionResyncInFlightRef: MutableRefObject<boolean>;

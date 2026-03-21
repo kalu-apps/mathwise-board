@@ -10,7 +10,6 @@ import type { MutableRefObject } from "react";
 interface UseWorkbookPresenceLifecycleParams {
   sessionId: string;
   userId?: string;
-  isTeacherActor: boolean;
   presenceTabIdRef: MutableRefObject<string>;
   presenceLeaveSentRef: MutableRefObject<boolean>;
   onHeartbeatParticipants: (participants: WorkbookSessionParticipant[]) => void;
@@ -20,7 +19,6 @@ interface UseWorkbookPresenceLifecycleParams {
 export function useWorkbookPresenceLifecycle({
   sessionId,
   userId,
-  isTeacherActor,
   presenceTabIdRef,
   presenceLeaveSentRef,
   onHeartbeatParticipants,
@@ -44,17 +42,7 @@ export function useWorkbookPresenceLifecycle({
         void heartbeat("interval");
       }, delayMs);
     };
-    const resolvePresenceState = () => {
-      if (typeof document === "undefined" || typeof window === "undefined") {
-        return "active" as const;
-      }
-      if (!isTeacherActor) {
-        // Students should stay "present" while the tab is open to avoid noisy presence flicker.
-        return "active" as const;
-      }
-      const hasFocus = typeof document.hasFocus === "function" ? document.hasFocus() : true;
-      return document.visibilityState === "visible" && hasFocus ? "active" : "inactive";
-    };
+    const resolvePresenceState = () => "active" as const;
     const heartbeat = async (reason: "interval" | "interaction") => {
       if (!active || heartbeatInFlight) return;
       heartbeatInFlight = true;
@@ -97,22 +85,12 @@ export function useWorkbookPresenceLifecycle({
         }
       }
     };
-    const onVisibilityOrFocusChange = () => {
-      void heartbeat("interaction");
-    };
-    window.addEventListener("focus", onVisibilityOrFocusChange);
-    window.addEventListener("blur", onVisibilityOrFocusChange);
-    document.addEventListener("visibilitychange", onVisibilityOrFocusChange);
     void heartbeat("interval");
     return () => {
       active = false;
-      window.removeEventListener("focus", onVisibilityOrFocusChange);
-      window.removeEventListener("blur", onVisibilityOrFocusChange);
-      document.removeEventListener("visibilitychange", onVisibilityOrFocusChange);
       clearHeartbeatTimer();
     };
   }, [
-    isTeacherActor,
     onHeartbeatParticipants,
     presenceIntervalMs,
     presenceTabIdRef,

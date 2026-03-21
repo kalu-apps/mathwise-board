@@ -409,12 +409,33 @@ export const useWorkbookLivekit = ({
         adaptiveStream: true,
         dynacast: true,
       });
-      room.on(runtime.RoomEvent.TrackSubscribed, handleTrackSubscribed);
-      room.on(runtime.RoomEvent.TrackUnsubscribed, handleTrackUnsubscribed);
+      livekitRoomRef.current = room;
+      livekitRoomSessionIdRef.current = sessionId;
+      const isCurrentRoom = () => livekitRoomRef.current === room;
+      const onTrackSubscribed = (
+        track: unknown,
+        publication: unknown,
+        participant: unknown
+      ) => {
+        if (!isCurrentRoom()) return;
+        handleTrackSubscribed(track, publication, participant);
+      };
+      const onTrackUnsubscribed = (
+        track: unknown,
+        publication: unknown,
+        participant: unknown
+      ) => {
+        if (!isCurrentRoom()) return;
+        handleTrackUnsubscribed(track, publication, participant);
+      };
+      room.on(runtime.RoomEvent.TrackSubscribed, onTrackSubscribed);
+      room.on(runtime.RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
       room.on(runtime.RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
+        if (!isCurrentRoom()) return;
         detachRemoteAudio(participant.identity || participant.sid || "");
       });
       room.on(runtime.RoomEvent.Disconnected, () => {
+        if (!isCurrentRoom()) return;
         detachAllRemoteAudio();
         livekitRoomRef.current = null;
         livekitRoomSessionIdRef.current = null;
@@ -461,6 +482,7 @@ export const useWorkbookLivekit = ({
         }, reconnectDelayMs);
       });
       room.on(runtime.RoomEvent.ConnectionStateChanged, (state: unknown) => {
+        if (!isCurrentRoom()) return;
         setIsLivekitConnected(state === runtime.ConnectionState.Connected);
         emitMediaMetric({
           scope: "workbook",
@@ -486,8 +508,7 @@ export const useWorkbookLivekit = ({
       await room.connect(tokenConfig.wsUrl, tokenConfig.token, {
         autoSubscribe: true,
       });
-      livekitRoomRef.current = room;
-      livekitRoomSessionIdRef.current = sessionId;
+      if (!isCurrentRoom()) return;
       setIsLivekitConnected(true);
       livekitConnectAttemptRef.current = 0;
       livekitDisconnectAttemptRef.current = 0;
@@ -593,7 +614,6 @@ export const useWorkbookLivekit = ({
       }
     } catch (reason) {
       handleMicrophoneError(reason);
-      setMicEnabled(false);
     }
   }, [handleMicrophoneError, micEnabled, setError]);
 

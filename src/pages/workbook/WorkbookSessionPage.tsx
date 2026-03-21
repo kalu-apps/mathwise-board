@@ -38,7 +38,6 @@ import { useWorkbookVolatileSyncPipeline } from "./useWorkbookVolatileSyncPipeli
 import { useWorkbookObjectUpdateQueue } from "./useWorkbookObjectUpdateQueue";
 import { useWorkbookLayerClearActions } from "./useWorkbookLayerClearActions";
 import { useWorkbookBoardSettingsPages } from "./useWorkbookBoardSettingsPages";
-import { useWorkbookSmartInkPipeline } from "./useWorkbookSmartInkPipeline";
 import { useWorkbookUtilityPanelController } from "./useWorkbookUtilityPanelController";
 import { useWorkbookHistoryOperationsApply } from "./useWorkbookHistoryOperationsApply";
 import { useWorkbookStrokeCommitHandlers } from "./useWorkbookStrokeCommitHandlers";
@@ -180,9 +179,8 @@ export default function WorkbookSessionPage() {
     boardSettings,
     libraryState,
     documentState,
-    smartInkOptions,
   } = workbookSessionData;
-  const refs = useWorkbookSessionRefs(smartInkOptions);
+  const refs = useWorkbookSessionRefs();
   const {
     tool,
     penToolSettings,
@@ -296,7 +294,6 @@ export default function WorkbookSessionPage() {
     setBoardSettings,
     setLibraryState,
     setDocumentState,
-    setSmartInkOptions,
   } = workbookSessionActions;
   const {
     spacePanActive,
@@ -352,11 +349,6 @@ export default function WorkbookSessionPage() {
     dirtyRef,
     laserClearInFlightRef,
     autosaveDebounceRef,
-    smartInkDebounceRef,
-    smartInkStrokeBufferRef,
-    smartInkProcessedStrokeIdsRef,
-    smartInkOptionsRef,
-    smartInkConfigVersionRef,
     dirtyRevisionRef,
     pendingAutosaveAfterSaveRef,
     persistSnapshotsRef,
@@ -704,7 +696,6 @@ export default function WorkbookSessionPage() {
       isCompactViewport,
       adaptivePollingEnabled,
       clampedEraserRadius,
-      smartInkOptions,
       collab: workbookSessionCollab,
       page: workbookSessionPage,
       data: workbookSessionData,
@@ -743,7 +734,6 @@ export default function WorkbookSessionPage() {
   useWorkbookSessionCleanupEffects({
     focusResetTimersByUserRef,
     autosaveDebounceRef,
-    smartInkDebounceRef,
     volatileSyncTimerRef,
     viewportSyncQueuedOffsetRef,
     eraserPreviewQueuedByGestureRef,
@@ -753,10 +743,6 @@ export default function WorkbookSessionPage() {
     clearStrokePreviewRuntime,
     clearIncomingEraserPreviewRuntime,
     setIncomingStrokePreviews,
-    smartInkOptionsRef,
-    smartInkConfigVersionRef,
-    smartInkStrokeBufferRef,
-    smartInkOptions,
     strokePreviewExpiryMs: STROKE_PREVIEW_EXPIRY_MS,
   });
 
@@ -931,21 +917,6 @@ export default function WorkbookSessionPage() {
     strictGeometryEnabled: Boolean(session?.settings?.strictGeometry),
   });
 
-  const { queueSmartInkStroke } = useWorkbookSmartInkPipeline({
-    sessionId,
-    boardSettingsCurrentPage: boardSettings.currentPage,
-    activeSceneLayerId,
-    appendEventsAndApply,
-    setSelectedObjectId,
-    setError,
-    smartInkDebounceRef,
-    smartInkStrokeBufferRef,
-    smartInkProcessedStrokeIdsRef,
-    smartInkOptionsRef,
-    smartInkConfigVersionRef,
-    boardObjectsRef,
-  });
-
   const { applyLocalStrokeCollection, applyHistoryOperations } =
     useWorkbookHistoryOperationsApply({
       setAnnotationStrokes,
@@ -987,7 +958,6 @@ export default function WorkbookSessionPage() {
     finalizeStrokePreview,
     applyLocalStrokeCollection,
     appendEventsAndApply,
-    queueSmartInkStroke,
     setError,
     setSaveSyncWarning,
     setBoardStrokes,
@@ -1937,8 +1907,6 @@ export default function WorkbookSessionPage() {
         eraserRadius={clampedEraserRadius}
         eraserRadiusMin={ERASER_RADIUS_MIN}
         eraserRadiusMax={ERASER_RADIUS_MAX}
-        smartInkOptions={smartInkOptions}
-        setSmartInkOptions={setSmartInkOptions}
         onPenToolSettingsChange={handlePenToolSettingsChange}
         onHighlighterToolSettingsChange={handleHighlighterToolSettingsChange}
         onEraserRadiusChange={handleEraserRadiusChange}

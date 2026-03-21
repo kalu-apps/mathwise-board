@@ -31,7 +31,6 @@ interface BuildWorkbookSessionRealtimeLifecycleParamsInput {
   isCompactViewport: boolean;
   adaptivePollingEnabled: boolean;
   clampedEraserRadius: number;
-  smartInkOptions: WorkbookSessionDataSlice["smartInkOptions"];
   collab: WorkbookSessionCollabSlice;
   page: WorkbookSessionPageSlice;
   data: WorkbookSessionDataSlice;
@@ -81,7 +80,6 @@ export const buildWorkbookSessionRealtimeLifecycleParams = ({
   isCompactViewport,
   adaptivePollingEnabled,
   clampedEraserRadius,
-  smartInkOptions,
   collab,
   page,
   data,
@@ -159,8 +157,6 @@ export const buildWorkbookSessionRealtimeLifecycleParams = ({
     boardSettingsCommitTimerRef: refs.boardSettingsCommitTimerRef,
     latestSeqRef: refs.latestSeqRef,
     processedEventIdsRef: refs.processedEventIdsRef,
-    smartInkStrokeBufferRef: refs.smartInkStrokeBufferRef,
-    smartInkProcessedStrokeIdsRef: refs.smartInkProcessedStrokeIdsRef,
     dirtyRef: refs.dirtyRef,
     undoStackRef: refs.undoStackRef,
     redoStackRef: refs.redoStackRef,
@@ -212,11 +208,9 @@ export const buildWorkbookSessionRealtimeLifecycleParams = ({
     setPenToolSettings: actions.setPenToolSettings,
     setHighlighterToolSettings: actions.setHighlighterToolSettings,
     setEraserRadius: actions.setEraserRadius,
-    setSmartInkOptions: actions.setSmartInkOptions,
     penToolSettings: tooling.penToolSettings,
     highlighterToolSettings: tooling.highlighterToolSettings,
     clampedEraserRadius,
-    smartInkOptions,
   },
   presenceLifecycleParams: {
     sessionId,

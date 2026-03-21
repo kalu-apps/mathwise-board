@@ -13,9 +13,8 @@ import type { WorkbookAreaSelectionClipboard } from "@/features/workbook/model/w
 import { generateId } from "@/shared/lib/id";
 import { DEFAULT_BOARD_SETTINGS } from "./WorkbookSessionPage.core";
 import type { WorkbookHistoryEntry, WorkbookHistoryOperation } from "./WorkbookSessionPage.geometry";
-import type { SmartInkOptions } from "./workbookBoardSettingsModel";
 
-export const useWorkbookSessionRefs = (smartInkOptions: SmartInkOptions) => {
+export const useWorkbookSessionRefs = () => {
   const selectedTextDraftValueRef = useRef("");
   const selectedTextDraftObjectIdRef = useRef<string | null>(null);
   const selectedTextDraftDirtyRef = useRef(false);
@@ -44,11 +43,6 @@ export const useWorkbookSessionRefs = (smartInkOptions: SmartInkOptions) => {
   const isSavingRef = useRef(false);
   const laserClearInFlightRef = useRef(false);
   const autosaveDebounceRef = useRef<number | null>(null);
-  const smartInkDebounceRef = useRef<number | null>(null);
-  const smartInkStrokeBufferRef = useRef<WorkbookStroke[]>([]);
-  const smartInkProcessedStrokeIdsRef = useRef<Set<string>>(new Set());
-  const smartInkOptionsRef = useRef<SmartInkOptions>(smartInkOptions);
-  const smartInkConfigVersionRef = useRef(0);
   const dirtyRevisionRef = useRef(0);
   const pendingAutosaveAfterSaveRef = useRef(false);
   const persistSnapshotsRef = useRef<
@@ -183,11 +177,6 @@ export const useWorkbookSessionRefs = (smartInkOptions: SmartInkOptions) => {
       isSavingRef,
       laserClearInFlightRef,
       autosaveDebounceRef,
-      smartInkDebounceRef,
-      smartInkStrokeBufferRef,
-      smartInkProcessedStrokeIdsRef,
-      smartInkOptionsRef,
-      smartInkConfigVersionRef,
       dirtyRevisionRef,
       pendingAutosaveAfterSaveRef,
       persistSnapshotsRef,

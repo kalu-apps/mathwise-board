@@ -1,6 +1,5 @@
 import { useEffect, type MutableRefObject } from "react";
 import { readStorage, writeStorage } from "@/shared/lib/localDb";
-import { normalizeSmartInkOptions, type SmartInkOptions } from "./workbookBoardSettingsModel";
 import {
   normalizeWorkbookPersonalBoardSettings,
   type ToolPaintSettings,
@@ -14,11 +13,9 @@ interface UseWorkbookPersonalBoardSettingsPersistenceParams {
   setPenToolSettings: (settings: ToolPaintSettings) => void;
   setHighlighterToolSettings: (settings: ToolPaintSettings) => void;
   setEraserRadius: (radius: number) => void;
-  setSmartInkOptions: (options: SmartInkOptions) => void;
   penToolSettings: ToolPaintSettings;
   highlighterToolSettings: ToolPaintSettings;
   clampedEraserRadius: number;
-  smartInkOptions: SmartInkOptions;
 }
 
 export function useWorkbookPersonalBoardSettingsPersistence({
@@ -28,11 +25,9 @@ export function useWorkbookPersonalBoardSettingsPersistence({
   setPenToolSettings,
   setHighlighterToolSettings,
   setEraserRadius,
-  setSmartInkOptions,
   penToolSettings,
   highlighterToolSettings,
   clampedEraserRadius,
-  smartInkOptions,
 }: UseWorkbookPersonalBoardSettingsPersistenceParams) {
   useEffect(() => {
     personalBoardSettingsReadyRef.current = false;
@@ -47,7 +42,6 @@ export function useWorkbookPersonalBoardSettingsPersistence({
       setPenToolSettings(normalized.penToolSettings);
       setHighlighterToolSettings(normalized.highlighterToolSettings);
       setEraserRadius(normalized.eraserRadius);
-      setSmartInkOptions(normalized.smartInkOptions);
     }
     personalBoardSettingsReadyRef.current = true;
   }, [
@@ -56,7 +50,6 @@ export function useWorkbookPersonalBoardSettingsPersistence({
     setEraserRadius,
     setHighlighterToolSettings,
     setPenToolSettings,
-    setSmartInkOptions,
     skipNextPersonalBoardSettingsPersistRef,
   ]);
 
@@ -70,7 +63,6 @@ export function useWorkbookPersonalBoardSettingsPersistence({
       penToolSettings,
       highlighterToolSettings,
       eraserRadius: clampedEraserRadius,
-      smartInkOptions: normalizeSmartInkOptions(smartInkOptions),
     });
   }, [
     clampedEraserRadius,
@@ -79,6 +71,5 @@ export function useWorkbookPersonalBoardSettingsPersistence({
     personalBoardSettingsReadyRef,
     personalBoardSettingsStorageKey,
     skipNextPersonalBoardSettingsPersistRef,
-    smartInkOptions,
   ]);
 }

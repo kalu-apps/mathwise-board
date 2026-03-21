@@ -77,7 +77,6 @@ import {
   createWorkbookConsistencyService,
   normalizeOperationFingerprint,
 } from "./core/workbookConsistencyService";
-import { recognizeWorkbookInkLocal } from "./core/workbookInkRecognition";
 import {
   isTeacherEmail,
   TEACHER_USER_ID,
@@ -105,7 +104,7 @@ const AUTH_SESSION_TTL_MS = (() => {
   return parsed;
 })();
 const AUTH_SESSION_PERSIST_INTERVAL_MS = 60_000;
-const ONLINE_TIMEOUT_MS = 5_000;
+const ONLINE_TIMEOUT_MS = 20_000;
 const PRESENCE_PERSIST_INTERVAL_MS = 15_000;
 const PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS = 20_000;
 const PRESENCE_TAB_ID_MAX_LENGTH = 96;
@@ -199,21 +198,9 @@ const MEDIA_LIVEKIT_ENABLED =
   MEDIA_LIVEKIT_API_SECRET.length > 0;
 const PUBLIC_BASE_URL = String(process.env.VITE_PUBLIC_BASE_URL ?? "").trim().replace(/\/+$/g, "");
 
-const clamp = (value: number, min: number, max: number) => {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(max, value));
-};
-
 type WorkbookSettings = {
   undoPolicy: "everyone" | "teacher_only" | "own_only";
   strictGeometry: boolean;
-  smartInk: {
-    mode: "off" | "shape" | "text" | "formula";
-    confidenceThreshold: number;
-    smartShapes: boolean;
-    smartTextOcr: boolean;
-    smartMathOcr: boolean;
-  };
   studentControls: {
     canDraw: boolean;
     canSelect: boolean;
@@ -1089,86 +1076,13 @@ const buildWorkbookLivekitTokenPayload = (
   return {
     roomName,
     identity,
-    payload,
-  };
-};
-
-type WorkbookSmartInkMode = "off" | "shape" | "text" | "formula";
-type WorkbookSmartInkSettings = WorkbookSettings["smartInk"];
-
-const normalizeWorkbookSmartInkMode = (value: unknown): WorkbookSmartInkMode => {
-  if (value === "shape" || value === "text" || value === "formula") {
-    return value;
-  }
-  if (value === "basic") return "shape";
-  if (value === "full" || value === "auto") return "shape";
-  return "off";
-};
-
-const normalizeWorkbookSmartInkSettings = (
-  source?: Partial<WorkbookSmartInkSettings> | null
-): WorkbookSmartInkSettings => {
-  const mode = normalizeWorkbookSmartInkMode(source?.mode);
-  const confidenceThreshold = clamp(
-    typeof source?.confidenceThreshold === "number"
-      ? source.confidenceThreshold
-      : 0.58,
-    0.35,
-    0.98
-  );
-
-  if (mode === "off") {
-    return {
-      mode,
-      confidenceThreshold,
-      smartShapes: false,
-      smartTextOcr: false,
-      smartMathOcr: false,
-    };
-  }
-  if (mode === "shape") {
-    return {
-      mode,
-      confidenceThreshold,
-      smartShapes: true,
-      smartTextOcr: false,
-      smartMathOcr: false,
-    };
-  }
-  if (mode === "text") {
-    return {
-      mode,
-      confidenceThreshold,
-      smartShapes: false,
-      smartTextOcr: true,
-      smartMathOcr: false,
-    };
-  }
-  if (mode === "formula") {
-    return {
-      mode,
-      confidenceThreshold,
-      smartShapes: false,
-      smartTextOcr: false,
-      smartMathOcr: true,
-    };
-  }
-  return {
-    mode: "off",
-    confidenceThreshold,
-    smartShapes: false,
-    smartTextOcr: false,
-    smartMathOcr: false,
+  payload,
   };
 };
 
 const defaultSettings = (): WorkbookSettings => ({
   undoPolicy: "everyone",
   strictGeometry: false,
-  smartInk: normalizeWorkbookSmartInkSettings({
-    mode: "off",
-    confidenceThreshold: 0.58,
-  }),
   studentControls: {
     canDraw: true,
     canSelect: true,
@@ -1214,7 +1128,6 @@ const normalizeWorkbookSettings = (
       typeof source.strictGeometry === "boolean"
         ? source.strictGeometry
         : defaults.strictGeometry,
-    smartInk: normalizeWorkbookSmartInkSettings(source.smartInk),
     studentControls: normalizeWorkbookStudentControls(source.studentControls),
   };
 };
@@ -2844,25 +2757,6 @@ export const handleWorkbookApiRequestByDomains = async (
             typeof body?.strictGeometry === "boolean"
               ? body.strictGeometry
               : current.strictGeometry,
-          smartInk: normalizeWorkbookSmartInkSettings({
-            mode: body?.smartInk?.mode ?? current.smartInk.mode,
-            confidenceThreshold:
-              typeof body?.smartInk?.confidenceThreshold === "number"
-                ? body.smartInk.confidenceThreshold
-                : current.smartInk.confidenceThreshold,
-            smartShapes:
-              typeof body?.smartInk?.smartShapes === "boolean"
-                ? body.smartInk.smartShapes
-                : current.smartInk.smartShapes,
-            smartTextOcr:
-              typeof body?.smartInk?.smartTextOcr === "boolean"
-                ? body.smartInk.smartTextOcr
-                : current.smartInk.smartTextOcr,
-            smartMathOcr:
-              typeof body?.smartInk?.smartMathOcr === "boolean"
-                ? body.smartInk.smartMathOcr
-                : current.smartInk.smartMathOcr,
-          }),
           studentControls: {
             canDraw:
               typeof body?.studentControls?.canDraw === "boolean"
@@ -3296,44 +3190,6 @@ export const handleWorkbookApiRequestByDomains = async (
             roleInSession: participant.roleInSession,
           },
           token,
-        });
-        return;
-      }
-
-      if (pathname === "/api/workbook/ink/recognize" && method === "POST") {
-        const body = (await readBody(req)) as {
-          strokes?: Array<{ points?: Array<{ x?: unknown; y?: unknown }> }>;
-          preferMath?: unknown;
-        } | null;
-        const strokes = Array.isArray(body?.strokes)
-          ? body.strokes
-              .map((stroke) => {
-                const points = Array.isArray(stroke?.points)
-                  ? stroke.points
-                      .map((point) => ({
-                        x: Number(point?.x),
-                        y: Number(point?.y),
-                      }))
-                      .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
-                  : [];
-                return points.length >= 2 ? { points } : null;
-              })
-              .filter(
-                (
-                  stroke
-                ): stroke is {
-                  points: Array<{ x: number; y: number }>;
-                } => Boolean(stroke)
-              )
-          : [];
-        const recognition = recognizeWorkbookInkLocal({
-          strokes,
-          preferMath: body?.preferMath === true,
-        });
-        json(res, 200, {
-          provider: "local",
-          supported: true,
-          result: recognition,
         });
         return;
       }

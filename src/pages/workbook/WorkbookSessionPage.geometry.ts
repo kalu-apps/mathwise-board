@@ -18,10 +18,6 @@ import type {
   WorkbookTool,
 } from "@/features/workbook/model/types";
 import {
-  normalizeSmartInkOptions,
-  type SmartInkOptions,
-} from "./workbookBoardSettingsModel";
-import {
   ERASER_RADIUS_MAX,
   ERASER_RADIUS_MIN,
   MAIN_SCENE_LAYER_ID,
@@ -367,7 +363,6 @@ export type WorkbookPersonalBoardSettings = {
   penToolSettings: ToolPaintSettings;
   highlighterToolSettings: ToolPaintSettings;
   eraserRadius: number;
-  smartInkOptions: SmartInkOptions;
 };
 
 export const DEFAULT_PEN_TOOL_SETTINGS: ToolPaintSettings = {
@@ -415,5 +410,4 @@ export const normalizeWorkbookPersonalBoardSettings = (
     typeof source?.eraserRadius === "number" && Number.isFinite(source.eraserRadius)
       ? Math.max(ERASER_RADIUS_MIN, Math.min(ERASER_RADIUS_MAX, Math.round(source.eraserRadius)))
       : getDefaultToolWidth("eraser"),
-  smartInkOptions: normalizeSmartInkOptions(source?.smartInkOptions),
 });

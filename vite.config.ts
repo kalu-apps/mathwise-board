@@ -117,9 +117,6 @@ export default defineConfig(({ mode, command }) => {
             if (normalizedId.includes("/src/features/workbook/model/functionGraph")) {
               return "workbook-graph";
             }
-            if (normalizedId.includes("/src/features/workbook/model/smartInk")) {
-              return "workbook-smartink";
-            }
           },
         },
       },
