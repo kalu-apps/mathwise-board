@@ -10,10 +10,7 @@ import "./workbookRouteStyles";
 import {
   Alert,
   Button,
-  IconButton,
-  Tooltip,
 } from "@mui/material";
-import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import { useAuth } from "@/features/auth/model/AuthContext";
 import { useWorkbookSessionStore } from "@/features/workbook/model/workbookSessionStore";
 import {
@@ -91,7 +88,6 @@ import { useWorkbookSessionRealtimeLifecycle } from "./useWorkbookSessionRealtim
 import { useWorkbookToolRuntimeHandlers } from "./useWorkbookToolRuntimeHandlers";
 import { WorkbookSessionWorkspace } from "./WorkbookSessionWorkspace";
 import { WorkbookSessionSidebar } from "./WorkbookSessionSidebar";
-import { WorkbookSessionContextbar } from "./WorkbookSessionContextbar";
 import { useWorkbookSessionSelectionViewportState } from "./useWorkbookSessionSelectionViewportState";
 import { buildWorkbookCanvasProps } from "./useWorkbookCanvasProps";
 import { buildWorkbookSessionRealtimeLifecycleParams } from "./buildWorkbookSessionRealtimeLifecycleParams";
@@ -1906,24 +1902,11 @@ export default function WorkbookSessionPage() {
             : " workbook-session__layout--workspace"
         }`}
       >
-        <div className="workbook-session__layout-contextbar-row">
-          <Tooltip title="Вернуться к тетрадям">
-            <IconButton
-              className="header__session-back workbook-session__session-back"
-              onClick={() => {
-                void handleBack();
-              }}
-              size="small"
-              aria-label="Вернуться к тетрадям"
-            >
-              <ArrowBackRoundedIcon />
-            </IconButton>
-          </Tooltip>
-          <WorkbookSessionContextbar {...contextbarProps} />
-        </div>
         <WorkbookSessionWorkspace
           workspaceRef={workspaceRef}
           graphCatalogCursorActive={graphCatalogCursorActive}
+          contextbarProps={contextbarProps}
+          onBack={handleBack}
           boardShellProps={boardShellProps}
           docsWindowOpen={docsWindow.open}
           docsWindowProps={docsWindowProps}
