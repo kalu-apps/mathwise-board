@@ -17,6 +17,7 @@ export const useWorkbookSessionLoadAndAuth = ({
   authRequiredRef,
   sessionResyncInFlightRef,
   lastForcedResyncAtRef,
+  clearIncomingRealtimeApplyQueue,
   ...loadSessionParams
 }: WorkbookSessionLoadAndAuthParams) => {
   const loadSession = useWorkbookSessionLoadSession({
