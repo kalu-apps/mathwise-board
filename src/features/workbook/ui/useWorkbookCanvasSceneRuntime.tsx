@@ -16,8 +16,11 @@ import {
   buildFunctionGraphRenderStateMap,
   buildWorkbookObjectSceneEntries,
   prepareWorkbookRenderObject,
+  type WorkbookFunctionGraphRenderStateCacheRecord,
   type WorkbookMaskedObjectSceneEntry,
+  type WorkbookObjectSceneEntryCacheRecord,
 } from "../model/sceneRender";
+import { reportWorkbookPerfPhaseMetric } from "../model/workbookPerformance";
 import {
   resolveRealtimePatchBaseObject,
   resolveSelectedPreviewObject,
@@ -133,6 +136,12 @@ export const useWorkbookCanvasSceneRuntime = ({
 }: UseWorkbookCanvasSceneRuntimeParams) => {
   const lastRealtimeUpdateAtRef = useRef<Map<string, number>>(new Map());
   const lastRealtimePatchSignatureRef = useRef<Map<string, string>>(new Map());
+  const functionGraphRenderStateCacheRef = useRef<
+    Map<string, WorkbookFunctionGraphRenderStateCacheRecord>
+  >(new Map());
+  const objectSceneEntriesCacheRef = useRef<
+    Map<string, WorkbookObjectSceneEntryCacheRecord>
+  >(new Map());
 
   const activeMoveRect = useMemo(() => {
     if (!moving) return null;
@@ -163,11 +172,31 @@ export const useWorkbookCanvasSceneRuntime = ({
   );
 
   const functionGraphRenderStateById = useMemo(() => {
-    const { map } = buildFunctionGraphRenderStateMap({
+    const startedAtMs =
+      typeof performance !== "undefined" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
+    const { map, cache, stats } = buildFunctionGraphRenderStateMap({
       visibleBoardObjects,
       selectedPreviewObject,
       graphPan,
       gridSize,
+      previousCache: functionGraphRenderStateCacheRef.current,
+    });
+    functionGraphRenderStateCacheRef.current = cache;
+    const finishedAtMs =
+      typeof performance !== "undefined" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
+    reportWorkbookPerfPhaseMetric({
+      name: "scene_graph_state_ms",
+      durationMs: finishedAtMs - startedAtMs,
+      counters: {
+        visibleObjects: visibleBoardObjects.length,
+        graphObjects: stats.totalVisibleGraphObjects,
+        reusedGraphStates: stats.reusedStates,
+        builtGraphStates: stats.builtStates,
+      },
     });
     return map;
   }, [graphPan, gridSize, selectedPreviewObject, visibleBoardObjects]);
@@ -257,7 +286,11 @@ export const useWorkbookCanvasSceneRuntime = ({
     : "";
 
   const objectSceneEntries = useMemo<WorkbookMaskedObjectSceneEntry[]>(() => {
-    const { entries } = buildWorkbookObjectSceneEntries({
+    const startedAtMs =
+      typeof performance !== "undefined" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
+    const { entries, cache, stats } = buildWorkbookObjectSceneEntries({
       visibleBoardObjects,
       selectedPreviewObject,
       eraserPreviewActive,
@@ -266,6 +299,22 @@ export const useWorkbookCanvasSceneRuntime = ({
       renderRevision: `${imageAssetRevision}::${inlineTextEditRevision}`,
       functionGraphRenderStateById,
       renderObject,
+      previousCache: objectSceneEntriesCacheRef.current,
+    });
+    objectSceneEntriesCacheRef.current = cache;
+    const finishedAtMs =
+      typeof performance !== "undefined" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
+    reportWorkbookPerfPhaseMetric({
+      name: "scene_render_entries_ms",
+      durationMs: finishedAtMs - startedAtMs,
+      counters: {
+        totalObjects: stats.totalObjects,
+        reusedEntries: stats.reusedEntries,
+        builtEntries: stats.builtEntries,
+        eraserPreviewActive: eraserPreviewActive ? 1 : 0,
+      },
     });
     return entries;
   }, [
