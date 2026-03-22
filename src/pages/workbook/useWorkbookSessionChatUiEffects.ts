@@ -96,15 +96,25 @@ export function useWorkbookSessionChatUiEffects({
     if (sessionChatShouldScrollToUnreadRef.current) {
       sessionChatShouldScrollToUnreadRef.current = false;
       if (hasUnread && firstUnreadSessionChatMessageId) {
-        const scrolled = scrollSessionChatToMessage(firstUnreadSessionChatMessageId);
+        const scrollToFirstUnread = () =>
+          scrollSessionChatToMessage(firstUnreadSessionChatMessageId);
+        const scrolled = scrollToFirstUnread();
         if (!scrolled) {
           window.requestAnimationFrame(() => {
-            void scrollSessionChatToMessage(firstUnreadSessionChatMessageId);
+            if (!scrollToFirstUnread()) {
+              scrollSessionChatToLatest();
+            }
+            markSessionChatReadToLatest();
+          });
+        } else {
+          window.requestAnimationFrame(() => {
+            markSessionChatReadToLatest();
           });
         }
         return;
       }
       scrollSessionChatToLatest();
+      markSessionChatReadToLatest();
       return;
     }
     if (isSessionChatAtBottom) {
