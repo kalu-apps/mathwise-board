@@ -23,6 +23,7 @@ import type {
   WorkbookTimerState,
 } from "./types";
 import { normalizeWorkbookObjectZOrder } from "./objectZOrder";
+import { normalizeWorkbookAssetContentUrl } from "./workbookAssetUrl";
 
 const toFiniteNumber = (value: unknown, fallback = 0) => {
   const numeric = typeof value === "number" ? value : Number(value);
@@ -207,7 +208,10 @@ const normalizeBoardObject = (raw: unknown): WorkbookBoardObject | null => {
       : undefined,
     text: typeof source.text === "string" ? source.text : undefined,
     fontSize: Math.max(10, Math.min(72, toFiniteNumber(source.fontSize, 18))),
-    imageUrl: typeof source.imageUrl === "string" ? source.imageUrl : undefined,
+    imageUrl:
+      typeof source.imageUrl === "string"
+        ? normalizeWorkbookAssetContentUrl(source.imageUrl)
+        : undefined,
     imageName: typeof source.imageName === "string" ? source.imageName : undefined,
     zOrder: normalizeWorkbookObjectZOrder(source.zOrder),
     meta:
@@ -259,7 +263,8 @@ const normalizeDocumentAsset = (raw: unknown): WorkbookDocumentAsset | null => {
   const source = raw as Partial<WorkbookDocumentAsset>;
   const id = typeof source.id === "string" ? source.id : "";
   const name = typeof source.name === "string" ? source.name : "";
-  const url = typeof source.url === "string" ? source.url : "";
+  const url =
+    typeof source.url === "string" ? normalizeWorkbookAssetContentUrl(source.url) : "";
   const uploadedBy =
     typeof source.uploadedBy === "string" ? source.uploadedBy : "";
   if (!id || !name || !url || !uploadedBy) return null;
@@ -285,7 +290,7 @@ const normalizeDocumentAsset = (raw: unknown): WorkbookDocumentAsset | null => {
         accumulator.push({
           id: typed.id,
           page: Math.max(1, Math.floor(typed.page)),
-          imageUrl: typed.imageUrl,
+          imageUrl: normalizeWorkbookAssetContentUrl(typed.imageUrl),
           width:
             typeof typed.width === "number" && Number.isFinite(typed.width)
               ? typed.width

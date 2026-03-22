@@ -38,6 +38,27 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
 const isDataUrl = (value: unknown): value is string =>
   typeof value === "string" && value.startsWith("data:");
 
+const WORKBOOK_ASSET_URL_RE = /^\/api\/workbook\/sessions\/[^/]+\/assets\/[^/]+(?:\/content)?$/i;
+
+const normalizeWorkbookAssetContentUrl = (value: unknown) => {
+  if (typeof value !== "string" || value.trim().length === 0) return value;
+  const rawValue = value.trim();
+  const isAbsolute = /^[a-z]+:\/\//i.test(rawValue);
+  try {
+    const parsed = new URL(rawValue, "http://workbook.local");
+    if (!WORKBOOK_ASSET_URL_RE.test(parsed.pathname)) {
+      return rawValue;
+    }
+    if (!parsed.pathname.endsWith("/content")) {
+      parsed.pathname = `${parsed.pathname}/content`;
+    }
+    if (isAbsolute) return parsed.toString();
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return rawValue;
+  }
+};
+
 const normalizeBoardObjectImageUrl = async (
   sessionId: string,
   object: unknown,
@@ -45,13 +66,16 @@ const normalizeBoardObjectImageUrl = async (
 ) => {
   if (!object || typeof object !== "object") return;
   const typedObject = object as { imageUrl?: unknown; imageName?: unknown };
-  if (!isDataUrl(typedObject.imageUrl)) return;
-  const stored = await deps.persistWorkbookAssetFromDataUrl({
-    sessionId,
-    dataUrl: typedObject.imageUrl,
-    fileName: typeof typedObject.imageName === "string" ? typedObject.imageName : undefined,
-  });
-  typedObject.imageUrl = stored.url;
+  if (isDataUrl(typedObject.imageUrl)) {
+    const stored = await deps.persistWorkbookAssetFromDataUrl({
+      sessionId,
+      dataUrl: typedObject.imageUrl,
+      fileName: typeof typedObject.imageName === "string" ? typedObject.imageName : undefined,
+    });
+    typedObject.imageUrl = stored.url;
+    return;
+  }
+  typedObject.imageUrl = normalizeWorkbookAssetContentUrl(typedObject.imageUrl);
 };
 
 const normalizeDocumentAssetMedia = async (
@@ -72,18 +96,23 @@ const normalizeDocumentAssetMedia = async (
       fileName: typeof typedAsset.name === "string" ? typedAsset.name : undefined,
     });
     typedAsset.url = stored.url;
+  } else {
+    typedAsset.url = normalizeWorkbookAssetContentUrl(typedAsset.url);
   }
   if (!Array.isArray(typedAsset.renderedPages)) return;
   for (const page of typedAsset.renderedPages) {
     if (!page || typeof page !== "object") continue;
     const typedPage = page as { imageUrl?: unknown; id?: unknown };
-    if (!isDataUrl(typedPage.imageUrl)) continue;
-    const stored = await deps.persistWorkbookAssetFromDataUrl({
-      sessionId,
-      dataUrl: typedPage.imageUrl,
-      fileName: typeof typedAsset.name === "string" ? `${typedAsset.name}-render` : undefined,
-    });
-    typedPage.imageUrl = stored.url;
+    if (isDataUrl(typedPage.imageUrl)) {
+      const stored = await deps.persistWorkbookAssetFromDataUrl({
+        sessionId,
+        dataUrl: typedPage.imageUrl,
+        fileName: typeof typedAsset.name === "string" ? `${typedAsset.name}-render` : undefined,
+      });
+      typedPage.imageUrl = stored.url;
+      continue;
+    }
+    typedPage.imageUrl = normalizeWorkbookAssetContentUrl(typedPage.imageUrl);
   }
 };
 
@@ -223,7 +252,7 @@ const handleWorkbookAssetsRoute = async (
   }
 
   const workbookAssetReadMatch = pathname.match(
-    /^\/api\/workbook\/sessions\/([^/]+)\/assets\/([^/]+)$/
+    /^\/api\/workbook\/sessions\/([^/]+)\/assets\/([^/]+)(?:\/content)?$/
   );
   if (workbookAssetReadMatch && method === "GET") {
     const actor = deps.requireAuthUser(req, res, db);
