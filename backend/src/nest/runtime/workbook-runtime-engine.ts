@@ -19,6 +19,7 @@ import {
   type WorkbookSessionKind,
   type WorkbookSessionParticipantRecord,
   type WorkbookSessionRecord,
+  type WorkbookSnapshotRecord,
 } from "./core/db";
 import {
   getRuntimeServicesStatus,
@@ -111,6 +112,7 @@ const AUTH_SESSION_TTL_MS = (() => {
 })();
 const AUTH_SESSION_PERSIST_INTERVAL_MS = 60_000;
 const ONLINE_TIMEOUT_MS = 20_000;
+const RECENT_ACTIVITY_WINDOW_MS = 30 * 60 * 1000;
 const PRESENCE_PERSIST_INTERVAL_MS = 15_000;
 const PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS = 20_000;
 const PRESENCE_TAB_ID_MAX_LENGTH = 96;
@@ -1440,12 +1442,153 @@ const resolveSessionPresenceDurationMinutes = (db: MockDb, session: WorkbookSess
   return Math.max(1, Math.round(mergedTotalMs / 60_000));
 };
 
-const serializeDraft = (db: MockDb, draft: WorkbookDraftRecord, actorUserId: string) => {
+type DraftPreviewMeta = {
+  previewUrl: string | null;
+  previewAlt: string | null;
+};
+
+type DraftActivityMeta = {
+  activityLabel: "Idle" | "Active" | "Recently active";
+  activityTone: "idle" | "active" | "recent";
+};
+
+const normalizePreviewUrlCandidate = (value: unknown) => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.toLowerCase() === "content" || trimmed.toLowerCase() === "/content") return null;
+  if (trimmed.startsWith("data:")) return null;
+  return trimmed;
+};
+
+const normalizePreviewAltCandidate = (value: unknown) => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, 140);
+};
+
+const extractPreviewMetaFromSnapshotPayload = (payload: unknown): DraftPreviewMeta | null => {
+  let parsedPayload: unknown = payload;
+  if (typeof parsedPayload === "string") {
+    try {
+      parsedPayload = JSON.parse(parsedPayload);
+    } catch {
+      return null;
+    }
+  }
+  if (!parsedPayload || typeof parsedPayload !== "object") return null;
+  const root = parsedPayload as {
+    boardObjects?: unknown;
+    objects?: unknown;
+    documentState?: unknown;
+    document?: unknown;
+    assets?: unknown;
+  };
+
+  const boardObjects =
+    Array.isArray(root.boardObjects) ? root.boardObjects : Array.isArray(root.objects) ? root.objects : [];
+  for (const boardObject of boardObjects) {
+    if (!boardObject || typeof boardObject !== "object") continue;
+    const typedObject = boardObject as {
+      type?: unknown;
+      imageUrl?: unknown;
+      imageName?: unknown;
+    };
+    if (typedObject.type !== "image") continue;
+    const previewUrl = normalizePreviewUrlCandidate(typedObject.imageUrl);
+    if (!previewUrl) continue;
+    return {
+      previewUrl,
+      previewAlt: normalizePreviewAltCandidate(typedObject.imageName) ?? "Board preview",
+    };
+  }
+
+  const documentState =
+    root.documentState && typeof root.documentState === "object"
+      ? (root.documentState as { assets?: unknown })
+      : root.document && typeof root.document === "object"
+        ? (root.document as { assets?: unknown })
+        : root.assets && typeof root === "object"
+          ? root
+          : null;
+  const assets = Array.isArray(documentState?.assets) ? documentState.assets : [];
+  for (const asset of assets) {
+    if (!asset || typeof asset !== "object") continue;
+    const typedAsset = asset as {
+      type?: unknown;
+      name?: unknown;
+      url?: unknown;
+      renderedPages?: unknown;
+    };
+    const renderedPages = Array.isArray(typedAsset.renderedPages) ? typedAsset.renderedPages : [];
+    for (const renderedPage of renderedPages) {
+      if (!renderedPage || typeof renderedPage !== "object") continue;
+      const typedPage = renderedPage as { imageUrl?: unknown };
+      const renderedUrl = normalizePreviewUrlCandidate(typedPage.imageUrl);
+      if (!renderedUrl) continue;
+      return {
+        previewUrl: renderedUrl,
+        previewAlt: normalizePreviewAltCandidate(typedAsset.name) ?? "Board preview",
+      };
+    }
+    if (typedAsset.type !== "image") continue;
+    const assetUrl = normalizePreviewUrlCandidate(typedAsset.url);
+    if (!assetUrl) continue;
+    return {
+      previewUrl: assetUrl,
+      previewAlt: normalizePreviewAltCandidate(typedAsset.name) ?? "Board preview",
+    };
+  }
+
+  return null;
+};
+
+const resolveDraftActivityMeta = (
+  session: WorkbookSessionRecord,
+  participants: WorkbookSessionParticipantRecord[]
+): DraftActivityMeta => {
+  if (
+    session.status !== "ended" &&
+    participants.some((participant) => participant.isActive && isParticipantOnline(participant))
+  ) {
+    return {
+      activityLabel: "Active",
+      activityTone: "active",
+    };
+  }
+
+  const lastActivityTs = new Date(session.lastActivityAt).getTime();
+  if (
+    session.status !== "ended" &&
+    Number.isFinite(lastActivityTs) &&
+    nowTs() - lastActivityTs <= RECENT_ACTIVITY_WINDOW_MS
+  ) {
+    return {
+      activityLabel: "Recently active",
+      activityTone: "recent",
+    };
+  }
+
+  return {
+    activityLabel: "Idle",
+    activityTone: "idle",
+  };
+};
+
+const serializeDraft = (
+  db: MockDb,
+  draft: WorkbookDraftRecord,
+  actorUserId: string,
+  params?: { previewBySessionId?: Map<string, DraftPreviewMeta> }
+) => {
   const session = getWorkbookSessionById(db, draft.sessionId);
   if (!session) return null;
   const participants = getWorkbookParticipants(db, session.id);
   const actorParticipant = participants.find((item) => item.userId === actorUserId);
   if (!actorParticipant) return null;
+  const preview = params?.previewBySessionId?.get(session.id) ?? null;
+  const activity = resolveDraftActivityMeta(session, participants);
   return {
     draftId: draft.id,
     sessionId: session.id,
@@ -1463,6 +1606,10 @@ const serializeDraft = (db: MockDb, draft: WorkbookDraftRecord, actorUserId: str
     canDelete: actorParticipant.permissions.canManageSession,
     participantsCount: participants.length,
     isOwner: session.createdBy === actorUserId,
+    previewUrl: preview?.previewUrl ?? null,
+    previewAlt: preview?.previewAlt ?? null,
+    activityLabel: activity.activityLabel,
+    activityTone: activity.activityTone,
     participants: participants.map((participant) => {
       const user = getDbIndex(db).usersById.get(participant.userId);
       return {
@@ -2383,6 +2530,30 @@ export const handleWorkbookApiRequestByDomains = async (
           if (session.kind !== "CLASS") return;
           applyStudentControls(session, db);
         });
+        const sessionIds = new Set(sessions.map((session) => session.id));
+        const latestBoardSnapshotBySession = new Map<string, WorkbookSnapshotRecord>();
+        db.workbookSnapshots.forEach((snapshot) => {
+          if (snapshot.layer !== "board") return;
+          if (!sessionIds.has(snapshot.sessionId)) return;
+          const current = latestBoardSnapshotBySession.get(snapshot.sessionId);
+          if (!current) {
+            latestBoardSnapshotBySession.set(snapshot.sessionId, snapshot);
+            return;
+          }
+          if (snapshot.version > current.version) {
+            latestBoardSnapshotBySession.set(snapshot.sessionId, snapshot);
+            return;
+          }
+          if (snapshot.version === current.version && snapshot.createdAt > current.createdAt) {
+            latestBoardSnapshotBySession.set(snapshot.sessionId, snapshot);
+          }
+        });
+        const previewBySessionId = new Map<string, DraftPreviewMeta>();
+        latestBoardSnapshotBySession.forEach((snapshot, sessionId) => {
+          const previewMeta = extractPreviewMetaFromSnapshotPayload(snapshot.payload);
+          if (!previewMeta?.previewUrl) return;
+          previewBySessionId.set(sessionId, previewMeta);
+        });
         const latestDraftBySession = new Map<string, WorkbookDraftRecord>();
         db.workbookDrafts.forEach((draft) => {
           const current = latestDraftBySession.get(draft.sessionId);
@@ -2416,7 +2587,8 @@ export const handleWorkbookApiRequestByDomains = async (
             return serializeDraft(
               db,
               actorDraft ?? latestSessionDraft ?? fallbackDraft,
-              actor.id
+              actor.id,
+              { previewBySessionId }
             );
           })
           .filter((item) => Boolean(item));

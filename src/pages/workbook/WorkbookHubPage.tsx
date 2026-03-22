@@ -75,7 +75,11 @@ const areDraftCardsEqual = (left: WorkbookDraftCard[], right: WorkbookDraftCard[
       current.participantsCount === next.participantsCount &&
       current.statusForCard === next.statusForCard &&
       current.canDelete === next.canDelete &&
-      current.isOwner === next.isOwner
+      current.isOwner === next.isOwner &&
+      current.previewUrl === next.previewUrl &&
+      current.previewAlt === next.previewAlt &&
+      current.activityLabel === next.activityLabel &&
+      current.activityTone === next.activityTone
     );
   });
 };
@@ -126,6 +130,9 @@ export default function WorkbookHubPage() {
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [pendingDeleteCard, setPendingDeleteCard] = useState<WorkbookDraftCard | null>(null);
+  const [previewLoadErrorBySessionId, setPreviewLoadErrorBySessionId] = useState<
+    Record<string, string>
+  >({});
   const lastReloadAtRef = useRef(0);
   const loadRequestVersionRef = useRef(0);
   const hasLoadedAtLeastOnceRef = useRef(false);
@@ -135,6 +142,22 @@ export default function WorkbookHubPage() {
 
   useEffect(() => {
     draftsRef.current = drafts;
+  }, [drafts]);
+
+  useEffect(() => {
+    setPreviewLoadErrorBySessionId((current) => {
+      const activeSessionIds = new Set(drafts.map((card) => card.sessionId));
+      let changed = false;
+      const nextState: Record<string, string> = {};
+      Object.entries(current).forEach(([sessionId, failedUrl]) => {
+        if (!activeSessionIds.has(sessionId)) {
+          changed = true;
+          return;
+        }
+        nextState[sessionId] = failedUrl;
+      });
+      return changed ? nextState : current;
+    });
   }, [drafts]);
 
   useEffect(() => {
@@ -421,6 +444,17 @@ export default function WorkbookHubPage() {
     }
   };
 
+  const markPreviewLoadFailure = useCallback((sessionId: string, previewUrl: string) => {
+    setPreviewLoadErrorBySessionId((current) =>
+      current[sessionId] === previewUrl
+        ? current
+        : {
+            ...current,
+            [sessionId]: previewUrl,
+          }
+    );
+  }, []);
+
   if (!isAuthReady) {
     return (
       <section className="workbook-launch workbook-entry-shell workbook-entry-shell--launch">
@@ -569,8 +603,46 @@ export default function WorkbookHubPage() {
               const isCopying = copyingSessionId === card.sessionId;
               const isDeleting = deletingSessionId === card.sessionId;
               const isRenaming = renamingSessionId === card.sessionId;
+              const rawPreviewUrl =
+                typeof card.previewUrl === "string" ? card.previewUrl.trim() : "";
+              const previewUrl =
+                rawPreviewUrl.length > 0 &&
+                previewLoadErrorBySessionId[card.sessionId] !== rawPreviewUrl
+                  ? rawPreviewUrl
+                  : null;
+              const previewAlt =
+                typeof card.previewAlt === "string" && card.previewAlt.trim().length > 0
+                  ? card.previewAlt.trim()
+                  : `${card.title} preview`;
+              const activityLabel =
+                typeof card.activityLabel === "string" && card.activityLabel.trim().length > 0
+                  ? card.activityLabel.trim()
+                  : null;
+              const activityTone =
+                card.activityTone === "active" ||
+                card.activityTone === "recent" ||
+                card.activityTone === "idle"
+                  ? card.activityTone
+                  : null;
               return (
-                <article className="workbook-hub__card" key={card.sessionId}>
+                <article
+                  className={`workbook-hub__card${previewUrl ? " workbook-hub__card--with-preview" : ""}`}
+                  key={card.sessionId}
+                >
+                  {previewUrl ? (
+                    <div className="workbook-hub__card-preview" aria-hidden="true">
+                      <img
+                        className="workbook-hub__card-preview-image"
+                        src={previewUrl}
+                        alt={previewAlt}
+                        loading="lazy"
+                        decoding="async"
+                        fetchPriority="low"
+                        onError={() => markPreviewLoadFailure(card.sessionId, previewUrl)}
+                      />
+                      <span className="workbook-hub__card-preview-scrim" />
+                    </div>
+                  ) : null}
                   {card.canDelete ? (
                     <Tooltip title="Удалить карточку">
                       <span>
@@ -608,6 +680,18 @@ export default function WorkbookHubPage() {
                           : "Персональная база знаний"}
                       </span>
                     </div>
+
+                    {activityLabel ? (
+                      <div className="workbook-hub__card-activity-row">
+                        <span
+                          className={`workbook-hub__card-activity-badge${
+                            activityTone ? ` is-${activityTone}` : ""
+                          }`}
+                        >
+                          {activityLabel}
+                        </span>
+                      </div>
+                    ) : null}
 
                     <div className="workbook-hub__card-timeline">
                       <div className="workbook-hub__card-timeline-row">
