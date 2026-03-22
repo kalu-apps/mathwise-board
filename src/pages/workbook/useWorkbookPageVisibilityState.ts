@@ -9,6 +9,10 @@ import type { WorkbookIncomingEraserPreviewEntry } from "@/features/workbook/mod
 import type { WorkbookAreaSelection } from "@/features/workbook/model/workbookSessionUiTypes";
 import { resolveMaxKnownWorkbookPage, toSafeWorkbookPage } from "./WorkbookSessionPage.core";
 import { useWorkbookVisibleScene } from "./useWorkbookVisibleScene";
+import {
+  resolveBoardObjectImageAssetId,
+} from "@/features/workbook/model/scene";
+import { normalizeWorkbookAssetContentUrl } from "@/features/workbook/model/workbookAssetUrl";
 
 type SetSelectedObjectId = (value: string | null | ((current: string | null) => string | null)) => void;
 
@@ -63,21 +67,6 @@ export const useWorkbookPageVisibilityState = ({
     [documentState.assets]
   );
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    Object.values(imageAssetUrls).forEach((assetUrl) => {
-      if (typeof assetUrl !== "string" || assetUrl.length === 0) return;
-      if (prewarmedImageAssetUrls.has(assetUrl)) return;
-      prewarmedImageAssetUrls.add(assetUrl);
-      const image = new Image();
-      image.decoding = "async";
-      image.src = assetUrl;
-      if (typeof image.decode === "function") {
-        void image.decode().catch(() => undefined);
-      }
-    });
-  }, [imageAssetUrls]);
-
   const boardPageOptions = useMemo(() => {
     const contentPages = new Set<number>();
     boardObjects.forEach((object) => {
@@ -122,6 +111,47 @@ export const useWorkbookPageVisibilityState = ({
     activeFrameId: boardSettings.activeFrameId,
     frameFocusMode,
   });
+
+  const visibleImageUrls = useMemo(() => {
+    const urls: string[] = [];
+    const seen = new Set<string>();
+    visibleBoardObjects.forEach((object) => {
+      if (object.type !== "image") return;
+      const objectImageUrl =
+        typeof object.imageUrl === "string" && object.imageUrl.trim().length > 0
+          ? normalizeWorkbookAssetContentUrl(object.imageUrl)
+          : "";
+      if (objectImageUrl && !seen.has(objectImageUrl)) {
+        seen.add(objectImageUrl);
+        urls.push(objectImageUrl);
+      }
+      const assetId = resolveBoardObjectImageAssetId(object);
+      const assetImageUrl =
+        assetId && typeof imageAssetUrls[assetId] === "string"
+          ? normalizeWorkbookAssetContentUrl(imageAssetUrls[assetId] ?? "")
+          : "";
+      if (assetImageUrl && !seen.has(assetImageUrl)) {
+        seen.add(assetImageUrl);
+        urls.push(assetImageUrl);
+      }
+    });
+    return urls;
+  }, [imageAssetUrls, visibleBoardObjects]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    visibleImageUrls.forEach((assetUrl) => {
+      if (typeof assetUrl !== "string" || assetUrl.length === 0) return;
+      if (prewarmedImageAssetUrls.has(assetUrl)) return;
+      prewarmedImageAssetUrls.add(assetUrl);
+      const image = new Image();
+      image.decoding = "async";
+      image.src = assetUrl;
+      if (typeof image.decode === "function") {
+        void image.decode().catch(() => undefined);
+      }
+    });
+  }, [visibleImageUrls]);
 
   useEffect(() => {
     if (!selectedObjectId) return;
