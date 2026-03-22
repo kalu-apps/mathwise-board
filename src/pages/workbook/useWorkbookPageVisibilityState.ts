@@ -29,6 +29,8 @@ type UseWorkbookPageVisibilityStateParams = {
   setAreaSelection: SetAreaSelection;
 };
 
+const prewarmedImageAssetUrls = new Set<string>();
+
 export const useWorkbookPageVisibilityState = ({
   documentState,
   boardObjects,
@@ -60,6 +62,21 @@ export const useWorkbookPageVisibilityState = ({
       ),
     [documentState.assets]
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    Object.values(imageAssetUrls).forEach((assetUrl) => {
+      if (typeof assetUrl !== "string" || assetUrl.length === 0) return;
+      if (prewarmedImageAssetUrls.has(assetUrl)) return;
+      prewarmedImageAssetUrls.add(assetUrl);
+      const image = new Image();
+      image.decoding = "async";
+      image.src = assetUrl;
+      if (typeof image.decode === "function") {
+        void image.decode().catch(() => undefined);
+      }
+    });
+  }, [imageAssetUrls]);
 
   const boardPageOptions = useMemo(() => {
     const contentPages = new Set<number>();
