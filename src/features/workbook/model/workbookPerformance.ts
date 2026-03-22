@@ -21,7 +21,8 @@ export type WorkbookPerfPhaseName =
   | "scene_index_rebuild_ms"
   | "scene_access_rebuild_ms"
   | "scene_graph_state_ms"
-  | "scene_render_entries_ms";
+  | "scene_render_entries_ms"
+  | "page_switch_visible_scene_ms";
 
 type WorkbookPerfPhaseMetricDetail = {
   name: WorkbookPerfPhaseName;

@@ -75,15 +75,25 @@ export const useWorkbookBoardSettingsPages = ({
     const nextSettings = queuedBoardSettingsCommitRef.current;
     if (!nextSettings) return;
     const historyBefore = queuedBoardSettingsHistoryBeforeRef.current;
+    const forwardPatch = historyBefore
+      ? buildBoardSettingsDiffPatch(historyBefore, nextSettings)
+      : null;
+    const inversePatch = historyBefore
+      ? buildBoardSettingsDiffPatch(nextSettings, historyBefore)
+      : null;
+    const historyEntry =
+      forwardPatch && inversePatch
+        ? {
+            forward: [{ kind: "patch_board_settings", patch: forwardPatch }],
+            inverse: [{ kind: "patch_board_settings", patch: inversePatch }],
+            createdAt: new Date().toISOString(),
+          }
+        : null;
+    const isNavigationOnlyCommit = isBoardSettingsPageNavigationPatch(forwardPatch);
+    let deferNavigationRetry = false;
     queuedBoardSettingsCommitRef.current = null;
     boardSettingsCommitInFlightRef.current = true;
     try {
-      const forwardPatch = historyBefore
-        ? buildBoardSettingsDiffPatch(historyBefore, nextSettings)
-        : null;
-      const inversePatch = historyBefore
-        ? buildBoardSettingsDiffPatch(nextSettings, historyBefore)
-        : null;
       const persistEvents: WorkbookClientEventInput[] = [
         {
           type: "board.settings.update",
@@ -92,15 +102,6 @@ export const useWorkbookBoardSettingsPages = ({
           },
         },
       ];
-      const historyEntry =
-        forwardPatch && inversePatch
-          ? {
-              forward: [{ kind: "patch_board_settings", patch: forwardPatch }],
-              inverse: [{ kind: "patch_board_settings", patch: inversePatch }],
-              createdAt: new Date().toISOString(),
-            }
-          : null;
-      const isNavigationOnlyCommit = isBoardSettingsPageNavigationPatch(forwardPatch);
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
           await appendEventsAndApply(persistEvents, {
@@ -130,14 +131,27 @@ export const useWorkbookBoardSettingsPages = ({
       }
       queuedBoardSettingsHistoryBeforeRef.current = null;
     } catch {
-      if (historyBefore) {
+      if (historyBefore && !isNavigationOnlyCommit) {
         boardSettingsRef.current = historyBefore;
         setBoardSettings(historyBefore);
       }
-      setError("Не удалось сохранить настройки доски.");
+      if (!isNavigationOnlyCommit) {
+        setError("Не удалось сохранить настройки доски.");
+      } else if (typeof window !== "undefined") {
+        deferNavigationRetry = true;
+        queuedBoardSettingsCommitRef.current = nextSettings;
+        if (boardSettingsCommitTimerRef.current !== null) {
+          window.clearTimeout(boardSettingsCommitTimerRef.current);
+        }
+        boardSettingsCommitTimerRef.current = window.setTimeout(() => {
+          boardSettingsCommitTimerRef.current = null;
+          void flushQueuedBoardSettingsCommit();
+        }, 600);
+      }
     } finally {
       boardSettingsCommitInFlightRef.current = false;
       if (queuedBoardSettingsCommitRef.current) {
+        if (deferNavigationRetry) return;
         void flushQueuedBoardSettingsCommit();
       }
     }
@@ -145,6 +159,7 @@ export const useWorkbookBoardSettingsPages = ({
     appendEventsAndApply,
     boardSettingsRef,
     boardSettingsCommitInFlightRef,
+    boardSettingsCommitTimerRef,
     canManageSharedBoardSettings,
     queuedBoardSettingsCommitRef,
     queuedBoardSettingsHistoryBeforeRef,
