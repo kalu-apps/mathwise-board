@@ -579,6 +579,7 @@ export default function WorkbookSessionPage() {
     setIsSessionChatAtBottom,
     sessionChatListRef,
     latestSeqRef,
+    lastAppliedSeqRef: refs.lastAppliedSeqRef,
     processedEventIdsRef,
   });
 

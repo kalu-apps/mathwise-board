@@ -5,7 +5,6 @@ import {
   getWorkbookSnapshot,
   openWorkbookSession,
 } from "@/features/workbook/model/api";
-import { resolveNextLatestSeq } from "@/features/workbook/model/runtime";
 import {
   reportWorkbookCorrectnessEvent,
   reportWorkbookLoadStageMetric,
@@ -482,54 +481,70 @@ export const useWorkbookSessionLoadSession = ({
           }
           setRecoveryMode("catching_up");
           try {
-            const tailResponse = await getWorkbookEvents(sessionId, latestSeqRef.current);
-            if (isStaleLoadRequest()) return;
-            const unseenTailEvents = filterUnseenWorkbookEvents(tailResponse.events, {
-              ignoreSeqGuard: true,
-            })
-              .slice()
-              .sort((left, right) => {
-                const leftSeq =
-                  typeof left?.seq === "number" && Number.isFinite(left.seq)
-                    ? left.seq
-                    : Number.POSITIVE_INFINITY;
-                const rightSeq =
-                  typeof right?.seq === "number" && Number.isFinite(right.seq)
-                    ? right.seq
-                    : Number.POSITIVE_INFINITY;
-                return leftSeq - rightSeq;
-              });
-            const freshTailEvents = unseenTailEvents.filter((event) => {
-              if (typeof event?.seq !== "number" || !Number.isFinite(event.seq)) {
-                return true;
-              }
-              if (event.seq <= lastAppliedSeqRef.current) {
-                reportWorkbookCorrectnessEvent({
-                  name: "realtime_event_skipped_as_stale",
-                  sessionId,
-                  reason,
-                  recoveryMode: recoveryModeRef.current,
-                  seq: event.seq,
-                  snapshotSeq: lastAppliedSeqRef.current,
+            const MAX_TAIL_BATCHES = 8;
+            let tailCursor = Math.max(0, latestSeqRef.current);
+            let tailEventsCount = 0;
+            let tailAppliedCount = 0;
+            let tailBatchCount = 0;
+            while (tailBatchCount < MAX_TAIL_BATCHES) {
+              tailBatchCount += 1;
+              const tailResponse = await getWorkbookEvents(sessionId, tailCursor);
+              if (isStaleLoadRequest()) return;
+              const unseenTailEvents = filterUnseenWorkbookEvents(tailResponse.events, {
+                ignoreSeqGuard: true,
+              })
+                .slice()
+                .sort((left, right) => {
+                  const leftSeq =
+                    typeof left?.seq === "number" && Number.isFinite(left.seq)
+                      ? left.seq
+                      : Number.POSITIVE_INFINITY;
+                  const rightSeq =
+                    typeof right?.seq === "number" && Number.isFinite(right.seq)
+                      ? right.seq
+                      : Number.POSITIVE_INFINITY;
+                  return leftSeq - rightSeq;
                 });
-                return false;
+              tailEventsCount += unseenTailEvents.length;
+              const freshTailEvents = unseenTailEvents.filter((event) => {
+                if (typeof event?.seq !== "number" || !Number.isFinite(event.seq)) {
+                  return true;
+                }
+                if (event.seq <= lastAppliedSeqRef.current) {
+                  reportWorkbookCorrectnessEvent({
+                    name: "realtime_event_skipped_as_stale",
+                    sessionId,
+                    reason,
+                    recoveryMode: recoveryModeRef.current,
+                    seq: event.seq,
+                    snapshotSeq: lastAppliedSeqRef.current,
+                  });
+                  return false;
+                }
+                return true;
+              });
+              if (freshTailEvents.length > 0) {
+                applyIncomingEvents(freshTailEvents);
+                tailAppliedCount += freshTailEvents.length;
               }
-              return true;
-            });
-            if (freshTailEvents.length > 0) {
-              applyIncomingEvents(freshTailEvents);
-            }
-            const nextLatestSeq = resolveNextLatestSeq(
-              latestSeqRef.current,
-              tailResponse.latestSeq,
-              freshTailEvents
-            );
-            if (nextLatestSeq > latestSeqRef.current) {
-              latestSeqRef.current = nextLatestSeq;
-              setLatestSeq(nextLatestSeq);
-            }
-            if (nextLatestSeq > lastAppliedSeqRef.current) {
-              lastAppliedSeqRef.current = nextLatestSeq;
+              const responseMaxSeq = tailResponse.events.reduce((maxSeq, event) => {
+                if (typeof event?.seq !== "number" || !Number.isFinite(event.seq)) {
+                  return maxSeq;
+                }
+                return Math.max(maxSeq, Math.max(0, Math.trunc(event.seq)));
+              }, tailCursor);
+              if (responseMaxSeq > tailCursor) {
+                tailCursor = responseMaxSeq;
+                if (tailCursor > latestSeqRef.current) {
+                  latestSeqRef.current = tailCursor;
+                  setLatestSeq(tailCursor);
+                }
+              }
+              const reachedTailEnd =
+                tailResponse.events.length === 0 || tailCursor >= tailResponse.latestSeq;
+              if (reachedTailEnd) {
+                break;
+              }
             }
             reportWorkbookCorrectnessEvent({
               name: isBackground ? "resume_tail_applied_to_seq" : "session_open_tail_applied_to_seq",
@@ -539,8 +554,9 @@ export const useWorkbookSessionLoadSession = ({
               seq: lastAppliedSeqRef.current,
               snapshotSeq: loadedLatestSeq,
               counters: {
-                tailEvents: unseenTailEvents.length,
-                tailApplied: freshTailEvents.length,
+                tailEvents: tailEventsCount,
+                tailApplied: tailAppliedCount,
+                tailBatches: tailBatchCount,
               },
             });
           } catch (tailError) {

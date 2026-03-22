@@ -11,7 +11,7 @@ import {
   observeWorkbookRealtimeSend,
   observeWorkbookRealtimeVolatileDrop,
 } from "@/features/workbook/model/realtimeObservability";
-import { resolveNextLatestSeq, withWorkbookClientEventIds } from "@/features/workbook/model/runtime";
+import { withWorkbookClientEventIds } from "@/features/workbook/model/runtime";
 import type { WorkbookEvent } from "@/features/workbook/model/types";
 import { ApiError } from "@/shared/api/client";
 import type { WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
@@ -153,11 +153,12 @@ export const useWorkbookEventCommitPipeline = ({
             events: unseenEvents,
           });
         }
-        const nextLatest = resolveNextLatestSeq(
-          latestSeqRef.current,
-          response.latestSeq,
-          unseenEvents
-        );
+        const nextLatest = response.events.reduce((maxSeq, event) => {
+          if (typeof event?.seq !== "number" || !Number.isFinite(event.seq)) {
+            return maxSeq;
+          }
+          return Math.max(maxSeq, Math.max(0, Math.trunc(event.seq)));
+        }, latestSeqRef.current);
         if (nextLatest > latestSeqRef.current) {
           latestSeqRef.current = nextLatest;
           setLatestSeq(nextLatest);

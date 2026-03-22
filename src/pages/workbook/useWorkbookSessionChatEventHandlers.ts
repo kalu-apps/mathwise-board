@@ -20,6 +20,7 @@ interface UseWorkbookSessionChatEventHandlersParams {
   setIsSessionChatAtBottom: SetBooleanState;
   sessionChatListRef: RefObject<HTMLDivElement | null>;
   latestSeqRef: MutableRefObject<number>;
+  lastAppliedSeqRef: MutableRefObject<number>;
   processedEventIdsRef: MutableRefObject<Set<string>>;
 }
 
@@ -38,6 +39,7 @@ export function useWorkbookSessionChatEventHandlers({
   setIsSessionChatAtBottom,
   sessionChatListRef,
   latestSeqRef,
+  lastAppliedSeqRef,
   processedEventIdsRef,
 }: UseWorkbookSessionChatEventHandlersParams) {
   const sessionChatReadStorageKey = useMemo(
@@ -151,7 +153,7 @@ export function useWorkbookSessionChatEventHandlers({
           !isVolatileWorkbookEventType(event.type) &&
           typeof event?.seq === "number" &&
           Number.isFinite(event.seq) &&
-          event.seq <= latestSeqRef.current
+          event.seq <= lastAppliedSeqRef.current
         ) {
           return;
         }
@@ -169,7 +171,7 @@ export function useWorkbookSessionChatEventHandlers({
       }
       return unseen;
     },
-    [latestSeqRef, processedEventIdsRef]
+    [lastAppliedSeqRef, processedEventIdsRef]
   );
 
   const recoverChatMessagesFromEvents = useCallback((events: WorkbookEvent[]) => {
