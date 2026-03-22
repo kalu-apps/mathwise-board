@@ -1,4 +1,4 @@
-import { useCallback, type MutableRefObject } from "react";
+import { useCallback, useRef, type MutableRefObject } from "react";
 import { saveWorkbookSnapshot } from "@/features/workbook/model/api";
 import { optimizeImageDataUrl } from "@/features/workbook/model/media";
 import { WORKBOOK_IMAGE_ASSET_META_KEY } from "@/features/workbook/model/scene";
@@ -26,6 +26,7 @@ const SNAPSHOT_ASSET_IMAGE_AGGRESSIVE_MAX_DATA_URL_CHARS = 24_000;
 const SNAPSHOT_RENDERED_PAGE_IMAGE_AGGRESSIVE_MAX_DATA_URL_CHARS = 12_000;
 const SNAPSHOT_OBJECT_IMAGE_MINIMAL_MAX_DATA_URL_CHARS = 8_000;
 const SNAPSHOT_PREEMPTIVE_COMPACTION_DATA_URL_CHARS = 160_000;
+const SNAPSHOT_MIN_AUTOSAVE_GAP_MS = 2_600;
 
 const isImageDataUrl = (value: unknown): value is string =>
   typeof value === "string" && value.startsWith("data:image/");
@@ -258,6 +259,7 @@ export function useWorkbookPersistSnapshots({
   handleRealtimeAuthRequired,
   scheduleAutosave,
 }: UseWorkbookPersistSnapshotsParams) {
+  const lastPersistCompletedAtRef = useRef(0);
   return useCallback(
     async (options?: { silent?: boolean; force?: boolean }) => {
       if (!sessionId) return false;
@@ -266,6 +268,18 @@ export function useWorkbookPersistSnapshots({
       if (isSavingRef.current) {
         pendingAutosaveAfterSaveRef.current = true;
         return true;
+      }
+      if (
+        options?.force &&
+        !options?.silent &&
+        lastPersistCompletedAtRef.current > 0
+      ) {
+        const elapsedMs = Date.now() - lastPersistCompletedAtRef.current;
+        if (elapsedMs < SNAPSHOT_MIN_AUTOSAVE_GAP_MS) {
+          pendingAutosaveAfterSaveRef.current = true;
+          scheduleAutosave(SNAPSHOT_MIN_AUTOSAVE_GAP_MS - elapsedMs + 120);
+          return true;
+        }
       }
       isSavingRef.current = true;
       pendingAutosaveAfterSaveRef.current = false;
@@ -293,6 +307,7 @@ export function useWorkbookPersistSnapshots({
         ]);
       };
       const markSnapshotSaved = () => {
+        lastPersistCompletedAtRef.current = Date.now();
         if (dirtyRevisionRef.current === revisionAtSaveStart) {
           dirtyRef.current = false;
           setSaveState("saved");

@@ -11,14 +11,37 @@ const readPositiveInt = (value: string | undefined, fallback: number, max: numbe
 };
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT_DIR = path.resolve(MODULE_DIR, "../../../../../");
-const DEFAULT_WORKBOOK_ASSET_STORAGE_DIR = path.join(PROJECT_ROOT_DIR, ".workbook-assets");
+const RUNTIME_ROOT_DIR = path.resolve(MODULE_DIR, "../../../../../");
+const WORKBOOK_BACKEND_ROOT_DIR =
+  path.basename(RUNTIME_ROOT_DIR) === "backend"
+    ? RUNTIME_ROOT_DIR
+    : path.join(RUNTIME_ROOT_DIR, "backend");
+const WORKBOOK_WORKSPACE_ROOT_DIR =
+  path.basename(RUNTIME_ROOT_DIR) === "backend"
+    ? path.resolve(RUNTIME_ROOT_DIR, "..")
+    : RUNTIME_ROOT_DIR;
+const DEFAULT_WORKBOOK_ASSET_STORAGE_DIR = path.join(
+  WORKBOOK_WORKSPACE_ROOT_DIR,
+  ".workbook-assets"
+);
+
+const parseWorkbookAssetStorageDirList = (value: string | undefined) =>
+  String(value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => path.resolve(entry));
 
 const resolveWorkbookAssetStorageDirs = () => {
   const configured = String(process.env.WORKBOOK_ASSET_STORAGE_DIR ?? "").trim();
+  const configuredList = parseWorkbookAssetStorageDirList(
+    process.env.WORKBOOK_ASSET_STORAGE_DIRS
+  );
   const candidates = [
+    ...configuredList,
     configured || DEFAULT_WORKBOOK_ASSET_STORAGE_DIR,
     DEFAULT_WORKBOOK_ASSET_STORAGE_DIR,
+    path.join(WORKBOOK_BACKEND_ROOT_DIR, ".workbook-assets"),
     path.join(process.cwd(), ".workbook-assets"),
   ].map((entry) => path.resolve(entry));
   return Array.from(new Set(candidates));
@@ -280,5 +303,7 @@ export const readWorkbookAssetBuffer = (filePath: string) => fsPromises.readFile
 export const getWorkbookAssetStorageDiagnostics = () => ({
   dir: WORKBOOK_ASSET_STORAGE_DIR,
   dirs: WORKBOOK_ASSET_STORAGE_DIRS,
+  workspaceRootDir: WORKBOOK_WORKSPACE_ROOT_DIR,
+  backendRootDir: WORKBOOK_BACKEND_ROOT_DIR,
   maxBytes: WORKBOOK_ASSET_MAX_BYTES,
 });
