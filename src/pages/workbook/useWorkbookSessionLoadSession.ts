@@ -205,11 +205,11 @@ export const useWorkbookSessionLoadSession = ({
             annotationSnapshotResult.status === "fulfilled" &&
             annotationSnapshotResult.value === null;
           const hasFreshBoardSnapshot =
-            boardSnapshot !== null &&
-            (!isBackground || boardSnapshotVersion > knownFreshSeq);
+            !isBackground &&
+            boardSnapshot !== null;
           const hasFreshAnnotationSnapshot =
-            annotationSnapshot !== null &&
-            (!isBackground || annotationSnapshotVersion > knownFreshSeq);
+            !isBackground &&
+            annotationSnapshot !== null;
           const shouldApplyBoardSnapshot = hasFreshBoardSnapshot || shouldApplyEmptyBoardSnapshot;
           const shouldApplyAnnotationSnapshot =
             hasFreshAnnotationSnapshot || shouldApplyEmptyAnnotationSnapshot;
@@ -442,12 +442,10 @@ export const useWorkbookSessionLoadSession = ({
             );
             setLatestSeq(loadedLatestSeq);
             latestSeqRef.current = loadedLatestSeq;
-            lastAppliedSeqRef.current = Math.max(lastAppliedSeqRef.current, loadedLatestSeq);
             if (shouldApplyBoardSnapshot) {
               lastAppliedBoardSettingsSeqRef.current = Math.max(
                 lastAppliedBoardSettingsSeqRef.current,
-                boardSnapshotVersion,
-                lastAppliedSeqRef.current
+                boardSnapshotVersion
               );
               reportWorkbookCorrectnessEvent({
                 name: isBackground ? "resume_snapshot_seq" : "session_open_snapshot_seq",

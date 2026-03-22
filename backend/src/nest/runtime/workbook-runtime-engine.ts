@@ -19,7 +19,6 @@ import {
   type WorkbookSessionKind,
   type WorkbookSessionParticipantRecord,
   type WorkbookSessionRecord,
-  type WorkbookSnapshotRecord,
 } from "./core/db";
 import {
   getRuntimeServicesStatus,
@@ -1563,98 +1562,6 @@ type DraftActivityMeta = {
   activityTone: "idle" | "active" | "recent";
 };
 
-const normalizePreviewUrlCandidate = (value: unknown) => {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (trimmed.toLowerCase() === "content" || trimmed.toLowerCase() === "/content") return null;
-  if (trimmed.startsWith("data:")) return null;
-  return trimmed;
-};
-
-const normalizePreviewAltCandidate = (value: unknown) => {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  return trimmed.slice(0, 140);
-};
-
-const extractPreviewMetaFromSnapshotPayload = (payload: unknown): DraftPreviewMeta | null => {
-  let parsedPayload: unknown = payload;
-  if (typeof parsedPayload === "string") {
-    try {
-      parsedPayload = JSON.parse(parsedPayload);
-    } catch {
-      return null;
-    }
-  }
-  if (!parsedPayload || typeof parsedPayload !== "object") return null;
-  const root = parsedPayload as {
-    boardObjects?: unknown;
-    objects?: unknown;
-    documentState?: unknown;
-    document?: unknown;
-    assets?: unknown;
-  };
-
-  const boardObjects =
-    Array.isArray(root.boardObjects) ? root.boardObjects : Array.isArray(root.objects) ? root.objects : [];
-  for (const boardObject of boardObjects) {
-    if (!boardObject || typeof boardObject !== "object") continue;
-    const typedObject = boardObject as {
-      type?: unknown;
-      imageUrl?: unknown;
-      imageName?: unknown;
-    };
-    if (typedObject.type !== "image") continue;
-    const previewUrl = normalizePreviewUrlCandidate(typedObject.imageUrl);
-    if (!previewUrl) continue;
-    return {
-      previewUrl,
-      previewAlt: normalizePreviewAltCandidate(typedObject.imageName) ?? "Board preview",
-    };
-  }
-
-  const documentState =
-    root.documentState && typeof root.documentState === "object"
-      ? (root.documentState as { assets?: unknown })
-      : root.document && typeof root.document === "object"
-        ? (root.document as { assets?: unknown })
-        : root.assets && typeof root === "object"
-          ? root
-          : null;
-  const assets = Array.isArray(documentState?.assets) ? documentState.assets : [];
-  for (const asset of assets) {
-    if (!asset || typeof asset !== "object") continue;
-    const typedAsset = asset as {
-      type?: unknown;
-      name?: unknown;
-      url?: unknown;
-      renderedPages?: unknown;
-    };
-    const renderedPages = Array.isArray(typedAsset.renderedPages) ? typedAsset.renderedPages : [];
-    for (const renderedPage of renderedPages) {
-      if (!renderedPage || typeof renderedPage !== "object") continue;
-      const typedPage = renderedPage as { imageUrl?: unknown };
-      const renderedUrl = normalizePreviewUrlCandidate(typedPage.imageUrl);
-      if (!renderedUrl) continue;
-      return {
-        previewUrl: renderedUrl,
-        previewAlt: normalizePreviewAltCandidate(typedAsset.name) ?? "Board preview",
-      };
-    }
-    if (typedAsset.type !== "image") continue;
-    const assetUrl = normalizePreviewUrlCandidate(typedAsset.url);
-    if (!assetUrl) continue;
-    return {
-      previewUrl: assetUrl,
-      previewAlt: normalizePreviewAltCandidate(typedAsset.name) ?? "Board preview",
-    };
-  }
-
-  return null;
-};
-
 const resolveDraftActivityMeta = (
   session: WorkbookSessionRecord,
   participants: WorkbookSessionParticipantRecord[]
@@ -2641,58 +2548,19 @@ export const handleWorkbookApiRequestByDomains = async (
           if (session.kind !== "CLASS") return;
           applyStudentControls(session, db);
         });
-        const sessionIds = new Set(sessions.map((session) => session.id));
-        const localBoardSnapshotBySession = new Map<string, WorkbookSnapshotRecord>();
-        db.workbookSnapshots.forEach((snapshot) => {
-          if (snapshot.layer !== "board") return;
-          if (!sessionIds.has(snapshot.sessionId)) return;
-          const current = localBoardSnapshotBySession.get(snapshot.sessionId);
-          if (!current) {
-            localBoardSnapshotBySession.set(snapshot.sessionId, snapshot);
-            return;
-          }
-          if (snapshot.version > current.version) {
-            localBoardSnapshotBySession.set(snapshot.sessionId, snapshot);
-            return;
-          }
-          if (snapshot.version === current.version && snapshot.createdAt > current.createdAt) {
-            localBoardSnapshotBySession.set(snapshot.sessionId, snapshot);
-          }
-        });
         const previewBySessionId = new Map<string, DraftPreviewMeta>();
-        await Promise.all(
-          sessions.map(async (session) => {
-            const storedHubPreview = readSessionHubPreview(session);
-            if (storedHubPreview?.previewUrl) {
-              previewBySessionId.set(session.id, {
-                previewUrl: storedHubPreview.previewUrl,
-                previewAlt:
-                  storedHubPreview.previewAlt ??
-                  (storedHubPreview.page
-                    ? `Последний вид доски · страница ${storedHubPreview.page}`
-                    : "Последний вид доски"),
-              });
-              return;
-            }
-            let snapshotPayload: unknown = null;
-            try {
-              const persistedSnapshot = await workbookSnapshotStore.read({
-                sessionId: session.id,
-                layer: "board",
-              });
-              snapshotPayload = persistedSnapshot?.payload ?? null;
-            } catch {
-              // Fallback to local snapshot mirror when persistent storage is temporarily unavailable.
-            }
-            if (!snapshotPayload) {
-              const localSnapshot = localBoardSnapshotBySession.get(session.id);
-              snapshotPayload = localSnapshot?.payload ?? null;
-            }
-            const previewMeta = extractPreviewMetaFromSnapshotPayload(snapshotPayload);
-            if (!previewMeta?.previewUrl) return;
-            previewBySessionId.set(session.id, previewMeta);
-          })
-        );
+        sessions.forEach((session) => {
+          const storedHubPreview = readSessionHubPreview(session);
+          if (!storedHubPreview?.previewUrl) return;
+          previewBySessionId.set(session.id, {
+            previewUrl: storedHubPreview.previewUrl,
+            previewAlt:
+              storedHubPreview.previewAlt ??
+              (storedHubPreview.page
+                ? `Последний вид доски · страница ${storedHubPreview.page}`
+                : "Последний вид доски"),
+          });
+        });
         const latestDraftBySession = new Map<string, WorkbookDraftRecord>();
         db.workbookDrafts.forEach((draft) => {
           const current = latestDraftBySession.get(draft.sessionId);

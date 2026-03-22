@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import {
   Alert,
   Button,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -14,6 +13,7 @@ import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import InsertDriveFileRoundedIcon from "@mui/icons-material/InsertDriveFileRounded";
 import ImageRoundedIcon from "@mui/icons-material/ImageRounded";
+import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import {
   WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS,
   WORKBOOK_IMAGE_IMPORT_MAX_BYTES,
@@ -89,27 +89,6 @@ const SOFT_IMAGE_LIMIT_BYTES = Math.round(WORKBOOK_IMAGE_IMPORT_MAX_BYTES * 0.65
 const SOFT_PDF_LIMIT_BYTES = Math.round(WORKBOOK_PDF_IMPORT_MAX_BYTES * 0.67);
 const MAX_IMAGE_PIXELS = 14_000_000;
 
-const resolveStatusLabel = (status: ImportFileStatus) => {
-  switch (status) {
-    case "invalid":
-      return "Недоступно";
-    case "ready":
-      return "Готов";
-    case "optimizing":
-      return "Оптимизация";
-    case "uploading":
-      return "Загрузка";
-    case "inserting":
-      return "Вставка";
-    case "success":
-      return "Успешно";
-    case "failed":
-      return "Ошибка";
-    default:
-      return "Ожидание";
-  }
-};
-
 const readImageMeta = async (dataUrl: string) =>
   new Promise<{ width: number; height: number }>((resolve, reject) => {
     const image = new Image();
@@ -135,7 +114,7 @@ export function WorkbookImportModal({
   open,
   sessionId,
   initialFiles,
-  fullScreen = false,
+  fullScreen = true,
   onClose,
   onImportFile,
 }: WorkbookImportModalProps) {
@@ -445,7 +424,18 @@ export function WorkbookImportModal({
       className="workbook-session__import-modal"
       disableEscapeKeyDown={isBusy}
     >
-      <DialogTitle>Импорт файлов в доску</DialogTitle>
+      <DialogTitle className="workbook-session__import-modal-title">
+        <span>Импорт файлов в доску</span>
+        <IconButton
+          className="workbook-session__import-modal-close"
+          onClick={handleClose}
+          disabled={isBusy}
+          aria-label="Закрыть окно импорта"
+          size="small"
+        >
+          <CloseRoundedIcon fontSize="small" />
+        </IconButton>
+      </DialogTitle>
       <DialogContent className="workbook-session__import-modal-content">
         <input
           ref={fileInputRef}
@@ -529,7 +519,6 @@ export function WorkbookImportModal({
                 <div className="workbook-session__import-item-meta">
                   <div className="workbook-session__import-item-headline">
                     <strong>{item.name}</strong>
-                    <Chip size="small" label={resolveStatusLabel(item.status)} />
                   </div>
                   <div className="workbook-session__import-item-details">
                     <span>{item.extension || item.mimeType}</span>
@@ -569,16 +558,6 @@ export function WorkbookImportModal({
         ) : null}
       </DialogContent>
       <DialogActions>
-        <Button onClick={handleClose} disabled={isBusy}>
-          Отмена
-        </Button>
-        <Button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isBusy}
-          startIcon={<UploadFileRoundedIcon />}
-        >
-          Добавить файлы
-        </Button>
         <Button
           variant="contained"
           onClick={() => void handleUpload()}

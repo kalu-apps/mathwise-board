@@ -3,9 +3,14 @@ import { Tooltip } from "@mui/material";
 import PentagonRoundedIcon from "@mui/icons-material/PentagonRounded";
 import ViewInArRoundedIcon from "@mui/icons-material/ViewInArRounded";
 import { WorkbookCanvas } from "@/features/workbook/ui/WorkbookCanvas";
+import { InlineMobiusLoader } from "@/shared/ui/loading";
 
 type WorkbookSessionBoardShellProps = {
   canvasProps: React.ComponentProps<typeof WorkbookCanvas>;
+  pageTransitionOverlay?: {
+    active: boolean;
+    label?: string;
+  };
   isSessionTabPassive: boolean;
   activeSessionTabId: string | null;
   presenceTabId: string;
@@ -18,6 +23,7 @@ type WorkbookSessionBoardShellProps = {
 
 export function WorkbookSessionBoardShell({
   canvasProps,
+  pageTransitionOverlay,
   isSessionTabPassive,
   activeSessionTabId,
   presenceTabId,
@@ -30,6 +36,16 @@ export function WorkbookSessionBoardShell({
   return (
     <div className="workbook-session__board-shell">
       <WorkbookCanvas {...canvasProps} />
+      {pageTransitionOverlay?.active ? (
+        <div className="workbook-session__page-transition-overlay" role="status" aria-live="polite">
+          <div className="workbook-session__page-transition-overlay-card">
+            <InlineMobiusLoader
+              size="panel"
+              label={pageTransitionOverlay.label || "Загружаем страницу..."}
+            />
+          </div>
+        </div>
+      ) : null}
       {isSessionTabPassive ? (
         <div className="workbook-session__tab-passive-overlay" role="status" aria-live="polite">
           <div className="workbook-session__tab-passive-overlay-card">

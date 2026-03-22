@@ -225,6 +225,7 @@ interface UseWorkbookPersistSnapshotsParams {
   documentState: WorkbookDocumentState;
   annotationStrokes: WorkbookStroke[];
   latestSeq: number;
+  lastAppliedSeqRef: MutableRefObject<number>;
   authRequiredRef: MutableRefObject<boolean>;
   dirtyRef: MutableRefObject<boolean>;
   dirtyRevisionRef: MutableRefObject<number>;
@@ -249,6 +250,7 @@ export function useWorkbookPersistSnapshots({
   documentState,
   annotationStrokes,
   latestSeq,
+  lastAppliedSeqRef,
   authRequiredRef,
   dirtyRef,
   dirtyRevisionRef,
@@ -291,17 +293,28 @@ export function useWorkbookPersistSnapshots({
         boardPayload: unknown;
         annotationPayload: unknown;
       }) => {
+        const safeAppliedSeq = Math.max(
+          1,
+          Number.isFinite(lastAppliedSeqRef.current)
+            ? Math.trunc(lastAppliedSeqRef.current)
+            : 1
+        );
+        const safeLatestSeq = Math.max(
+          1,
+          Number.isFinite(latestSeq) ? Math.trunc(latestSeq) : 1
+        );
+        const snapshotVersion = Math.min(safeAppliedSeq, safeLatestSeq);
         await Promise.all([
           saveWorkbookSnapshot({
             sessionId,
             layer: "board",
-            version: latestSeq,
+            version: snapshotVersion,
             payload: encodedSnapshots.boardPayload,
           }),
           saveWorkbookSnapshot({
             sessionId,
             layer: "annotations",
-            version: latestSeq,
+            version: snapshotVersion,
             payload: encodedSnapshots.annotationPayload,
           }),
         ]);
@@ -459,6 +472,7 @@ export function useWorkbookPersistSnapshots({
       handleRealtimeAuthRequired,
       isSavingRef,
       latestSeq,
+      lastAppliedSeqRef,
       libraryState,
       pendingAutosaveAfterSaveRef,
       scheduleAutosave,
