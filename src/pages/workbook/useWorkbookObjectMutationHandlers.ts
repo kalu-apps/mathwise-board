@@ -1,10 +1,11 @@
 import { useCallback, type MutableRefObject } from "react";
 import { optimizeImageDataUrl, WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS } from "@/features/workbook/model/media";
-import { normalizeObjectPayload } from "@/features/workbook/model/scene";
+import { normalizeObjectPayload, WORKBOOK_IMAGE_ASSET_META_KEY } from "@/features/workbook/model/scene";
 import {
   ensureWorkbookObjectZOrder,
   resolveWorkbookObjectReorderZOrder,
 } from "@/features/workbook/model/objectZOrder";
+import { uploadWorkbookAsset } from "@/features/workbook/model/api";
 import {
   applyWorkbookBoardObjectPatchById,
   resolveWorkbookBoardObjectPosition,
@@ -103,6 +104,11 @@ export const useWorkbookObjectMutationHandlers = ({
   scheduleVolatileSyncFlush,
   flushQueuedObjectUpdate,
 }: UseWorkbookObjectMutationHandlersParams) => {
+  const resolveImageMimeTypeFromDataUrl = (dataUrl: string) => {
+    const match = /^data:([^;,]+)[;,]/i.exec(dataUrl.trim());
+    return match?.[1]?.toLowerCase() || undefined;
+  };
+
   const commitObjectCreate = useCallback(
     async (
       object: WorkbookBoardObject,
@@ -146,6 +152,49 @@ export const useWorkbookObjectMutationHandlers = ({
           "Не удалось подготовить изображение для доски. Уменьшите размер файла или добавьте его через окно документов."
         );
         return false;
+      }
+      if (
+        objectWithPage.type === "image" &&
+        typeof objectWithPage.imageUrl === "string" &&
+        objectWithPage.imageUrl.startsWith("data:image/")
+      ) {
+        try {
+          const uploadedAsset = await uploadWorkbookAsset({
+            sessionId,
+            fileName:
+              objectWithPage.imageName ||
+              `board-image-${objectWithPage.id || generateId()}.png`,
+            dataUrl: objectWithPage.imageUrl,
+            mimeType: resolveImageMimeTypeFromDataUrl(objectWithPage.imageUrl),
+          });
+          const currentMeta =
+            objectWithPage.meta && typeof objectWithPage.meta === "object"
+              ? objectWithPage.meta
+              : {};
+          objectWithPage = {
+            ...objectWithPage,
+            imageUrl: uploadedAsset.url,
+            meta: {
+              ...currentMeta,
+              [WORKBOOK_IMAGE_ASSET_META_KEY]: uploadedAsset.assetId,
+            },
+          };
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 413) {
+            setError(
+              "Не удалось добавить изображение: файл слишком большой для обработки. Уменьшите размер и повторите попытку."
+            );
+            return false;
+          }
+          if (isRecoverableApiError(error)) {
+            setError(
+              "Не удалось загрузить изображение в хранилище. Проверьте соединение и повторите попытку."
+            );
+            return false;
+          }
+          setError("Не удалось подготовить изображение для синхронизации.");
+          return false;
+        }
       }
       const normalizedObjectWithPage =
         normalizeObjectPayload(objectWithPage) ?? objectWithPage;

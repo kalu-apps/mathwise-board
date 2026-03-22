@@ -45,10 +45,12 @@ const RETRY_BASE_DELAY_MS = 2_000;
 const RETRY_MAX_DELAY_MS = 90_000;
 const FLUSH_INTERVAL_MS = 5_000;
 const MAX_QUEUE_LENGTH = 120;
+const CONFLICT_PAUSE_DEFAULT_MS = 12_000;
 
 let queue = readStorage<WorkbookPersistenceTask[]>(STORAGE_KEY, []);
 let flushing = false;
 let runtimeInitialized = false;
+const pausedSessionsUntilTs = new Map<string, number>();
 
 const listeners = new Set<() => void>();
 
@@ -92,6 +94,21 @@ const emit = () => {
       // noop
     }
   });
+};
+
+const cleanupExpiredSessionPauses = () => {
+  const now = nowTs();
+  pausedSessionsUntilTs.forEach((untilTs, sessionId) => {
+    if (untilTs <= now) {
+      pausedSessionsUntilTs.delete(sessionId);
+    }
+  });
+};
+
+const isSessionPersistencePaused = (sessionId: string) => {
+  cleanupExpiredSessionPauses();
+  const untilTs = pausedSessionsUntilTs.get(sessionId);
+  return typeof untilTs === "number" && untilTs > nowTs();
 };
 
 const removeTasksBySessionId = (sessionId: string) => {
@@ -263,6 +280,25 @@ export const dropWorkbookPersistenceTasksForSession = (sessionId: string) => {
   return dropped;
 };
 
+export const pauseWorkbookPersistenceForSession = (
+  sessionId: string,
+  options?: { ttlMs?: number }
+) => {
+  if (!sessionId) return;
+  const ttlMs = Number.isFinite(options?.ttlMs)
+    ? Math.max(1_000, Math.trunc(options?.ttlMs ?? CONFLICT_PAUSE_DEFAULT_MS))
+    : CONFLICT_PAUSE_DEFAULT_MS;
+  pausedSessionsUntilTs.set(sessionId, nowTs() + ttlMs);
+  emit();
+};
+
+export const resumeWorkbookPersistenceForSession = (sessionId: string) => {
+  if (!sessionId) return;
+  if (pausedSessionsUntilTs.delete(sessionId)) {
+    emit();
+  }
+};
+
 export const enqueueWorkbookEventsPersistence = (params: {
   sessionId: string;
   events: WorkbookClientEventInput[];
@@ -335,13 +371,18 @@ export const flushWorkbookPersistenceQueue = async () => {
 
   try {
     while (queue.length > 0) {
-      const task = queue[0];
-      if (parseTs(task.retryAt) > nowTs()) {
+      cleanupExpiredSessionPauses();
+      const executableTaskIndex = queue.findIndex((task) => {
+        if (isSessionPersistencePaused(task.sessionId)) return false;
+        return parseTs(task.retryAt) <= nowTs();
+      });
+      if (executableTaskIndex < 0) {
         break;
       }
+      const task = queue[executableTaskIndex];
       try {
         await executeTask(task);
-        queue.shift();
+        queue.splice(executableTaskIndex, 1);
         persistQueue();
         emit();
       } catch (error) {
@@ -351,7 +392,7 @@ export const flushWorkbookPersistenceQueue = async () => {
         ) {
           const dropped = removeTasksBySessionId(task.sessionId);
           if (dropped === 0) {
-            queue.shift();
+            queue.splice(executableTaskIndex, 1);
           }
           persistQueue();
           emit();
@@ -362,22 +403,28 @@ export const flushWorkbookPersistenceQueue = async () => {
           error.status === 409 &&
           error.code === "conflict"
         ) {
-          // Version conflicts mean persisted writes are stale relative to current board state.
-          // Drop pending tasks for this session to avoid repeated conflict storms on every flush.
-          const dropped = removeTasksBySessionId(task.sessionId);
-          if (dropped === 0) {
-            queue.shift();
-          }
+          // Pause session writes and keep tasks queued so local intents are not discarded.
+          const attempts = task.attempts + 1;
+          const retryDelayMs = computeRetryDelayMs(attempts);
+          queue[executableTaskIndex] = {
+            ...task,
+            attempts,
+            updatedAt: nowIso(),
+            retryAt: new Date(nowTs() + retryDelayMs).toISOString(),
+          };
+          pauseWorkbookPersistenceForSession(task.sessionId, {
+            ttlMs: Math.max(CONFLICT_PAUSE_DEFAULT_MS, retryDelayMs),
+          });
           persistQueue();
           emit();
-          continue;
+          break;
         }
         if (isRecoverableApiError(error)) {
           const attempts = task.attempts + 1;
           const nextRetryAt = new Date(
             nowTs() + computeRetryDelayMs(attempts)
           ).toISOString();
-          queue[0] = {
+          queue[executableTaskIndex] = {
             ...task,
             attempts,
             updatedAt: nowIso(),
@@ -387,7 +434,7 @@ export const flushWorkbookPersistenceQueue = async () => {
           emit();
           break;
         }
-        queue.shift();
+        queue.splice(executableTaskIndex, 1);
         persistQueue();
         emit();
       }

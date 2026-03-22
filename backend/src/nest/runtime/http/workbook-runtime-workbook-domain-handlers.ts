@@ -289,6 +289,17 @@ const handleWorkbookAssetsRoute = async (
     }
     const asset = await deps.readWorkbookAssetById(assetId);
     if (!asset) {
+      if (String(process.env.WORKBOOK_ASSET_DEBUG_MISSES ?? "").trim() === "1") {
+        const diagnostics =
+          typeof deps.getWorkbookAssetStorageDiagnostics === "function"
+            ? deps.getWorkbookAssetStorageDiagnostics()
+            : null;
+        console.warn("[workbook-asset] asset_not_found", {
+          sessionId,
+          assetId,
+          diagnostics,
+        });
+      }
       deps.notFound(res);
       return true;
     }

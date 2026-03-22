@@ -109,13 +109,28 @@ export const useWorkbookObjectUpdateQueue = ({
               return;
             }
             if (error instanceof ApiError && error.code === "conflict" && error.status === 409) {
-              objectUpdateQueuedPatchRef.current.delete(objectId);
-              objectUpdateDispatchOptionsRef.current.delete(objectId);
-              objectUpdateHistoryBeforeRef.current.delete(objectId);
+              // Preserve local intent on conflict and retry after controlled resync.
+              const pendingPatch = objectUpdateQueuedPatchRef.current.get(objectId) ?? {};
+              objectUpdateQueuedPatchRef.current.set(
+                objectId,
+                mergeBoardObjectPatches(queuedPatch, pendingPatch)
+              );
+              const pendingOptions = objectUpdateDispatchOptionsRef.current.get(objectId) ?? {
+                trackHistory: false,
+                markDirty: false,
+              };
+              objectUpdateDispatchOptionsRef.current.set(objectId, {
+                trackHistory: dispatchOptions.trackHistory || pendingOptions.trackHistory,
+                markDirty: dispatchOptions.markDirty || pendingOptions.markDirty,
+              });
               objectPreviewQueuedPatchRef.current.delete(objectId);
               objectPreviewQueuedAtRef.current.delete(objectId);
               localPreviewQueuedPatchRef.current.delete(objectId);
               incomingPreviewQueuedPatchRef.current.delete(objectId);
+              window.setTimeout(
+                () => flushQueuedObjectUpdateRef.current(objectId),
+                OBJECT_UPDATE_FLUSH_INTERVAL_MS * 4
+              );
               return;
             }
             const isTransientError =

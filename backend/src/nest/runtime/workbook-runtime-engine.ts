@@ -49,6 +49,7 @@ import {
   WORKBOOK_PDF_RENDER_MAX_BYTES,
 } from "./core/workbookPdfService";
 import {
+  getWorkbookAssetStorageDiagnostics,
   persistWorkbookAssetFromDataUrl,
   readWorkbookAssetBuffer,
   readWorkbookAssetById,
@@ -2350,6 +2351,7 @@ export const handleWorkbookApiRequestByDomains = async (
             persistWorkbookAssetFromDataUrl,
             readWorkbookAssetById,
             readWorkbookAssetBuffer,
+            getWorkbookAssetStorageDiagnostics,
             sanitizePermissionPatch,
             normalizeParticipantPermissions,
             hasBoardToolsPermissionPatch,

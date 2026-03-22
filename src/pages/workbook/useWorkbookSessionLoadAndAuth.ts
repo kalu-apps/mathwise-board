@@ -1,5 +1,10 @@
 import { useCallback } from "react";
-import { dropWorkbookPersistenceTasksForSession } from "@/features/workbook/model/persistenceQueue";
+import {
+  dropWorkbookPersistenceTasksForSession,
+  flushWorkbookPersistenceQueue,
+  pauseWorkbookPersistenceForSession,
+  resumeWorkbookPersistenceForSession,
+} from "@/features/workbook/model/persistenceQueue";
 import type { WorkbookSessionLoadAndAuthParams } from "./useWorkbookSessionLoadAuthTypes";
 import { useWorkbookSessionLoadSession } from "./useWorkbookSessionLoadSession";
 
@@ -62,12 +67,14 @@ export const useWorkbookSessionLoadAndAuth = ({
     if (now - lastForcedResyncAtRef.current < 5_000) return;
     sessionResyncInFlightRef.current = true;
     lastForcedResyncAtRef.current = now;
-    dropWorkbookPersistenceTasksForSession(sessionId);
+    pauseWorkbookPersistenceForSession(sessionId);
     clearIncomingRealtimeApplyQueue();
     setRealtimeSyncWarning(
       "Обнаружен конфликт синхронизации. Повторно загружаем состояние доски."
     );
     void Promise.resolve(loadSession({ background: true })).finally(() => {
+      resumeWorkbookPersistenceForSession(sessionId);
+      void flushWorkbookPersistenceQueue();
       sessionResyncInFlightRef.current = false;
     });
   }, [
