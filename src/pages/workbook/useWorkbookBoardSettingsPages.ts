@@ -45,6 +45,14 @@ type UseWorkbookBoardSettingsPagesParams = {
   setIsBoardPageMutationPending: SetState<boolean>;
 };
 
+const isBoardSettingsPageNavigationPatch = (
+  patch: Partial<WorkbookBoardSettings> | null
+) => {
+  if (!patch) return false;
+  const changedKeys = Object.keys(patch);
+  return changedKeys.length === 1 && changedKeys[0] === "currentPage";
+};
+
 export const useWorkbookBoardSettingsPages = ({
   canManageSharedBoardSettings,
   canDelete,
@@ -92,9 +100,13 @@ export const useWorkbookBoardSettingsPages = ({
               createdAt: new Date().toISOString(),
             }
           : null;
+      const isNavigationOnlyCommit = isBoardSettingsPageNavigationPatch(forwardPatch);
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-          await appendEventsAndApply(persistEvents, { historyEntry });
+          await appendEventsAndApply(persistEvents, {
+            historyEntry,
+            markDirty: !isNavigationOnlyCommit,
+          });
           break;
         } catch (error) {
           const isConflict =
