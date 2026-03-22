@@ -4,6 +4,10 @@ import type { FunctionGraphPlot } from "../model/functionGraph";
 import type { PreparedFunctionGraphRenderState } from "../model/sceneRender";
 import { resolveBoardObjectImageAssetId } from "../model/scene";
 import {
+  isWorkbookAssetContentUrl,
+  normalizeWorkbookAssetContentUrl,
+} from "../model/workbookAssetUrl";
+import {
   resolveWorkbookImageCropProjection,
   resolveWorkbookImageCropState,
 } from "../model/imageCrop";
@@ -890,7 +894,19 @@ export const renderWorkbookCanvasPrimaryObject = ({
 
     const imageSource =
       object.type === "image"
-        ? object.imageUrl ?? (() => {
+        ? (() => {
+            const normalizedObjectImageUrl =
+              typeof object.imageUrl === "string"
+                ? normalizeWorkbookAssetContentUrl(object.imageUrl)
+                : undefined;
+            if (
+              typeof normalizedObjectImageUrl === "string" &&
+              normalizedObjectImageUrl.trim().length > 0 &&
+              (normalizedObjectImageUrl.startsWith("data:") ||
+                isWorkbookAssetContentUrl(normalizedObjectImageUrl))
+            ) {
+              return normalizedObjectImageUrl;
+            }
             const assetId = resolveBoardObjectImageAssetId(object);
             return assetId ? imageAssetUrls[assetId] : undefined;
           })()

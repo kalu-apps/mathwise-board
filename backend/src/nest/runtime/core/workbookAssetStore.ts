@@ -65,7 +65,8 @@ const EXT_TO_MIME: Record<string, string> = {
   bin: "application/octet-stream",
 };
 
-const SAFE_ASSET_ID_RE = /^[a-f0-9]{64}\.[a-z0-9]{2,8}$/i;
+const SAFE_ASSET_HASH_RE = /^[a-f0-9]{64}$/i;
+const SAFE_ASSET_ID_RE = /^[a-f0-9]{64}\.[a-z0-9]{2,16}$/i;
 
 type ParsedDataUrl = {
   mimeType: string;
@@ -128,7 +129,7 @@ const resolveAssetPath = (assetId: string, baseDir = WORKBOOK_ASSET_STORAGE_DIR)
   return path.join(baseDir, hash.slice(0, 2), assetId);
 };
 
-const findExistingAssetPath = async (assetId: string) => {
+const findExistingAssetPathByExactId = async (assetId: string) => {
   for (const baseDir of WORKBOOK_ASSET_STORAGE_DIRS) {
     const assetPath = resolveAssetPath(assetId, baseDir);
     try {
@@ -144,6 +145,76 @@ const findExistingAssetPath = async (assetId: string) => {
     }
   }
   return null;
+};
+
+const splitAssetId = (assetId: string) => {
+  const normalized = assetId.trim().toLowerCase();
+  const dotIndex = normalized.indexOf(".");
+  if (dotIndex <= 0) {
+    if (!SAFE_ASSET_HASH_RE.test(normalized)) return null;
+    return {
+      hash: normalized,
+      ext: null as string | null,
+    };
+  }
+  const hash = normalized.slice(0, dotIndex);
+  const ext = normalized.slice(dotIndex + 1);
+  if (!SAFE_ASSET_HASH_RE.test(hash) || !/^[a-z0-9]{2,16}$/.test(ext)) return null;
+  return { hash, ext };
+};
+
+const findExistingAssetPathByHash = async (hash: string, preferredExt: string | null) => {
+  const normalizedHash = hash.toLowerCase();
+  const bucket = normalizedHash.slice(0, 2);
+  for (const baseDir of WORKBOOK_ASSET_STORAGE_DIRS) {
+    const bucketDir = path.join(baseDir, bucket);
+    let entries: fs.Dirent[];
+    try {
+      entries = await fsPromises.readdir(bucketDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    const matchingFileNames = entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => entry.name)
+      .filter((entryName) => entryName.toLowerCase().startsWith(`${normalizedHash}.`));
+    if (!matchingFileNames.length) continue;
+    const sortedMatchingFileNames = matchingFileNames.sort((left, right) => {
+      if (preferredExt) {
+        const leftExt = left.toLowerCase().split(".").pop() ?? "";
+        const rightExt = right.toLowerCase().split(".").pop() ?? "";
+        if (leftExt === preferredExt && rightExt !== preferredExt) return -1;
+        if (rightExt === preferredExt && leftExt !== preferredExt) return 1;
+      }
+      return left.localeCompare(right);
+    });
+    for (const fileName of sortedMatchingFileNames) {
+      const assetPath = path.join(bucketDir, fileName);
+      try {
+        const stat = await fsPromises.stat(assetPath);
+        if (stat.isFile()) {
+          return {
+            path: assetPath,
+            stat,
+          };
+        }
+      } catch {
+        // Continue trying other files.
+      }
+    }
+  }
+  return null;
+};
+
+const findExistingAssetPath = async (assetId: string) => {
+  const parsed = splitAssetId(assetId);
+  if (!parsed) return null;
+
+  if (parsed.ext) {
+    const exact = await findExistingAssetPathByExactId(`${parsed.hash}.${parsed.ext}`);
+    if (exact) return exact;
+  }
+  return findExistingAssetPathByHash(parsed.hash, parsed.ext);
 };
 
 export const buildWorkbookAssetUrl = (sessionId: string, assetId: string) =>
@@ -185,15 +256,16 @@ export const persistWorkbookAssetFromDataUrl = async (params: {
 };
 
 export const readWorkbookAssetById = async (assetId: string) => {
-  const normalizedAssetId = String(assetId ?? "").trim();
-  if (!SAFE_ASSET_ID_RE.test(normalizedAssetId)) {
+  const normalizedAssetId = String(assetId ?? "").trim().toLowerCase();
+  if (!SAFE_ASSET_ID_RE.test(normalizedAssetId) && !SAFE_ASSET_HASH_RE.test(normalizedAssetId)) {
     return null;
   }
   const resolved = await findExistingAssetPath(normalizedAssetId);
   if (!resolved) return null;
-  const ext = normalizedAssetId.split(".").pop() ?? "bin";
+  const resolvedAssetId = path.basename(resolved.path);
+  const ext = resolvedAssetId.split(".").pop() ?? "bin";
   return {
-    assetId: normalizedAssetId,
+    assetId: resolvedAssetId,
     filePath: resolved.path,
     sizeBytes: resolved.stat.size,
     mimeType: resolveMimeTypeByExt(ext),
