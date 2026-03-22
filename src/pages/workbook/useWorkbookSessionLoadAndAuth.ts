@@ -15,7 +15,6 @@ export const useWorkbookSessionLoadAndAuth = ({
   setError,
   setRealtimeSyncWarning,
   authRequiredRef,
-  clearIncomingRealtimeApplyQueue,
   sessionResyncInFlightRef,
   lastForcedResyncAtRef,
   ...loadSessionParams
@@ -68,7 +67,6 @@ export const useWorkbookSessionLoadAndAuth = ({
     sessionResyncInFlightRef.current = true;
     lastForcedResyncAtRef.current = now;
     pauseWorkbookPersistenceForSession(sessionId);
-    clearIncomingRealtimeApplyQueue();
     setRealtimeSyncWarning(
       "Обнаружен конфликт синхронизации. Повторно загружаем состояние доски."
     );
@@ -82,7 +80,6 @@ export const useWorkbookSessionLoadAndAuth = ({
     authRequiredRef,
     sessionResyncInFlightRef,
     lastForcedResyncAtRef,
-    clearIncomingRealtimeApplyQueue,
     setRealtimeSyncWarning,
     loadSession,
   ]);

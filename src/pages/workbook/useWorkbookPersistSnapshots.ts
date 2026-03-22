@@ -405,12 +405,23 @@ export function useWorkbookPersistSnapshots({
             currentError = compactionError;
           }
         }
-        if (
-          currentError instanceof ApiError &&
-          (currentError.status === 401 || currentError.status === 403 || currentError.status === 404)
-        ) {
+        if (currentError instanceof ApiError && currentError.status === 401) {
           handleRealtimeAuthRequired(currentError.status);
           return false;
+        }
+        if (
+          currentError instanceof ApiError &&
+          (currentError.status === 403 || currentError.status === 404)
+        ) {
+          // Snapshot persistence can be temporarily blocked by ACL/storage routing.
+          // Keep collaborative sync alive and avoid forcing auth-loss mode.
+          dirtyRef.current = false;
+          pendingAutosaveAfterSaveRef.current = false;
+          setSaveState("saved");
+          setSaveSyncWarning(
+            "Снимок доски временно недоступен. Продолжаем синхронизацию через события."
+          );
+          return true;
         }
         if (isRecoverableApiError(currentError)) {
           setSaveState("saving");

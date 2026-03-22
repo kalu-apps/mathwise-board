@@ -142,12 +142,10 @@ export const useWorkbookRealtimeTransport = ({
     if (now - lastForcedResyncAtRef.current < resyncMinIntervalMs) return;
     sessionResyncInFlightRef.current = true;
     lastForcedResyncAtRef.current = now;
-    clearIncomingRealtimeApplyQueue();
     void Promise.resolve(loadSession({ background: true })).finally(() => {
       sessionResyncInFlightRef.current = false;
     });
   }, [
-    clearIncomingRealtimeApplyQueue,
     enabled,
     bootstrapReady,
     lastForcedResyncAtRef,

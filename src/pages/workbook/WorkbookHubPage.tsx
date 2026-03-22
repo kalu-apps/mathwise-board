@@ -616,7 +616,13 @@ export default function WorkbookHubPage() {
                   : `${card.title} preview`;
               const activityLabel =
                 typeof card.activityLabel === "string" && card.activityLabel.trim().length > 0
-                  ? card.activityLabel.trim()
+                  ? (() => {
+                      const rawLabel = card.activityLabel.trim();
+                      if (rawLabel === "Active") return "Идет сессия";
+                      if (rawLabel === "Recently active") return "Недавняя активность";
+                      if (rawLabel === "Idle") return "Пауза";
+                      return rawLabel;
+                    })()
                   : null;
               const activityTone =
                 card.activityTone === "active" ||
@@ -688,7 +694,13 @@ export default function WorkbookHubPage() {
                             activityTone ? ` is-${activityTone}` : ""
                           }`}
                         >
-                          {activityLabel}
+                          <span
+                            className="workbook-hub__card-activity-badge-dot"
+                            aria-hidden="true"
+                          />
+                          <span className="workbook-hub__card-activity-badge-text">
+                            {activityLabel}
+                          </span>
                         </span>
                       </div>
                     ) : null}
