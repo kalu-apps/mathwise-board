@@ -166,15 +166,45 @@ export const useWorkbookSelectedStructureActions = ({
       return;
     }
 
+    const selectedPoint =
+      selectedObjectId
+        ? boardObjects.find(
+            (object): object is WorkbookBoardObject & { type: "point" } =>
+              object.id === selectedObjectId && object.type === "point"
+          ) ?? null
+        : null;
+    const resolveSceneLayerId = (object: WorkbookBoardObject & { type: "point" }) =>
+      typeof object.meta?.sceneLayerId === "string" && object.meta.sceneLayerId.trim().length > 0
+        ? object.meta.sceneLayerId
+        : activeSceneLayerId;
+    const targetPage = Math.max(
+      1,
+      selectedPoint?.page ??
+        points[points.length - 1]?.page ??
+        1
+    );
+    const targetSceneLayerId = selectedPoint
+      ? resolveSceneLayerId(selectedPoint)
+      : activeSceneLayerId;
+    const pointsForMerge = points.filter(
+      (point) =>
+        Math.max(1, point.page ?? 1) === targetPage &&
+        resolveSceneLayerId(point) === targetSceneLayerId
+    );
+    if (pointsForMerge.length < 2) {
+      setError("На текущей странице нужно минимум две точки, чтобы объединить их.");
+      return;
+    }
+
     const used = new Set<string>();
-    const pointIds = new Set(points.map((point) => point.id));
+    const pointIds = new Set(pointsForMerge.map((point) => point.id));
     boardObjects.forEach((object) => {
       if (pointIds.has(object.id)) return;
       collectBoardObjectLabels(object).forEach((label) => used.add(label));
     });
 
-    const labels = points.map((_, index) => getNextUniqueBoardLabel(used, index));
-    const polylinePoints = points.map((point) => ({
+    const labels = pointsForMerge.map((_, index) => getNextUniqueBoardLabel(used, index));
+    const polylinePoints = pointsForMerge.map((point) => ({
       x: point.x + point.width / 2,
       y: point.y + point.height / 2,
     }));
@@ -192,6 +222,7 @@ export const useWorkbookSelectedStructureActions = ({
             y: polylinePoints[0].y,
             width: polylinePoints[1].x - polylinePoints[0].x,
             height: polylinePoints[1].y - polylinePoints[0].y,
+            page: targetPage,
             color: fallbackColor,
             fill: "transparent",
             strokeWidth: 2,
@@ -199,7 +230,7 @@ export const useWorkbookSelectedStructureActions = ({
             authorUserId: userId ?? "unknown",
             createdAt,
             meta: {
-              sceneLayerId: activeSceneLayerId,
+              sceneLayerId: targetSceneLayerId,
               lineKind: "segment",
               lineStyle: "solid",
               startLabel: labels[0],
@@ -215,6 +246,7 @@ export const useWorkbookSelectedStructureActions = ({
             y: bounds.minY,
             width: bounds.width,
             height: bounds.height,
+            page: targetPage,
             color: fallbackColor,
             fill: "transparent",
             strokeWidth: 2,
@@ -224,7 +256,7 @@ export const useWorkbookSelectedStructureActions = ({
             authorUserId: userId ?? "unknown",
             createdAt,
             meta: {
-              sceneLayerId: activeSceneLayerId,
+              sceneLayerId: targetSceneLayerId,
               polygonMode: "points",
               polygonPreset: "regular",
               closed: true,
@@ -244,7 +276,7 @@ export const useWorkbookSelectedStructureActions = ({
             },
           };
 
-    const deleteEvents = points.map((point) => ({
+    const deleteEvents = pointsForMerge.map((point) => ({
       type: "board.object.delete" as const,
       payload: { objectId: point.id },
     }));
@@ -286,7 +318,7 @@ export const useWorkbookSelectedStructureActions = ({
       }
     }
     setError("Не удалось объединить точки.");
-  }, [activeSceneLayerId, appendEventsAndApply, boardObjects, boardObjectsRef, canDelete, canDraw, sessionId, setError, setSelectedObjectId, userId]);
+  }, [activeSceneLayerId, appendEventsAndApply, boardObjects, boardObjectsRef, canDelete, canDraw, selectedObjectId, sessionId, setError, setSelectedObjectId, userId]);
 
   return {
     updateSelectedDividerMeta,
