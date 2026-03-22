@@ -5,7 +5,12 @@ import {
   getWorkbookSnapshot,
   openWorkbookSession,
 } from "@/features/workbook/model/api";
-import { reportWorkbookLoadStageMetric } from "@/features/workbook/model/workbookPerformance";
+import { resolveNextLatestSeq } from "@/features/workbook/model/runtime";
+import {
+  reportWorkbookCorrectnessEvent,
+  reportWorkbookLoadStageMetric,
+  type WorkbookRecoveryMode,
+} from "@/features/workbook/model/workbookPerformance";
 import { decodeWorkbookSceneSnapshots } from "@/features/workbook/model/workbookSceneCodec";
 import { processWorkbookItemsInChunks } from "@/features/workbook/model/workbookSceneHydration";
 import type {
@@ -74,7 +79,12 @@ export const useWorkbookSessionLoadSession = ({
   queuedBoardSettingsHistoryBeforeRef,
   boardSettingsCommitTimerRef,
   latestSeqRef,
+  lastAppliedSeqRef,
+  lastAppliedBoardSettingsSeqRef,
+  recoveryModeRef,
   processedEventIdsRef,
+  applyIncomingEvents,
+  filterUnseenWorkbookEvents,
   dirtyRef,
   undoStackRef,
   redoStackRef,
@@ -83,13 +93,52 @@ export const useWorkbookSessionLoadSession = ({
   boardObjectIndexByIdRef,
 }: WorkbookSessionLoadParams) => {
   const loadSession = useCallback(
-    async (options?: { background?: boolean }) => {
+    async (options?: {
+      background?: boolean;
+      reason?: "initial" | "resume" | "rejoin" | "conflict" | "resync";
+    }) => {
       if (!sessionId || isWorkbookSessionAuthLost) return;
       const isBackground = options?.background === true;
+      const reason = options?.reason ?? (isBackground ? "resync" : "initial");
       const loadStartedAtMs = getNowMs();
       const loadRequestId = loadSessionRequestIdRef.current + 1;
       loadSessionRequestIdRef.current = loadRequestId;
       const isStaleLoadRequest = () => loadSessionRequestIdRef.current !== loadRequestId;
+      const setRecoveryMode = (nextMode: WorkbookRecoveryMode) => {
+        const previousMode = recoveryModeRef.current;
+        if (previousMode === nextMode) return;
+        reportWorkbookCorrectnessEvent({
+          name: "recovery_mode_exited",
+          sessionId,
+          reason,
+          recoveryMode: previousMode,
+          seq: lastAppliedSeqRef.current,
+        });
+        recoveryModeRef.current = nextMode;
+        reportWorkbookCorrectnessEvent({
+          name: "recovery_mode_entered",
+          sessionId,
+          reason,
+          recoveryMode: nextMode,
+          seq: lastAppliedSeqRef.current,
+        });
+      };
+      setRecoveryMode(isBackground ? "recovering" : "bootstrapping");
+      reportWorkbookCorrectnessEvent({
+        name: isBackground ? "resume_start" : "session_open_start",
+        sessionId,
+        reason,
+        recoveryMode: recoveryModeRef.current,
+        seq: lastAppliedSeqRef.current,
+      });
+      reportWorkbookCorrectnessEvent({
+        name: isBackground ? "resume_known_seq" : "session_open_snapshot_seq",
+        sessionId,
+        reason,
+        recoveryMode: recoveryModeRef.current,
+        seq: lastAppliedSeqRef.current,
+        snapshotSeq: latestSeqRef.current,
+      });
       const emitAccessError = (status: 401 | 403 | 404, backgroundMode: boolean) => {
         applyWorkbookSessionAccessError({
           status,
@@ -111,9 +160,11 @@ export const useWorkbookSessionLoadSession = ({
         clearStrokePreviewRuntime();
         clearIncomingEraserPreviewRuntime();
       }
+      let degradedWithoutSnapshot = false;
       const maxAttempts = 3;
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
+          degradedWithoutSnapshot = false;
           const [sessionResult, boardSnapshotResult, annotationSnapshotResult] =
             await Promise.allSettled([
               getWorkbookSession(sessionId),
@@ -129,7 +180,15 @@ export const useWorkbookSessionLoadSession = ({
             boardSnapshotResult.status === "fulfilled" ? boardSnapshotResult.value : null;
           const annotationSnapshot =
             annotationSnapshotResult.status === "fulfilled" ? annotationSnapshotResult.value : null;
+          const boardSnapshotLoadError =
+            boardSnapshotResult.status === "rejected" ? boardSnapshotResult.reason : null;
+          const annotationSnapshotLoadError =
+            annotationSnapshotResult.status === "rejected"
+              ? annotationSnapshotResult.reason
+              : null;
           const currentLatestSeq = latestSeqRef.current;
+          const currentAppliedSeq = lastAppliedSeqRef.current;
+          const knownFreshSeq = Math.max(currentLatestSeq, currentAppliedSeq);
           const boardSnapshotVersion =
             boardSnapshot && typeof boardSnapshot.version === "number"
               ? Math.max(0, Math.trunc(boardSnapshot.version))
@@ -138,17 +197,71 @@ export const useWorkbookSessionLoadSession = ({
             annotationSnapshot && typeof annotationSnapshot.version === "number"
               ? Math.max(0, Math.trunc(annotationSnapshot.version))
               : 0;
-          const shouldApplyBoardSnapshot = !isBackground
-            ? true
-            : boardSnapshot !== null && boardSnapshotVersion > currentLatestSeq;
-          const shouldApplyAnnotationSnapshot = !isBackground
-            ? true
-            : annotationSnapshot !== null && annotationSnapshotVersion > currentLatestSeq;
+          const shouldApplyEmptyBoardSnapshot =
+            !isBackground &&
+            boardSnapshotResult.status === "fulfilled" &&
+            boardSnapshotResult.value === null;
+          const shouldApplyEmptyAnnotationSnapshot =
+            !isBackground &&
+            annotationSnapshotResult.status === "fulfilled" &&
+            annotationSnapshotResult.value === null;
+          const hasFreshBoardSnapshot =
+            boardSnapshot !== null &&
+            (!isBackground || boardSnapshotVersion > knownFreshSeq);
+          const hasFreshAnnotationSnapshot =
+            annotationSnapshot !== null &&
+            (!isBackground || annotationSnapshotVersion > knownFreshSeq);
+          const shouldApplyBoardSnapshot = hasFreshBoardSnapshot || shouldApplyEmptyBoardSnapshot;
+          const shouldApplyAnnotationSnapshot =
+            hasFreshAnnotationSnapshot || shouldApplyEmptyAnnotationSnapshot;
           const shouldDecodeSnapshots = shouldApplyBoardSnapshot || shouldApplyAnnotationSnapshot;
-          if (!isBackground || shouldDecodeSnapshots) {
-            // Keep queued realtime updates during background soft-resync when snapshot
-            // won't be re-applied. This avoids losing pending changes under load.
+          if (
+            isBackground &&
+            boardSnapshot &&
+            boardSnapshotVersion <= knownFreshSeq
+          ) {
+            reportWorkbookCorrectnessEvent({
+              name: "snapshot_apply_skipped_as_stale",
+              sessionId,
+              reason,
+              recoveryMode: recoveryModeRef.current,
+              seq: knownFreshSeq,
+              snapshotSeq: boardSnapshotVersion,
+            });
+          }
+          if (
+            isBackground &&
+            annotationSnapshot &&
+            annotationSnapshotVersion <= knownFreshSeq
+          ) {
+            reportWorkbookCorrectnessEvent({
+              name: "snapshot_apply_skipped_as_stale",
+              sessionId,
+              reason,
+              recoveryMode: recoveryModeRef.current,
+              seq: knownFreshSeq,
+              snapshotSeq: annotationSnapshotVersion,
+            });
+          }
+          if (isBackground && shouldDecodeSnapshots) {
+            setRecoveryMode("catching_up");
+          }
+          if (!isBackground && shouldDecodeSnapshots) {
             clearIncomingRealtimeApplyQueue();
+          }
+          if (boardSnapshotLoadError || annotationSnapshotLoadError) {
+            const hasSnapshotAccessIssue =
+              (boardSnapshotLoadError instanceof ApiError &&
+                (boardSnapshotLoadError.status === 403 || boardSnapshotLoadError.status === 404)) ||
+              (annotationSnapshotLoadError instanceof ApiError &&
+                (annotationSnapshotLoadError.status === 403 || annotationSnapshotLoadError.status === 404));
+            if (hasSnapshotAccessIssue) {
+              degradedWithoutSnapshot = true;
+              setRecoveryMode("degraded_without_snapshot");
+              setSaveSyncWarning(
+                "Контрольный снимок временно недоступен. Продолжаем синхронизацию по ленте событий."
+              );
+            }
           }
           setSession(sessionData);
           queuedBoardSettingsCommitRef.current = null;
@@ -317,8 +430,9 @@ export const useWorkbookSessionLoadSession = ({
           if (preparedAnnotationStrokes) {
             setAnnotationStrokes(preparedAnnotationStrokes);
           }
+          let loadedLatestSeq = latestSeqRef.current;
           if (normalizedBoard || normalizedAnnotations) {
-            const loadedLatestSeq = Math.max(
+            loadedLatestSeq = Math.max(
               latestSeqRef.current,
               shouldApplyBoardSnapshot
                 ? boardSnapshot?.version ?? latestSeqRef.current
@@ -329,7 +443,25 @@ export const useWorkbookSessionLoadSession = ({
             );
             setLatestSeq(loadedLatestSeq);
             latestSeqRef.current = loadedLatestSeq;
-            processedEventIdsRef.current.clear();
+            lastAppliedSeqRef.current = Math.max(lastAppliedSeqRef.current, loadedLatestSeq);
+            if (shouldApplyBoardSnapshot) {
+              lastAppliedBoardSettingsSeqRef.current = Math.max(
+                lastAppliedBoardSettingsSeqRef.current,
+                boardSnapshotVersion,
+                lastAppliedSeqRef.current
+              );
+              reportWorkbookCorrectnessEvent({
+                name: isBackground ? "resume_snapshot_seq" : "session_open_snapshot_seq",
+                sessionId,
+                reason,
+                recoveryMode: recoveryModeRef.current,
+                seq: lastAppliedSeqRef.current,
+                snapshotSeq: boardSnapshotVersion,
+              });
+            }
+            if (!isBackground) {
+              processedEventIdsRef.current.clear();
+            }
             clearObjectSyncRuntime();
             clearStrokePreviewRuntime();
             clearIncomingEraserPreviewRuntime();
@@ -348,6 +480,84 @@ export const useWorkbookSessionLoadSession = ({
             });
             focusResetTimersByUserRef.current.clear();
           }
+          setRecoveryMode("catching_up");
+          try {
+            const tailResponse = await getWorkbookEvents(sessionId, latestSeqRef.current);
+            if (isStaleLoadRequest()) return;
+            const unseenTailEvents = filterUnseenWorkbookEvents(tailResponse.events, {
+              ignoreSeqGuard: true,
+            })
+              .slice()
+              .sort((left, right) => {
+                const leftSeq =
+                  typeof left?.seq === "number" && Number.isFinite(left.seq)
+                    ? left.seq
+                    : Number.POSITIVE_INFINITY;
+                const rightSeq =
+                  typeof right?.seq === "number" && Number.isFinite(right.seq)
+                    ? right.seq
+                    : Number.POSITIVE_INFINITY;
+                return leftSeq - rightSeq;
+              });
+            const freshTailEvents = unseenTailEvents.filter((event) => {
+              if (typeof event?.seq !== "number" || !Number.isFinite(event.seq)) {
+                return true;
+              }
+              if (event.seq <= lastAppliedSeqRef.current) {
+                reportWorkbookCorrectnessEvent({
+                  name: "realtime_event_skipped_as_stale",
+                  sessionId,
+                  reason,
+                  recoveryMode: recoveryModeRef.current,
+                  seq: event.seq,
+                  snapshotSeq: lastAppliedSeqRef.current,
+                });
+                return false;
+              }
+              return true;
+            });
+            if (freshTailEvents.length > 0) {
+              applyIncomingEvents(freshTailEvents);
+            }
+            const nextLatestSeq = resolveNextLatestSeq(
+              latestSeqRef.current,
+              tailResponse.latestSeq,
+              freshTailEvents
+            );
+            if (nextLatestSeq > latestSeqRef.current) {
+              latestSeqRef.current = nextLatestSeq;
+              setLatestSeq(nextLatestSeq);
+            }
+            if (nextLatestSeq > lastAppliedSeqRef.current) {
+              lastAppliedSeqRef.current = nextLatestSeq;
+            }
+            reportWorkbookCorrectnessEvent({
+              name: isBackground ? "resume_tail_applied_to_seq" : "session_open_tail_applied_to_seq",
+              sessionId,
+              reason,
+              recoveryMode: recoveryModeRef.current,
+              seq: lastAppliedSeqRef.current,
+              snapshotSeq: loadedLatestSeq,
+              counters: {
+                tailEvents: unseenTailEvents.length,
+                tailApplied: freshTailEvents.length,
+              },
+            });
+          } catch (tailError) {
+            if (
+              tailError instanceof ApiError &&
+              (tailError.status === 401 || tailError.status === 403 || tailError.status === 404)
+            ) {
+              emitAccessError(tailError.status, isBackground);
+              if (!isBackground) {
+                setSession(null);
+                setBootstrapReady(false);
+                setLoading(false);
+              }
+              return;
+            }
+            setError("Лента событий временно недоступна. Повторяем синхронизацию.");
+          }
           if (deferredBoardState) {
             startTransition(() => {
               if (isStaleLoadRequest()) return;
@@ -361,9 +571,12 @@ export const useWorkbookSessionLoadSession = ({
           if (!isBackground) {
             setLoading(false);
           }
+          setRecoveryMode("live");
           setBootstrapReady(true);
           authRequiredRef.current = false;
-          setSaveSyncWarning(null);
+          if (!degradedWithoutSnapshot) {
+            setSaveSyncWarning(null);
+          }
           reportWorkbookFirstInteractiveMetric({
             sessionId,
             isBackground,
@@ -467,7 +680,8 @@ export const useWorkbookSessionLoadSession = ({
       recoverChatMessagesFromEvents, authRequiredRef, loadSessionRequestIdRef,
       firstInteractiveMetricReportedRef, queuedBoardSettingsCommitRef,
       queuedBoardSettingsHistoryBeforeRef, boardSettingsCommitTimerRef, latestSeqRef,
-      processedEventIdsRef, dirtyRef,
+      lastAppliedSeqRef, lastAppliedBoardSettingsSeqRef, recoveryModeRef, processedEventIdsRef,
+      applyIncomingEvents, filterUnseenWorkbookEvents, dirtyRef,
       undoStackRef, redoStackRef, focusResetTimersByUserRef, boardObjectsRef, boardObjectIndexByIdRef,
     ]
   );

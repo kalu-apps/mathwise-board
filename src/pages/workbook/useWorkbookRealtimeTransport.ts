@@ -38,7 +38,10 @@ type UseWorkbookRealtimeTransportParams = {
   sessionId: string | null;
   enabled: boolean;
   bootstrapReady: boolean;
-  loadSession: (options?: { background?: boolean }) => Promise<void> | void;
+  loadSession: (options?: {
+    background?: boolean;
+    reason?: "initial" | "resume" | "rejoin" | "conflict" | "resync";
+  }) => Promise<void> | void;
   clearIncomingRealtimeApplyQueue: () => void;
   enqueueIncomingRealtimeApply: EnqueueIncomingRealtimeApply;
   filterUnseenWorkbookEvents: (
@@ -142,7 +145,7 @@ export const useWorkbookRealtimeTransport = ({
     if (now - lastForcedResyncAtRef.current < resyncMinIntervalMs) return;
     sessionResyncInFlightRef.current = true;
     lastForcedResyncAtRef.current = now;
-    void Promise.resolve(loadSession({ background: true })).finally(() => {
+    void Promise.resolve(loadSession({ background: true, reason: "resync" })).finally(() => {
       sessionResyncInFlightRef.current = false;
     });
   }, [
@@ -156,7 +159,7 @@ export const useWorkbookRealtimeTransport = ({
 
   useEffect(() => {
     if (!enabled) return;
-    void loadSession();
+    void loadSession({ reason: "initial" });
   }, [enabled, loadSession]);
 
   useEffect(() => {

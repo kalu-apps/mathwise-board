@@ -90,7 +90,6 @@ export const useWorkbookSessionDerivedState = ({
       actorPermissions.canSelect &&
       actorPermissions.canDelete &&
       actorPermissions.canInsertImage &&
-      actorPermissions.canClear &&
       actorPermissions.canUseLaser
   );
   const canDraw = Boolean(
@@ -101,7 +100,9 @@ export const useWorkbookSessionDerivedState = ({
     actorPermissions.canInsertImage && !isEnded && !isSessionTabPassive
   );
   const canDelete = Boolean(actorPermissions.canDelete && !isEnded && !isSessionTabPassive);
-  const canClear = Boolean(actorPermissions.canClear && !isEnded && !isSessionTabPassive);
+  const canClear = Boolean(
+    actorPermissions.canClear && canManageSession && !isEnded && !isSessionTabPassive
+  );
   const canUseLaser = Boolean(actorPermissions.canUseLaser && !isEnded && !isSessionTabPassive);
   const canUseMedia = Boolean(actorPermissions.canUseMedia);
   const canUseSessionChat = Boolean(actorPermissions.canUseChat);
@@ -110,7 +111,9 @@ export const useWorkbookSessionDerivedState = ({
   const canAccessBoardSettingsPanel = Boolean(
     !isClassSession || canManageSession || hasParticipantBoardToolsAccess
   );
-  const canManageSharedBoardSettings = Boolean(!isClassSession || canManageSession);
+  const canManageSharedBoardSettings = Boolean(
+    !isClassSession || canManageSession || hasParticipantBoardToolsAccess
+  );
   const showCollaborationPanels = Boolean(isClassSession);
   const adaptivePollingEnabled = useMemo(() => isWorkbookAdaptivePollingEnabled(), []);
   const realtimeBackpressureV2Enabled = useMemo(
@@ -153,11 +156,10 @@ export const useWorkbookSessionDerivedState = ({
       Boolean(
         participant.permissions.canDraw &&
           participant.permissions.canAnnotate &&
-          participant.permissions.canSelect &&
-          participant.permissions.canDelete &&
-          participant.permissions.canInsertImage &&
-          participant.permissions.canClear &&
-          participant.permissions.canUseLaser
+        participant.permissions.canSelect &&
+        participant.permissions.canDelete &&
+        participant.permissions.canInsertImage &&
+        participant.permissions.canUseLaser
       ),
     []
   );

@@ -103,7 +103,7 @@ import {
 } from "./WorkbookSessionToolSettingsPopover";
 
 export default function WorkbookSessionPage() {
-  const { user, isAuthReady } = useAuth();
+  const { user, isAuthReady, openAuthModal } = useAuth();
   const { sessionId = "" } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -400,6 +400,23 @@ export default function WorkbookSessionPage() {
   const fallbackBackPath = "/workbook";
   const fromPath = searchParams.get("from") || fallbackBackPath;
   const isWorkbookSessionAuthLost = isAuthReady && !user;
+
+  useEffect(() => {
+    if (!isWorkbookSessionAuthLost) return;
+    workbookSessionActions.setLoading(true);
+    if (isAuthReady) {
+      openAuthModal();
+    }
+    if (typeof window === "undefined") {
+      navigate("/", { replace: true });
+      return;
+    }
+    const redirectRaf = window.requestAnimationFrame(() => {
+      navigate("/", { replace: true });
+    });
+    return () => window.cancelAnimationFrame(redirectRaf);
+  }, [isAuthReady, isWorkbookSessionAuthLost, navigate, openAuthModal, workbookSessionActions]);
+
   const {
     isEnded,
     actorParticipant,
@@ -638,10 +655,13 @@ export default function WorkbookSessionPage() {
   const applyIncomingEvents = useCallback(
     (events: WorkbookEvent[]) => {
       applyWorkbookIncomingEventsBatch({
+        sessionId,
         events,
         userId: user?.id,
         selectedObjectId,
         awaitingClearRequest,
+        lastAppliedSeqRef: refs.lastAppliedSeqRef,
+        lastAppliedBoardSettingsSeqRef: refs.lastAppliedBoardSettingsSeqRef,
         refs,
         actions: workbookSessionActions,
         areParticipantsEqual,
@@ -658,8 +678,11 @@ export default function WorkbookSessionPage() {
     },
     [
       user?.id,
+      sessionId,
       selectedObjectId,
       awaitingClearRequest,
+      refs.lastAppliedSeqRef,
+      refs.lastAppliedBoardSettingsSeqRef,
       refs,
       workbookSessionActions,
       areParticipantsEqual,

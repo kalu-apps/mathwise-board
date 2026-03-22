@@ -71,7 +71,7 @@ export const useWorkbookSessionLoadAndAuth = ({
     setRealtimeSyncWarning(
       "Обнаружен конфликт синхронизации. Повторно загружаем состояние доски."
     );
-    void Promise.resolve(loadSession({ background: true })).finally(() => {
+    void Promise.resolve(loadSession({ background: true, reason: "conflict" })).finally(() => {
       resumeWorkbookPersistenceForSession(sessionId);
       void flushWorkbookPersistenceQueue();
       sessionResyncInFlightRef.current = false;

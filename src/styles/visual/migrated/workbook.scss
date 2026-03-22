@@ -244,6 +244,71 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+.workbook-hub__search-strip {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  border: 1px solid color-mix(in srgb, var(--workbook-btn-secondary-border) 70%, var(--border-subtle));
+  border-radius: 999px;
+  padding: 0 8px 0 12px;
+  background:
+    linear-gradient(
+      120deg,
+      color-mix(in srgb, var(--surface-elevated) 93%, white 7%),
+      color-mix(in srgb, var(--surface-soft) 90%, transparent)
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 8px 22px rgba(18, 32, 52, 0.09);
+}
+.workbook-hub__search-icon {
+  color: var(--text-muted);
+}
+.workbook-hub__search-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.workbook-hub__search-input::placeholder {
+  color: color-mix(in srgb, var(--text-secondary) 74%, var(--text-muted));
+  font-weight: 500;
+}
+.workbook-hub__search-clear {
+  border: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--surface-soft) 86%, transparent);
+  cursor: pointer;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+.workbook-hub__search-clear:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--surface-panel) 86%, transparent);
+}
+.workbook-hub__search-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
 .workbook-hub__filters button {
   border: 1px solid var(--workbook-btn-secondary-border);
   border-radius: 999px;
@@ -567,6 +632,61 @@
   .MuiButton-startIcon > *:first-of-type {
     font-size: 1rem;
   }
+}
+.workbook-hub__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 2px;
+}
+.workbook-hub__pagination-pages {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.workbook-hub__pagination-btn {
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 74%, var(--border-strong));
+  border-radius: 10px;
+  min-height: 30px;
+  padding: 4px 10px;
+  background: color-mix(in srgb, var(--surface-elevated) 86%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background-color 0.16s ease;
+}
+.workbook-hub__pagination-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--feedback-info) 36%, var(--border-strong));
+  background: color-mix(in srgb, var(--surface-panel) 90%, transparent);
+}
+.workbook-hub__pagination-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.workbook-hub__pagination-btn--page {
+  min-width: 32px;
+  padding-inline: 0;
+}
+.workbook-hub__pagination-btn--page.is-active {
+  color: #fff;
+  border-color: color-mix(in srgb, #1356d8 70%, #0f3f97);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, #2675ff 92%, white 8%),
+      color-mix(in srgb, #1447b2 92%, black 8%)
+    );
+  box-shadow: 0 8px 20px color-mix(in srgb, #1c5bd4 34%, transparent);
+}
+.workbook-hub__pagination-ellipsis {
+  color: var(--text-muted);
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 .workbook-session__alert {
   margin: 0;
@@ -4484,6 +4604,28 @@
   .workbook-hub__card-action-btn.MuiButton-root {
     padding: 3px 7px;
     font-size: 0.72rem;
+  }
+
+  .workbook-hub__search-strip {
+    min-height: 40px;
+    padding-left: 10px;
+  }
+
+  .workbook-hub__search-input {
+    font-size: 13px;
+  }
+
+  .workbook-hub__search-meta {
+    justify-content: flex-start;
+  }
+
+  .workbook-hub__pagination {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .workbook-hub__pagination-pages {
+    justify-content: center;
   }
 
   .workbook-hub__hero-actions {

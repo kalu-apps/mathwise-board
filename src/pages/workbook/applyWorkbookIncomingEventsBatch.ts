@@ -1,7 +1,11 @@
+import type { MutableRefObject } from "react";
 import { compactWorkbookObjectUpdateEvents } from "@/features/workbook/model/runtime";
 import { applyWorkbookIncomingRealtimeEvent } from "@/features/workbook/model/incomingRealtime";
 import { applyWorkbookIncomingSessionMetaEvent } from "@/features/workbook/model/incomingSessionMeta";
-import { reportWorkbookPerfPhaseMetric } from "@/features/workbook/model/workbookPerformance";
+import {
+  reportWorkbookCorrectnessEvent,
+  reportWorkbookPerfPhaseMetric,
+} from "@/features/workbook/model/workbookPerformance";
 import type { WorkbookEvent } from "@/features/workbook/model/types";
 import type { WorkbookSessionStoreActions } from "@/features/workbook/model/workbookSessionStoreTypes";
 import { generateId } from "@/shared/lib/id";
@@ -24,10 +28,13 @@ type RestoreSceneSnapshot = ReturnType<typeof useWorkbookSessionHistoryRuntime>[
 type AreParticipantsEqual = ReturnType<typeof useWorkbookSessionLocalRuntime>["areParticipantsEqual"];
 
 type ApplyWorkbookIncomingEventsBatchParams = {
+  sessionId: string;
   events: WorkbookEvent[];
   userId: string | undefined;
   selectedObjectId: string | null;
   awaitingClearRequest: unknown;
+  lastAppliedSeqRef: MutableRefObject<number>;
+  lastAppliedBoardSettingsSeqRef: MutableRefObject<number>;
   refs: WorkbookSessionRefs;
   actions: WorkbookSessionStoreActions;
   areParticipantsEqual: AreParticipantsEqual;
@@ -46,10 +53,13 @@ type ApplyWorkbookIncomingEventsBatchParams = {
 };
 
 export const applyWorkbookIncomingEventsBatch = ({
+  sessionId,
   events,
   userId,
   selectedObjectId,
   awaitingClearRequest,
+  lastAppliedSeqRef,
+  lastAppliedBoardSettingsSeqRef,
   refs,
   actions,
   areParticipantsEqual,
@@ -69,10 +79,53 @@ export const applyWorkbookIncomingEventsBatch = ({
       ? performance.now()
       : Date.now();
   const compactedEvents = compactWorkbookObjectUpdateEvents(events);
+  const orderedEvents = compactedEvents
+    .map((event, index) => ({ event, index }))
+    .sort((left, right) => {
+      const leftSeq = Number.isFinite(left.event.seq) ? left.event.seq : Number.POSITIVE_INFINITY;
+      const rightSeq = Number.isFinite(right.event.seq) ? right.event.seq : Number.POSITIVE_INFINITY;
+      if (leftSeq !== rightSeq) {
+        return leftSeq - rightSeq;
+      }
+      return left.index - right.index;
+    })
+    .map((entry) => entry.event);
   let realtimeEventsApplied = 0;
   let sessionMetaEventsApplied = 0;
-  compactedEvents.forEach((event) => {
+  let staleEventsSkipped = 0;
+  let pageApplyRequested = 0;
+  let pageApplyAccepted = 0;
+  let pageApplyRejected = 0;
+  let maxAppliedSeq = lastAppliedSeqRef.current;
+  orderedEvents.forEach((event) => {
     try {
+      const eventSeq =
+        typeof event?.seq === "number" && Number.isFinite(event.seq)
+          ? Math.max(0, Math.trunc(event.seq))
+          : null;
+      const isPageSettingsUpdate = event.type === "board.settings.update";
+      if (isPageSettingsUpdate) {
+        pageApplyRequested += 1;
+        reportWorkbookCorrectnessEvent({
+          name: "page_apply_requested_seq",
+          sessionId,
+          seq: eventSeq ?? lastAppliedSeqRef.current,
+          snapshotSeq: lastAppliedSeqRef.current,
+        });
+      }
+      if (eventSeq !== null && eventSeq <= lastAppliedSeqRef.current) {
+        staleEventsSkipped += 1;
+        if (isPageSettingsUpdate) {
+          pageApplyRejected += 1;
+          reportWorkbookCorrectnessEvent({
+            name: "page_apply_rejected_as_stale",
+            sessionId,
+            seq: eventSeq,
+            snapshotSeq: lastAppliedSeqRef.current,
+          });
+        }
+        return;
+      }
       const parsedEventTs = Date.parse(event.createdAt);
       const eventTimestamp = Number.isFinite(parsedEventTs) ? parsedEventTs : Date.now();
       if (
@@ -133,6 +186,9 @@ export const applyWorkbookIncomingEventsBatch = ({
         })
       ) {
         realtimeEventsApplied += 1;
+        if (eventSeq !== null) {
+          maxAppliedSeq = Math.max(maxAppliedSeq, eventSeq);
+        }
         return;
       }
       if (
@@ -151,12 +207,44 @@ export const applyWorkbookIncomingEventsBatch = ({
         })
       ) {
         sessionMetaEventsApplied += 1;
+        if (eventSeq !== null) {
+          maxAppliedSeq = Math.max(maxAppliedSeq, eventSeq);
+        }
+        if (isPageSettingsUpdate && eventSeq !== null) {
+          pageApplyAccepted += 1;
+          lastAppliedBoardSettingsSeqRef.current = Math.max(
+            lastAppliedBoardSettingsSeqRef.current,
+            eventSeq
+          );
+          reportWorkbookCorrectnessEvent({
+            name: "page_apply_accepted_seq",
+            sessionId,
+            seq: eventSeq,
+            snapshotSeq: lastAppliedSeqRef.current,
+          });
+        }
         return;
+      }
+      if (eventSeq !== null) {
+        maxAppliedSeq = Math.max(maxAppliedSeq, eventSeq);
       }
     } catch (error) {
       console.warn("Workbook event apply failed", event.type, error);
     }
   });
+  if (maxAppliedSeq > lastAppliedSeqRef.current) {
+    lastAppliedSeqRef.current = maxAppliedSeq;
+  }
+  if (staleEventsSkipped > 0) {
+    reportWorkbookCorrectnessEvent({
+      name: "realtime_event_skipped_as_stale",
+      sessionId,
+      seq: lastAppliedSeqRef.current,
+      counters: {
+        staleEventsSkipped,
+      },
+    });
+  }
   const finishedAtMs =
     typeof performance !== "undefined" && typeof performance.now === "function"
       ? performance.now()
@@ -167,8 +255,13 @@ export const applyWorkbookIncomingEventsBatch = ({
     counters: {
       eventsInBatch: events.length,
       compactedEvents: compactedEvents.length,
+      orderedEvents: orderedEvents.length,
       realtimeEventsApplied,
       sessionMetaEventsApplied,
+      staleEventsSkipped,
+      pageApplyRequested,
+      pageApplyAccepted,
+      pageApplyRejected,
     },
   });
 };

@@ -9,6 +9,7 @@ const nowMs = () =>
     : Date.now();
 
 export const WORKBOOK_PERF_PHASE_EVENT = "workbook-performance-phase";
+export const WORKBOOK_CORRECTNESS_EVENT = "workbook-correctness";
 
 export type WorkbookLoadStageMetricName =
   | "session_open_ms"
@@ -24,10 +25,44 @@ export type WorkbookPerfPhaseName =
   | "scene_render_entries_ms"
   | "page_switch_visible_scene_ms";
 
+export type WorkbookRecoveryMode =
+  | "bootstrapping"
+  | "catching_up"
+  | "live"
+  | "degraded_without_snapshot"
+  | "recovering";
+
+export type WorkbookCorrectnessEventName =
+  | "session_open_start"
+  | "session_open_snapshot_seq"
+  | "session_open_tail_applied_to_seq"
+  | "resume_start"
+  | "resume_known_seq"
+  | "resume_snapshot_seq"
+  | "resume_tail_applied_to_seq"
+  | "page_apply_requested_seq"
+  | "page_apply_accepted_seq"
+  | "page_apply_rejected_as_stale"
+  | "snapshot_apply_skipped_as_stale"
+  | "recovery_mode_entered"
+  | "recovery_mode_exited"
+  | "realtime_event_skipped_as_stale";
+
 type WorkbookPerfPhaseMetricDetail = {
   name: WorkbookPerfPhaseName;
   durationMs: number;
   timestamp: string;
+  counters?: Record<string, number>;
+};
+
+type WorkbookCorrectnessEventDetail = {
+  name: WorkbookCorrectnessEventName;
+  sessionId: string;
+  timestamp: string;
+  recoveryMode?: WorkbookRecoveryMode;
+  reason?: string;
+  seq?: number;
+  snapshotSeq?: number;
   counters?: Record<string, number>;
 };
 
@@ -80,6 +115,64 @@ export const reportWorkbookPerfPhaseMetric = (params: {
   }
   if (typeof import.meta !== "undefined" && import.meta.env?.DEV) {
     console.info("[perf-phase]", detail.name, detail.durationMs, detail.counters ?? {});
+  }
+};
+
+export const reportWorkbookCorrectnessEvent = (params: {
+  name: WorkbookCorrectnessEventName;
+  sessionId: string;
+  recoveryMode?: WorkbookRecoveryMode;
+  reason?: string;
+  seq?: number;
+  snapshotSeq?: number;
+  counters?: Record<string, number>;
+}) => {
+  if (!params.sessionId.trim()) return;
+  const counters =
+    params.counters &&
+    Object.fromEntries(
+      Object.entries(params.counters).filter(
+        ([, value]) => typeof value === "number" && Number.isFinite(value)
+      )
+    );
+  const detail: WorkbookCorrectnessEventDetail = {
+    name: params.name,
+    sessionId: params.sessionId,
+    timestamp: new Date().toISOString(),
+    recoveryMode: params.recoveryMode,
+    reason: params.reason,
+    seq:
+      typeof params.seq === "number" && Number.isFinite(params.seq)
+        ? Math.max(0, Math.trunc(params.seq))
+        : undefined,
+    snapshotSeq:
+      typeof params.snapshotSeq === "number" && Number.isFinite(params.snapshotSeq)
+        ? Math.max(0, Math.trunc(params.snapshotSeq))
+        : undefined,
+    counters:
+      counters && Object.keys(counters).length > 0 ? counters : undefined,
+  };
+  if (typeof window !== "undefined") {
+    try {
+      window.dispatchEvent(
+        new CustomEvent<WorkbookCorrectnessEventDetail>(WORKBOOK_CORRECTNESS_EVENT, {
+          detail,
+        })
+      );
+    } catch {
+      // ignore dispatch failures
+    }
+  }
+  if (
+    detail.name === "snapshot_apply_skipped_as_stale" ||
+    detail.name === "page_apply_rejected_as_stale" ||
+    detail.name === "realtime_event_skipped_as_stale"
+  ) {
+    console.warn("[sync-correctness]", detail.name, detail);
+    return;
+  }
+  if (typeof import.meta !== "undefined" && import.meta.env?.DEV) {
+    console.info("[sync-correctness]", detail.name, detail);
   }
 };
 
