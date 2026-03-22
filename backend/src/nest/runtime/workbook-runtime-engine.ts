@@ -2531,29 +2531,45 @@ export const handleWorkbookApiRequestByDomains = async (
           applyStudentControls(session, db);
         });
         const sessionIds = new Set(sessions.map((session) => session.id));
-        const latestBoardSnapshotBySession = new Map<string, WorkbookSnapshotRecord>();
+        const localBoardSnapshotBySession = new Map<string, WorkbookSnapshotRecord>();
         db.workbookSnapshots.forEach((snapshot) => {
           if (snapshot.layer !== "board") return;
           if (!sessionIds.has(snapshot.sessionId)) return;
-          const current = latestBoardSnapshotBySession.get(snapshot.sessionId);
+          const current = localBoardSnapshotBySession.get(snapshot.sessionId);
           if (!current) {
-            latestBoardSnapshotBySession.set(snapshot.sessionId, snapshot);
+            localBoardSnapshotBySession.set(snapshot.sessionId, snapshot);
             return;
           }
           if (snapshot.version > current.version) {
-            latestBoardSnapshotBySession.set(snapshot.sessionId, snapshot);
+            localBoardSnapshotBySession.set(snapshot.sessionId, snapshot);
             return;
           }
           if (snapshot.version === current.version && snapshot.createdAt > current.createdAt) {
-            latestBoardSnapshotBySession.set(snapshot.sessionId, snapshot);
+            localBoardSnapshotBySession.set(snapshot.sessionId, snapshot);
           }
         });
         const previewBySessionId = new Map<string, DraftPreviewMeta>();
-        latestBoardSnapshotBySession.forEach((snapshot, sessionId) => {
-          const previewMeta = extractPreviewMetaFromSnapshotPayload(snapshot.payload);
-          if (!previewMeta?.previewUrl) return;
-          previewBySessionId.set(sessionId, previewMeta);
-        });
+        await Promise.all(
+          sessions.map(async (session) => {
+            let snapshotPayload: unknown = null;
+            try {
+              const persistedSnapshot = await workbookSnapshotStore.read({
+                sessionId: session.id,
+                layer: "board",
+              });
+              snapshotPayload = persistedSnapshot?.payload ?? null;
+            } catch {
+              // Fallback to local snapshot mirror when persistent storage is temporarily unavailable.
+            }
+            if (!snapshotPayload) {
+              const localSnapshot = localBoardSnapshotBySession.get(session.id);
+              snapshotPayload = localSnapshot?.payload ?? null;
+            }
+            const previewMeta = extractPreviewMetaFromSnapshotPayload(snapshotPayload);
+            if (!previewMeta?.previewUrl) return;
+            previewBySessionId.set(session.id, previewMeta);
+          })
+        );
         const latestDraftBySession = new Map<string, WorkbookDraftRecord>();
         db.workbookDrafts.forEach((draft) => {
           const current = latestDraftBySession.get(draft.sessionId);
