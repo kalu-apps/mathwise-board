@@ -1732,6 +1732,14 @@ export default function WorkbookSessionPage() {
     };
   }, [handleBack]);
 
+  const { isPageTransitionActive, transitionLabel } = useWorkbookPageTransitionOverlay({
+    currentPage: boardSettings.currentPage,
+    loading,
+    bootstrapReady,
+    boardObjectsRef,
+    boardStrokesRef,
+  });
+
   if (loading) {
     return <PageLoader />;
   }
@@ -1960,13 +1968,6 @@ export default function WorkbookSessionPage() {
     utilityPanelTabsProps,
     overlaysProps,
   } = layoutRuntimeProps;
-  const { isPageTransitionActive, transitionLabel } = useWorkbookPageTransitionOverlay({
-    currentPage: boardSettings.currentPage,
-    loading,
-    bootstrapReady,
-    boardObjectsRef,
-    boardStrokesRef,
-  });
 
   return (
     <section
