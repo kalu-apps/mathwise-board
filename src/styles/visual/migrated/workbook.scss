@@ -278,8 +278,44 @@
   padding-top: 18px;
   display: block;
   position: relative;
+  overflow: hidden;
+  isolation: isolate;
   backdrop-filter: blur(12px) saturate(128%);
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.workbook-hub__card-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.workbook-hub__card-preview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scale(1.015);
+  filter: saturate(1.04) contrast(1.03);
+}
+.workbook-hub__card-preview-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-elevated) 12%, transparent) 0%,
+      color-mix(in srgb, var(--surface-elevated) 54%, transparent) 48%,
+      color-mix(in srgb, var(--surface-elevated) 86%, transparent) 100%
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--surface-elevated) 28%, transparent) 0%,
+      color-mix(in srgb, var(--surface-elevated) 4%, transparent) 42%,
+      color-mix(in srgb, var(--surface-elevated) 28%, transparent) 100%
+    );
+}
+.workbook-hub__card--with-preview {
+  border-color: color-mix(in srgb, var(--workbook-card-border) 66%, var(--feedback-info));
 }
 .workbook-hub__card:hover {
   transform: translateY(-1px);
@@ -298,12 +334,15 @@
   position: absolute !important;
   top: 6px;
   right: 6px;
+  z-index: 3;
   color: var(--text-muted) !important;
 }
 .workbook-hub__card-main {
   min-width: 0;
   display: grid;
   gap: 9px;
+  position: relative;
+  z-index: 2;
 }
 .workbook-hub__card-title-row {
   display: inline-flex;
@@ -327,6 +366,39 @@
   flex-wrap: wrap;
   font-size: 12px;
   color: var(--text-secondary);
+}
+.workbook-hub__card-activity-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+.workbook-hub__card-activity-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, var(--border-strong));
+  background: color-mix(in srgb, var(--surface-elevated) 72%, transparent);
+  color: color-mix(in srgb, var(--text-primary) 84%, var(--text-secondary));
+}
+.workbook-hub__card-activity-badge.is-active {
+  border-color: color-mix(in srgb, var(--feedback-info) 52%, var(--border-strong));
+  background: color-mix(in srgb, var(--feedback-info) 20%, transparent);
+  color: color-mix(in srgb, var(--text-primary) 90%, var(--feedback-info));
+}
+.workbook-hub__card-activity-badge.is-recent {
+  border-color: color-mix(in srgb, var(--brand-soft) 40%, var(--border-strong));
+  background: color-mix(in srgb, var(--brand-soft) 16%, transparent);
+  color: color-mix(in srgb, var(--text-primary) 90%, var(--brand-solid));
+}
+.workbook-hub__card-activity-badge.is-idle {
+  border-color: color-mix(in srgb, var(--border-subtle) 82%, var(--border-strong));
+  background: color-mix(in srgb, var(--surface-elevated) 72%, transparent);
+  color: color-mix(in srgb, var(--text-secondary) 90%, var(--text-primary));
 }
 .workbook-hub__card-timeline {
   display: flex;

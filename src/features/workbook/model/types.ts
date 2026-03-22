@@ -367,6 +367,10 @@ export type WorkbookDraftCard = {
   canDelete: boolean;
   participantsCount: number;
   isOwner: boolean;
+  previewUrl?: string | null;
+  previewAlt?: string | null;
+  activityLabel?: string | null;
+  activityTone?: "idle" | "active" | "recent" | null;
   participants?: Array<{
     userId: string;
     displayName: string;
