@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
@@ -662,6 +663,14 @@ export default function WorkbookSessionPage() {
     boardSettingsRef,
     documentStateRef,
   });
+  const selectedObjectIdRef = useRef<string | null>(selectedObjectId);
+  const awaitingClearRequestRef = useRef(awaitingClearRequest);
+  useEffect(() => {
+    selectedObjectIdRef.current = selectedObjectId;
+  }, [selectedObjectId]);
+  useEffect(() => {
+    awaitingClearRequestRef.current = awaitingClearRequest;
+  }, [awaitingClearRequest]);
 
   const applyIncomingEvents = useCallback(
     (events: WorkbookEvent[]) => {
@@ -669,8 +678,8 @@ export default function WorkbookSessionPage() {
         sessionId,
         events,
         userId: user?.id,
-        selectedObjectId,
-        awaitingClearRequest,
+        selectedObjectId: selectedObjectIdRef.current,
+        awaitingClearRequest: awaitingClearRequestRef.current,
         lastAppliedSeqRef: refs.lastAppliedSeqRef,
         lastAppliedBoardSettingsSeqRef: refs.lastAppliedBoardSettingsSeqRef,
         refs,
@@ -690,8 +699,6 @@ export default function WorkbookSessionPage() {
     [
       user?.id,
       sessionId,
-      selectedObjectId,
-      awaitingClearRequest,
       refs.lastAppliedSeqRef,
       refs.lastAppliedBoardSettingsSeqRef,
       refs,
@@ -2033,7 +2040,6 @@ export default function WorkbookSessionPage() {
         open={isImportModalOpen}
         sessionId={sessionId}
         initialFiles={pendingImportFiles}
-        fullScreen
         onClose={handleImportModalClose}
         onImportFile={handleImportModalFile}
       />

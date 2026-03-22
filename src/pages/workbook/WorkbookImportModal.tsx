@@ -72,6 +72,7 @@ type WorkbookImportModalProps = {
   open: boolean;
   sessionId: string;
   initialFiles: File[];
+  container?: Element | null;
   fullScreen?: boolean;
   onClose: () => void;
   onImportFile: (payload: WorkbookPreparedDocumentImport) => Promise<boolean>;
@@ -114,7 +115,8 @@ export function WorkbookImportModal({
   open,
   sessionId,
   initialFiles,
-  fullScreen = true,
+  container,
+  fullScreen = false,
   onClose,
   onImportFile,
 }: WorkbookImportModalProps) {
@@ -123,6 +125,11 @@ export function WorkbookImportModal({
   const [items, setItems] = useState<WorkbookImportItem[]>([]);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const dialogContainer = useMemo(() => {
+    if (container) return container;
+    if (typeof document === "undefined") return undefined;
+    return document.fullscreenElement ?? document.body;
+  }, [container]);
 
   const readyCount = useMemo(
     () => items.filter((item) => item.status === "ready").length,
@@ -139,6 +146,7 @@ export function WorkbookImportModal({
     ).length;
     return Math.min(100, Math.round((completed / items.length) * 100));
   }, [items]);
+  const hasQueuedItems = items.length > 0;
 
   const setItemPatch = useCallback((itemId: string, patch: Partial<WorkbookImportItem>) => {
     setItems((current) =>
@@ -388,7 +396,8 @@ export function WorkbookImportModal({
       },
     });
     setIsBusy(false);
-  }, [hasFailures, isBusy, items, onImportFile, sessionId, setItemPatch]);
+    onClose();
+  }, [hasFailures, isBusy, items, onClose, onImportFile, sessionId, setItemPatch]);
 
   const handleClose = useCallback(() => {
     if (isBusy) return;
@@ -418,10 +427,16 @@ export function WorkbookImportModal({
     <Dialog
       open={open}
       onClose={handleClose}
+      container={dialogContainer}
       fullWidth
-      maxWidth="md"
+      maxWidth={hasQueuedItems ? "md" : "sm"}
       fullScreen={fullScreen}
       className="workbook-session__import-modal"
+      PaperProps={{
+        className: `workbook-session__import-modal-paper${
+          hasQueuedItems ? " workbook-session__import-modal-paper--expanded" : ""
+        }`,
+      }}
       disableEscapeKeyDown={isBusy}
     >
       <DialogTitle className="workbook-session__import-modal-title">

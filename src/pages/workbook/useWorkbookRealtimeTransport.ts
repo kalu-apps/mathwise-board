@@ -114,6 +114,7 @@ export const useWorkbookRealtimeTransport = ({
   const authBlockedRef = useRef(false);
   const authRequiredNotifiedRef = useRef(false);
   const lastServerUnavailableAtRef = useRef(0);
+  const initialLoadSessionKeyRef = useRef<string | null>(null);
   const clearAuthBlock = useCallback(() => {
     authBlockedRef.current = false;
     authRequiredNotifiedRef.current = false;
@@ -172,9 +173,15 @@ export const useWorkbookRealtimeTransport = ({
   ]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !sessionId) {
+      initialLoadSessionKeyRef.current = null;
+      return;
+    }
+    const sessionKey = sessionId;
+    if (initialLoadSessionKeyRef.current === sessionKey) return;
+    initialLoadSessionKeyRef.current = sessionKey;
     void loadSession({ reason: "initial" });
-  }, [enabled, loadSession]);
+  }, [enabled, loadSession, sessionId]);
 
   useEffect(() => {
     if (!enabled || !sessionId || !bootstrapReady) return;
