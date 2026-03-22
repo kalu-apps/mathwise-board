@@ -275,6 +275,8 @@ export const readWorkbookAssetById = async (assetId: string) => {
 
 export const createWorkbookAssetReadStream = (filePath: string) => fs.createReadStream(filePath);
 
+export const readWorkbookAssetBuffer = (filePath: string) => fsPromises.readFile(filePath);
+
 export const getWorkbookAssetStorageDiagnostics = () => ({
   dir: WORKBOOK_ASSET_STORAGE_DIR,
   dirs: WORKBOOK_ASSET_STORAGE_DIRS,

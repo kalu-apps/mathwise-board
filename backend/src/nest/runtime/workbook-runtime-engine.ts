@@ -49,8 +49,8 @@ import {
   WORKBOOK_PDF_RENDER_MAX_BYTES,
 } from "./core/workbookPdfService";
 import {
-  createWorkbookAssetReadStream,
   persistWorkbookAssetFromDataUrl,
+  readWorkbookAssetBuffer,
   readWorkbookAssetById,
 } from "./core/workbookAssetStore";
 import {
@@ -2349,7 +2349,7 @@ export const handleWorkbookApiRequestByDomains = async (
             renderWorkbookPdfPagesViaPoppler,
             persistWorkbookAssetFromDataUrl,
             readWorkbookAssetById,
-            createWorkbookAssetReadStream,
+            readWorkbookAssetBuffer,
             sanitizePermissionPatch,
             normalizeParticipantPermissions,
             hasBoardToolsPermissionPatch,
