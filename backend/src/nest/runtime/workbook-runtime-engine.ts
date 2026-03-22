@@ -3168,10 +3168,6 @@ export const handleWorkbookApiRequestByDomains = async (
           forbidden(res);
           return;
         }
-        if (!participant.permissions.canUseMedia) {
-          forbidden(res, "media_disabled");
-          return;
-        }
         if (!MEDIA_LIVEKIT_ENABLED) {
           serviceUnavailable(res, "livekit_unavailable");
           return;

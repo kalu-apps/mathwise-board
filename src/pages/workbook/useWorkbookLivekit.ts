@@ -602,9 +602,10 @@ export const useWorkbookLivekit = ({
     const runtime = livekitRuntimeRef.current;
     const room = livekitRoomRef.current;
     if (!runtime || !room || room.state !== runtime.ConnectionState.Connected) return;
+    const shouldPublishMicrophone = Boolean(canUseMedia && micEnabled);
     try {
-      await room.localParticipant.setMicrophoneEnabled(micEnabled);
-      if (micEnabled) {
+      await room.localParticipant.setMicrophoneEnabled(shouldPublishMicrophone);
+      if (shouldPublishMicrophone) {
         setError((current) => {
           if (!current) return current;
           return current.includes("микрофон") || current.includes("Микрофон")
@@ -615,10 +616,10 @@ export const useWorkbookLivekit = ({
     } catch (reason) {
       handleMicrophoneError(reason);
     }
-  }, [handleMicrophoneError, micEnabled, setError]);
+  }, [canUseMedia, handleMicrophoneError, micEnabled, setError]);
 
   const shouldKeepLivekitConnected = Boolean(
-    sessionId && sessionKind === "CLASS" && canUseMedia && !isEnded && userId
+    sessionId && sessionKind === "CLASS" && !isEnded && userId
   );
 
   useEffect(() => {
@@ -629,15 +630,14 @@ export const useWorkbookLivekit = ({
   }, [shouldKeepLivekitConnected]);
 
   useEffect(() => {
-    if (!sessionId || sessionKind !== "CLASS" || !canUseMedia || isEnded || !userId) {
+    if (!sessionId || sessionKind !== "CLASS" || isEnded || !userId) {
       void disconnectLivekitRoom({
-        forceStopTracks: isEnded || sessionKind !== "CLASS" || !canUseMedia,
+        forceStopTracks: isEnded || sessionKind !== "CLASS",
       });
       return;
     }
     void connectLivekitRoom();
   }, [
-    canUseMedia,
     connectLivekitRoom,
     disconnectLivekitRoom,
     isEnded,
@@ -647,11 +647,11 @@ export const useWorkbookLivekit = ({
   ]);
 
   useEffect(() => {
-    if (sessionKind !== "CLASS" || !canUseMedia || isEnded || !isLivekitConnected) {
+    if (sessionKind !== "CLASS" || isEnded || !isLivekitConnected) {
       return;
     }
     void syncLivekitMicState();
-  }, [canUseMedia, isEnded, isLivekitConnected, micEnabled, sessionKind, syncLivekitMicState]);
+  }, [isEnded, isLivekitConnected, sessionKind, syncLivekitMicState]);
 
   useEffect(() => {
     if (canUseMedia || !micEnabled) return;
@@ -666,7 +666,7 @@ export const useWorkbookLivekit = ({
   );
 
   useEffect(() => {
-    if (!sessionId || sessionKind !== "CLASS" || !canUseMedia || isEnded || !userId) {
+    if (!sessionId || sessionKind !== "CLASS" || isEnded || !userId) {
       return;
     }
     const handleOnline = () => {
@@ -677,10 +677,10 @@ export const useWorkbookLivekit = ({
     return () => {
       window.removeEventListener("online", handleOnline);
     };
-  }, [canUseMedia, connectLivekitRoom, isEnded, sessionId, sessionKind, userId]);
+  }, [connectLivekitRoom, isEnded, sessionId, sessionKind, userId]);
 
   useEffect(() => {
-    if (sessionKind !== "CLASS" || !canUseMedia || isEnded) return;
+    if (sessionKind !== "CLASS" || isEnded) return;
     const resumeRemoteAudio = () => {
       Array.from(remoteAudioBindingsRef.current.values()).forEach((binding) => {
         void binding.element.play().catch(() => undefined);
@@ -692,7 +692,7 @@ export const useWorkbookLivekit = ({
       window.removeEventListener("pointerdown", resumeRemoteAudio);
       window.removeEventListener("keydown", resumeRemoteAudio);
     };
-  }, [canUseMedia, isEnded, sessionKind]);
+  }, [isEnded, sessionKind]);
 
   return {
     isLivekitConnected,

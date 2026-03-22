@@ -126,11 +126,8 @@ export const ensureWorkbookLiveSocketServer = (
             "live_ws"
           );
           if (!volatileLimit.allowed) {
-            try {
-              ws.close(1013, "rate_limited");
-            } catch {
-              // ignore close failures
-            }
+            // Drop current volatile frame, but keep connection alive.
+            // Closing the socket here causes reconnect cooldowns and visible realtime lag.
             return;
           }
           const events = Array.isArray(parsed?.events) ? parsed.events : [];
