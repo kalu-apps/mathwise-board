@@ -314,13 +314,6 @@ export const useWorkbookBoardSettingsPages = ({
       }
 
       const safeTargetPage = Math.min(maxKnownPage, toSafeWorkbookPage(targetPage));
-      if (typeof window !== "undefined") {
-        const confirmed = window.confirm(
-          `Удалить страницу ${safeTargetPage}? Ее контент будет удален, а следующие страницы сдвинутся вверх.`
-        );
-        if (!confirmed) return;
-      }
-
       setIsBoardPageMutationPending(true);
       try {
         if (boardSettingsCommitTimerRef.current !== null && typeof window !== "undefined") {

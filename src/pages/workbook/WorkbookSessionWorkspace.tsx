@@ -1,4 +1,9 @@
-import { Suspense, lazy, type MutableRefObject } from "react";
+import {
+  Suspense,
+  lazy,
+  type DragEventHandler,
+  type MutableRefObject,
+} from "react";
 import { IconButton, Tooltip } from "@mui/material";
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import { WorkbookSessionContextbar } from "./WorkbookSessionContextbar";
@@ -17,6 +22,8 @@ type WorkbookSessionWorkspaceProps = {
   boardShellProps: React.ComponentProps<typeof WorkbookSessionBoardShell>;
   docsWindowOpen: boolean;
   docsWindowProps: WorkbookSessionDocsWindowProps;
+  onWorkspaceDragOver?: DragEventHandler<HTMLDivElement>;
+  onWorkspaceDrop?: DragEventHandler<HTMLDivElement>;
 };
 
 export function WorkbookSessionWorkspace({
@@ -27,6 +34,8 @@ export function WorkbookSessionWorkspace({
   boardShellProps,
   docsWindowOpen,
   docsWindowProps,
+  onWorkspaceDragOver,
+  onWorkspaceDrop,
 }: WorkbookSessionWorkspaceProps) {
   return (
     <div
@@ -34,6 +43,8 @@ export function WorkbookSessionWorkspace({
         graphCatalogCursorActive ? " is-graph-catalog-cursor" : ""
       }`}
       ref={workspaceRef}
+      onDragOver={onWorkspaceDragOver}
+      onDrop={onWorkspaceDrop}
     >
       <div className="workbook-session__workspace-head">
         <Tooltip title="Вернуться к тетрадям">

@@ -43,6 +43,14 @@ import { normalizeSceneLayersForBoard } from "./WorkbookSessionPage.geometry";
 
 type SetState<T> = (value: T | ((current: T) => T)) => void;
 
+export type WorkbookDocumentImportStage = "uploading" | "inserting";
+
+export type WorkbookPreparedDocumentImport = {
+  file: File;
+  preparedDataUrl?: string;
+  onStage?: (stage: WorkbookDocumentImportStage) => void;
+};
+
 type UseWorkbookSessionDocumentHandlersParams = {
   sessionId: string | null;
   canInsertImage: boolean;
@@ -175,11 +183,9 @@ export const useWorkbookSessionDocumentHandlers = ({
     [appendEventsAndApply]
   );
 
-  const handleDocsUpload = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (!file || !canInsertImage || !sessionId) return;
-      event.target.value = "";
+  const importDocumentFile = useCallback(
+    async ({ file, preparedDataUrl, onStage }: WorkbookPreparedDocumentImport) => {
+      if (!file || !canInsertImage || !sessionId) return false;
       try {
         setUploadingDoc(true);
         setUploadProgress(20);
@@ -190,7 +196,7 @@ export const useWorkbookSessionDocumentHandlers = ({
           setError(
             "Не удалось добавить файл: поддерживаются PDF и изображения (PNG, JPG, WEBP, SVG, AVIF, TIFF и другие)."
           );
-          return;
+          return false;
         }
         if (isPdf && file.size > WORKBOOK_PDF_IMPORT_MAX_BYTES) {
           setError(
@@ -198,7 +204,7 @@ export const useWorkbookSessionDocumentHandlers = ({
               WORKBOOK_PDF_IMPORT_MAX_BYTES
             )}.`
           );
-          return;
+          return false;
         }
         if (isImage && file.size > WORKBOOK_IMAGE_IMPORT_MAX_BYTES) {
           setError(
@@ -206,15 +212,16 @@ export const useWorkbookSessionDocumentHandlers = ({
               file.size
             )} превышает лимит ${formatFileSizeMb(WORKBOOK_IMAGE_IMPORT_MAX_BYTES)}.`
           );
-          return;
+          return false;
         }
-        const sourceDataUrl = await readFileAsDataUrl(file);
+        const sourceDataUrl = preparedDataUrl || (await readFileAsDataUrl(file));
         const documentAssetDataUrl = isImage
-          ? await optimizeImageDataUrl(sourceDataUrl, {
+          ? preparedDataUrl ||
+            (await optimizeImageDataUrl(sourceDataUrl, {
               maxEdge: 1_600,
               quality: 0.82,
               maxChars: WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS,
-            })
+            }))
           : sourceDataUrl;
         if (isPdf) {
           setUploadProgress(45);
@@ -229,9 +236,10 @@ export const useWorkbookSessionDocumentHandlers = ({
             setError(
               "Не удалось добавить PDF: документ не удалось обработать. Проверьте файл или загрузите другую версию."
             );
-            return;
+            return false;
           }
         }
+        onStage?.("uploading");
         setUploadProgress(56);
         const uploadedDocumentAsset = await uploadWorkbookAsset({
           sessionId,
@@ -267,14 +275,12 @@ export const useWorkbookSessionDocumentHandlers = ({
         const renderedPage = isPdf
           ? resolvePrimaryDocumentRenderedPage(syncedRenderedPages, 1)
           : null;
-        const objectImageUrl = isImage
-          ? uploadedDocumentAsset.url
-          : renderedPage?.imageUrl;
+        const objectImageUrl = isImage ? uploadedDocumentAsset.url : renderedPage?.imageUrl;
         if (isImage && !objectImageUrl) {
           setError(
             "Не удалось добавить изображение: браузер не смог обработать файл. Попробуйте другой формат или меньший размер."
           );
-          return;
+          return false;
         }
         const assetId = generateId();
         const uploadedAt = new Date().toISOString();
@@ -298,8 +304,9 @@ export const useWorkbookSessionDocumentHandlers = ({
           renderedPage,
           type: isPdf ? "pdf" : isImage ? "image" : "file",
         });
+        onStage?.("inserting");
         const created = await commitObjectCreate(object);
-        if (!created) return;
+        if (!created) return false;
         try {
           await syncUploadedDocumentAsset(assetId, asset);
         } catch (error) {
@@ -328,6 +335,7 @@ export const useWorkbookSessionDocumentHandlers = ({
           folderId: null,
         });
         setUploadProgress(100);
+        return true;
       } catch (error) {
         if (error instanceof ApiError && error.status === 413) {
           setError(
@@ -349,6 +357,7 @@ export const useWorkbookSessionDocumentHandlers = ({
             "Импорт завершился с ошибкой. Проверьте формат/размер файла и повторите попытку."
           );
         }
+        return false;
       } finally {
         setUploadingDoc(false);
         setUploadProgress(0);
@@ -367,6 +376,16 @@ export const useWorkbookSessionDocumentHandlers = ({
       upsertLibraryItem,
       userId,
     ]
+  );
+
+  const handleDocsUpload = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      void importDocumentFile({ file });
+    },
+    [importDocumentFile]
   );
 
   const handleDocumentSnapshotToBoard = useCallback(async () => {
@@ -502,6 +521,7 @@ export const useWorkbookSessionDocumentHandlers = ({
 
   return {
     updateDocumentState,
+    importDocumentFile,
     handleDocsUpload,
     handleDocumentSnapshotToBoard,
     handleAddDocumentAnnotation,

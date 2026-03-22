@@ -10,6 +10,7 @@ const nowMs = () =>
 
 export const WORKBOOK_PERF_PHASE_EVENT = "workbook-performance-phase";
 export const WORKBOOK_CORRECTNESS_EVENT = "workbook-correctness";
+export const WORKBOOK_IMPORT_EVENT = "workbook-import";
 
 export type WorkbookLoadStageMetricName =
   | "session_open_ms"
@@ -48,6 +49,21 @@ export type WorkbookCorrectnessEventName =
   | "recovery_mode_exited"
   | "realtime_event_skipped_as_stale";
 
+export type WorkbookImportEventName =
+  | "modal_opened"
+  | "files_selected"
+  | "validation_failed"
+  | "optimization_started"
+  | "optimization_finished"
+  | "upload_started"
+  | "upload_succeeded"
+  | "upload_failed"
+  | "insert_started"
+  | "insert_succeeded"
+  | "insert_failed"
+  | "batch_completed"
+  | "batch_partially_failed";
+
 type WorkbookPerfPhaseMetricDetail = {
   name: WorkbookPerfPhaseName;
   durationMs: number;
@@ -63,6 +79,14 @@ type WorkbookCorrectnessEventDetail = {
   reason?: string;
   seq?: number;
   snapshotSeq?: number;
+  counters?: Record<string, number>;
+};
+
+type WorkbookImportEventDetail = {
+  name: WorkbookImportEventName;
+  sessionId?: string;
+  timestamp: string;
+  reason?: string;
   counters?: Record<string, number>;
 };
 
@@ -173,6 +197,52 @@ export const reportWorkbookCorrectnessEvent = (params: {
   }
   if (typeof import.meta !== "undefined" && import.meta.env?.DEV) {
     console.info("[sync-correctness]", detail.name, detail);
+  }
+};
+
+export const reportWorkbookImportEvent = (params: {
+  name: WorkbookImportEventName;
+  sessionId?: string;
+  reason?: string;
+  counters?: Record<string, number>;
+}) => {
+  const counters =
+    params.counters &&
+    Object.fromEntries(
+      Object.entries(params.counters).filter(
+        ([, value]) => typeof value === "number" && Number.isFinite(value)
+      )
+    );
+  const detail: WorkbookImportEventDetail = {
+    name: params.name,
+    sessionId: params.sessionId?.trim() || undefined,
+    timestamp: new Date().toISOString(),
+    reason: params.reason,
+    counters:
+      counters && Object.keys(counters).length > 0 ? counters : undefined,
+  };
+  if (typeof window !== "undefined") {
+    try {
+      window.dispatchEvent(
+        new CustomEvent<WorkbookImportEventDetail>(WORKBOOK_IMPORT_EVENT, {
+          detail,
+        })
+      );
+    } catch {
+      // ignore dispatch failures
+    }
+  }
+  if (
+    detail.name === "validation_failed" ||
+    detail.name === "upload_failed" ||
+    detail.name === "insert_failed" ||
+    detail.name === "batch_partially_failed"
+  ) {
+    console.warn("[import-modal]", detail.name, detail);
+    return;
+  }
+  if (typeof import.meta !== "undefined" && import.meta.env?.DEV) {
+    console.info("[import-modal]", detail.name, detail);
   }
 };
 

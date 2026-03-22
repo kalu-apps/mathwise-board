@@ -220,6 +220,24 @@ type WorkbookSettings = {
   };
 };
 
+type WorkbookSessionContextHubPreview = {
+  previewUrl: string;
+  previewAlt: string | null;
+  capturedAt: string;
+  capturedBy: string | null;
+  page: number | null;
+  viewport: {
+    x: number;
+    y: number;
+    zoom: number;
+  } | null;
+};
+
+type WorkbookSessionContextPayload = {
+  settings?: Partial<WorkbookSettings>;
+  hubPreview?: WorkbookSessionContextHubPreview | null;
+};
+
 type WorkbookStreamClient = {
   id: string;
   userId: string;
@@ -1140,15 +1158,108 @@ const normalizeWorkbookSettings = (
   };
 };
 
+const normalizeHubPreviewUrlCandidate = (value: unknown) => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("data:")) return null;
+  if (trimmed.toLowerCase() === "content" || trimmed.toLowerCase() === "/content") return null;
+  return trimmed;
+};
+
+const normalizeHubPreviewAltCandidate = (value: unknown) => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, 140);
+};
+
+const normalizeHubPreviewViewportCandidate = (
+  value: unknown
+): WorkbookSessionContextHubPreview["viewport"] => {
+  if (!value || typeof value !== "object") return null;
+  const typedValue = value as {
+    x?: unknown;
+    y?: unknown;
+    zoom?: unknown;
+  };
+  const x = typeof typedValue.x === "number" && Number.isFinite(typedValue.x) ? typedValue.x : 0;
+  const y = typeof typedValue.y === "number" && Number.isFinite(typedValue.y) ? typedValue.y : 0;
+  const zoom =
+    typeof typedValue.zoom === "number" && Number.isFinite(typedValue.zoom) && typedValue.zoom > 0
+      ? typedValue.zoom
+      : 1;
+  return {
+    x,
+    y,
+    zoom: Math.max(0.1, Math.min(12, zoom)),
+  };
+};
+
+const normalizeSessionContextHubPreview = (
+  value: unknown
+): WorkbookSessionContextHubPreview | null => {
+  if (!value || typeof value !== "object") return null;
+  const typedValue = value as {
+    previewUrl?: unknown;
+    previewAlt?: unknown;
+    capturedAt?: unknown;
+    capturedBy?: unknown;
+    page?: unknown;
+    viewport?: unknown;
+  };
+  const previewUrl = normalizeHubPreviewUrlCandidate(typedValue.previewUrl);
+  if (!previewUrl) return null;
+  const page =
+    typeof typedValue.page === "number" && Number.isFinite(typedValue.page)
+      ? Math.max(1, Math.trunc(typedValue.page))
+      : null;
+  const capturedAt =
+    typeof typedValue.capturedAt === "string" && typedValue.capturedAt.trim().length > 0
+      ? typedValue.capturedAt
+      : nowIso();
+  const capturedBy =
+    typeof typedValue.capturedBy === "string" && typedValue.capturedBy.trim().length > 0
+      ? typedValue.capturedBy.trim()
+      : null;
+  return {
+    previewUrl,
+    previewAlt: normalizeHubPreviewAltCandidate(typedValue.previewAlt),
+    capturedAt,
+    capturedBy,
+    page,
+    viewport: normalizeHubPreviewViewportCandidate(typedValue.viewport),
+  };
+};
+
+const readSessionContextPayload = (session: WorkbookSessionRecord): WorkbookSessionContextPayload => {
+  const parsed = safeParseJson<WorkbookSessionContextPayload>(session.context, {});
+  if (!parsed || typeof parsed !== "object") return {};
+  return parsed;
+};
+
 const readSessionSettings = (session: WorkbookSessionRecord): WorkbookSettings => {
-  const parsed = safeParseJson<{ settings?: Partial<WorkbookSettings> }>(session.context, {
-    settings: defaultSettings(),
-  });
-  return normalizeWorkbookSettings(parsed.settings);
+  return normalizeWorkbookSettings(readSessionContextPayload(session).settings);
 };
 
 const writeSessionSettings = (session: WorkbookSessionRecord, settings: WorkbookSettings) => {
-  session.context = JSON.stringify({ settings: normalizeWorkbookSettings(settings) });
+  const currentContext = readSessionContextPayload(session);
+  currentContext.settings = normalizeWorkbookSettings(settings);
+  session.context = JSON.stringify(currentContext);
+};
+
+const readSessionHubPreview = (
+  session: WorkbookSessionRecord
+): WorkbookSessionContextHubPreview | null =>
+  normalizeSessionContextHubPreview(readSessionContextPayload(session).hubPreview);
+
+const writeSessionHubPreview = (
+  session: WorkbookSessionRecord,
+  preview: WorkbookSessionContextHubPreview | null
+) => {
+  const currentContext = readSessionContextPayload(session);
+  currentContext.hubPreview = normalizeSessionContextHubPreview(preview);
+  session.context = JSON.stringify(currentContext);
 };
 
 const getWorkbookSessionById = (db: MockDb, sessionId: string) =>
@@ -2551,6 +2662,18 @@ export const handleWorkbookApiRequestByDomains = async (
         const previewBySessionId = new Map<string, DraftPreviewMeta>();
         await Promise.all(
           sessions.map(async (session) => {
+            const storedHubPreview = readSessionHubPreview(session);
+            if (storedHubPreview?.previewUrl) {
+              previewBySessionId.set(session.id, {
+                previewUrl: storedHubPreview.previewUrl,
+                previewAlt:
+                  storedHubPreview.previewAlt ??
+                  (storedHubPreview.page
+                    ? `Последний вид доски · страница ${storedHubPreview.page}`
+                    : "Последний вид доски"),
+              });
+              return;
+            }
             let snapshotPayload: unknown = null;
             try {
               const persistedSnapshot = await workbookSnapshotStore.read({
@@ -2875,6 +2998,60 @@ export const handleWorkbookApiRequestByDomains = async (
             via: "open_endpoint",
           },
         });
+        json(res, 200, { ok: true });
+        return;
+      }
+
+      const workbookDraftPreviewMatch = pathname.match(
+        /^\/api\/workbook\/sessions\/([^/]+)\/draft-preview$/
+      );
+      if (workbookDraftPreviewMatch && method === "POST") {
+        const actor = requireAuthUser(req, res, db);
+        if (!actor) return;
+        const sessionId = decodeURIComponent(workbookDraftPreviewMatch[1]);
+        const session = getWorkbookSessionById(db, sessionId);
+        if (!session) {
+          notFound(res);
+          return;
+        }
+        const participant = getWorkbookParticipant(db, sessionId, actor.id);
+        if (!participant || !participant.permissions.canManageSession) {
+          forbidden(res);
+          return;
+        }
+        const body = (await readBody(req)) as {
+          previewUrl?: unknown;
+          previewAlt?: unknown;
+          page?: unknown;
+          viewport?: unknown;
+        } | null;
+        const previewUrl = normalizeHubPreviewUrlCandidate(body?.previewUrl);
+        if (!previewUrl) {
+          badRequest(res, "Некорректный URL превью.");
+          return;
+        }
+        const timestamp = nowIso();
+        writeSessionHubPreview(session, {
+          previewUrl,
+          previewAlt: normalizeHubPreviewAltCandidate(body?.previewAlt),
+          capturedAt: timestamp,
+          capturedBy: actor.id,
+          page:
+            typeof body?.page === "number" && Number.isFinite(body.page)
+              ? Math.max(1, Math.trunc(body.page))
+              : null,
+          viewport: normalizeHubPreviewViewportCandidate(body?.viewport),
+        });
+        touchSessionActivity(session, timestamp);
+        db.workbookDrafts = db.workbookDrafts.map((draft) =>
+          draft.sessionId === session.id
+            ? {
+                ...draft,
+                updatedAt: timestamp,
+              }
+            : draft
+        );
+        saveDb();
         json(res, 200, { ok: true });
         return;
       }

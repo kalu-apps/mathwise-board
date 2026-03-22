@@ -112,8 +112,6 @@ export const useWorkbookSessionCollabHandlers = ({
   const handleMenuClearBoard = useCallback(async () => {
     if (!canClear || isEnded) return;
     setMenuAnchor(null);
-    const confirmed = window.confirm("Очистить доску целиком?");
-    if (!confirmed) return;
     try {
       await clearLayerNow("board");
       setError(null);

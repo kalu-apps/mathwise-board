@@ -12,6 +12,10 @@ import {
   Button,
 } from "@mui/material";
 import { useAuth } from "@/features/auth/model/AuthContext";
+import {
+  updateWorkbookSessionDraftPreview,
+  uploadWorkbookAsset,
+} from "@/features/workbook/model/api";
 import { useWorkbookSessionStore } from "@/features/workbook/model/workbookSessionStore";
 import {
   startWorkbookPerformanceSession,
@@ -21,8 +25,11 @@ import type {
   WorkbookLayer,
 } from "@/features/workbook/model/types";
 import { PageLoader } from "@/shared/ui/loading";
+import { PlatformConfirmDialog } from "@/shared/ui/PlatformConfirmDialog";
 import { useWorkbookSessionContextbar } from "./useWorkbookSessionContextbar";
 import { useWorkbookSessionPanelHandlers } from "./useWorkbookSessionPanelHandlers";
+import { useWorkbookImportModalController } from "./useWorkbookImportModalController";
+import { useWorkbookSessionConfirmActions } from "./useWorkbookSessionConfirmActions";
 import { useWorkbookSelectedSolid3dActions } from "./useWorkbookSelectedSolid3dActions";
 import { useWorkbookSelectedGraphTextActions } from "./useWorkbookSelectedGraphTextActions";
 import { useWorkbookSelectedStructureActions } from "./useWorkbookSelectedStructureActions";
@@ -101,6 +108,8 @@ import {
   type WorkbookToolSettingsPopoverState,
   type WorkbookToolSettingsPopoverTool,
 } from "./WorkbookSessionToolSettingsPopover";
+import { WorkbookImportModal } from "./WorkbookImportModal";
+import { captureWorkbookSessionPreviewDataUrl } from "./workbookHubPreviewCapture";
 
 export default function WorkbookSessionPage() {
   const { user, isAuthReady, openAuthModal } = useAuth();
@@ -1346,7 +1355,7 @@ export default function WorkbookSessionPage() {
 
   const {
     updateDocumentState,
-    handleDocsUpload,
+    importDocumentFile,
     handleDocumentSnapshotToBoard,
     handleAddDocumentAnnotation,
     handleClearDocumentAnnotations,
@@ -1378,10 +1387,25 @@ export default function WorkbookSessionPage() {
     persistSnapshots,
   });
 
+  const {
+    isImportModalOpen,
+    pendingImportFiles,
+    openImportModal,
+    handleDocsUploadToModal,
+    handleImportModalClose,
+    handleImportModalFile,
+    handleWorkspaceDragOver,
+    handleWorkspaceDrop,
+  } = useWorkbookImportModalController({
+    canInsertImage,
+    isEnded,
+    importDocumentFile,
+  });
+
   const panelHandlers = useWorkbookSessionPanelHandlers({
     setDocsWindow,
     clickDocsInput: () => {
-      docsInputRef.current?.click();
+      openImportModal();
     },
     snapshotDocumentToBoard: () => {
       void handleDocumentSnapshotToBoard();
@@ -1509,6 +1533,25 @@ export default function WorkbookSessionPage() {
     setError,
   });
 
+  const {
+    confirmDialogOpen,
+    confirmDialogContent,
+    confirmActionSubmitting,
+    handleRequestClearBoard,
+    handleRequestExportPdf,
+    handleRequestDeleteBoardPage,
+    handleCloseConfirmDialog,
+    handleConfirmDialogAction,
+  } = useWorkbookSessionConfirmActions({
+    canClear,
+    isEnded,
+    exportingSections,
+    setMenuAnchor,
+    handleMenuClearBoard,
+    exportBoardAsPdf,
+    handleDeleteBoardPage,
+  });
+
   const canvasHandlers = useWorkbookCanvasHandlers({
     commitStroke,
     commitStrokeDelete,
@@ -1606,6 +1649,52 @@ export default function WorkbookSessionPage() {
     [renderToolButton, toolButtonsAfterCatalog]
   );
 
+  const persistSessionExitPreview = useCallback(async () => {
+    if (!session || session.roleInSession !== "teacher") return;
+    if (typeof window === "undefined") return;
+    const previewDataUrl = await captureWorkbookSessionPreviewDataUrl(
+      workspaceRef.current ?? sessionRootRef.current
+    );
+    if (!previewDataUrl) return;
+    try {
+      const uploadedPreview = await uploadWorkbookAsset({
+        sessionId: session.id,
+        fileName: `session-preview-${session.id}-${Date.now()}.jpg`,
+        dataUrl: previewDataUrl,
+        mimeType: "image/jpeg",
+      });
+      await updateWorkbookSessionDraftPreview({
+        sessionId: session.id,
+        previewUrl: uploadedPreview.url,
+        previewAlt:
+          typeof boardSettings.currentPage === "number" &&
+          Number.isFinite(boardSettings.currentPage)
+            ? `Последний вид доски · страница ${Math.max(1, Math.trunc(boardSettings.currentPage))}`
+            : "Последний вид доски",
+        page:
+          typeof boardSettings.currentPage === "number" &&
+          Number.isFinite(boardSettings.currentPage)
+            ? Math.max(1, Math.trunc(boardSettings.currentPage))
+            : undefined,
+        viewport: {
+          x: canvasViewport.x,
+          y: canvasViewport.y,
+          zoom: viewportZoom,
+        },
+      });
+    } catch {
+      // Hub preview capture is best-effort and must not block session exit.
+    }
+  }, [
+    boardSettings.currentPage,
+    canvasViewport.x,
+    canvasViewport.y,
+    session,
+    sessionRootRef,
+    viewportZoom,
+    workspaceRef,
+  ]);
+
   const handleBack = useCallback(async () => {
     if (dirtyRef.current) {
       const saved = await persistSnapshots({ force: true });
@@ -1614,6 +1703,7 @@ export default function WorkbookSessionPage() {
         return;
       }
     }
+    await persistSessionExitPreview();
     if (typeof window !== "undefined" && window.opener && !window.opener.closed) {
       try {
         window.opener.focus?.();
@@ -1627,7 +1717,7 @@ export default function WorkbookSessionPage() {
       return;
     }
     navigate(fromPath, { replace: true });
-  }, [dirtyRef, fromPath, navigate, persistSnapshots, setError]);
+  }, [dirtyRef, fromPath, navigate, persistSessionExitPreview, persistSnapshots, setError]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1804,18 +1894,18 @@ export default function WorkbookSessionPage() {
       scrollSessionChatToLatest,
       markSessionChatReadToLatest,
       handleSendSessionChatMessage,
-      exportBoardAsPdf,
-      handleMenuClearBoard,
+      exportBoardAsPdf: handleRequestExportPdf,
+      handleMenuClearBoard: handleRequestClearBoard,
       openUtilityPanel,
       handleSelectBoardPage,
       handleAddBoardPage,
-      handleDeleteBoardPage,
+      handleDeleteBoardPage: handleRequestDeleteBoardPage,
       handleUndo,
       handleRedo,
       zoomOut,
       zoomIn,
       resetZoom,
-      requestDocsUpload: () => docsInputRef.current?.click(),
+      requestDocsUpload: () => openImportModal(),
       toggleFullscreen,
       handleCopyInviteLink,
       handleDocsWindowTogglePinned: panelHandlers.handleDocsWindowTogglePinned,
@@ -1879,7 +1969,7 @@ export default function WorkbookSessionPage() {
         boardFileInputRef={boardFileInputRef}
         docsInputRef={docsInputRef}
         onLoadBoardFile={handleLoadBoardFile}
-        onDocsUpload={handleDocsUpload}
+        onDocsUpload={handleDocsUploadToModal}
         error={error}
         setError={setError}
         saveSyncWarning={saveSyncWarning}
@@ -1906,6 +1996,8 @@ export default function WorkbookSessionPage() {
           graphCatalogCursorActive={graphCatalogCursorActive}
           contextbarProps={contextbarProps}
           onBack={handleBack}
+          onWorkspaceDragOver={handleWorkspaceDragOver}
+          onWorkspaceDrop={handleWorkspaceDrop}
           boardShellProps={boardShellProps}
           docsWindowOpen={docsWindow.open}
           docsWindowProps={docsWindowProps}
@@ -1921,6 +2013,30 @@ export default function WorkbookSessionPage() {
           overlaysProps={overlaysProps}
         />
       </div>
+
+      <WorkbookImportModal
+        open={isImportModalOpen}
+        sessionId={sessionId}
+        initialFiles={pendingImportFiles}
+        fullScreen={isCompactDialogViewport}
+        onClose={handleImportModalClose}
+        onImportFile={handleImportModalFile}
+      />
+
+      {confirmDialogContent ? (
+        <PlatformConfirmDialog
+          open={confirmDialogOpen}
+          container={overlayContainer}
+          fullScreen={isCompactDialogViewport}
+          loading={confirmActionSubmitting}
+          title={confirmDialogContent.title}
+          description={confirmDialogContent.description}
+          confirmLabel={confirmDialogContent.confirmLabel}
+          tone={confirmDialogContent.tone}
+          onCancel={handleCloseConfirmDialog}
+          onConfirm={handleConfirmDialogAction}
+        />
+      ) : null}
 
       <WorkbookSessionToolSettingsPopover
         state={toolSettingsPopoverState}

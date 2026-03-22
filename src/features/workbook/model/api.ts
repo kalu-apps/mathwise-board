@@ -591,3 +591,39 @@ export async function uploadWorkbookAsset(params: {
     { notifyDataUpdate: false, timeoutMs: 60_000 }
   );
 }
+
+export async function updateWorkbookSessionDraftPreview(params: {
+  sessionId: string;
+  previewUrl: string;
+  previewAlt?: string;
+  page?: number;
+  viewport?: {
+    x: number;
+    y: number;
+    zoom: number;
+  };
+}) {
+  return api.post<{ ok: true }>(
+    `/workbook/sessions/${encodeURIComponent(params.sessionId)}/draft-preview`,
+    {
+      previewUrl: params.previewUrl,
+      previewAlt: params.previewAlt,
+      page:
+        typeof params.page === "number" && Number.isFinite(params.page)
+          ? Math.max(1, Math.trunc(params.page))
+          : undefined,
+      viewport:
+        params.viewport &&
+        Number.isFinite(params.viewport.x) &&
+        Number.isFinite(params.viewport.y) &&
+        Number.isFinite(params.viewport.zoom)
+          ? {
+              x: params.viewport.x,
+              y: params.viewport.y,
+              zoom: params.viewport.zoom,
+            }
+          : undefined,
+    },
+    { notifyDataUpdate: true, timeoutMs: 15_000 }
+  );
+}
