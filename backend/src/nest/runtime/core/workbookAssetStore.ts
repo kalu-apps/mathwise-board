@@ -115,7 +115,7 @@ const resolveAssetPath = (assetId: string) => {
 };
 
 export const buildWorkbookAssetUrl = (sessionId: string, assetId: string) =>
-  `/api/workbook/sessions/${encodeURIComponent(sessionId)}/assets/${encodeURIComponent(assetId)}`;
+  `/api/workbook/sessions/${encodeURIComponent(sessionId)}/assets/${encodeURIComponent(assetId)}/content`;
 
 export const persistWorkbookAssetFromDataUrl = async (params: {
   sessionId: string;

@@ -452,7 +452,7 @@ export default function WorkbookSessionPage() {
     boardSettings,
     boardObjects,
   });
-  const showSidebarParticipantsInLayout = showSidebarParticipants && !isFullscreen;
+  const showSidebarParticipantsInLayout = showSidebarParticipants;
   const {
     clampedEraserRadius,
     resetToolRuntimeToSelect,
