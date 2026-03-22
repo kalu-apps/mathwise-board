@@ -131,10 +131,7 @@ export const useWorkbookSessionRealtimeLifecycle = ({
     setSaveState("error");
     setSaveSyncWarning("Сессия недоступна: требуется повторная авторизация.");
     setSession(null);
-    setLoading(false);
-    if (typeof window !== "undefined") {
-      window.location.replace("/");
-    }
+    setLoading(true);
   }, [
     authRequiredRef,
     clearIncomingEraserPreviewRuntime,

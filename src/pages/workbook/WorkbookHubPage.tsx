@@ -17,8 +17,10 @@ import AutoStoriesRoundedIcon from "@mui/icons-material/AutoStoriesRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
+import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import MenuBookRoundedIcon from "@mui/icons-material/MenuBookRounded";
 import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
 import "./workbookRouteStyles";
 import { ApiError } from "@/shared/api/client";
@@ -43,6 +45,7 @@ const toSessionPath = (sessionId: string) =>
   `/workbook/session/${encodeURIComponent(sessionId)}`;
 const HUB_REFRESH_INTERVAL_MS = 30_000;
 const HUB_REFRESH_THROTTLE_MS = 900;
+const HUB_CARDS_PER_PAGE = 9;
 
 const toSortTimestamp = (value: string) => {
   const timestamp = Date.parse(value);
@@ -119,7 +122,7 @@ const resolveInviteUrl = (invite: WorkbookInviteInfo) => {
 
 export default function WorkbookHubPage() {
   const navigate = useNavigate();
-  const { user, isAuthReady, openAuthModal, logout } = useAuth();
+  const { user, isAuthReady, openAuthModal } = useAuth();
   const [scope, setScope] = useState<HubScope>("class");
   const [drafts, setDrafts] = useState<WorkbookDraftCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -129,6 +132,11 @@ export default function WorkbookHubPage() {
   const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [pageByScope, setPageByScope] = useState<Record<HubScope, number>>({
+    class: 1,
+    personal: 1,
+  });
   const [pendingDeleteCard, setPendingDeleteCard] = useState<WorkbookDraftCard | null>(null);
   const [previewLoadErrorBySessionId, setPreviewLoadErrorBySessionId] = useState<
     Record<string, string>
@@ -303,7 +311,46 @@ export default function WorkbookHubPage() {
     return [classDrafts, personalDrafts];
   }, [drafts]);
   const cards = scope === "class" ? classCards : personalCards;
+  const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase("ru-RU");
+  const filteredCards = useMemo(() => {
+    if (normalizedSearchQuery.length === 0) return cards;
+    return cards.filter((card) =>
+      card.title.toLocaleLowerCase("ru-RU").includes(normalizedSearchQuery)
+    );
+  }, [cards, normalizedSearchQuery]);
+  const requestedPage = pageByScope[scope] ?? 1;
+  const totalPages = Math.max(1, Math.ceil(filteredCards.length / HUB_CARDS_PER_PAGE));
+  const currentPage = Math.min(Math.max(requestedPage, 1), totalPages);
+  const pageCards = useMemo(() => {
+    const offset = (currentPage - 1) * HUB_CARDS_PER_PAGE;
+    return filteredCards.slice(offset, offset + HUB_CARDS_PER_PAGE);
+  }, [currentPage, filteredCards]);
+  const paginationItems = useMemo(() => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, index) => index + 1);
+    }
+    if (currentPage <= 4) {
+      return [1, 2, 3, 4, 5, -1, totalPages];
+    }
+    if (currentPage >= totalPages - 3) {
+      return [1, -1, totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+    }
+    return [1, -1, currentPage - 1, currentPage, currentPage + 1, -1, totalPages];
+  }, [currentPage, totalPages]);
+  const hasSearchResults = normalizedSearchQuery.length > 0;
   const skeletonCount = Math.max(3, Math.min(cards.length || 0, 6));
+
+  useEffect(() => {
+    if (requestedPage === currentPage) return;
+    setPageByScope((current) =>
+      current[scope] === currentPage
+        ? current
+        : {
+            ...current,
+            [scope]: currentPage,
+          }
+    );
+  }, [currentPage, requestedPage, scope]);
 
   const handleCreateClassSession = async () => {
     try {
@@ -490,14 +537,6 @@ export default function WorkbookHubPage() {
               <span className="workbook-launch__student-alert-text">
                 {t("whiteboardLaunch.waitingStudent")}
               </span>
-              <Button
-                color="inherit"
-                size="small"
-                onClick={logout}
-                className="workbook-launch__student-alert-button"
-              >
-                {t("whiteboardLaunch.loginAsTeacher")}
-              </Button>
             </div>
           </Alert>
         </article>
@@ -557,6 +596,57 @@ export default function WorkbookHubPage() {
             Личные тетради ({personalCards.length})
           </button>
         </div>
+        <div className="workbook-hub__search-strip" role="search" aria-label="Поиск карточек">
+          <SearchRoundedIcon className="workbook-hub__search-icon" fontSize="small" />
+          <input
+            className="workbook-hub__search-input"
+            type="search"
+            value={searchQuery}
+            placeholder="Поиск карточки по названию"
+            onChange={(event) => {
+              const nextQuery = event.target.value;
+              setSearchQuery(nextQuery);
+              setPageByScope((current) =>
+                current.class === 1 && current.personal === 1
+                  ? current
+                  : {
+                      class: 1,
+                      personal: 1,
+                    }
+              );
+            }}
+          />
+          {searchQuery.trim().length > 0 ? (
+            <button
+              type="button"
+              className="workbook-hub__search-clear"
+              onClick={() => {
+                setSearchQuery("");
+                setPageByScope((current) =>
+                  current.class === 1 && current.personal === 1
+                    ? current
+                    : {
+                        class: 1,
+                        personal: 1,
+                      }
+                );
+              }}
+              aria-label="Очистить поиск"
+            >
+              <CloseRoundedIcon fontSize="small" />
+            </button>
+          ) : null}
+        </div>
+        <div className="workbook-hub__search-meta">
+          <span>
+            Найдено: {filteredCards.length}
+          </span>
+          {filteredCards.length > 0 ? (
+            <span>
+              Страница {currentPage} из {totalPages}
+            </span>
+          ) : null}
+        </div>
 
         {error ? (
           <Alert severity="error" onClose={() => setError(null)}>
@@ -591,200 +681,250 @@ export default function WorkbookHubPage() {
               </article>
             ))}
           </div>
-        ) : cards.length === 0 ? (
+        ) : filteredCards.length === 0 ? (
           <Alert severity="info">
-            {scope === "class"
-              ? "Карточек индивидуальных занятий пока нет. Нажмите «Начать индивидуальное занятие»."
-              : "Личных тетрадей пока нет. Нажмите «Новая личная тетрадь»."}
+            {hasSearchResults
+              ? "По вашему запросу карточки не найдены. Попробуйте другое название."
+              : scope === "class"
+                ? "Карточек индивидуальных занятий пока нет. Нажмите «Начать индивидуальное занятие»."
+                : "Личных тетрадей пока нет. Нажмите «Новая личная тетрадь»."}
           </Alert>
         ) : (
-          <div className="workbook-hub__list">
-            {cards.map((card) => {
-              const isCopying = copyingSessionId === card.sessionId;
-              const isDeleting = deletingSessionId === card.sessionId;
-              const isRenaming = renamingSessionId === card.sessionId;
-              const rawPreviewUrl =
-                typeof card.previewUrl === "string" ? card.previewUrl.trim() : "";
-              const previewUrl =
-                rawPreviewUrl.length > 0 &&
-                previewLoadErrorBySessionId[card.sessionId] !== rawPreviewUrl
-                  ? rawPreviewUrl
-                  : null;
-              const previewAlt =
-                typeof card.previewAlt === "string" && card.previewAlt.trim().length > 0
-                  ? card.previewAlt.trim()
-                  : `${card.title} preview`;
-              const activityLabel =
-                typeof card.activityLabel === "string" && card.activityLabel.trim().length > 0
-                  ? (() => {
-                      const rawLabel = card.activityLabel.trim();
-                      if (rawLabel === "Active") return "Идет сессия";
-                      if (rawLabel === "Recently active") return "Недавняя активность";
-                      if (rawLabel === "Idle") return "Пауза";
-                      return rawLabel;
-                    })()
-                  : null;
-              const activityTone =
-                card.activityTone === "active" ||
-                card.activityTone === "recent" ||
-                card.activityTone === "idle"
-                  ? card.activityTone
-                  : null;
-              return (
-                <article
-                  className={`workbook-hub__card${previewUrl ? " workbook-hub__card--with-preview" : ""}`}
-                  key={card.sessionId}
-                >
-                  {previewUrl ? (
-                    <div className="workbook-hub__card-preview" aria-hidden="true">
-                      <img
-                        className="workbook-hub__card-preview-image"
-                        src={previewUrl}
-                        alt={previewAlt}
-                        loading="lazy"
-                        decoding="async"
-                        fetchPriority="low"
-                        onError={() => markPreviewLoadFailure(card.sessionId, previewUrl)}
-                      />
-                      <span className="workbook-hub__card-preview-scrim" />
-                    </div>
-                  ) : null}
-                  {card.canDelete ? (
-                    <Tooltip title="Удалить карточку">
-                      <span>
-                        <IconButton
-                          size="small"
-                          className="workbook-hub__card-remove"
-                          onClick={() => void handleDeleteCard(card)}
-                          disabled={isDeleting}
-                        >
-                          <DeleteOutlineRoundedIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                  ) : null}
-                  <div className="workbook-hub__card-main">
-                    <div className="workbook-hub__card-title-row">
-                      <Avatar sx={{ width: 26, height: 26 }}>
-                        {card.kind === "CLASS" ? (
-                          <SchoolRoundedIcon fontSize="small" />
-                        ) : (
-                          <MenuBookRoundedIcon fontSize="small" />
-                        )}
-                      </Avatar>
-                      <h3 title={card.title}>{card.title}</h3>
-                    </div>
-
-                    <div className="workbook-hub__card-meta">
-                      <span>
-                        {card.kind === "CLASS" ? "Индивидуальное занятие" : "Личная тетрадь"}
-                      </span>
-                      <span>•</span>
-                      <span>
-                        {card.kind === "CLASS"
-                          ? `Участников: ${card.participantsCount}`
-                          : "Персональная база знаний"}
-                      </span>
-                    </div>
-
-                    {activityLabel ? (
-                      <div className="workbook-hub__card-activity-row">
-                        <span
-                          className={`workbook-hub__card-activity-badge${
-                            activityTone ? ` is-${activityTone}` : ""
-                          }`}
-                        >
-                          <span
-                            className="workbook-hub__card-activity-badge-dot"
-                            aria-hidden="true"
-                          />
-                          <span className="workbook-hub__card-activity-badge-text">
-                            {activityLabel}
-                          </span>
-                        </span>
+          <>
+            <div className="workbook-hub__list">
+              {pageCards.map((card) => {
+                const isCopying = copyingSessionId === card.sessionId;
+                const isDeleting = deletingSessionId === card.sessionId;
+                const isRenaming = renamingSessionId === card.sessionId;
+                const rawPreviewUrl =
+                  typeof card.previewUrl === "string" ? card.previewUrl.trim() : "";
+                const previewUrl =
+                  rawPreviewUrl.length > 0 &&
+                  previewLoadErrorBySessionId[card.sessionId] !== rawPreviewUrl
+                    ? rawPreviewUrl
+                    : null;
+                const previewAlt =
+                  typeof card.previewAlt === "string" && card.previewAlt.trim().length > 0
+                    ? card.previewAlt.trim()
+                    : `${card.title} preview`;
+                const hasActiveSession =
+                  card.activityTone === "active" ||
+                  (typeof card.activityLabel === "string" &&
+                    card.activityLabel.trim().toLocaleLowerCase("ru-RU") === "идет сессия");
+                const activityLabel = hasActiveSession ? "Идет сессия" : "Пауза";
+                const activityTone = hasActiveSession ? "active" : "idle";
+                return (
+                  <article
+                    className={`workbook-hub__card${previewUrl ? " workbook-hub__card--with-preview" : ""}`}
+                    key={card.sessionId}
+                  >
+                    {previewUrl ? (
+                      <div className="workbook-hub__card-preview" aria-hidden="true">
+                        <img
+                          className="workbook-hub__card-preview-image"
+                          src={previewUrl}
+                          alt={previewAlt}
+                          loading="lazy"
+                          decoding="async"
+                          fetchPriority="low"
+                          onError={() => markPreviewLoadFailure(card.sessionId, previewUrl)}
+                        />
+                        <span className="workbook-hub__card-preview-scrim" />
                       </div>
                     ) : null}
+                    {card.canDelete ? (
+                      <Tooltip title="Удалить карточку">
+                        <span>
+                          <IconButton
+                            size="small"
+                            className="workbook-hub__card-remove"
+                            onClick={() => void handleDeleteCard(card)}
+                            disabled={isDeleting}
+                          >
+                            <DeleteOutlineRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    ) : null}
+                    <div className="workbook-hub__card-main">
+                      <div className="workbook-hub__card-title-row">
+                        <Avatar sx={{ width: 26, height: 26 }}>
+                          {card.kind === "CLASS" ? (
+                            <SchoolRoundedIcon fontSize="small" />
+                          ) : (
+                            <MenuBookRoundedIcon fontSize="small" />
+                          )}
+                        </Avatar>
+                        <h3 title={card.title}>{card.title}</h3>
+                      </div>
 
-                    <div className="workbook-hub__card-timeline">
-                      <div className="workbook-hub__card-timeline-row">
-                        <span className="workbook-hub__card-timeline-label">Последний вход</span>
-                        <span className="workbook-hub__card-timeline-value">
-                          {formatDateTime(card.updatedAt)}
+                      <div className="workbook-hub__card-meta">
+                        <span>
+                          {card.kind === "CLASS" ? "Индивидуальное занятие" : "Личная тетрадь"}
+                        </span>
+                        <span>•</span>
+                        <span>
+                          {card.kind === "CLASS"
+                            ? `Участников: ${card.participantsCount}`
+                            : "Персональная база знаний"}
                         </span>
                       </div>
-                      <div className="workbook-hub__card-timeline-row">
-                        <span className="workbook-hub__card-timeline-label">
-                          Длительность присутствия
-                        </span>
-                        <span className="workbook-hub__card-timeline-value">
-                          {formatDuration(card.durationMinutes)}
-                        </span>
+
+                      {activityLabel ? (
+                        <div className="workbook-hub__card-activity-row">
+                          <span
+                            className={`workbook-hub__card-activity-badge${
+                              activityTone ? ` is-${activityTone}` : ""
+                            }`}
+                          >
+                            <span
+                              className="workbook-hub__card-activity-badge-dot"
+                              aria-hidden="true"
+                            />
+                            <span className="workbook-hub__card-activity-badge-text">
+                              {activityLabel}
+                            </span>
+                          </span>
+                        </div>
+                      ) : null}
+
+                      <div className="workbook-hub__card-timeline">
+                        <div className="workbook-hub__card-timeline-row">
+                          <span className="workbook-hub__card-timeline-label">Последний вход</span>
+                          <span className="workbook-hub__card-timeline-value">
+                            {formatDateTime(card.updatedAt)}
+                          </span>
+                        </div>
+                        <div className="workbook-hub__card-timeline-row">
+                          <span className="workbook-hub__card-timeline-label">
+                            Длительность присутствия
+                          </span>
+                          <span className="workbook-hub__card-timeline-value">
+                            {formatDuration(card.durationMinutes)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="workbook-hub__card-actions-row">
+                        <Button
+                          className="workbook-hub__card-action-btn workbook-hub__card-action-btn--open"
+                          size="small"
+                          variant="text"
+                          startIcon={<OpenInNewRoundedIcon />}
+                          onClick={() => handleOpenCard(card.sessionId)}
+                          onMouseEnter={() => {
+                            void prefetchWorkbookSessionRuntime();
+                          }}
+                          onFocus={() => {
+                            void prefetchWorkbookSessionRuntime();
+                          }}
+                          onPointerDown={() => {
+                            void prefetchWorkbookSessionRuntime();
+                          }}
+                        >
+                          Открыть
+                        </Button>
+                        <div className="workbook-hub__card-actions">
+                          {card.kind === "CLASS" ? (
+                            <Button
+                              className="workbook-hub__card-action-btn"
+                              size="small"
+                              variant="text"
+                              startIcon={
+                                isCopying ? (
+                                  <InlineMobiusLoader size="tiny" decorative />
+                                ) : (
+                                  <ContentCopyRoundedIcon fontSize="small" />
+                                )
+                              }
+                              onClick={() => void handleCopyInvite(card)}
+                              disabled={isCopying}
+                            >
+                              Ссылка
+                            </Button>
+                          ) : null}
+                          {card.canDelete ? (
+                            <Button
+                              className="workbook-hub__card-action-btn"
+                              size="small"
+                              variant="text"
+                              startIcon={
+                                isRenaming ? (
+                                  <InlineMobiusLoader size="tiny" decorative />
+                                ) : (
+                                  <EditRoundedIcon fontSize="small" />
+                                )
+                              }
+                              onClick={() => void handleRenameCard(card)}
+                              disabled={isRenaming}
+                            >
+                              Редактировать
+                            </Button>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
-
-                    <div className="workbook-hub__card-actions-row">
-                      <Button
-                        className="workbook-hub__card-action-btn workbook-hub__card-action-btn--open"
-                        size="small"
-                        variant="text"
-                        startIcon={<OpenInNewRoundedIcon />}
-                        onClick={() => handleOpenCard(card.sessionId)}
-                        onMouseEnter={() => {
-                          void prefetchWorkbookSessionRuntime();
-                        }}
-                        onFocus={() => {
-                          void prefetchWorkbookSessionRuntime();
-                        }}
-                        onPointerDown={() => {
-                          void prefetchWorkbookSessionRuntime();
-                        }}
+                  </article>
+                );
+              })}
+            </div>
+            {totalPages > 1 ? (
+              <nav className="workbook-hub__pagination" aria-label="Пагинация карточек">
+                <button
+                  type="button"
+                  className="workbook-hub__pagination-btn"
+                  onClick={() =>
+                    setPageByScope((current) => ({
+                      ...current,
+                      [scope]: Math.max(1, currentPage - 1),
+                    }))
+                  }
+                  disabled={currentPage <= 1}
+                >
+                  Назад
+                </button>
+                <div className="workbook-hub__pagination-pages">
+                  {paginationItems.map((pageItem, index) =>
+                    pageItem === -1 ? (
+                      <span key={`ellipsis-${index}`} className="workbook-hub__pagination-ellipsis">
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={pageItem}
+                        type="button"
+                        className={`workbook-hub__pagination-btn workbook-hub__pagination-btn--page${
+                          currentPage === pageItem ? " is-active" : ""
+                        }`}
+                        onClick={() =>
+                          setPageByScope((current) => ({
+                            ...current,
+                            [scope]: pageItem,
+                          }))
+                        }
+                        aria-current={currentPage === pageItem ? "page" : undefined}
                       >
-                        Открыть
-                      </Button>
-                      <div className="workbook-hub__card-actions">
-                        {card.kind === "CLASS" ? (
-                          <Button
-                            className="workbook-hub__card-action-btn"
-                            size="small"
-                            variant="text"
-                            startIcon={
-                              isCopying ? (
-                                <InlineMobiusLoader size="tiny" decorative />
-                              ) : (
-                                <ContentCopyRoundedIcon fontSize="small" />
-                              )
-                            }
-                            onClick={() => void handleCopyInvite(card)}
-                            disabled={isCopying}
-                          >
-                            Ссылка
-                          </Button>
-                        ) : null}
-                        {card.canDelete ? (
-                          <Button
-                            className="workbook-hub__card-action-btn"
-                            size="small"
-                            variant="text"
-                            startIcon={
-                              isRenaming ? (
-                                <InlineMobiusLoader size="tiny" decorative />
-                              ) : (
-                                <EditRoundedIcon fontSize="small" />
-                              )
-                            }
-                            onClick={() => void handleRenameCard(card)}
-                            disabled={isRenaming}
-                          >
-                            Редактировать
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+                        {pageItem}
+                      </button>
+                    )
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="workbook-hub__pagination-btn"
+                  onClick={() =>
+                    setPageByScope((current) => ({
+                      ...current,
+                      [scope]: Math.min(totalPages, currentPage + 1),
+                    }))
+                  }
+                  disabled={currentPage >= totalPages}
+                >
+                  Вперед
+                </button>
+              </nav>
+            ) : null}
+          </>
         )}
       </article>
 

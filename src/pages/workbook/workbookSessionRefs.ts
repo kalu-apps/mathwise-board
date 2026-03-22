@@ -10,6 +10,7 @@ import type {
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import type { WorkbookStrokePreviewEntry } from "@/features/workbook/model/useWorkbookIncomingRuntimeController";
 import type { WorkbookAreaSelectionClipboard } from "@/features/workbook/model/workbookSessionUiTypes";
+import type { WorkbookRecoveryMode } from "@/features/workbook/model/workbookPerformance";
 import { generateId } from "@/shared/lib/id";
 import { DEFAULT_BOARD_SETTINGS } from "./WorkbookSessionPage.core";
 import type { WorkbookHistoryEntry, WorkbookHistoryOperation } from "./WorkbookSessionPage.geometry";
@@ -52,6 +53,9 @@ export const useWorkbookSessionRefs = () => {
   const undoStackRef = useRef<WorkbookHistoryEntry[]>([]);
   const redoStackRef = useRef<WorkbookHistoryEntry[]>([]);
   const latestSeqRef = useRef(0);
+  const lastAppliedSeqRef = useRef(0);
+  const recoveryModeRef = useRef<WorkbookRecoveryMode>("bootstrapping");
+  const lastAppliedBoardSettingsSeqRef = useRef(0);
   const processedEventIdsRef = useRef<Set<string>>(new Set());
   const applyHistoryOperationsRef = useRef<(operations: WorkbookHistoryOperation[]) => void>(
     () => {}
@@ -184,6 +188,9 @@ export const useWorkbookSessionRefs = () => {
       undoStackRef,
       redoStackRef,
       latestSeqRef,
+      lastAppliedSeqRef,
+      recoveryModeRef,
+      lastAppliedBoardSettingsSeqRef,
       processedEventIdsRef,
       applyHistoryOperationsRef,
       sessionChatListRef,

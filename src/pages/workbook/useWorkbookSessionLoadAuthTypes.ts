@@ -13,6 +13,7 @@ import type {
   WorkbookStroke,
   WorkbookTimerState,
 } from "@/features/workbook/model/types";
+import type { WorkbookRecoveryMode } from "@/features/workbook/model/workbookPerformance";
 import type { WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
 
 export type SetState<T> = Dispatch<SetStateAction<T>>;
@@ -57,7 +58,15 @@ export type WorkbookSessionLoadAndAuthParams = {
   queuedBoardSettingsHistoryBeforeRef: MutableRefObject<WorkbookBoardSettings | null>;
   boardSettingsCommitTimerRef: MutableRefObject<number | null>;
   latestSeqRef: MutableRefObject<number>;
+  lastAppliedSeqRef: MutableRefObject<number>;
+  lastAppliedBoardSettingsSeqRef: MutableRefObject<number>;
+  recoveryModeRef: MutableRefObject<WorkbookRecoveryMode>;
   processedEventIdsRef: MutableRefObject<Set<string>>;
+  applyIncomingEvents: (events: WorkbookEvent[]) => void;
+  filterUnseenWorkbookEvents: (
+    events: WorkbookEvent[],
+    options?: { allowLiveReplay?: boolean; ignoreSeqGuard?: boolean }
+  ) => WorkbookEvent[];
   dirtyRef: MutableRefObject<boolean>;
   undoStackRef: MutableRefObject<WorkbookHistoryEntry[]>;
   redoStackRef: MutableRefObject<WorkbookHistoryEntry[]>;
