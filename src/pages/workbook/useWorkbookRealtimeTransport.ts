@@ -14,7 +14,6 @@ import {
 } from "@/features/workbook/model/api";
 import {
   hasWorkbookEventGap,
-  resolveNextLatestSeq,
 } from "@/features/workbook/model/runtime";
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import {
@@ -23,6 +22,21 @@ import {
 } from "@/features/workbook/model/realtimeObservability";
 import type { WorkbookEvent } from "@/features/workbook/model/types";
 import type { RealtimeMetricChannel } from "@/shared/lib/realtimeMonitoring";
+
+const resolveNextRealtimeCursorFromEvents = (
+  currentSeq: number,
+  events: WorkbookEvent[]
+) => {
+  if (events.length === 0) {
+    return Math.max(0, currentSeq);
+  }
+  let nextSeq = Math.max(0, currentSeq);
+  events.forEach((event) => {
+    if (typeof event?.seq !== "number" || !Number.isFinite(event.seq)) return;
+    nextSeq = Math.max(nextSeq, Math.max(0, Math.trunc(event.seq)));
+  });
+  return nextSeq;
+};
 
 type EnqueueIncomingRealtimeApply = (batch: {
   channel: RealtimeMetricChannel;
@@ -283,10 +297,9 @@ export const useWorkbookRealtimeTransport = ({
             events: unseenEvents,
           });
         }
-        const nextLatest = resolveNextLatestSeq(
+        const nextLatest = resolveNextRealtimeCursorFromEvents(
           latestSeqRef.current,
-          response.latestSeq,
-          unseenEvents
+          response.events
         );
         if (nextLatest > latestSeqRef.current) {
           latestSeqRef.current = nextLatest;
@@ -433,10 +446,9 @@ export const useWorkbookRealtimeTransport = ({
             events: unseenEvents,
           });
         }
-        const nextLatest = resolveNextLatestSeq(
+        const nextLatest = resolveNextRealtimeCursorFromEvents(
           latestSeqRef.current,
-          payload.latestSeq,
-          unseenEvents
+          payload.events
         );
         if (nextLatest > latestSeqRef.current) {
           latestSeqRef.current = nextLatest;
@@ -503,10 +515,9 @@ export const useWorkbookRealtimeTransport = ({
             events: unseenEvents,
           });
         }
-        const nextLatest = resolveNextLatestSeq(
+        const nextLatest = resolveNextRealtimeCursorFromEvents(
           latestSeqRef.current,
-          payload.latestSeq,
-          unseenEvents
+          payload.events
         );
         if (nextLatest > latestSeqRef.current) {
           latestSeqRef.current = nextLatest;
