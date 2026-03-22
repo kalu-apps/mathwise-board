@@ -311,6 +311,58 @@ const appendForcedVisibleObjects = (params: {
 const isStrokeInsideRect = (stroke: WorkbookStroke, rect: WorkbookSceneRect) =>
   stroke.points.some((point) => isPointInsideSceneRect(point, rect));
 
+type WorkbookSceneRectCacheStats = {
+  objectRectCacheHits: number;
+  objectRectCacheMisses: number;
+  strokeRectCacheHits: number;
+  strokeRectCacheMisses: number;
+  totalStrokePoints: number;
+};
+
+const workbookObjectRectCache = new WeakMap<
+  WorkbookBoardObject,
+  WorkbookSceneRect
+>();
+const workbookStrokeRectCache = new WeakMap<WorkbookStroke, WorkbookSceneRect | null>();
+
+const resolveCachedObjectRect = (
+  object: WorkbookBoardObject,
+  getObjectRect: (object: WorkbookBoardObject) => WorkbookSceneRect,
+  stats?: WorkbookSceneRectCacheStats
+) => {
+  const cached = workbookObjectRectCache.get(object);
+  if (cached) {
+    if (stats) {
+      stats.objectRectCacheHits += 1;
+    }
+    return cached;
+  }
+  const resolved = getObjectRect(object);
+  workbookObjectRectCache.set(object, resolved);
+  if (stats) {
+    stats.objectRectCacheMisses += 1;
+  }
+  return resolved;
+};
+
+const resolveCachedStrokeRect = (
+  stroke: WorkbookStroke,
+  stats?: WorkbookSceneRectCacheStats
+) => {
+  if (workbookStrokeRectCache.has(stroke)) {
+    if (stats) {
+      stats.strokeRectCacheHits += 1;
+    }
+    return workbookStrokeRectCache.get(stroke) ?? null;
+  }
+  const resolved = getStrokeRect(stroke);
+  workbookStrokeRectCache.set(stroke, resolved);
+  if (stats) {
+    stats.strokeRectCacheMisses += 1;
+  }
+  return resolved;
+};
+
 const resolveSceneContentRect = (params: {
   sceneIndex: WorkbookSceneIndex;
   fallbackRect: WorkbookSceneRect;
@@ -331,7 +383,7 @@ const resolveSceneContentRect = (params: {
     includeRect(params.sceneIndex.getObjectRect(object));
   });
   params.sceneIndex.strokes.forEach((stroke) => {
-    const strokeRect = getStrokeRect(stroke);
+    const strokeRect = resolveCachedStrokeRect(stroke);
     if (strokeRect) {
       includeRect(strokeRect);
       return;
@@ -364,6 +416,15 @@ export type WorkbookSceneIndex = {
   allObjectIndex: WorkbookSceneRectIndex<WorkbookBoardObject>;
   allStrokeIndex: WorkbookSceneRectIndex<WorkbookStroke>;
   getObjectRect: (object: WorkbookBoardObject) => WorkbookSceneRect;
+  metrics: {
+    objectCount: number;
+    strokeCount: number;
+    totalStrokePoints: number;
+    objectRectCacheHits: number;
+    objectRectCacheMisses: number;
+    strokeRectCacheHits: number;
+    strokeRectCacheMisses: number;
+  };
 };
 
 export type WorkbookSceneAccess = {
@@ -389,16 +450,28 @@ export const buildWorkbookSceneIndex = (params: {
   strokes: WorkbookStroke[];
   getObjectRect: (object: WorkbookBoardObject) => WorkbookSceneRect;
 }): WorkbookSceneIndex => {
+  const rectCacheStats: WorkbookSceneRectCacheStats = {
+    objectRectCacheHits: 0,
+    objectRectCacheMisses: 0,
+    strokeRectCacheHits: 0,
+    strokeRectCacheMisses: 0,
+    totalStrokePoints: 0,
+  };
+  const getCachedObjectRect = (object: WorkbookBoardObject) =>
+    resolveCachedObjectRect(object, params.getObjectRect, rectCacheStats);
   const sortedBoardObjects = sortWorkbookObjectsByZOrder(params.boardObjects);
   const allObjectIndex = buildWorkbookSceneRectIndex({
     items: sortedBoardObjects,
     getKey: (object) => object.id,
-    getRect: params.getObjectRect,
+    getRect: getCachedObjectRect,
   });
   const allStrokeIndex = buildWorkbookSceneRectIndex({
     items: params.strokes,
     getKey: (stroke) => `${stroke.layer}:${stroke.id}`,
-    getRect: (stroke) => getStrokeRect(stroke),
+    getRect: (stroke) => {
+      rectCacheStats.totalStrokePoints += stroke.points.length;
+      return resolveCachedStrokeRect(stroke, rectCacheStats);
+    },
   });
   return {
     boardObjects: sortedBoardObjects,
@@ -408,7 +481,16 @@ export const buildWorkbookSceneIndex = (params: {
     unpinnedSceneLayerObjectsById: buildWorkbookSceneLayerObjectGroups(sortedBoardObjects),
     allObjectIndex,
     allStrokeIndex,
-    getObjectRect: params.getObjectRect,
+    getObjectRect: getCachedObjectRect,
+    metrics: {
+      objectCount: sortedBoardObjects.length,
+      strokeCount: params.strokes.length,
+      totalStrokePoints: rectCacheStats.totalStrokePoints,
+      objectRectCacheHits: rectCacheStats.objectRectCacheHits,
+      objectRectCacheMisses: rectCacheStats.objectRectCacheMisses,
+      strokeRectCacheHits: rectCacheStats.strokeRectCacheHits,
+      strokeRectCacheMisses: rectCacheStats.strokeRectCacheMisses,
+    },
   };
 };
 
@@ -504,7 +586,7 @@ export const buildWorkbookSceneAccessFromIndex = (params: {
   const strokeHitIndex = buildWorkbookSceneRectIndex({
     items: visibleHitStrokes,
     getKey: (stroke) => `${stroke.layer}:${stroke.id}`,
-    getRect: (stroke) => getStrokeRect(stroke),
+    getRect: (stroke) => resolveCachedStrokeRect(stroke),
     padding: STROKE_HIT_INDEX_PADDING,
   });
   return {

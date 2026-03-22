@@ -1,6 +1,7 @@
 import { compactWorkbookObjectUpdateEvents } from "@/features/workbook/model/runtime";
 import { applyWorkbookIncomingRealtimeEvent } from "@/features/workbook/model/incomingRealtime";
 import { applyWorkbookIncomingSessionMetaEvent } from "@/features/workbook/model/incomingSessionMeta";
+import { reportWorkbookPerfPhaseMetric } from "@/features/workbook/model/workbookPerformance";
 import type { WorkbookEvent } from "@/features/workbook/model/types";
 import type { WorkbookSessionStoreActions } from "@/features/workbook/model/workbookSessionStoreTypes";
 import { generateId } from "@/shared/lib/id";
@@ -63,7 +64,13 @@ export const applyWorkbookIncomingEventsBatch = ({
   applyLocalBoardObjects,
 }: ApplyWorkbookIncomingEventsBatchParams): void => {
   if (events.length === 0) return;
+  const startedAtMs =
+    typeof performance !== "undefined" && typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
   const compactedEvents = compactWorkbookObjectUpdateEvents(events);
+  let realtimeEventsApplied = 0;
+  let sessionMetaEventsApplied = 0;
   compactedEvents.forEach((event) => {
     try {
       const parsedEventTs = Date.parse(event.createdAt);
@@ -125,6 +132,7 @@ export const applyWorkbookIncomingEventsBatch = ({
           viewportSyncEpsilon: VIEWPORT_SYNC_EPSILON,
         })
       ) {
+        realtimeEventsApplied += 1;
         return;
       }
       if (
@@ -142,10 +150,25 @@ export const applyWorkbookIncomingEventsBatch = ({
           setChatMessages: actions.setChatMessages,
         })
       ) {
+        sessionMetaEventsApplied += 1;
         return;
       }
     } catch (error) {
       console.warn("Workbook event apply failed", event.type, error);
     }
+  });
+  const finishedAtMs =
+    typeof performance !== "undefined" && typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
+  reportWorkbookPerfPhaseMetric({
+    name: "incoming_apply_ms",
+    durationMs: finishedAtMs - startedAtMs,
+    counters: {
+      eventsInBatch: events.length,
+      compactedEvents: compactedEvents.length,
+      realtimeEventsApplied,
+      sessionMetaEventsApplied,
+    },
   });
 };

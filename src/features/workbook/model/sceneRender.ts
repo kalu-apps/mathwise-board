@@ -91,6 +91,12 @@ export type WorkbookObjectSceneEntryCacheRecord = {
   entry: WorkbookMaskedObjectSceneEntry;
 };
 
+export type WorkbookObjectSceneEntriesStats = {
+  totalObjects: number;
+  reusedEntries: number;
+  builtEntries: number;
+};
+
 export type WorkbookConstraintRenderSegment = {
   constraint: WorkbookConstraint;
   source: WorkbookPoint;
@@ -120,6 +126,12 @@ export type WorkbookFunctionGraphRenderStateCacheRecord = {
   gridSize: number;
   graphPanRef: GraphPanState | null;
   state: PreparedFunctionGraphRenderState;
+};
+
+export type WorkbookFunctionGraphRenderStateStats = {
+  totalVisibleGraphObjects: number;
+  reusedStates: number;
+  builtStates: number;
 };
 
 const ERASER_MASK_PADDING = 20;
@@ -331,6 +343,8 @@ export const buildWorkbookObjectSceneEntries = (params: {
   previousCache?: Map<string, WorkbookObjectSceneEntryCacheRecord>;
 }) => {
   const nextCache = new Map<string, WorkbookObjectSceneEntryCacheRecord>();
+  let reusedEntries = 0;
+  let builtEntries = 0;
   const entries = params.visibleBoardObjects.map((object) => {
     const renderSource =
       params.selectedPreviewObject?.id === object.id ? params.selectedPreviewObject : object;
@@ -351,6 +365,7 @@ export const buildWorkbookObjectSceneEntries = (params: {
       previousEntry.previewPathsRef === previewPaths &&
       previousEntry.eraserPreviewActive === params.eraserPreviewActive
     ) {
+      reusedEntries += 1;
       nextCache.set(object.id, previousEntry);
       return previousEntry.entry;
     }
@@ -372,11 +387,17 @@ export const buildWorkbookObjectSceneEntries = (params: {
       eraserPreviewActive: params.eraserPreviewActive,
       entry,
     });
+    builtEntries += 1;
     return entry;
   });
   return {
     entries,
     cache: nextCache,
+    stats: {
+      totalObjects: params.visibleBoardObjects.length,
+      reusedEntries,
+      builtEntries,
+    } satisfies WorkbookObjectSceneEntriesStats,
   };
 };
 
@@ -523,8 +544,12 @@ export const buildFunctionGraphRenderStateMap = (params: {
   const { visibleBoardObjects, selectedPreviewObject, graphPan, gridSize } = params;
   const next = new Map<string, PreparedFunctionGraphRenderState>();
   const nextCache = new Map<string, WorkbookFunctionGraphRenderStateCacheRecord>();
+  let totalVisibleGraphObjects = 0;
+  let reusedStates = 0;
+  let builtStates = 0;
   visibleBoardObjects.forEach((object) => {
     if (object.type !== "function_graph") return;
+    totalVisibleGraphObjects += 1;
     const renderSource =
       selectedPreviewObject?.id === object.id ? selectedPreviewObject : object;
     const previousEntry = params.previousCache?.get(object.id);
@@ -535,6 +560,7 @@ export const buildFunctionGraphRenderStateMap = (params: {
       previousEntry.gridSize === gridSize &&
       previousEntry.graphPanRef === graphPan
     ) {
+      reusedStates += 1;
       next.set(object.id, previousEntry.state);
       nextCache.set(object.id, previousEntry);
       return;
@@ -547,6 +573,7 @@ export const buildFunctionGraphRenderStateMap = (params: {
       graphPan,
     });
     next.set(object.id, state);
+    builtStates += 1;
     nextCache.set(object.id, {
       objectRef: object,
       renderSourceRef: renderSource,
@@ -558,5 +585,10 @@ export const buildFunctionGraphRenderStateMap = (params: {
   return {
     map: next,
     cache: nextCache,
+    stats: {
+      totalVisibleGraphObjects,
+      reusedStates,
+      builtStates,
+    } satisfies WorkbookFunctionGraphRenderStateStats,
   };
 };

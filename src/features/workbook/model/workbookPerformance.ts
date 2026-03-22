@@ -2,16 +2,85 @@ import { reportLongTaskMetric } from "@/shared/lib/performanceMonitoring";
 
 const WORKBOOK_FRAME_STALL_THRESHOLD_MS = 42;
 const WORKBOOK_FRAME_STALL_COOLDOWN_MS = 2_000;
+const WORKBOOK_PHASE_METRIC_MIN_DURATION_MS = 8;
 const nowMs = () =>
   typeof performance !== "undefined" && typeof performance.now === "function"
     ? performance.now()
     : Date.now();
+
+export const WORKBOOK_PERF_PHASE_EVENT = "workbook-performance-phase";
 
 export type WorkbookLoadStageMetricName =
   | "session_open_ms"
   | "snapshot_decode_ms"
   | "snapshot_hydrate_ms"
   | "first_interactive_ms";
+
+export type WorkbookPerfPhaseName =
+  | "incoming_apply_ms"
+  | "scene_index_rebuild_ms"
+  | "scene_access_rebuild_ms"
+  | "scene_graph_state_ms"
+  | "scene_render_entries_ms";
+
+type WorkbookPerfPhaseMetricDetail = {
+  name: WorkbookPerfPhaseName;
+  durationMs: number;
+  timestamp: string;
+  counters?: Record<string, number>;
+};
+
+export const reportWorkbookPerfPhaseMetric = (params: {
+  name: WorkbookPerfPhaseName;
+  durationMs: number;
+  counters?: Record<string, number>;
+}) => {
+  const roundedDurationMs = Math.max(
+    0,
+    Math.round(Number(params.durationMs) * 10) / 10
+  );
+  if (
+    !Number.isFinite(roundedDurationMs) ||
+    roundedDurationMs < WORKBOOK_PHASE_METRIC_MIN_DURATION_MS
+  ) {
+    return;
+  }
+  const counters =
+    params.counters &&
+    Object.fromEntries(
+      Object.entries(params.counters).filter(
+        ([, value]) => typeof value === "number" && Number.isFinite(value)
+      )
+    );
+  const detail: WorkbookPerfPhaseMetricDetail = {
+    name: params.name,
+    durationMs: roundedDurationMs,
+    timestamp: new Date().toISOString(),
+    counters:
+      counters && Object.keys(counters).length > 0 ? counters : undefined,
+  };
+  if (typeof window !== "undefined") {
+    try {
+      window.dispatchEvent(
+        new CustomEvent<WorkbookPerfPhaseMetricDetail>(
+          WORKBOOK_PERF_PHASE_EVENT,
+          {
+            detail,
+          }
+        )
+      );
+    } catch {
+      // ignore dispatch failures
+    }
+  }
+  if (roundedDurationMs >= 32) {
+    console.warn("[perf-phase]", detail.name, detail.durationMs, detail.counters ?? {});
+    return;
+  }
+  if (typeof import.meta !== "undefined" && import.meta.env?.DEV) {
+    console.info("[perf-phase]", detail.name, detail.durationMs, detail.counters ?? {});
+  }
+};
 
 export const reportWorkbookLoadStageMetric = (params: {
   sessionId: string;
