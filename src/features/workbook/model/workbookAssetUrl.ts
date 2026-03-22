@@ -1,5 +1,17 @@
+import { API_ROOT } from "@/shared/api/base";
+
 const WORKBOOK_ASSET_URL_RE =
   /^\/api\/workbook\/sessions\/[^/]+\/assets\/[^/]+(?:\/content)?$/i;
+
+const resolveApiOrigin = () => {
+  if (typeof window === "undefined") return null;
+  try {
+    const parsed = new URL(API_ROOT, window.location.origin);
+    return parsed.origin || window.location.origin;
+  } catch {
+    return window.location.origin;
+  }
+};
 
 export const normalizeWorkbookAssetContentUrl = (value: string): string => {
   if (typeof value !== "string" || value.trim().length === 0) return value;
@@ -15,6 +27,10 @@ export const normalizeWorkbookAssetContentUrl = (value: string): string => {
     }
     if (isAbsolute) {
       return parsed.toString();
+    }
+    const apiOrigin = resolveApiOrigin();
+    if (apiOrigin) {
+      return `${apiOrigin}${parsed.pathname}${parsed.search}${parsed.hash}`;
     }
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {

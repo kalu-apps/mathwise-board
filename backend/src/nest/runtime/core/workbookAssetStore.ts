@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const readPositiveInt = (value: string | undefined, fallback: number, max: number) => {
   const parsed = Number.parseInt(String(value ?? "").trim(), 10);
@@ -9,9 +10,22 @@ const readPositiveInt = (value: string | undefined, fallback: number, max: numbe
   return Math.min(max, parsed);
 };
 
-const WORKBOOK_ASSET_STORAGE_DIR =
-  String(process.env.WORKBOOK_ASSET_STORAGE_DIR ?? "").trim() ||
-  path.join(process.cwd(), ".workbook-assets");
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT_DIR = path.resolve(MODULE_DIR, "../../../../../");
+const DEFAULT_WORKBOOK_ASSET_STORAGE_DIR = path.join(PROJECT_ROOT_DIR, ".workbook-assets");
+
+const resolveWorkbookAssetStorageDirs = () => {
+  const configured = String(process.env.WORKBOOK_ASSET_STORAGE_DIR ?? "").trim();
+  const candidates = [
+    configured || DEFAULT_WORKBOOK_ASSET_STORAGE_DIR,
+    DEFAULT_WORKBOOK_ASSET_STORAGE_DIR,
+    path.join(process.cwd(), ".workbook-assets"),
+  ].map((entry) => path.resolve(entry));
+  return Array.from(new Set(candidates));
+};
+
+const WORKBOOK_ASSET_STORAGE_DIRS = resolveWorkbookAssetStorageDirs();
+const WORKBOOK_ASSET_STORAGE_DIR = WORKBOOK_ASSET_STORAGE_DIRS[0];
 const WORKBOOK_ASSET_MAX_BYTES = readPositiveInt(
   process.env.WORKBOOK_ASSET_MAX_BYTES,
   24 * 1024 * 1024,
@@ -109,9 +123,27 @@ const ensureDir = async (dir: string) => {
   await fsPromises.mkdir(dir, { recursive: true });
 };
 
-const resolveAssetPath = (assetId: string) => {
+const resolveAssetPath = (assetId: string, baseDir = WORKBOOK_ASSET_STORAGE_DIR) => {
   const hash = assetId.slice(0, 64).toLowerCase();
-  return path.join(WORKBOOK_ASSET_STORAGE_DIR, hash.slice(0, 2), assetId);
+  return path.join(baseDir, hash.slice(0, 2), assetId);
+};
+
+const findExistingAssetPath = async (assetId: string) => {
+  for (const baseDir of WORKBOOK_ASSET_STORAGE_DIRS) {
+    const assetPath = resolveAssetPath(assetId, baseDir);
+    try {
+      const stat = await fsPromises.stat(assetPath);
+      if (stat.isFile()) {
+        return {
+          path: assetPath,
+          stat,
+        };
+      }
+    } catch {
+      // Continue searching fallbacks.
+    }
+  }
+  return null;
 };
 
 export const buildWorkbookAssetUrl = (sessionId: string, assetId: string) =>
@@ -134,12 +166,15 @@ export const persistWorkbookAssetFromDataUrl = async (params: {
   const hash = crypto.createHash("sha256").update(parsed.buffer).digest("hex");
   const ext = resolveAssetExtension(mimeType, params.fileName);
   const assetId = `${hash}.${ext}`;
-  const assetPath = resolveAssetPath(assetId);
-  await ensureDir(path.dirname(assetPath));
-  try {
-    await fsPromises.access(assetPath, fs.constants.R_OK);
-  } catch {
-    await fsPromises.writeFile(assetPath, parsed.buffer);
+  const existingAsset = await findExistingAssetPath(assetId);
+  if (!existingAsset) {
+    const assetPath = resolveAssetPath(assetId);
+    await ensureDir(path.dirname(assetPath));
+    try {
+      await fsPromises.access(assetPath, fs.constants.R_OK);
+    } catch {
+      await fsPromises.writeFile(assetPath, parsed.buffer);
+    }
   }
   return {
     assetId,
@@ -154,26 +189,22 @@ export const readWorkbookAssetById = async (assetId: string) => {
   if (!SAFE_ASSET_ID_RE.test(normalizedAssetId)) {
     return null;
   }
-  const assetPath = resolveAssetPath(normalizedAssetId);
-  try {
-    const stat = await fsPromises.stat(assetPath);
-    if (!stat.isFile()) return null;
-    const ext = normalizedAssetId.split(".").pop() ?? "bin";
-    return {
-      assetId: normalizedAssetId,
-      filePath: assetPath,
-      sizeBytes: stat.size,
-      mimeType: resolveMimeTypeByExt(ext),
-      cacheControl: `public, max-age=${WORKBOOK_ASSET_CACHE_MAX_AGE_SEC}`,
-    };
-  } catch {
-    return null;
-  }
+  const resolved = await findExistingAssetPath(normalizedAssetId);
+  if (!resolved) return null;
+  const ext = normalizedAssetId.split(".").pop() ?? "bin";
+  return {
+    assetId: normalizedAssetId,
+    filePath: resolved.path,
+    sizeBytes: resolved.stat.size,
+    mimeType: resolveMimeTypeByExt(ext),
+    cacheControl: `public, max-age=${WORKBOOK_ASSET_CACHE_MAX_AGE_SEC}`,
+  };
 };
 
 export const createWorkbookAssetReadStream = (filePath: string) => fs.createReadStream(filePath);
 
 export const getWorkbookAssetStorageDiagnostics = () => ({
   dir: WORKBOOK_ASSET_STORAGE_DIR,
+  dirs: WORKBOOK_ASSET_STORAGE_DIRS,
   maxBytes: WORKBOOK_ASSET_MAX_BYTES,
 });
