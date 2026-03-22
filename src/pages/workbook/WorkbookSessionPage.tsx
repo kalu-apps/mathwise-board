@@ -110,6 +110,7 @@ import {
 } from "./WorkbookSessionToolSettingsPopover";
 import { WorkbookImportModal } from "./WorkbookImportModal";
 import { captureWorkbookSessionPreviewDataUrl } from "./workbookHubPreviewCapture";
+import { useWorkbookPageTransitionOverlay } from "./useWorkbookPageTransitionOverlay";
 
 export default function WorkbookSessionPage() {
   const { user, isAuthReady, openAuthModal } = useAuth();
@@ -1959,6 +1960,13 @@ export default function WorkbookSessionPage() {
     utilityPanelTabsProps,
     overlaysProps,
   } = layoutRuntimeProps;
+  const { isPageTransitionActive, transitionLabel } = useWorkbookPageTransitionOverlay({
+    currentPage: boardSettings.currentPage,
+    loading,
+    bootstrapReady,
+    boardObjectsRef,
+    boardStrokesRef,
+  });
 
   return (
     <section
@@ -1998,7 +2006,13 @@ export default function WorkbookSessionPage() {
           onBack={handleBack}
           onWorkspaceDragOver={handleWorkspaceDragOver}
           onWorkspaceDrop={handleWorkspaceDrop}
-          boardShellProps={boardShellProps}
+          boardShellProps={{
+            ...boardShellProps,
+            pageTransitionOverlay: {
+              active: isPageTransitionActive,
+              label: transitionLabel,
+            },
+          }}
           docsWindowOpen={docsWindow.open}
           docsWindowProps={docsWindowProps}
         />
@@ -2018,7 +2032,7 @@ export default function WorkbookSessionPage() {
         open={isImportModalOpen}
         sessionId={sessionId}
         initialFiles={pendingImportFiles}
-        fullScreen={isCompactDialogViewport}
+        fullScreen
         onClose={handleImportModalClose}
         onImportFile={handleImportModalFile}
       />

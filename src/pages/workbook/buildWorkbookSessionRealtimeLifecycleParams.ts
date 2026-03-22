@@ -265,6 +265,7 @@ export const buildWorkbookSessionRealtimeLifecycleParams = ({
     documentState: data.documentState,
     annotationStrokes: data.annotationStrokes,
     latestSeq: collab.latestSeq,
+    lastAppliedSeqRef: refs.lastAppliedSeqRef,
     authRequiredRef: refs.authRequiredRef,
     dirtyRef: refs.dirtyRef,
     dirtyRevisionRef: refs.dirtyRevisionRef,
