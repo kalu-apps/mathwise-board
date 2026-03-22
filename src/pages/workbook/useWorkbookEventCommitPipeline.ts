@@ -3,7 +3,6 @@ import { appendWorkbookEvents, appendWorkbookLiveEvents } from "@/features/workb
 import {
   isDirtyWorkbookEventType,
   isHistoryTrackedWorkbookEventType,
-  isOptimisticWorkbookEventType,
   isVolatileWorkbookEventType,
   type WorkbookClientEventInput,
 } from "@/features/workbook/model/events";
@@ -54,7 +53,6 @@ export const useWorkbookEventCommitPipeline = ({
   realtimeBackpressureV2Enabled,
   workbookLiveSendRef,
   latestSeqRef,
-  processedEventIdsRef,
   setLatestSeq,
   buildHistoryEntryFromEvents,
   filterUnseenWorkbookEvents,
@@ -128,16 +126,12 @@ export const useWorkbookEventCommitPipeline = ({
         channel: "persist",
         events: preparedEvents,
       });
-      const optimisticEventIds = preparedEvents
-        .filter((event) => isOptimisticWorkbookEventType(event.type))
-        .map((event) => event.clientEventId)
-        .filter((eventId): eventId is string => typeof eventId === "string" && eventId.length > 0);
+      // Do not pre-mark optimistic event ids as processed here.
+      // Some flows (e.g. point merge create+delete batch) do not apply
+      // local optimistic create before server ack, so pre-marking drops create.
       if (historyEntry) {
         pushHistoryEntry(historyEntry);
       }
-      optimisticEventIds.forEach((eventId) => {
-        processedEventIdsRef.current.add(eventId);
-      });
       try {
         const response = await appendWorkbookEvents({
           sessionId,
@@ -181,9 +175,6 @@ export const useWorkbookEventCommitPipeline = ({
         if (error instanceof ApiError && error.code === "conflict" && error.status === 409) {
           handleRealtimeConflict();
         }
-        optimisticEventIds.forEach((eventId) => {
-          processedEventIdsRef.current.delete(eventId);
-        });
         if (historyEntry) {
           rollbackHistoryEntry();
         }
@@ -199,7 +190,6 @@ export const useWorkbookEventCommitPipeline = ({
       handleRealtimeConflict,
       latestSeqRef,
       markDirty,
-      processedEventIdsRef,
       pushHistoryEntry,
       rollbackHistoryEntry,
       setLatestSeq,

@@ -292,20 +292,25 @@ const handleWorkbookAssetsRoute = async (
       deps.notFound(res);
       return true;
     }
-    res.statusCode = 200;
-    res.setHeader("Content-Type", asset.mimeType);
-    res.setHeader("Content-Length", String(asset.sizeBytes));
-    res.setHeader("Cache-Control", asset.cacheControl);
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    const stream = deps.createWorkbookAssetReadStream(asset.filePath);
-    stream.on("error", () => {
-      if (!res.headersSent) {
+    try {
+      const buffer = await deps.readWorkbookAssetBuffer(asset.filePath);
+      res.statusCode = 200;
+      res.setHeader("Content-Type", asset.mimeType);
+      res.setHeader("Content-Length", String(buffer.length));
+      res.setHeader("Cache-Control", asset.cacheControl);
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.end(buffer);
+    } catch (error) {
+      const code =
+        error && typeof error === "object" && "code" in error
+          ? String((error as { code?: unknown }).code ?? "")
+          : "";
+      if (code === "ENOENT" || code === "ENOTDIR") {
         deps.notFound(res);
-        return;
+        return true;
       }
-      res.end();
-    });
-    stream.pipe(res);
+      deps.json(res, 500, { error: "workbook_asset_read_failed" });
+    }
     return true;
   }
 
