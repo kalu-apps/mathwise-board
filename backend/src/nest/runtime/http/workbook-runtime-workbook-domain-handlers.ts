@@ -40,6 +40,30 @@ const isDataUrl = (value: unknown): value is string =>
 
 const WORKBOOK_ASSET_URL_RE = /^\/api\/workbook\/sessions\/[^/]+\/assets\/[^/]+(?:\/content)?$/i;
 
+const firstHeaderValue = (value: string | string[] | undefined) => {
+  if (Array.isArray(value)) return String(value[0] ?? "").trim();
+  return String(value ?? "").trim();
+};
+
+const resolveRequestOrigin = (req: IncomingMessage) => {
+  const forwardedProtoRaw = firstHeaderValue(req.headers["x-forwarded-proto"]);
+  const forwardedHostRaw = firstHeaderValue(req.headers["x-forwarded-host"]);
+  const hostRaw = forwardedHostRaw || firstHeaderValue(req.headers.host);
+  if (!hostRaw) return null;
+  const proto = (forwardedProtoRaw.split(",")[0] || "").trim().toLowerCase();
+  const scheme = proto === "http" || proto === "https" ? proto : "https";
+  const host = (hostRaw.split(",")[0] || "").trim();
+  if (!host) return null;
+  return `${scheme}://${host}`;
+};
+
+const toAbsoluteAssetUrl = (req: IncomingMessage, urlPath: string) => {
+  if (typeof urlPath !== "string" || !urlPath.startsWith("/")) return urlPath;
+  const origin = resolveRequestOrigin(req);
+  if (!origin) return urlPath;
+  return `${origin}${urlPath}`;
+};
+
 const normalizeWorkbookAssetContentUrl = (value: unknown) => {
   if (typeof value !== "string" || value.trim().length === 0) return value;
   const rawValue = value.trim();
@@ -231,7 +255,7 @@ const handleWorkbookAssetsRoute = async (
       });
       deps.json(res, 200, {
         assetId: stored.assetId,
-        url: stored.url,
+        url: toAbsoluteAssetUrl(req, stored.url),
         mimeType: stored.mimeType,
         sizeBytes: stored.sizeBytes,
       });
