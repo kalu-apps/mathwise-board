@@ -1889,7 +1889,7 @@ export const upsertWorkbookSessionSnapshot = async (params: {
           version = EXCLUDED.version,
           payload = EXCLUDED.payload,
           created_at = EXCLUDED.created_at
-        WHERE EXCLUDED.version >= ${SNAPSHOT_TABLE}.version
+        WHERE EXCLUDED.version > ${SNAPSHOT_TABLE}.version
         RETURNING id, session_id, layer, version, payload, created_at
       `,
       [snapshotId, sessionId, layer, version, JSON.stringify(payload), timestamp]
@@ -1923,7 +1923,7 @@ export const upsertWorkbookSessionSnapshot = async (params: {
 
   let snapshot: WorkbookSnapshotRecord;
   if (existing) {
-    if (version < existing.version) {
+    if (version <= existing.version) {
       return mapFileSnapshot(existing);
     }
     existing.version = version;

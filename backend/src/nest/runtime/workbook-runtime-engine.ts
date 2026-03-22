@@ -1448,7 +1448,7 @@ type DraftPreviewMeta = {
 };
 
 type DraftActivityMeta = {
-  activityLabel: "Idle" | "Active" | "Recently active";
+  activityLabel: "Пауза" | "Идет сессия" | "Недавняя активность";
   activityTone: "idle" | "active" | "recent";
 };
 
@@ -1553,7 +1553,7 @@ const resolveDraftActivityMeta = (
     participants.some((participant) => participant.isActive && isParticipantOnline(participant))
   ) {
     return {
-      activityLabel: "Active",
+      activityLabel: "Идет сессия",
       activityTone: "active",
     };
   }
@@ -1565,13 +1565,13 @@ const resolveDraftActivityMeta = (
     nowTs() - lastActivityTs <= RECENT_ACTIVITY_WINDOW_MS
   ) {
     return {
-      activityLabel: "Recently active",
+      activityLabel: "Недавняя активность",
       activityTone: "recent",
     };
   }
 
   return {
-    activityLabel: "Idle",
+    activityLabel: "Пауза",
     activityTone: "idle",
   };
 };

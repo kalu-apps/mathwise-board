@@ -101,9 +101,9 @@ export const useWorkbookSessionLoadSession = ({
           setSaveSyncWarning,
         });
       };
-      clearIncomingRealtimeApplyQueue();
       clearLocalPreviewPatchRuntime();
       if (!isBackground) {
+        clearIncomingRealtimeApplyQueue();
         setBootstrapReady(false);
         firstInteractiveMetricReportedRef.current = false;
         setLoading(true);
@@ -144,6 +144,12 @@ export const useWorkbookSessionLoadSession = ({
           const shouldApplyAnnotationSnapshot = !isBackground
             ? true
             : annotationSnapshot !== null && annotationSnapshotVersion > currentLatestSeq;
+          const shouldDecodeSnapshots = shouldApplyBoardSnapshot || shouldApplyAnnotationSnapshot;
+          if (!isBackground || shouldDecodeSnapshots) {
+            // Keep queued realtime updates during background soft-resync when snapshot
+            // won't be re-applied. This avoids losing pending changes under load.
+            clearIncomingRealtimeApplyQueue();
+          }
           setSession(sessionData);
           queuedBoardSettingsCommitRef.current = null;
           queuedBoardSettingsHistoryBeforeRef.current = null;
@@ -152,7 +158,6 @@ export const useWorkbookSessionLoadSession = ({
             boardSettingsCommitTimerRef.current = null;
           }
 
-          const shouldDecodeSnapshots = shouldApplyBoardSnapshot || shouldApplyAnnotationSnapshot;
           const snapshotDecodeStartedAtMs = shouldDecodeSnapshots ? getNowMs() : null;
           const decodedSnapshots = shouldDecodeSnapshots
             ? await decodeWorkbookSceneSnapshots({
