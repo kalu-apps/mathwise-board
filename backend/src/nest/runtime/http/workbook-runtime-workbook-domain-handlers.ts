@@ -35,6 +35,230 @@ type WorkbookDomainDeps = Record<string, any> & {
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
+const isDataUrl = (value: unknown): value is string =>
+  typeof value === "string" && value.startsWith("data:");
+
+const normalizeBoardObjectImageUrl = async (
+  sessionId: string,
+  object: unknown,
+  deps: WorkbookDomainDeps
+) => {
+  if (!object || typeof object !== "object") return;
+  const typedObject = object as { imageUrl?: unknown; imageName?: unknown };
+  if (!isDataUrl(typedObject.imageUrl)) return;
+  const stored = await deps.persistWorkbookAssetFromDataUrl({
+    sessionId,
+    dataUrl: typedObject.imageUrl,
+    fileName: typeof typedObject.imageName === "string" ? typedObject.imageName : undefined,
+  });
+  typedObject.imageUrl = stored.url;
+};
+
+const normalizeDocumentAssetMedia = async (
+  sessionId: string,
+  asset: unknown,
+  deps: WorkbookDomainDeps
+) => {
+  if (!asset || typeof asset !== "object") return;
+  const typedAsset = asset as {
+    name?: unknown;
+    url?: unknown;
+    renderedPages?: unknown;
+  };
+  if (isDataUrl(typedAsset.url)) {
+    const stored = await deps.persistWorkbookAssetFromDataUrl({
+      sessionId,
+      dataUrl: typedAsset.url,
+      fileName: typeof typedAsset.name === "string" ? typedAsset.name : undefined,
+    });
+    typedAsset.url = stored.url;
+  }
+  if (!Array.isArray(typedAsset.renderedPages)) return;
+  for (const page of typedAsset.renderedPages) {
+    if (!page || typeof page !== "object") continue;
+    const typedPage = page as { imageUrl?: unknown; id?: unknown };
+    if (!isDataUrl(typedPage.imageUrl)) continue;
+    const stored = await deps.persistWorkbookAssetFromDataUrl({
+      sessionId,
+      dataUrl: typedPage.imageUrl,
+      fileName: typeof typedAsset.name === "string" ? `${typedAsset.name}-render` : undefined,
+    });
+    typedPage.imageUrl = stored.url;
+  }
+};
+
+const normalizeSnapshotPayloadMedia = async (
+  sessionId: string,
+  payload: unknown,
+  deps: WorkbookDomainDeps
+) => {
+  if (!payload || typeof payload !== "object") return payload;
+  const typedPayload = payload as {
+    objects?: unknown;
+    document?: unknown;
+  };
+
+  if (Array.isArray(typedPayload.objects)) {
+    for (const object of typedPayload.objects) {
+      await normalizeBoardObjectImageUrl(sessionId, object, deps);
+    }
+  }
+
+  const normalizeDocumentStateAssets = async (documentState: unknown) => {
+    if (!documentState || typeof documentState !== "object") return;
+    const typedDocumentState = documentState as { assets?: unknown };
+    if (!Array.isArray(typedDocumentState.assets)) return;
+    for (const asset of typedDocumentState.assets) {
+      await normalizeDocumentAssetMedia(sessionId, asset, deps);
+    }
+  };
+
+  await normalizeDocumentStateAssets(typedPayload.document);
+  if (Array.isArray((typedPayload as { assets?: unknown }).assets)) {
+    await normalizeDocumentStateAssets(typedPayload);
+  }
+  return typedPayload;
+};
+
+const normalizeEventsMediaPayloads = async (
+  sessionId: string,
+  events: WorkbookClientEventInput[],
+  deps: WorkbookDomainDeps
+) => {
+  const normalizedEvents: WorkbookClientEventInput[] = [];
+  for (const event of events) {
+    if (!event || typeof event !== "object") continue;
+    if (typeof event.type !== "string") continue;
+    const nextEvent = {
+      ...event,
+      payload:
+        event.payload && typeof event.payload === "object"
+          ? { ...(event.payload as Record<string, unknown>) }
+          : event.payload,
+    } as WorkbookClientEventInput;
+
+    if (
+      (nextEvent.type === "board.object.create" || nextEvent.type === "board.object.update") &&
+      nextEvent.payload &&
+      typeof nextEvent.payload === "object"
+    ) {
+      const payload = nextEvent.payload as {
+        object?: unknown;
+        patch?: unknown;
+      };
+      if (payload.object && typeof payload.object === "object") {
+        await normalizeBoardObjectImageUrl(sessionId, payload.object, deps);
+      }
+      if (payload.patch && typeof payload.patch === "object") {
+        await normalizeBoardObjectImageUrl(sessionId, payload.patch, deps);
+      }
+    }
+
+    if (nextEvent.type === "document.asset.add" && nextEvent.payload && typeof nextEvent.payload === "object") {
+      const payload = nextEvent.payload as { asset?: unknown };
+      await normalizeDocumentAssetMedia(sessionId, payload.asset, deps);
+    }
+
+    if (nextEvent.type === "document.state.update" && nextEvent.payload && typeof nextEvent.payload === "object") {
+      const payload = nextEvent.payload as { document?: unknown };
+      await normalizeSnapshotPayloadMedia(sessionId, payload.document, deps);
+    }
+
+    normalizedEvents.push(nextEvent);
+  }
+  return normalizedEvents;
+};
+
+const handleWorkbookAssetsRoute = async (
+  context: RuntimeRequestContext,
+  deps: WorkbookDomainDeps
+): Promise<boolean> => {
+  const { req, res, db, method, pathname } = context;
+
+  const workbookAssetUploadMatch = pathname.match(/^\/api\/workbook\/sessions\/([^/]+)\/assets$/);
+  if (workbookAssetUploadMatch && method === "POST") {
+    const actor = deps.requireAuthUser(req, res, db);
+    if (!actor) return true;
+    const sessionId = decodeURIComponent(workbookAssetUploadMatch[1]);
+    if (!deps.getWorkbookParticipant(db, sessionId, actor.id)) {
+      deps.forbidden(res);
+      return true;
+    }
+    const body = (await deps.readBody(req)) as {
+      fileName?: string;
+      mimeType?: string;
+      dataUrl?: string;
+    } | null;
+    if (typeof body?.dataUrl !== "string" || !body.dataUrl.startsWith("data:")) {
+      deps.badRequest(res, "Некорректный payload ассета.");
+      return true;
+    }
+    try {
+      const stored = await deps.persistWorkbookAssetFromDataUrl({
+        sessionId,
+        dataUrl: body.dataUrl,
+        fileName: typeof body.fileName === "string" ? body.fileName : undefined,
+        mimeType: typeof body.mimeType === "string" ? body.mimeType : undefined,
+      });
+      deps.json(res, 200, {
+        assetId: stored.assetId,
+        url: stored.url,
+        mimeType: stored.mimeType,
+        sizeBytes: stored.sizeBytes,
+      });
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "workbook_asset_upload_failed";
+      if (message === "workbook_asset_too_large") {
+        deps.json(res, 413, { error: message });
+        return true;
+      }
+      if (message === "workbook_asset_invalid_data_url") {
+        deps.badRequest(res, "Некорректный data URL ассета.");
+        return true;
+      }
+      deps.json(res, 500, { error: "workbook_asset_upload_failed" });
+      return true;
+    }
+  }
+
+  const workbookAssetReadMatch = pathname.match(
+    /^\/api\/workbook\/sessions\/([^/]+)\/assets\/([^/]+)$/
+  );
+  if (workbookAssetReadMatch && method === "GET") {
+    const actor = deps.requireAuthUser(req, res, db);
+    if (!actor) return true;
+    const sessionId = decodeURIComponent(workbookAssetReadMatch[1]);
+    const assetId = decodeURIComponent(workbookAssetReadMatch[2]);
+    if (!deps.getWorkbookParticipant(db, sessionId, actor.id)) {
+      deps.forbidden(res);
+      return true;
+    }
+    const asset = await deps.readWorkbookAssetById(assetId);
+    if (!asset) {
+      deps.notFound(res);
+      return true;
+    }
+    res.statusCode = 200;
+    res.setHeader("Content-Type", asset.mimeType);
+    res.setHeader("Content-Length", String(asset.sizeBytes));
+    res.setHeader("Cache-Control", asset.cacheControl);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    const stream = deps.createWorkbookAssetReadStream(asset.filePath);
+    stream.on("error", () => {
+      if (!res.headersSent) {
+        deps.notFound(res);
+        return;
+      }
+      res.end();
+    });
+    stream.pipe(res);
+    return true;
+  }
+
+  return false;
+};
+
 const handleWorkbookEventsRoute = async (
   context: RuntimeRequestContext,
   deps: WorkbookDomainDeps
@@ -87,10 +311,11 @@ const handleWorkbookEventsRoute = async (
       deps.badRequest(res, "Нет событий для сохранения.");
       return true;
     }
+    const normalizedEvents = await normalizeEventsMediaPayloads(sessionId, events, deps);
     const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_events_append";
     const requestFingerprint = deps.hashWorkbookOperationFingerprint({
       sessionId,
-      events,
+      events: normalizedEvents,
     });
     const idempotencyKey = deps.resolveWriteIdempotencyKey({
       req,
@@ -98,7 +323,7 @@ const handleWorkbookEventsRoute = async (
       actorUserId: actor.id,
       sessionId,
       payloadFingerprint: {
-        events,
+        events: normalizedEvents,
       },
     });
     const existingOperation = deps.readWorkbookIdempotentOperation(db, {
@@ -116,7 +341,7 @@ const handleWorkbookEventsRoute = async (
       return true;
     }
 
-    for (const event of events) {
+    for (const event of normalizedEvents) {
       if (event.type === "media.signal" && !participant.permissions.canUseMedia) {
         deps.forbidden(res, "media_disabled");
         return true;
@@ -161,7 +386,7 @@ const handleWorkbookEventsRoute = async (
     const versionGuardResult = await deps.applyWorkbookObjectVersionGuard({
       db,
       sessionId,
-      events,
+      events: normalizedEvents,
     });
     if (!versionGuardResult.ok) {
       deps.json(res, 409, {
@@ -517,11 +742,16 @@ const handleWorkbookSnapshotAndPdfRoute = async (
       deps.forbidden(res);
       return true;
     }
-    const body = (await deps.readBody(req)) as {
+    const rawBody = (await deps.readBody(req)) as {
       layer?: "board" | "annotations";
       version?: number;
       payload?: unknown;
     } | null;
+    const body = {
+      layer: rawBody?.layer,
+      version: rawBody?.version,
+      payload: await normalizeSnapshotPayloadMedia(sessionId, rawBody?.payload ?? null, deps),
+    };
     const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_snapshot_upsert";
     const requestFingerprint = deps.hashWorkbookOperationFingerprint({
       sessionId,
@@ -871,6 +1101,10 @@ export const handleWorkbookDomainRoute = async (
   context: RuntimeRequestContext,
   deps: WorkbookDomainDeps
 ): Promise<boolean> => {
+  if (await handleWorkbookAssetsRoute(context, deps)) {
+    return true;
+  }
+
   if (await handleWorkbookEventsRoute(context, deps)) {
     return true;
   }

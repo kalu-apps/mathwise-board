@@ -1328,6 +1328,7 @@ export default function WorkbookSessionPage() {
     handleClearDocumentAnnotations,
     handleLoadBoardFile,
   } = useWorkbookSessionDocumentHandlers({
+    sessionId,
     canInsertImage,
     userId: user?.id,
     canvasViewport,

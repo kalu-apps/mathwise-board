@@ -1,11 +1,10 @@
 import { useCallback, type ChangeEvent, type MutableRefObject } from "react";
-import { renderWorkbookPdfPages } from "@/features/workbook/model/api";
+import { renderWorkbookPdfPages, uploadWorkbookAsset } from "@/features/workbook/model/api";
 import { buildWorkbookBoardObjectIndex } from "@/features/workbook/model/boardObjectStore";
 import {
   buildWorkbookDocumentAsset,
   buildWorkbookDocumentBoardObject,
   buildWorkbookSnapshotBoardObject,
-  buildWorkbookSyncedDocumentAsset,
   resolvePrimaryDocumentRenderedPage,
   resolveWorkbookBoardInsertPosition,
 } from "@/features/workbook/model/documentAssets";
@@ -44,10 +43,8 @@ import { normalizeSceneLayersForBoard } from "./WorkbookSessionPage.geometry";
 
 type SetState<T> = (value: T | ((current: T) => T)) => void;
 
-const WORKBOOK_DOCUMENT_SYNC_IMAGE_MAX_DATA_URL_CHARS = 96_000;
-const WORKBOOK_DOCUMENT_SYNC_RENDERED_IMAGE_MAX_DATA_URL_CHARS = 64_000;
-
 type UseWorkbookSessionDocumentHandlersParams = {
+  sessionId: string | null;
   canInsertImage: boolean;
   userId?: string;
   canvasViewport: {
@@ -92,6 +89,7 @@ type UseWorkbookSessionDocumentHandlersParams = {
 };
 
 export const useWorkbookSessionDocumentHandlers = ({
+  sessionId,
   canInsertImage,
   userId,
   canvasViewport,
@@ -149,64 +147,9 @@ export const useWorkbookSessionDocumentHandlers = ({
           },
         },
       ];
-      const compactAssetForSync = async (
-        sourceAsset: WorkbookDocumentAssetLike
-      ): Promise<WorkbookDocumentAssetLike> => {
-        let changed = false;
-        let compactedUrl = sourceAsset.url;
-        if (typeof compactedUrl === "string" && compactedUrl.startsWith("data:image/")) {
-          const nextUrl = await optimizeImageDataUrl(compactedUrl, {
-            maxEdge: 1_200,
-            quality: 0.64,
-            maxChars: WORKBOOK_DOCUMENT_SYNC_IMAGE_MAX_DATA_URL_CHARS,
-          });
-          if (nextUrl.length < compactedUrl.length) {
-            compactedUrl = nextUrl;
-            changed = true;
-          }
-        }
-        let compactedRenderedPages = sourceAsset.renderedPages;
-        if (Array.isArray(sourceAsset.renderedPages) && sourceAsset.renderedPages.length > 0) {
-          const nextRenderedPages = await Promise.all(
-            sourceAsset.renderedPages.map(async (renderedPage) => {
-              if (
-                typeof renderedPage.imageUrl !== "string" ||
-                !renderedPage.imageUrl.startsWith("data:image/")
-              ) {
-                return renderedPage;
-              }
-              const compactedRenderedImageUrl = await optimizeImageDataUrl(
-                renderedPage.imageUrl,
-                {
-                  maxEdge: 980,
-                  quality: 0.6,
-                  maxChars: WORKBOOK_DOCUMENT_SYNC_RENDERED_IMAGE_MAX_DATA_URL_CHARS,
-                }
-              );
-              if (compactedRenderedImageUrl.length < renderedPage.imageUrl.length) {
-                changed = true;
-                return {
-                  ...renderedPage,
-                  imageUrl: compactedRenderedImageUrl,
-                };
-              }
-              return renderedPage;
-            })
-          );
-          compactedRenderedPages = nextRenderedPages;
-        }
-        if (!changed) return sourceAsset;
-        return {
-          ...sourceAsset,
-          url: compactedUrl,
-          renderedPages: compactedRenderedPages,
-        };
-      };
-
-      let syncAsset = asset;
       for (let attempt = 0; attempt < 4; attempt += 1) {
         try {
-          await appendEventsAndApply(buildSyncEvents(syncAsset));
+          await appendEventsAndApply(buildSyncEvents(asset));
           return;
         } catch (error) {
           const isConflict =
@@ -218,19 +161,6 @@ export const useWorkbookSessionDocumentHandlers = ({
               window.setTimeout(resolve, 180 * (attempt + 1));
             });
             continue;
-          }
-          if (error instanceof ApiError && error.status === 413) {
-            const compactedAsset = await compactAssetForSync(syncAsset);
-            if (compactedAsset !== syncAsset) {
-              syncAsset = compactedAsset;
-              if (attempt >= 3) {
-                throw error;
-              }
-              await new Promise<void>((resolve) => {
-                window.setTimeout(resolve, 120);
-              });
-              continue;
-            }
           }
           if (isRecoverableApiError(error) && attempt < 3) {
             await new Promise<void>((resolve) => {
@@ -248,7 +178,7 @@ export const useWorkbookSessionDocumentHandlers = ({
   const handleDocsUpload = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
-      if (!file || !canInsertImage) return;
+      if (!file || !canInsertImage || !sessionId) return;
       event.target.value = "";
       try {
         setUploadingDoc(true);
@@ -279,7 +209,7 @@ export const useWorkbookSessionDocumentHandlers = ({
           return;
         }
         const sourceDataUrl = await readFileAsDataUrl(file);
-        const documentAssetUrl = isImage
+        const documentAssetDataUrl = isImage
           ? await optimizeImageDataUrl(sourceDataUrl, {
               maxEdge: 1_600,
               quality: 0.82,
@@ -290,7 +220,7 @@ export const useWorkbookSessionDocumentHandlers = ({
           setUploadProgress(45);
           const rendered = await renderWorkbookPdfPages({
             fileName: file.name,
-            dataUrl: documentAssetUrl,
+            dataUrl: documentAssetDataUrl,
             dpi: 128,
             maxPages: 8,
           });
@@ -302,27 +232,44 @@ export const useWorkbookSessionDocumentHandlers = ({
             return;
           }
         }
-        setUploadProgress(68);
+        setUploadProgress(56);
+        const uploadedDocumentAsset = await uploadWorkbookAsset({
+          sessionId,
+          fileName: file.name,
+          dataUrl: documentAssetDataUrl,
+          mimeType: file.type || (isPdf ? "application/pdf" : isImage ? "image/jpeg" : undefined),
+        });
+        let syncedRenderedPages = renderedPages;
+        if (Array.isArray(renderedPages) && renderedPages.length > 0) {
+          const uploadedRenderedPages: NonNullable<WorkbookDocumentAssetLike["renderedPages"]> = [];
+          for (let index = 0; index < renderedPages.length; index += 1) {
+            const renderedPage = renderedPages[index];
+            const uploadedPageAsset = await uploadWorkbookAsset({
+              sessionId,
+              fileName: `${file.name}-page-${renderedPage.page}.jpg`,
+              dataUrl: renderedPage.imageUrl,
+              mimeType: "image/jpeg",
+            });
+            uploadedRenderedPages.push({
+              ...renderedPage,
+              imageUrl: uploadedPageAsset.url,
+            });
+            const progress = 58 + Math.round(((index + 1) / renderedPages.length) * 14);
+            setUploadProgress(Math.min(72, progress));
+          }
+          syncedRenderedPages = uploadedRenderedPages;
+        }
+        setUploadProgress(72);
         const insertPosition = resolveWorkbookBoardInsertPosition(
           canvasViewport,
           boardObjectCount
         );
         const renderedPage = isPdf
-          ? resolvePrimaryDocumentRenderedPage(renderedPages, 1)
+          ? resolvePrimaryDocumentRenderedPage(syncedRenderedPages, 1)
           : null;
         const objectImageUrl = isImage
-          ? await optimizeImageDataUrl(sourceDataUrl, {
-              maxEdge: 1_200,
-              quality: 0.74,
-              maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
-            })
-          : renderedPage?.imageUrl
-            ? await optimizeImageDataUrl(renderedPage.imageUrl, {
-                maxEdge: 1_100,
-                quality: 0.72,
-                maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
-              })
-            : undefined;
+          ? uploadedDocumentAsset.url
+          : renderedPage?.imageUrl;
         if (isImage && !objectImageUrl) {
           setError(
             "Не удалось добавить изображение: браузер не смог обработать файл. Попробуйте другой формат или меньший размер."
@@ -335,16 +282,10 @@ export const useWorkbookSessionDocumentHandlers = ({
           assetId,
           fileName: file.name,
           type: isPdf ? "pdf" : isImage ? "image" : "file",
-          url: documentAssetUrl,
+          url: uploadedDocumentAsset.url,
           uploadedBy: userId ?? "unknown",
           uploadedAt,
-          renderedPages,
-        });
-        const syncedAsset = buildWorkbookSyncedDocumentAsset({
-          asset,
-          syncedUrl: isImage ? documentAssetUrl : objectImageUrl || "data:,",
-          renderedPage,
-          imageUrl: objectImageUrl,
+          renderedPages: syncedRenderedPages,
         });
         const object = buildWorkbookDocumentBoardObject({
           objectId: generateId(),
@@ -360,7 +301,7 @@ export const useWorkbookSessionDocumentHandlers = ({
         const created = await commitObjectCreate(object);
         if (!created) return;
         try {
-          await syncUploadedDocumentAsset(assetId, syncedAsset);
+          await syncUploadedDocumentAsset(assetId, asset);
         } catch (error) {
           if (error instanceof ApiError && error.status === 413) {
             setError(
@@ -381,7 +322,7 @@ export const useWorkbookSessionDocumentHandlers = ({
           name: file.name,
           type: isPdf ? "pdf" : isImage ? "image" : "office",
           ownerUserId: userId ?? "unknown",
-          sourceUrl: isImage ? documentAssetUrl : objectImageUrl ?? documentAssetUrl,
+          sourceUrl: isImage ? uploadedDocumentAsset.url : objectImageUrl ?? uploadedDocumentAsset.url,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           folderId: null,
@@ -418,6 +359,7 @@ export const useWorkbookSessionDocumentHandlers = ({
       canInsertImage,
       canvasViewport,
       commitObjectCreate,
+      sessionId,
       setError,
       setUploadProgress,
       setUploadingDoc,
@@ -435,8 +377,9 @@ export const useWorkbookSessionDocumentHandlers = ({
       active.type === "pdf"
         ? resolvePrimaryDocumentRenderedPage(active.renderedPages, documentState.page)
         : null;
-    const snapshotImageUrl =
-      active.type === "image"
+    let snapshotImageUrl: string | undefined;
+    if (active.type === "image") {
+      snapshotImageUrl = active.url.startsWith("data:image/")
         ? active.url.length <= WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS
           ? active.url
           : await optimizeImageDataUrl(active.url, {
@@ -444,13 +387,16 @@ export const useWorkbookSessionDocumentHandlers = ({
               quality: 0.74,
               maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
             })
-        : renderedPage
-          ? await optimizeImageDataUrl(renderedPage.imageUrl, {
-              maxEdge: 1_100,
-              quality: 0.72,
-              maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
-            })
-          : undefined;
+        : active.url;
+    } else if (renderedPage) {
+      snapshotImageUrl = renderedPage.imageUrl.startsWith("data:image/")
+        ? await optimizeImageDataUrl(renderedPage.imageUrl, {
+            maxEdge: 1_100,
+            quality: 0.72,
+            maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
+          })
+        : renderedPage.imageUrl;
+    }
     const object = buildWorkbookSnapshotBoardObject({
       objectId: generateId(),
       asset: active,
