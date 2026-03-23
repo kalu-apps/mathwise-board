@@ -282,6 +282,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const eraserLastAppliedPointRef = useRef<WorkbookPoint | null>(null);
   const eraserLastPreviewPointRef = useRef<WorkbookPoint | null>(null);
   const [inlineTextEdit, setInlineTextEdit] = useState<InlineTextEditDraft | null>(null);
+  const inlineTextLastInputAtRef = useRef(0);
   const [pendingCommittedBridgeStrokeId, setPendingCommittedBridgeStrokeId] = useState<
     string | null
   >(null);
@@ -473,6 +474,31 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     inlineTextEditInputRef.current.select();
   }, [inlineTextEdit?.objectId]);
 
+  useEffect(() => {
+    if (!inlineTextEdit) return;
+    const target = objectById.get(inlineTextEdit.objectId);
+    if (!target || target.type !== "text") return;
+    const nextText = typeof target.text === "string" ? target.text : "";
+    if (nextText === inlineTextEdit.value) return;
+    if (Date.now() - inlineTextLastInputAtRef.current < 220) return;
+    setInlineTextEdit((current) =>
+      current && current.objectId === target.id
+        ? {
+            ...current,
+            value: nextText,
+          }
+        : current
+    );
+  }, [inlineTextEdit, objectById]);
+
+  const handleInlineTextDraftChange = useCallback(
+    (objectId: string, text: string) => {
+      inlineTextLastInputAtRef.current = Date.now();
+      onInlineTextDraftChange?.(objectId, text);
+    },
+    [onInlineTextDraftChange]
+  );
+
   const resolveMovingGroup = useCallback(
     (object: WorkbookBoardObject) => {
       const layerId = getObjectSceneLayerId(object);
@@ -610,7 +636,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     imageAssetUrls,
     inlineTextEdit,
     inlineTextEditInputRef,
-    onInlineTextDraftChange,
+    onInlineTextDraftChange: handleInlineTextDraftChange,
     commitInlineTextEdit,
     setInlineTextEdit,
     cancelInlineTextEdit,

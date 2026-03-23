@@ -380,6 +380,7 @@ export const useWorkbookSelectedGraphTextActions = ({
         markDirty: true,
       }
     );
+    selectedTextDraftDirtyRef.current = false;
   }, [
     boardObjectsRef,
     selectedObjectId,
