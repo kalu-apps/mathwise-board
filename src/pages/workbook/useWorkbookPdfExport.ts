@@ -1,7 +1,9 @@
 import { useCallback, type MutableRefObject } from "react";
 import {
+  getObjectExportBounds,
   getStrokeExportBounds,
-  splitExportBoundsToA4Tiles,
+  mergeExportBounds,
+  padExportBounds,
   type WorkbookExportBounds,
 } from "@/features/workbook/model/export";
 import type {
@@ -52,6 +54,126 @@ const resolvePageExportBounds = (): WorkbookExportBounds => ({
   height: WORKBOOK_PAGE_FRAME_BOUNDS.height,
 });
 
+const EXPORT_A4_PORTRAIT_RATIO = 210 / 297;
+const EXPORT_CONTENT_BOUNDS_PADDING_PX = 56;
+const EXPORT_IMAGE_READY_TIMEOUT_MS = 5_000;
+const preloadedExportImageUrls = new Set<string>();
+
+const resolveSvgImageHref = (node: SVGImageElement) => {
+  const href = node.getAttribute("href");
+  if (typeof href === "string" && href.trim().length > 0) return href.trim();
+  const xlinkHref = node.getAttributeNS("http://www.w3.org/1999/xlink", "href");
+  return typeof xlinkHref === "string" && xlinkHref.trim().length > 0 ? xlinkHref.trim() : "";
+};
+
+const waitForImageUrlReady = (url: string, timeoutMs = EXPORT_IMAGE_READY_TIMEOUT_MS) =>
+  new Promise<void>((resolve) => {
+    const source = typeof url === "string" ? url.trim() : "";
+    if (!source) {
+      resolve();
+      return;
+    }
+    if (preloadedExportImageUrls.has(source)) {
+      resolve();
+      return;
+    }
+    let settled = false;
+    let timeoutId: number | null = null;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+      preloadedExportImageUrls.add(source);
+      resolve();
+    };
+    try {
+      const image = new Image();
+      image.decoding = "async";
+      image.onload = finish;
+      image.onerror = finish;
+      image.src = source;
+      if (image.complete) {
+        finish();
+        return;
+      }
+      if (typeof image.decode === "function") {
+        void image.decode().then(finish).catch(() => undefined);
+      }
+      timeoutId = window.setTimeout(finish, timeoutMs);
+    } catch {
+      finish();
+    }
+  });
+
+const waitForSvgImageResources = async (svg: SVGSVGElement) => {
+  const hrefs = Array.from(svg.querySelectorAll<SVGImageElement>("image"))
+    .map(resolveSvgImageHref)
+    .filter((value): value is string => value.length > 0);
+  const uniqueHrefs = Array.from(new Set(hrefs));
+  if (uniqueHrefs.length === 0) return;
+  await Promise.allSettled(uniqueHrefs.map((href) => waitForImageUrlReady(href)));
+};
+
+const fitBoundsToA4PortraitRatio = (bounds: WorkbookExportBounds): WorkbookExportBounds => {
+  const width = Math.max(1, bounds.width);
+  const height = Math.max(1, bounds.height);
+  const currentRatio = width / height;
+  if (Math.abs(currentRatio - EXPORT_A4_PORTRAIT_RATIO) <= 0.0001) {
+    return {
+      minX: bounds.minX,
+      minY: bounds.minY,
+      maxX: bounds.maxX,
+      maxY: bounds.maxY,
+      width,
+      height,
+    };
+  }
+  if (currentRatio > EXPORT_A4_PORTRAIT_RATIO) {
+    const targetHeight = width / EXPORT_A4_PORTRAIT_RATIO;
+    const delta = targetHeight - height;
+    const minY = bounds.minY - delta / 2;
+    return {
+      minX: bounds.minX,
+      minY,
+      maxX: bounds.maxX,
+      maxY: minY + targetHeight,
+      width,
+      height: targetHeight,
+    };
+  }
+  const targetWidth = height * EXPORT_A4_PORTRAIT_RATIO;
+  const delta = targetWidth - width;
+  const minX = bounds.minX - delta / 2;
+  return {
+    minX,
+    minY: bounds.minY,
+    maxX: minX + targetWidth,
+    maxY: bounds.maxY,
+    width: targetWidth,
+    height,
+  };
+};
+
+const clampBoundsToPageFrame = (bounds: WorkbookExportBounds): WorkbookExportBounds => {
+  const minX = Math.max(WORKBOOK_PAGE_FRAME_BOUNDS.minX, bounds.minX);
+  const minY = Math.max(WORKBOOK_PAGE_FRAME_BOUNDS.minY, bounds.minY);
+  const maxX = Math.min(WORKBOOK_PAGE_FRAME_BOUNDS.maxX, bounds.maxX);
+  const maxY = Math.min(WORKBOOK_PAGE_FRAME_BOUNDS.maxY, bounds.maxY);
+  if (maxX <= minX || maxY <= minY) {
+    return resolvePageExportBounds();
+  }
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+};
+
 export const useWorkbookPdfExport = ({
   boardSettings,
   boardSettingsRef,
@@ -65,6 +187,28 @@ export const useWorkbookPdfExport = ({
   setBoardSettings,
   setError,
 }: UseWorkbookPdfExportParams) => {
+  const resolveUniformContentExportBounds = useCallback(
+    (exportPages: number[]): WorkbookExportBounds => {
+      const allBounds = exportPages.map((pageNumber) => {
+        const objectBounds = boardObjects
+          .filter((object) => Math.max(1, object.page ?? 1) === pageNumber)
+          .map((object) => getObjectExportBounds(object));
+        const strokeBounds = boardStrokes
+          .filter((stroke) => Math.max(1, stroke.page ?? 1) === pageNumber)
+          .map((stroke) => getStrokeExportBounds(stroke));
+        return mergeExportBounds([...objectBounds, ...strokeBounds]);
+      });
+      const mergedBounds = mergeExportBounds(allBounds);
+      if (!mergedBounds) {
+        return resolvePageExportBounds();
+      }
+      const padded = padExportBounds(mergedBounds, EXPORT_CONTENT_BOUNDS_PADDING_PX);
+      const clamped = clampBoundsToPageFrame(padded);
+      return fitBoundsToA4PortraitRatio(clamped);
+    },
+    [boardObjects, boardStrokes]
+  );
+
   const switchBoardPageForExport = useCallback(
     async (targetPage: number) => {
       const safePage = Math.max(1, Math.floor(targetPage));
@@ -158,6 +302,7 @@ export const useWorkbookPdfExport = ({
           }
         }
       }
+      await waitForSvgImageResources(svgClone);
       const serialized = new XMLSerializer().serializeToString(svgClone);
       const blob = new Blob([serialized], { type: "image/svg+xml;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -282,14 +427,18 @@ export const useWorkbookPdfExport = ({
       if (!fileName) return;
       const exportPages = resolveExportPageNumbers();
       const previousPage = currentPage;
+      const uniformBounds = resolveUniformContentExportBounds(exportPages);
       const exportTilesByPage = new Map(
         exportPages.map((pageNumber) => [
           pageNumber,
-          splitExportBoundsToA4Tiles({
-            bounds: resolvePageExportBounds(),
-            tileWidth: WORKBOOK_PAGE_FRAME_BOUNDS.width,
-            overlap: 0,
-          }),
+          [
+            {
+              row: 0,
+              column: 0,
+              index: 0,
+              bounds: uniformBounds,
+            },
+          ],
         ])
       );
       const renderedPages: Array<{ dataUrl: string }> = [];
@@ -356,6 +505,7 @@ export const useWorkbookPdfExport = ({
     renderBoardToCanvas,
     requestExportFileName,
     resolveExportPageNumbers,
+    resolveUniformContentExportBounds,
     setBoardSettings,
     setCanvasVisibilityMode,
     setError,
