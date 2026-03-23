@@ -455,6 +455,41 @@
       color-mix(in srgb, var(--surface-elevated) 28%, transparent) 100%
     );
 }
+.workbook-hub__card-preview-refresh {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: inherit;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-elevated) 26%, transparent) 0%,
+      color-mix(in srgb, var(--surface-elevated) 36%, transparent) 42%,
+      color-mix(in srgb, var(--surface-elevated) 58%, transparent) 100%
+    );
+}
+.workbook-hub__card-preview-refresh::before {
+  content: "";
+  position: absolute;
+  inset: -30% -140%;
+  background: linear-gradient(
+    108deg,
+    transparent 40%,
+    color-mix(in srgb, #fff 56%, transparent) 50%,
+    transparent 60%
+  );
+  animation: workbook-hub-preview-refresh-shimmer 1.3s ease-in-out infinite;
+}
+@keyframes workbook-hub-preview-refresh-shimmer {
+  0% {
+    transform: translateX(-22%);
+  }
+  100% {
+    transform: translateX(22%);
+  }
+}
 .workbook-hub__card--with-preview {
   border-color: color-mix(in srgb, var(--workbook-card-border) 66%, var(--feedback-info));
 }

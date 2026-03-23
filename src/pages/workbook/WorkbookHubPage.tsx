@@ -41,8 +41,10 @@ import { prefetchWorkbookSessionRuntime } from "./prefetchWorkbookSessionRuntime
 import { APP_DATA_UPDATED_EVENT } from "@/shared/lib/dataUpdateBus";
 import { InlineMobiusLoader } from "@/shared/ui/loading";
 import {
+  consumeWorkbookHubPreviewRefreshHints,
   isWorkbookHubPreviewBridgeMessage,
   type WorkbookHubPreviewBridgePayload,
+  type WorkbookHubPreviewRefreshHint,
 } from "./workbookHubPreviewBridge";
 
 type HubScope = "class" | "personal";
@@ -52,6 +54,9 @@ const toSessionPath = (sessionId: string) =>
 const HUB_REFRESH_INTERVAL_MS = 5_000;
 const HUB_REFRESH_THROTTLE_MS = 900;
 const HUB_CARDS_PER_PAGE = 9;
+const HUB_PREVIEW_REFRESH_INTERVAL_MS = 1_000;
+
+type PreviewRefreshPendingBySessionId = Record<string, WorkbookHubPreviewRefreshHint>;
 
 const toSortTimestamp = (value: string) => {
   const timestamp = Date.parse(value);
@@ -147,6 +152,8 @@ export default function WorkbookHubPage() {
   const [previewLoadErrorBySessionId, setPreviewLoadErrorBySessionId] = useState<
     Record<string, string>
   >({});
+  const [previewRefreshPendingBySessionId, setPreviewRefreshPendingBySessionId] =
+    useState<PreviewRefreshPendingBySessionId>({});
   const lastReloadAtRef = useRef(0);
   const loadRequestVersionRef = useRef(0);
   const hasLoadedAtLeastOnceRef = useRef(false);
@@ -512,6 +519,75 @@ export default function WorkbookHubPage() {
     );
   }, []);
 
+  const clearPreviewRefreshPending = useCallback((sessionId: string) => {
+    setPreviewRefreshPendingBySessionId((current) => {
+      if (!(sessionId in current)) return current;
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const hints = consumeWorkbookHubPreviewRefreshHints();
+    if (hints.length === 0) return;
+    setPreviewRefreshPendingBySessionId((current) => {
+      const next = { ...current };
+      hints.forEach((hint) => {
+        next[hint.sessionId] = hint;
+      });
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (Object.keys(previewRefreshPendingBySessionId).length === 0) return;
+    const intervalId = window.setInterval(() => {
+      const now = Date.now();
+      setPreviewRefreshPendingBySessionId((current) => {
+        let changed = false;
+        const next: PreviewRefreshPendingBySessionId = {};
+        Object.entries(current).forEach(([sessionId, hint]) => {
+          if (hint.expiresAt <= now) {
+            changed = true;
+            return;
+          }
+          next[sessionId] = hint;
+        });
+        return changed ? next : current;
+      });
+    }, HUB_PREVIEW_REFRESH_INTERVAL_MS);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [previewRefreshPendingBySessionId]);
+
+  useEffect(() => {
+    if (Object.keys(previewRefreshPendingBySessionId).length === 0) return;
+    setPreviewRefreshPendingBySessionId((current) => {
+      let changed = false;
+      const next: PreviewRefreshPendingBySessionId = {};
+      Object.entries(current).forEach(([sessionId, hint]) => {
+        const card = drafts.find((item) => item.sessionId === sessionId);
+        if (!card) {
+          next[sessionId] = hint;
+          return;
+        }
+        const updatedAt = Date.parse(card.updatedAt);
+        if (Number.isFinite(updatedAt) && updatedAt >= hint.requestedAt) {
+          changed = true;
+          return;
+        }
+        if (hint.expiresAt <= Date.now()) {
+          changed = true;
+          return;
+        }
+        next[sessionId] = hint;
+      });
+      return changed ? next : current;
+    });
+  }, [drafts, previewRefreshPendingBySessionId]);
+
   const applyOptimisticPreviewToCard = useCallback((payload: WorkbookHubPreviewBridgePayload) => {
     const capturedAt =
       typeof payload.capturedAt === "string" && payload.capturedAt.trim().length > 0
@@ -538,7 +614,8 @@ export default function WorkbookHubPage() {
       delete next[payload.sessionId];
       return next;
     });
-  }, []);
+    clearPreviewRefreshPending(payload.sessionId);
+  }, [clearPreviewRefreshPending]);
 
   const persistPreviewPayloadToServer = useCallback(
     async (payload: WorkbookHubPreviewBridgePayload) => {
@@ -597,11 +674,12 @@ export default function WorkbookHubPage() {
           delete next[payload.sessionId];
           return next;
         });
+        clearPreviewRefreshPending(payload.sessionId);
       } catch {
         // Preview persistence is best-effort; keep optimistic preview.
       }
     },
-    []
+    [clearPreviewRefreshPending]
   );
 
   const flushPendingPreviewPersistQueue = useCallback(async () => {
@@ -853,9 +931,12 @@ export default function WorkbookHubPage() {
                     card.activityLabel.trim().toLocaleLowerCase("ru-RU") === "идет сессия");
                 const activityLabel = hasActiveSession ? "Идет сессия" : "Пауза";
                 const activityTone = hasActiveSession ? "active" : "idle";
+                const isPreviewRefreshing = Boolean(previewRefreshPendingBySessionId[card.sessionId]);
                 return (
                   <article
-                    className={`workbook-hub__card${previewUrl ? " workbook-hub__card--with-preview" : ""}`}
+                    className={`workbook-hub__card${previewUrl ? " workbook-hub__card--with-preview" : ""}${
+                      isPreviewRefreshing ? " workbook-hub__card--preview-refreshing" : ""
+                    }`}
                     key={card.sessionId}
                   >
                     {previewUrl ? (
@@ -871,6 +952,9 @@ export default function WorkbookHubPage() {
                         />
                         <span className="workbook-hub__card-preview-scrim" />
                       </div>
+                    ) : null}
+                    {isPreviewRefreshing ? (
+                      <span className="workbook-hub__card-preview-refresh" aria-hidden="true" />
                     ) : null}
                     {card.canDelete ? (
                       <Tooltip title="Удалить карточку">

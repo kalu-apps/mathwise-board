@@ -115,6 +115,7 @@ import { captureWorkbookSessionPreviewDataUrl } from "./workbookHubPreviewCaptur
 import { useWorkbookPageTransitionOverlay } from "./useWorkbookPageTransitionOverlay";
 import {
   WORKBOOK_HUB_PREVIEW_BRIDGE_EVENT,
+  queueWorkbookHubPreviewRefreshHint,
   type WorkbookHubPreviewBridgeMessage,
 } from "./workbookHubPreviewBridge";
 
@@ -1776,6 +1777,9 @@ export default function WorkbookSessionPage() {
           }),
         ]);
         if (!previewPosted) {
+          if (session) {
+            queueWorkbookHubPreviewRefreshHint(session.id);
+          }
           void persistSessionExitPreview();
         }
         try {
@@ -1790,6 +1794,9 @@ export default function WorkbookSessionPage() {
         return;
       }
       // Hub preview refresh is best-effort and must never delay route transition.
+      if (session) {
+        queueWorkbookHubPreviewRefreshHint(session.id);
+      }
       void persistSessionExitPreview();
       navigate(fromPath, { replace: true });
     } catch {
@@ -1804,6 +1811,7 @@ export default function WorkbookSessionPage() {
     postSessionExitPreviewToHub,
     persistSessionExitPreview,
     persistSnapshots,
+    session,
     setError,
   ]);
 
