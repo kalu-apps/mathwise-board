@@ -8,6 +8,15 @@ const nowMs = () =>
     ? performance.now()
     : Date.now();
 
+const isWorkbookDebugConsoleEnabled = () => {
+  if (typeof import.meta === "undefined") return false;
+  if (import.meta.env?.DEV) return true;
+  const raw = String(import.meta.env?.VITE_WORKBOOK_DEBUG_LOGS ?? "")
+    .trim()
+    .toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+};
+
 export const WORKBOOK_PERF_PHASE_EVENT = "workbook-performance-phase";
 export const WORKBOOK_CORRECTNESS_EVENT = "workbook-correctness";
 export const WORKBOOK_IMPORT_EVENT = "workbook-import";
@@ -187,6 +196,9 @@ export const reportWorkbookCorrectnessEvent = (params: {
       // ignore dispatch failures
     }
   }
+  if (!isWorkbookDebugConsoleEnabled()) {
+    return;
+  }
   if (
     detail.name === "snapshot_apply_skipped_as_stale" ||
     detail.name === "page_apply_rejected_as_stale" ||
@@ -195,9 +207,7 @@ export const reportWorkbookCorrectnessEvent = (params: {
     console.warn("[sync-correctness]", detail.name, detail);
     return;
   }
-  if (typeof import.meta !== "undefined" && import.meta.env?.DEV) {
-    console.info("[sync-correctness]", detail.name, detail);
-  }
+  console.info("[sync-correctness]", detail.name, detail);
 };
 
 export const reportWorkbookImportEvent = (params: {
