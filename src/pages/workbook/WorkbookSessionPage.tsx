@@ -2041,7 +2041,6 @@ export default function WorkbookSessionPage() {
         sessionId={sessionId}
         initialFiles={pendingImportFiles}
         container={overlayContainer}
-        fullScreen={isFullscreen}
         onClose={handleImportModalClose}
         onImportFile={handleImportModalFile}
       />

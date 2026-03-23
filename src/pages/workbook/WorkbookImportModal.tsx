@@ -73,7 +73,6 @@ type WorkbookImportModalProps = {
   sessionId: string;
   initialFiles: File[];
   container?: Element | null;
-  fullScreen?: boolean;
   onClose: () => void;
   onImportFile: (payload: WorkbookPreparedDocumentImport) => Promise<boolean>;
 };
@@ -116,7 +115,6 @@ export function WorkbookImportModal({
   sessionId,
   initialFiles,
   container,
-  fullScreen = false,
   onClose,
   onImportFile,
 }: WorkbookImportModalProps) {
@@ -430,7 +428,6 @@ export function WorkbookImportModal({
       container={dialogContainer}
       fullWidth
       maxWidth={hasQueuedItems ? "md" : "sm"}
-      fullScreen={fullScreen}
       className="workbook-session__import-modal"
       PaperProps={{
         className: `workbook-session__import-modal-paper${
