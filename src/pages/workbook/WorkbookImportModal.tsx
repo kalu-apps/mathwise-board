@@ -119,6 +119,8 @@ export function WorkbookImportModal({
   onImportFile,
 }: WorkbookImportModalProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const fullscreenRestoreTargetRef = useRef<Element | null>(null);
+  const fullscreenRestorePendingRef = useRef(false);
   const [modalState, setModalState] = useState<ImportModalState>("idle");
   const [items, setItems] = useState<WorkbookImportItem[]>([]);
   const [batchError, setBatchError] = useState<string | null>(null);
@@ -300,13 +302,45 @@ export function WorkbookImportModal({
     [validateAndPrepareItems]
   );
 
+  const restoreFullscreenAfterPicker = useCallback(() => {
+    if (!fullscreenRestorePendingRef.current) return;
+    fullscreenRestorePendingRef.current = false;
+    const target = fullscreenRestoreTargetRef.current;
+    fullscreenRestoreTargetRef.current = null;
+    if (!target || typeof document === "undefined") return;
+    if (document.fullscreenElement) return;
+    if (typeof target.requestFullscreen !== "function") return;
+    void target.requestFullscreen().catch(() => undefined);
+  }, []);
+
+  const requestFileDialog = useCallback(() => {
+    if (typeof document !== "undefined" && document.fullscreenElement) {
+      const fullscreenTarget = document.fullscreenElement;
+      fullscreenRestoreTargetRef.current = fullscreenTarget;
+      fullscreenRestorePendingRef.current = true;
+      if (typeof window !== "undefined") {
+        window.addEventListener(
+          "focus",
+          () => {
+            window.setTimeout(() => {
+              restoreFullscreenAfterPicker();
+            }, 0);
+          },
+          { once: true }
+        );
+      }
+    }
+    fileInputRef.current?.click();
+  }, [restoreFullscreenAfterPicker]);
+
   const handleNativeFileSelect = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(event.target.files ?? []);
       event.target.value = "";
+      restoreFullscreenAfterPicker();
       handleCollectFiles(files);
     },
-    [handleCollectFiles]
+    [handleCollectFiles, restoreFullscreenAfterPicker]
   );
 
   const handleUpload = useCallback(async () => {
@@ -399,6 +433,8 @@ export function WorkbookImportModal({
 
   const handleClose = useCallback(() => {
     if (isBusy) return;
+    fullscreenRestorePendingRef.current = false;
+    fullscreenRestoreTargetRef.current = null;
     onClose();
   }, [isBusy, onClose]);
 
@@ -498,7 +534,7 @@ export function WorkbookImportModal({
           <span>или выберите вручную</span>
           <Button
             variant="outlined"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={requestFileDialog}
             disabled={isBusy}
           >
             Выбрать файлы
@@ -549,6 +585,7 @@ export function WorkbookImportModal({
                   ) : null}
                 </div>
                 <IconButton
+                  className="workbook-session__import-item-remove"
                   size="small"
                   aria-label={`Удалить ${item.name}`}
                   onClick={() =>

@@ -2,7 +2,10 @@ import type { MutableRefObject } from "react";
 import { compactWorkbookObjectUpdateEvents } from "@/features/workbook/model/runtime";
 import { applyWorkbookIncomingRealtimeEvent } from "@/features/workbook/model/incomingRealtime";
 import { applyWorkbookIncomingSessionMetaEvent } from "@/features/workbook/model/incomingSessionMeta";
-import { isVolatileWorkbookEventType } from "@/features/workbook/model/events";
+import {
+  isLiveReplayableWorkbookEventType,
+  isVolatileWorkbookEventType,
+} from "@/features/workbook/model/events";
 import {
   reportWorkbookCorrectnessEvent,
   reportWorkbookPerfPhaseMetric,
@@ -115,9 +118,11 @@ export const applyWorkbookIncomingEventsBatch = ({
         });
       }
       const isVolatileEvent = isVolatileWorkbookEventType(event.type);
+      const isLiveReplayableEvent = isLiveReplayableWorkbookEventType(event.type);
       if (
         eventSeq !== null &&
         !isVolatileEvent &&
+        !isLiveReplayableEvent &&
         eventSeq <= lastAppliedSeqRef.current
       ) {
         staleEventsSkipped += 1;

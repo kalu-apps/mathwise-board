@@ -119,6 +119,7 @@ export const WORKBOOK_URGENT_LIVE_EVENT_TYPES = [
   "board.object.update",
   "board.object.delete",
   "board.object.reorder",
+  "board.settings.update",
   "board.undo",
   "board.redo",
   "chat.message",

@@ -4141,6 +4141,23 @@
   color: #b42318;
 }
 
+.workbook-session__import-item-remove.MuiIconButton-root {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
+}
+
+.workbook-session__import-item-remove.MuiIconButton-root:hover {
+  background: color-mix(in srgb, var(--brand-soft) 12%, transparent) !important;
+  color: var(--text-primary);
+}
+
+.workbook-session__import-item-remove.MuiIconButton-root.Mui-focusVisible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 .workbook-session__import-progress {
   display: flex;
   align-items: center;
