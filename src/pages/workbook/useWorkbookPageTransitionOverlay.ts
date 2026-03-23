@@ -7,6 +7,8 @@ type UseWorkbookPageTransitionOverlayParams = {
   bootstrapReady: boolean;
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
   boardStrokesRef: MutableRefObject<WorkbookStroke[]>;
+  visibleImagesReady: boolean;
+  pendingVisibleImageCount: number;
 };
 
 type PageTransitionProfile = {
@@ -57,13 +59,22 @@ export const useWorkbookPageTransitionOverlay = ({
   bootstrapReady,
   boardObjectsRef,
   boardStrokesRef,
+  visibleImagesReady,
+  pendingVisibleImageCount,
 }: UseWorkbookPageTransitionOverlayParams) => {
   const [isPageTransitionActive, setIsPageTransitionActive] = useState(false);
   const [transitionLabel, setTransitionLabel] = useState("Загружаем страницу...");
   const previousPageRef = useRef<number | null>(null);
   const transitionTokenRef = useRef(0);
+  const visibleImagesReadyRef = useRef(visibleImagesReady);
+  const pendingVisibleImageCountRef = useRef(pendingVisibleImageCount);
 
   const safeCurrentPage = useMemo(() => toSafePage(currentPage), [currentPage]);
+
+  useEffect(() => {
+    visibleImagesReadyRef.current = visibleImagesReady;
+    pendingVisibleImageCountRef.current = pendingVisibleImageCount;
+  }, [pendingVisibleImageCount, visibleImagesReady]);
 
   useEffect(() => {
     if (loading || !bootstrapReady) {
@@ -95,38 +106,39 @@ export const useWorkbookPageTransitionOverlay = ({
         ? performance.now()
         : Date.now();
     let isDisposed = false;
-    let rafStart: number | null = null;
-    let rafEnd: number | null = null;
+    let rafToken: number | null = null;
 
     const finalize = () => {
       if (isDisposed) return;
       if (transitionTokenRef.current !== transitionToken) return;
       setIsPageTransitionActive(false);
     };
-
     const scheduleFinalize = () => {
+      if (isDisposed) return;
+      if (transitionTokenRef.current !== transitionToken) return;
       const now =
         typeof performance !== "undefined" && typeof performance.now === "function"
           ? performance.now()
           : Date.now();
       const elapsed = now - startedAt;
-      const remainingMs = Math.max(0, profile.minVisibleMs - elapsed);
-      window.setTimeout(finalize, remainingMs);
+      const minVisibleReached = elapsed >= profile.minVisibleMs;
+      const imageLayerReady =
+        visibleImagesReadyRef.current || pendingVisibleImageCountRef.current <= 0;
+      if (minVisibleReached && imageLayerReady) {
+        finalize();
+        return;
+      }
+      rafToken = window.requestAnimationFrame(scheduleFinalize);
     };
 
     const hardStopTimer = window.setTimeout(finalize, profile.maxVisibleMs);
-    rafStart = window.requestAnimationFrame(() => {
-      rafEnd = window.requestAnimationFrame(scheduleFinalize);
-    });
+    rafToken = window.requestAnimationFrame(scheduleFinalize);
 
     return () => {
       isDisposed = true;
       window.clearTimeout(hardStopTimer);
-      if (rafStart !== null) {
-        window.cancelAnimationFrame(rafStart);
-      }
-      if (rafEnd !== null) {
-        window.cancelAnimationFrame(rafEnd);
+      if (rafToken !== null) {
+        window.cancelAnimationFrame(rafToken);
       }
     };
   }, [

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   WorkbookBoardObject,
   WorkbookBoardSettings,
@@ -34,6 +34,41 @@ type UseWorkbookPageVisibilityStateParams = {
 };
 
 const prewarmedImageAssetUrls = new Set<string>();
+const IMAGE_VISIBILITY_READY_TIMEOUT_MS = 900;
+
+const loadImageForVisibility = (assetUrl: string): Promise<void> =>
+  new Promise<void>((resolve) => {
+    if (typeof window === "undefined") {
+      resolve();
+      return;
+    }
+    const image = new Image();
+    image.decoding = "async";
+    let settled = false;
+    const finalize = () => {
+      if (settled) return;
+      settled = true;
+      image.onload = null;
+      image.onerror = null;
+      resolve();
+    };
+    image.onerror = finalize;
+    image.onload = () => {
+      if (typeof image.decode === "function") {
+        void image.decode().catch(() => undefined).finally(finalize);
+        return;
+      }
+      finalize();
+    };
+    image.src = assetUrl;
+    if (image.complete) {
+      if (typeof image.decode === "function") {
+        void image.decode().catch(() => undefined).finally(finalize);
+      } else {
+        finalize();
+      }
+    }
+  });
 
 export const useWorkbookPageVisibilityState = ({
   documentState,
@@ -47,6 +82,10 @@ export const useWorkbookPageVisibilityState = ({
   setSelectedObjectId,
   setAreaSelection,
 }: UseWorkbookPageVisibilityStateParams) => {
+  const visibleImageResolveRunRef = useRef(0);
+  const [visibleImagesReady, setVisibleImagesReady] = useState(true);
+  const [pendingVisibleImageCount, setPendingVisibleImageCount] = useState(0);
+
   const activeDocument = useMemo(
     () => documentState.assets.find((asset) => asset.id === documentState.activeAssetId),
     [documentState.activeAssetId, documentState.assets]
@@ -154,6 +193,52 @@ export const useWorkbookPageVisibilityState = ({
   }, [visibleImageUrls]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      setVisibleImagesReady(true);
+      setPendingVisibleImageCount(0);
+      return;
+    }
+    if (visibleImageUrls.length === 0) {
+      setVisibleImagesReady(true);
+      setPendingVisibleImageCount(0);
+      return;
+    }
+
+    const resolveRunId = visibleImageResolveRunRef.current + 1;
+    visibleImageResolveRunRef.current = resolveRunId;
+    let disposed = false;
+    let remaining = visibleImageUrls.length;
+    const finish = () => {
+      if (disposed) return;
+      if (visibleImageResolveRunRef.current !== resolveRunId) return;
+      setPendingVisibleImageCount(0);
+      setVisibleImagesReady(true);
+    };
+    const settleOne = () => {
+      if (disposed) return;
+      if (visibleImageResolveRunRef.current !== resolveRunId) return;
+      remaining = Math.max(0, remaining - 1);
+      setPendingVisibleImageCount(remaining);
+      if (remaining === 0) {
+        finish();
+      }
+    };
+
+    setVisibleImagesReady(false);
+    setPendingVisibleImageCount(visibleImageUrls.length);
+
+    const hardStopTimer = window.setTimeout(finish, IMAGE_VISIBILITY_READY_TIMEOUT_MS);
+    visibleImageUrls.forEach((assetUrl) => {
+      void loadImageForVisibility(assetUrl).finally(settleOne);
+    });
+
+    return () => {
+      disposed = true;
+      window.clearTimeout(hardStopTimer);
+    };
+  }, [visibleImageUrls]);
+
+  useEffect(() => {
     if (!selectedObjectId) return;
     if (visibleBoardObjects.some((object) => object.id === selectedObjectId)) return;
     setSelectedObjectId(null);
@@ -199,5 +284,7 @@ export const useWorkbookPageVisibilityState = ({
     visibleBoardStrokes,
     visibleAnnotationStrokes,
     visibleBoardObjects,
+    visibleImagesReady,
+    pendingVisibleImageCount,
   };
 };
