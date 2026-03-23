@@ -29,6 +29,8 @@ const readFloat = (value: string | undefined, fallback: number, min: number, max
 };
 
 const nowIso = () => new Date().toISOString();
+const OBJECT_VERSION_TAIL_BATCH_LIMIT = 5_000;
+const OBJECT_VERSION_TAIL_MAX_BATCHES = 32;
 
 const WORKBOOK_WRITE_OPERATION_SCOPES: WorkbookOperationScope[] = [
   "workbook_events_append",
@@ -387,6 +389,45 @@ const deriveObjectVersionStateFromSnapshotAndEvents = (params: {
   return state;
 };
 
+const readWorkbookEventsTailBatched = async (params: {
+  sessionId: string;
+  afterSeq: number;
+}) => {
+  let cursor = Math.max(0, Math.trunc(params.afterSeq));
+  let latestSeq = cursor;
+  let batches = 0;
+  const events: PersistedWorkbookEvent[] = [];
+  while (batches < OBJECT_VERSION_TAIL_MAX_BATCHES) {
+    batches += 1;
+    const response = await readWorkbookSessionEvents({
+      sessionId: params.sessionId,
+      afterSeq: cursor,
+      limit: OBJECT_VERSION_TAIL_BATCH_LIMIT,
+    });
+    latestSeq = Math.max(latestSeq, response.latestSeq);
+    if (response.events.length === 0) {
+      break;
+    }
+    events.push(...response.events);
+    const batchMaxSeq = response.events.reduce(
+      (maxSeq, event) => Math.max(maxSeq, event.seq),
+      cursor
+    );
+    if (batchMaxSeq <= cursor) {
+      break;
+    }
+    cursor = batchMaxSeq;
+    if (cursor >= latestSeq) {
+      break;
+    }
+  }
+  return {
+    events,
+    latestSeq,
+    exhausted: cursor >= latestSeq,
+  };
+};
+
 const buildVersionPlan = (params: {
   current: ObjectVersionState | null;
   expectedVersion: number | null;
@@ -394,6 +435,8 @@ const buildVersionPlan = (params: {
 }) => {
   const currentVersion = params.current?.version ?? 0;
   const isDeleteMutation = params.type === "board.object.delete";
+  const isSoftConflictTolerant =
+    !workbookConsistencyConfig.strictObjectVersion && params.expectedVersion === null;
   if (workbookConsistencyConfig.strictObjectVersion && params.expectedVersion === null) {
     return { ok: false as const, reason: "missing_expected_version" as const, actualVersion: currentVersion };
   }
@@ -412,6 +455,15 @@ const buildVersionPlan = (params: {
         actualVersion: currentVersion,
       };
     }
+    if (isSoftConflictTolerant) {
+      // Non-strict mode must tolerate lagging version-state reconstruction:
+      // accepting update avoids global 409 storms for valid existing objects.
+      return {
+        ok: true as const,
+        nextVersion: Math.max(1, currentVersion + 1),
+        actualVersion: currentVersion,
+      };
+    }
     return { ok: false as const, reason: "object_not_found" as const, actualVersion: 0 };
   }
   if (params.type !== "board.object.create" && params.current?.deleted) {
@@ -420,6 +472,13 @@ const buildVersionPlan = (params: {
       return {
         ok: true as const,
         nextVersion: Math.max(1, currentVersion),
+        actualVersion: currentVersion,
+      };
+    }
+    if (isSoftConflictTolerant) {
+      return {
+        ok: true as const,
+        nextVersion: Math.max(1, currentVersion + 1),
         actualVersion: currentVersion,
       };
     }
@@ -449,10 +508,9 @@ const loadObjectVersionState = async (params: {
       layer: "board",
     });
     if (latestBoardSnapshot) {
-      const tail = await readWorkbookSessionEvents({
+      const tail = await readWorkbookEventsTailBatched({
         sessionId: params.sessionId,
         afterSeq: Math.max(0, Math.trunc(latestBoardSnapshot.version)),
-        limit: 5_000,
       });
       return deriveObjectVersionStateFromSnapshotAndEvents({
         snapshotVersion: latestBoardSnapshot.version,
@@ -460,10 +518,9 @@ const loadObjectVersionState = async (params: {
         events: tail.events,
       });
     }
-    const history = await readWorkbookSessionEvents({
+    const history = await readWorkbookEventsTailBatched({
       sessionId: params.sessionId,
       afterSeq: 0,
-      limit: 5_000,
     });
     return deriveObjectVersionStateFromEvents(history.events);
   } catch {
