@@ -11,6 +11,7 @@ import "./workbookRouteStyles";
 import {
   Alert,
   Button,
+  TextField,
 } from "@mui/material";
 import { useAuth } from "@/features/auth/model/AuthContext";
 import {
@@ -1527,7 +1528,7 @@ export default function WorkbookSessionPage() {
     });
 
 
-  const { exportBoardAsPdf } = useWorkbookPdfExport({
+  const { exportBoardAsPdf, defaultExportPdfName } = useWorkbookPdfExport({
     boardSettings,
     boardSettingsRef,
     boardObjects,
@@ -1543,8 +1544,11 @@ export default function WorkbookSessionPage() {
 
   const {
     confirmDialogOpen,
+    isExportPdfConfirmOpen,
     confirmDialogContent,
     confirmActionSubmitting,
+    exportPdfFileName,
+    setExportPdfFileName,
     handleRequestClearBoard,
     handleRequestExportPdf,
     handleRequestDeleteBoardPage,
@@ -1557,6 +1561,7 @@ export default function WorkbookSessionPage() {
     setMenuAnchor,
     handleMenuClearBoard,
     exportBoardAsPdf,
+    defaultExportPdfName,
     handleDeleteBoardPage,
   });
 
@@ -2055,6 +2060,22 @@ export default function WorkbookSessionPage() {
           description={confirmDialogContent.description}
           confirmLabel={confirmDialogContent.confirmLabel}
           tone={confirmDialogContent.tone}
+          confirmDisabled={isExportPdfConfirmOpen && exportPdfFileName.trim().length === 0}
+          content={
+            isExportPdfConfirmOpen ? (
+              <TextField
+                autoFocus
+                fullWidth
+                size="small"
+                label="Имя файла"
+                value={exportPdfFileName}
+                onChange={(event) => setExportPdfFileName(event.target.value)}
+                disabled={confirmActionSubmitting}
+                inputProps={{ maxLength: 120 }}
+                helperText="Расширение .pdf добавится автоматически"
+              />
+            ) : undefined
+          }
           onCancel={handleCloseConfirmDialog}
           onConfirm={handleConfirmDialogAction}
         />

@@ -13,7 +13,8 @@ type UseWorkbookSessionConfirmActionsParams = {
   exportingSections: boolean;
   setMenuAnchor: (anchor: HTMLElement | null) => void;
   handleMenuClearBoard: () => Promise<void> | void;
-  exportBoardAsPdf: () => Promise<void> | void;
+  exportBoardAsPdf: (options?: { fileName?: string }) => Promise<void> | void;
+  defaultExportPdfName?: string;
   handleDeleteBoardPage: (page: number) => Promise<void> | void;
 };
 
@@ -31,10 +32,14 @@ export const useWorkbookSessionConfirmActions = ({
   setMenuAnchor,
   handleMenuClearBoard,
   exportBoardAsPdf,
+  defaultExportPdfName,
   handleDeleteBoardPage,
 }: UseWorkbookSessionConfirmActionsParams) => {
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [confirmActionSubmitting, setConfirmActionSubmitting] = useState(false);
+  const [exportPdfFileName, setExportPdfFileName] = useState(
+    () => String(defaultExportPdfName ?? "").trim() || "workbook-export"
+  );
 
   const handleRequestClearBoard = useCallback(() => {
     if (!canClear || isEnded) return;
@@ -45,8 +50,9 @@ export const useWorkbookSessionConfirmActions = ({
   const handleRequestExportPdf = useCallback(() => {
     setMenuAnchor(null);
     if (exportingSections) return;
+    setExportPdfFileName(String(defaultExportPdfName ?? "").trim() || "workbook-export");
     setConfirmAction({ kind: "export_pdf" });
-  }, [exportingSections, setMenuAnchor]);
+  }, [defaultExportPdfName, exportingSections, setMenuAnchor]);
 
   const handleRequestDeleteBoardPage = useCallback((page: number) => {
     setConfirmAction({ kind: "delete_page", page });
@@ -64,7 +70,7 @@ export const useWorkbookSessionConfirmActions = ({
       if (confirmAction.kind === "clear_board") {
         await handleMenuClearBoard();
       } else if (confirmAction.kind === "export_pdf") {
-        await exportBoardAsPdf();
+        await exportBoardAsPdf({ fileName: exportPdfFileName });
       } else {
         await handleDeleteBoardPage(confirmAction.page);
       }
@@ -72,7 +78,13 @@ export const useWorkbookSessionConfirmActions = ({
       setConfirmActionSubmitting(false);
       setConfirmAction(null);
     }
-  }, [confirmAction, exportBoardAsPdf, handleDeleteBoardPage, handleMenuClearBoard]);
+  }, [
+    confirmAction,
+    exportBoardAsPdf,
+    exportPdfFileName,
+    handleDeleteBoardPage,
+    handleMenuClearBoard,
+  ]);
 
   const confirmDialogContent = useMemo<ConfirmDialogContent | null>(() => {
     if (!confirmAction) return null;
@@ -104,8 +116,11 @@ export const useWorkbookSessionConfirmActions = ({
 
   return {
     confirmDialogOpen: Boolean(confirmAction),
+    isExportPdfConfirmOpen: confirmAction?.kind === "export_pdf",
     confirmDialogContent,
     confirmActionSubmitting,
+    exportPdfFileName,
+    setExportPdfFileName,
     handleRequestClearBoard,
     handleRequestExportPdf,
     handleRequestDeleteBoardPage,

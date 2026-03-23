@@ -1,4 +1,4 @@
-import { useCallback, type MutableRefObject } from "react";
+import { useCallback, useMemo, type MutableRefObject } from "react";
 import {
   getObjectExportBounds,
   getStrokeExportBounds,
@@ -6,6 +6,7 @@ import {
   padExportBounds,
   type WorkbookExportBounds,
 } from "@/features/workbook/model/export";
+import { normalizeWorkbookAssetContentUrl } from "@/features/workbook/model/workbookAssetUrl";
 import type {
   WorkbookBoardObject,
   WorkbookBoardSettings,
@@ -33,6 +34,10 @@ type UseWorkbookPdfExportParams = {
   setError: (value: string | null) => void;
 };
 
+type ExportPdfOptions = {
+  fileName?: string;
+};
+
 const waitForCanvasRender = () =>
   new Promise<void>((resolve) => {
     window.requestAnimationFrame(() => {
@@ -58,6 +63,7 @@ const EXPORT_A4_PORTRAIT_RATIO = 210 / 297;
 const EXPORT_CONTENT_BOUNDS_PADDING_PX = 56;
 const EXPORT_IMAGE_READY_TIMEOUT_MS = 5_000;
 const preloadedExportImageUrls = new Set<string>();
+const inlinedExportImageUrls = new Map<string, Promise<string | null>>();
 
 const resolveSvgImageHref = (node: SVGImageElement) => {
   const href = node.getAttribute("href");
@@ -67,53 +73,122 @@ const resolveSvgImageHref = (node: SVGImageElement) => {
 };
 
 const waitForImageUrlReady = (url: string, timeoutMs = EXPORT_IMAGE_READY_TIMEOUT_MS) =>
-  new Promise<void>((resolve) => {
+  new Promise<boolean>((resolve) => {
     const source = typeof url === "string" ? url.trim() : "";
     if (!source) {
-      resolve();
+      resolve(false);
       return;
     }
     if (preloadedExportImageUrls.has(source)) {
-      resolve();
+      resolve(true);
       return;
     }
     let settled = false;
     let timeoutId: number | null = null;
-    const finish = () => {
+    const finish = (ok: boolean) => {
       if (settled) return;
       settled = true;
       if (timeoutId !== null) {
         window.clearTimeout(timeoutId);
       }
-      preloadedExportImageUrls.add(source);
-      resolve();
+      if (ok) {
+        preloadedExportImageUrls.add(source);
+      }
+      resolve(ok);
     };
     try {
       const image = new Image();
       image.decoding = "async";
-      image.onload = finish;
-      image.onerror = finish;
+      image.onload = () => finish(true);
+      image.onerror = () => finish(false);
       image.src = source;
       if (image.complete) {
-        finish();
+        finish(image.naturalWidth > 0 && image.naturalHeight > 0);
         return;
       }
       if (typeof image.decode === "function") {
-        void image.decode().then(finish).catch(() => undefined);
+        void image
+          .decode()
+          .then(() => finish(true))
+          .catch(() => undefined);
       }
-      timeoutId = window.setTimeout(finish, timeoutMs);
+      timeoutId = window.setTimeout(() => finish(false), timeoutMs);
     } catch {
-      finish();
+      finish(false);
     }
   });
 
+const blobToDataUrl = (blob: Blob) =>
+  new Promise<string | null>((resolve) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = () =>
+        resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    } catch {
+      resolve(null);
+    }
+  });
+
+const resolveExportImageHref = async (rawHref: string) => {
+  const normalizedHref = normalizeWorkbookAssetContentUrl(rawHref);
+  const source = typeof normalizedHref === "string" ? normalizedHref.trim() : "";
+  if (!source || source === "content" || source === "/content") {
+    return null;
+  }
+  if (source.startsWith("data:")) {
+    return source;
+  }
+
+  let inlinePromise = inlinedExportImageUrls.get(source);
+  if (!inlinePromise) {
+    inlinePromise = (async () => {
+      try {
+        const response = await fetch(source, {
+          method: "GET",
+          credentials: "include",
+          cache: "force-cache",
+        });
+        if (!response.ok) return null;
+        const blob = await response.blob();
+        return blobToDataUrl(blob);
+      } catch {
+        return null;
+      }
+    })();
+    inlinedExportImageUrls.set(source, inlinePromise);
+  }
+
+  const inlinedHref = await inlinePromise;
+  if (typeof inlinedHref === "string" && inlinedHref.length > 0) {
+    return inlinedHref;
+  }
+
+  const isReachable = await waitForImageUrlReady(source);
+  return isReachable ? source : null;
+};
+
 const waitForSvgImageResources = async (svg: SVGSVGElement) => {
-  const hrefs = Array.from(svg.querySelectorAll<SVGImageElement>("image"))
-    .map(resolveSvgImageHref)
-    .filter((value): value is string => value.length > 0);
-  const uniqueHrefs = Array.from(new Set(hrefs));
-  if (uniqueHrefs.length === 0) return;
-  await Promise.allSettled(uniqueHrefs.map((href) => waitForImageUrlReady(href)));
+  const imageNodes = Array.from(svg.querySelectorAll<SVGImageElement>("image"));
+  if (imageNodes.length === 0) return;
+
+  await Promise.all(
+    imageNodes.map(async (node) => {
+      const href = resolveSvgImageHref(node);
+      if (!href) {
+        node.remove();
+        return;
+      }
+      const resolvedHref = await resolveExportImageHref(href);
+      if (!resolvedHref) {
+        node.remove();
+        return;
+      }
+      node.setAttribute("href", resolvedHref);
+      node.setAttributeNS("http://www.w3.org/1999/xlink", "href", resolvedHref);
+    })
+  );
 };
 
 const fitBoundsToA4PortraitRatio = (bounds: WorkbookExportBounds): WorkbookExportBounds => {
@@ -394,37 +469,30 @@ export const useWorkbookPdfExport = ({
     return cleaned || fallback;
   }, [sessionId, sessionTitle]);
 
-  const requestExportFileName = useCallback(
-    (extension: "pdf") => {
+  const resolveExportPdfFileName = useCallback(
+    (options?: ExportPdfOptions) => {
       const fallback = resolveExportFileBaseName();
-      if (typeof window === "undefined") {
-        return `${fallback}.${extension}`;
-      }
-      const entered = window.prompt(
-        `Введите имя файла (${extension.toUpperCase()})`,
-        fallback
-      );
-      if (entered === null) return null;
-      const normalized = entered
+      const normalized = String(options?.fileName ?? "")
         .trim()
         .replace(/[\\/:*?"<>|]+/g, "-")
         .replace(/\s+/g, " ")
-        .replace(new RegExp(`\\.${extension}$`, "i"), "")
+        .replace(/\.pdf$/i, "")
         .replace(/[. ]+$/g, "");
       const base = normalized || fallback;
-      return `${base}.${extension}`;
+      return `${base}.pdf`;
     },
     [resolveExportFileBaseName]
   );
 
-  const exportBoardAsPdf = useCallback(async () => {
+  const defaultExportPdfName = useMemo(() => resolveExportFileBaseName(), [resolveExportFileBaseName]);
+
+  const exportBoardAsPdf = useCallback(async (options?: ExportPdfOptions) => {
     if (exportingSections) return;
     setExportingSections(true);
     const currentPage = Math.max(1, boardSettings.currentPage || 1);
     let activePage = currentPage;
     try {
-      const fileName = requestExportFileName("pdf");
-      if (!fileName) return;
+      const fileName = resolveExportPdfFileName(options);
       const exportPages = resolveExportPageNumbers();
       const previousPage = currentPage;
       const uniformBounds = resolveUniformContentExportBounds(exportPages);
@@ -503,7 +571,7 @@ export const useWorkbookPdfExport = ({
     boardSettings.currentPage,
     exportingSections,
     renderBoardToCanvas,
-    requestExportFileName,
+    resolveExportPdfFileName,
     resolveExportPageNumbers,
     resolveUniformContentExportBounds,
     setBoardSettings,
@@ -513,5 +581,5 @@ export const useWorkbookPdfExport = ({
     switchBoardPageForExport,
   ]);
 
-  return { exportBoardAsPdf };
+  return { exportBoardAsPdf, defaultExportPdfName };
 };
