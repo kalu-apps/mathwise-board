@@ -43,7 +43,7 @@ type HubScope = "class" | "personal";
 
 const toSessionPath = (sessionId: string) =>
   `/workbook/session/${encodeURIComponent(sessionId)}`;
-const HUB_REFRESH_INTERVAL_MS = 30_000;
+const HUB_REFRESH_INTERVAL_MS = 5_000;
 const HUB_REFRESH_THROTTLE_MS = 900;
 const HUB_CARDS_PER_PAGE = 9;
 
@@ -692,7 +692,7 @@ export default function WorkbookHubPage() {
         ) : (
           <>
             <div className="workbook-hub__list">
-              {pageCards.map((card) => {
+              {pageCards.map((card, cardIndex) => {
                 const isCopying = copyingSessionId === card.sessionId;
                 const isDeleting = deletingSessionId === card.sessionId;
                 const isRenaming = renamingSessionId === card.sessionId;
@@ -724,9 +724,9 @@ export default function WorkbookHubPage() {
                           className="workbook-hub__card-preview-image"
                           src={previewUrl}
                           alt={previewAlt}
-                          loading="lazy"
+                          loading="eager"
                           decoding="async"
-                          fetchPriority="low"
+                          fetchPriority={cardIndex < 3 ? "high" : "auto"}
                           onError={() => markPreviewLoadFailure(card.sessionId, previewUrl)}
                         />
                         <span className="workbook-hub__card-preview-scrim" />

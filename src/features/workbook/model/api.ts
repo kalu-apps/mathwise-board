@@ -34,7 +34,7 @@ export async function getWorkbookDrafts(scope: "all" | "personal" | "class" = "a
   const query = new URLSearchParams({ scope }).toString();
   return api.get<{ items: WorkbookDraftCard[] }>(`/workbook/drafts?${query}`, {
     cacheTtlMs: 1_000,
-    staleIfErrorMs: 90_000,
+    staleIfErrorMs: 0,
   });
 }
 
