@@ -1,10 +1,12 @@
 import {
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
 } from "@mui/material";
+import type { ReactNode } from "react";
 
 type PlatformConfirmTone = "neutral" | "warning" | "destructive";
 
@@ -16,6 +18,8 @@ type PlatformConfirmDialogProps = {
   cancelLabel?: string;
   tone?: PlatformConfirmTone;
   loading?: boolean;
+  confirmDisabled?: boolean;
+  content?: ReactNode;
   container?: Element | null;
   fullScreen?: boolean;
   onCancel: () => void;
@@ -36,6 +40,8 @@ export function PlatformConfirmDialog({
   cancelLabel = "Отмена",
   tone = "neutral",
   loading = false,
+  confirmDisabled = false,
+  content,
   container,
   fullScreen = false,
   onCancel,
@@ -54,6 +60,7 @@ export function PlatformConfirmDialog({
       <DialogTitle className="ui-confirm-dialog__title">{title}</DialogTitle>
       <DialogContent className="ui-confirm-dialog__content">
         <p>{description}</p>
+        {content ? <div className="ui-confirm-dialog__slot">{content}</div> : null}
       </DialogContent>
       <DialogActions className="ui-confirm-dialog__actions">
         <Button onClick={onCancel} disabled={loading}>
@@ -63,8 +70,9 @@ export function PlatformConfirmDialog({
           variant="contained"
           color={resolveConfirmButtonColor(tone)}
           onClick={() => void onConfirm()}
-          disabled={loading}
+          disabled={loading || confirmDisabled}
         >
+          {loading ? <CircularProgress size={16} color="inherit" sx={{ mr: 1 }} /> : null}
           {confirmLabel}
         </Button>
       </DialogActions>
