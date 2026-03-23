@@ -12,6 +12,11 @@ interface UseWorkbookLibraryAndTimerActionsParams {
   ) => void;
 }
 
+type UpsertLibraryItemOptions = {
+  silent?: boolean;
+  onError?: (error: unknown) => void;
+};
+
 export function useWorkbookLibraryAndTimerActions({
   appendEventsAndApply,
   setError,
@@ -19,7 +24,10 @@ export function useWorkbookLibraryAndTimerActions({
   setTimerState,
 }: UseWorkbookLibraryAndTimerActionsParams) {
   const upsertLibraryItem = useCallback(
-    async (item: WorkbookLibraryState["items"][number]) => {
+    async (
+      item: WorkbookLibraryState["items"][number],
+      options?: UpsertLibraryItemOptions
+    ) => {
       try {
         await appendEventsAndApply([
           {
@@ -27,8 +35,13 @@ export function useWorkbookLibraryAndTimerActions({
             payload: { item },
           },
         ]);
-      } catch {
-        setError("Не удалось сохранить материал в библиотеке.");
+        return true;
+      } catch (error) {
+        options?.onError?.(error);
+        if (!options?.silent) {
+          setError("Не удалось сохранить материал в библиотеке.");
+        }
+        return false;
       }
     },
     [appendEventsAndApply, setError]

@@ -1825,6 +1825,8 @@ export default function WorkbookSessionPage() {
     bootstrapReady,
     boardObjectsRef,
     boardStrokesRef,
+    visibleImagesReady: selectionViewportState.visibleImagesReady,
+    pendingVisibleImageCount: selectionViewportState.pendingVisibleImageCount,
   });
 
   if (loading) {

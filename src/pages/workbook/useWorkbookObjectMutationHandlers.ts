@@ -63,7 +63,13 @@ type UseWorkbookObjectMutationHandlersParams = {
   setError: (value: string | null) => void;
   appendEventsAndApply: AppendEventsAndApply;
   sendWorkbookLiveEvents: (events: WorkbookClientEventInput[]) => void;
-  upsertLibraryItem: (item: WorkbookLibraryState["items"][number]) => Promise<void> | void;
+  upsertLibraryItem: (
+    item: WorkbookLibraryState["items"][number],
+    options?: {
+      silent?: boolean;
+      onError?: (error: unknown) => void;
+    }
+  ) => Promise<boolean> | boolean;
   commitInteractiveBoardObjects: (objects: WorkbookBoardObject[]) => void;
   handleRealtimeConflict: () => void;
   applyConstraintsForObject: (

@@ -4231,6 +4231,10 @@
   color: rgba(40, 48, 69, 0.82);
 }
 
+.workbook-session__import-progress-spinner.MuiCircularProgress-root {
+  color: color-mix(in srgb, var(--brand-solid) 68%, var(--text-primary));
+}
+
 .workbook-session__docs-window.is-maximized {
   left: 14px;
   right: 14px;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import {
   Alert,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -10,7 +11,6 @@ import {
   LinearProgress,
 } from "@mui/material";
 import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
-import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import InsertDriveFileRoundedIcon from "@mui/icons-material/InsertDriveFileRounded";
 import ImageRoundedIcon from "@mui/icons-material/ImageRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
@@ -66,6 +66,7 @@ type WorkbookImportItem = {
   warning?: string;
   error?: string;
   status: ImportFileStatus;
+  progress: number;
 };
 
 type WorkbookImportModalProps = {
@@ -141,16 +142,36 @@ export function WorkbookImportModal({
   );
   const progressValue = useMemo(() => {
     if (!items.length) return 0;
-    const completed = items.filter(
-      (item) => item.status === "success" || item.status === "invalid" || item.status === "failed"
-    ).length;
-    return Math.min(100, Math.round((completed / items.length) * 100));
+    const totalProgress = items.reduce((sum, item) => {
+      if (item.status === "success" || item.status === "failed" || item.status === "invalid") {
+        return sum + 100;
+      }
+      if (item.status === "uploading" || item.status === "inserting" || item.status === "optimizing") {
+        return sum + Math.max(0, Math.min(100, item.progress));
+      }
+      return sum;
+    }, 0);
+    return Math.min(100, Math.round(totalProgress / items.length));
   }, [items]);
   const hasQueuedItems = items.length > 0;
 
   const setItemPatch = useCallback((itemId: string, patch: Partial<WorkbookImportItem>) => {
     setItems((current) =>
       current.map((item) => (item.id === itemId ? { ...item, ...patch } : item))
+    );
+  }, []);
+
+  const setItemProgress = useCallback((itemId: string, progress: number) => {
+    const normalized = Number.isFinite(progress) ? Math.max(0, Math.min(100, Math.round(progress))) : 0;
+    setItems((current) =>
+      current.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              progress: Math.max(item.progress, normalized),
+            }
+          : item
+      )
     );
   }, []);
 
@@ -192,6 +213,7 @@ export function WorkbookImportModal({
           isImage,
           isPdf,
           status: "waiting",
+          progress: 0,
         };
         if (!isImage && !isPdf) {
           nextItems.push({
@@ -355,6 +377,7 @@ export function WorkbookImportModal({
     for (const item of queue) {
       try {
         setItemPatch(item.id, { status: "uploading", error: undefined });
+        setItemProgress(item.id, 6);
         setModalState("uploading");
         reportWorkbookImportEvent({
           name: "upload_started",
@@ -364,9 +387,12 @@ export function WorkbookImportModal({
         const imported = await onImportFile({
           file: item.file,
           preparedDataUrl: item.preparedDataUrl,
+          onProgress: (progress) => {
+            setItemProgress(item.id, progress);
+          },
           onStage: (stage) => {
             if (stage !== "inserting") return;
-            setItemPatch(item.id, { status: "inserting" });
+            setItemPatch(item.id, { status: "inserting", progress: 82 });
             reportWorkbookImportEvent({
               name: "insert_started",
               sessionId,
@@ -381,6 +407,7 @@ export function WorkbookImportModal({
           setItemPatch(item.id, {
             status: "failed",
             error: "Файл не вставлен на доску из-за ошибки импорта.",
+            progress: 100,
           });
           reportWorkbookImportEvent({
             name: "insert_failed",
@@ -390,7 +417,7 @@ export function WorkbookImportModal({
           continue;
         }
         successCount += 1;
-        setItemPatch(item.id, { status: "success" });
+        setItemPatch(item.id, { status: "success", progress: 100 });
         reportWorkbookImportEvent({
           name: "upload_succeeded",
           sessionId,
@@ -406,6 +433,7 @@ export function WorkbookImportModal({
         setItemPatch(item.id, {
           status: "failed",
           error: "Ошибка загрузки или вставки. Попробуйте повторить.",
+          progress: 100,
         });
         reportWorkbookImportEvent({
           name: "upload_failed",
@@ -429,7 +457,7 @@ export function WorkbookImportModal({
     });
     setIsBusy(false);
     onClose();
-  }, [hasFailures, isBusy, items, onClose, onImportFile, sessionId, setItemPatch]);
+  }, [hasFailures, isBusy, items, onClose, onImportFile, sessionId, setItemPatch, setItemProgress]);
 
   const handleClose = useCallback(() => {
     if (isBusy) return;
@@ -593,7 +621,7 @@ export function WorkbookImportModal({
                   }
                   disabled={isBusy}
                 >
-                  <DeleteOutlineRoundedIcon fontSize="small" />
+                  <CloseRoundedIcon fontSize="small" />
                 </IconButton>
               </article>
             ))}
@@ -602,6 +630,13 @@ export function WorkbookImportModal({
         {(modalState === "uploading" || modalState === "processing") && items.length > 0 ? (
           <div className="workbook-session__import-progress">
             <LinearProgress variant="determinate" value={progressValue} />
+            {isBusy ? (
+              <CircularProgress
+                size={14}
+                thickness={4.6}
+                className="workbook-session__import-progress-spinner"
+              />
+            ) : null}
             <span>{progressValue}%</span>
           </div>
         ) : null}

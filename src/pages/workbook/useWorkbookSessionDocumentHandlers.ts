@@ -49,6 +49,7 @@ export type WorkbookPreparedDocumentImport = {
   file: File;
   preparedDataUrl?: string;
   onStage?: (stage: WorkbookDocumentImportStage) => void;
+  onProgress?: (progress: number) => void;
 };
 
 type UseWorkbookSessionDocumentHandlersParams = {
@@ -91,8 +92,12 @@ type UseWorkbookSessionDocumentHandlersParams = {
     }
   ) => Promise<boolean>;
   upsertLibraryItem: (
-    item: WorkbookLibraryState["items"][number]
-  ) => Promise<void> | void;
+    item: WorkbookLibraryState["items"][number],
+    options?: {
+      silent?: boolean;
+      onError?: (error: unknown) => void;
+    }
+  ) => Promise<boolean> | boolean;
   persistSnapshots: (options?: { silent?: boolean; force?: boolean }) => Promise<boolean>;
 };
 
@@ -184,11 +189,16 @@ export const useWorkbookSessionDocumentHandlers = ({
   );
 
   const importDocumentFile = useCallback(
-    async ({ file, preparedDataUrl, onStage }: WorkbookPreparedDocumentImport) => {
+    async ({ file, preparedDataUrl, onStage, onProgress }: WorkbookPreparedDocumentImport) => {
       if (!file || !canInsertImage || !sessionId) return false;
       try {
+        const reportProgress = (value: number) => {
+          const normalized = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
+          setUploadProgress(normalized);
+          onProgress?.(normalized);
+        };
         setUploadingDoc(true);
-        setUploadProgress(20);
+        reportProgress(20);
         let renderedPages: WorkbookDocumentAssetLike["renderedPages"] = undefined;
         const isPdf = isPdfUploadFile(file);
         const isImage = isImageUploadFile(file);
@@ -224,7 +234,7 @@ export const useWorkbookSessionDocumentHandlers = ({
             }))
           : sourceDataUrl;
         if (isPdf) {
-          setUploadProgress(45);
+          reportProgress(45);
           const rendered = await renderWorkbookPdfPages({
             fileName: file.name,
             dataUrl: documentAssetDataUrl,
@@ -240,7 +250,7 @@ export const useWorkbookSessionDocumentHandlers = ({
           }
         }
         onStage?.("uploading");
-        setUploadProgress(56);
+        reportProgress(56);
         const uploadedDocumentAsset = await uploadWorkbookAsset({
           sessionId,
           fileName: file.name,
@@ -263,11 +273,11 @@ export const useWorkbookSessionDocumentHandlers = ({
               imageUrl: uploadedPageAsset.url,
             });
             const progress = 58 + Math.round(((index + 1) / renderedPages.length) * 14);
-            setUploadProgress(Math.min(72, progress));
+            reportProgress(Math.min(72, progress));
           }
           syncedRenderedPages = uploadedRenderedPages;
         }
-        setUploadProgress(72);
+        reportProgress(72);
         const insertPosition = resolveWorkbookBoardInsertPosition(
           canvasViewport,
           boardObjectCount
@@ -324,17 +334,20 @@ export const useWorkbookSessionDocumentHandlers = ({
             );
           }
         }
-        void upsertLibraryItem({
-          id: generateId(),
-          name: file.name,
-          type: isPdf ? "pdf" : isImage ? "image" : "office",
-          ownerUserId: userId ?? "unknown",
-          sourceUrl: isImage ? uploadedDocumentAsset.url : objectImageUrl ?? uploadedDocumentAsset.url,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          folderId: null,
-        });
-        setUploadProgress(100);
+        void upsertLibraryItem(
+          {
+            id: generateId(),
+            name: file.name,
+            type: isPdf ? "pdf" : isImage ? "image" : "office",
+            ownerUserId: userId ?? "unknown",
+            sourceUrl: isImage ? uploadedDocumentAsset.url : objectImageUrl ?? uploadedDocumentAsset.url,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            folderId: null,
+          },
+          { silent: true }
+        );
+        reportProgress(100);
         return true;
       } catch (error) {
         if (error instanceof ApiError && error.status === 413) {
