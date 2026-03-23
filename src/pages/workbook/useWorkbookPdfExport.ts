@@ -1,4 +1,5 @@
 import { useCallback, useMemo, type MutableRefObject } from "react";
+import { jsPDF } from "jspdf";
 import {
   getObjectExportBounds,
   getStrokeExportBounds,
@@ -85,6 +86,125 @@ const blobToDataUrl = (blob: Blob) =>
       resolve(null);
     }
   });
+
+const parseNumericSvgAttr = (node: Element, name: string, fallback = 0) => {
+  const raw = node.getAttribute(name);
+  if (typeof raw !== "string") return fallback;
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const parseCssPixelSize = (value: string, fallback: number) => {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+// Browser SVG->canvas decode can fail when foreignObject is present.
+// Convert text foreignObject nodes to pure SVG text before export rasterization.
+const normalizeForeignObjectTextForExport = (svg: SVGSVGElement) => {
+  const textLikeForeignObjects = Array.from(
+    svg.querySelectorAll<SVGForeignObjectElement>("foreignObject")
+  ).filter((node) =>
+    Boolean(
+      node.querySelector(".workbook-session__text-render") ??
+        node.querySelector(".workbook-session__text-editor-input")
+    )
+  );
+
+  textLikeForeignObjects.forEach((node) => {
+    const textRenderNode = node.querySelector<HTMLElement>(".workbook-session__text-render");
+    const textEditorNode = node.querySelector<HTMLTextAreaElement>(
+      ".workbook-session__text-editor-input"
+    );
+    const sourceNode = textEditorNode ?? textRenderNode;
+    if (!sourceNode) return;
+
+    const rawText = textEditorNode ? textEditorNode.value : sourceNode.textContent ?? "";
+    const normalizedText = rawText.replace(/\r\n/g, "\n");
+    const lines = normalizedText.split("\n");
+    if (lines.length === 0) {
+      node.remove();
+      return;
+    }
+
+    const x = parseNumericSvgAttr(node, "x", 0);
+    const y = parseNumericSvgAttr(node, "y", 0);
+    const width = Math.max(1, parseNumericSvgAttr(node, "width", 1));
+    const fontSize = Math.max(10, parseCssPixelSize(sourceNode.style.fontSize, 18));
+    const lineHeight = Math.max(fontSize * 1.32, fontSize + 4);
+    const textAlign =
+      sourceNode.style.textAlign === "center" || sourceNode.style.textAlign === "right"
+        ? sourceNode.style.textAlign
+        : "left";
+    const textAnchor =
+      textAlign === "center" ? "middle" : textAlign === "right" ? "end" : "start";
+    const textX =
+      textAlign === "center" ? x + width / 2 : textAlign === "right" ? x + width - 4 : x + 4;
+    const baselineY = y + Math.max(fontSize, 14);
+
+    const textNode = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    textNode.setAttribute("x", String(textX));
+    textNode.setAttribute("y", String(baselineY));
+    textNode.setAttribute("text-anchor", textAnchor);
+    textNode.setAttribute("fill", sourceNode.style.color || "#172039");
+    textNode.setAttribute("font-size", String(fontSize));
+    textNode.setAttribute(
+      "font-family",
+      sourceNode.style.fontFamily || "\"Fira Sans\", \"Segoe UI\", sans-serif"
+    );
+    textNode.setAttribute(
+      "font-weight",
+      sourceNode.style.fontWeight && sourceNode.style.fontWeight.length > 0
+        ? sourceNode.style.fontWeight
+        : "500"
+    );
+    textNode.setAttribute("font-style", sourceNode.style.fontStyle || "normal");
+    if (sourceNode.style.textDecoration) {
+      textNode.setAttribute("text-decoration", sourceNode.style.textDecoration);
+    }
+
+    lines.forEach((line, index) => {
+      const tspan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
+      tspan.setAttribute("x", String(textX));
+      if (index === 0) {
+        tspan.setAttribute("y", String(baselineY));
+      } else {
+        tspan.setAttribute("dy", String(lineHeight));
+      }
+      tspan.textContent = line.length > 0 ? line : " ";
+      textNode.appendChild(tspan);
+    });
+
+    node.parentNode?.insertBefore(textNode, node);
+    node.remove();
+  });
+};
+
+const triggerPdfDownloadFallback = (blob: Blob, fileName: string) => {
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  anchor.rel = "noopener";
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+};
+
+const savePdfSafely = (pdf: { save: (fileName: string) => void; output: (type: "blob") => Blob }, fileName: string) => {
+  try {
+    pdf.save(fileName);
+    return;
+  } catch {
+    const blob = pdf.output("blob");
+    if (!(blob instanceof Blob) || blob.size <= 0) {
+      throw new Error("pdf_output_blob_failed");
+    }
+    triggerPdfDownloadFallback(blob, fileName);
+  }
+};
 
 const resolveSameOriginWorkbookAssetUrl = (source: string) => {
   if (typeof window === "undefined") return null;
@@ -357,6 +477,7 @@ export const useWorkbookPdfExport = ({
           }
         }
       }
+      normalizeForeignObjectTextForExport(svgClone);
       await waitForSvgImageResources(svgClone);
       const serialized = new XMLSerializer().serializeToString(svgClone);
       const blob = new Blob([serialized], { type: "image/svg+xml;charset=utf-8" });
@@ -490,7 +611,6 @@ export const useWorkbookPdfExport = ({
           ],
         ])
       );
-      const { jsPDF } = await import("jspdf");
       const pdf = new jsPDF({
         orientation: "portrait",
         unit: "pt",
@@ -540,8 +660,11 @@ export const useWorkbookPdfExport = ({
         setError("Не удалось подготовить страницы для PDF.");
         return;
       }
-      pdf.save(fileName);
-    } catch {
+      savePdfSafely(pdf, fileName);
+    } catch (error) {
+      if (!import.meta.env.PROD) {
+        console.error("[workbook-pdf-export] failed", error);
+      }
       setError("Не удалось экспортировать PDF.");
     } finally {
       setCanvasVisibilityMode("viewport");
