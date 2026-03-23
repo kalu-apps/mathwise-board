@@ -50,6 +50,7 @@ export type WorkbookPreparedDocumentImport = {
   preparedDataUrl?: string;
   onStage?: (stage: WorkbookDocumentImportStage) => void;
   onProgress?: (progress: number) => void;
+  onErrorMessage?: (message: string) => void;
 };
 
 type UseWorkbookSessionDocumentHandlersParams = {
@@ -189,9 +190,20 @@ export const useWorkbookSessionDocumentHandlers = ({
   );
 
   const importDocumentFile = useCallback(
-    async ({ file, preparedDataUrl, onStage, onProgress }: WorkbookPreparedDocumentImport) => {
+    async ({
+      file,
+      preparedDataUrl,
+      onStage,
+      onProgress,
+      onErrorMessage,
+    }: WorkbookPreparedDocumentImport) => {
       if (!file || !canInsertImage || !sessionId) return false;
       try {
+        const failImport = (message: string) => {
+          setError(message);
+          onErrorMessage?.(message);
+          return false;
+        };
         const reportProgress = (value: number) => {
           const normalized = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
           setUploadProgress(normalized);
@@ -203,26 +215,23 @@ export const useWorkbookSessionDocumentHandlers = ({
         const isPdf = isPdfUploadFile(file);
         const isImage = isImageUploadFile(file);
         if (!isPdf && !isImage) {
-          setError(
+          return failImport(
             "Не удалось добавить файл: поддерживаются PDF и изображения (PNG, JPG, WEBP, SVG, AVIF, TIFF и другие)."
           );
-          return false;
         }
         if (isPdf && file.size > WORKBOOK_PDF_IMPORT_MAX_BYTES) {
-          setError(
+          return failImport(
             `Не удалось добавить PDF: размер файла ${formatFileSizeMb(file.size)} превышает лимит ${formatFileSizeMb(
               WORKBOOK_PDF_IMPORT_MAX_BYTES
             )}.`
           );
-          return false;
         }
         if (isImage && file.size > WORKBOOK_IMAGE_IMPORT_MAX_BYTES) {
-          setError(
+          return failImport(
             `Не удалось добавить изображение: размер файла ${formatFileSizeMb(
               file.size
             )} превышает лимит ${formatFileSizeMb(WORKBOOK_IMAGE_IMPORT_MAX_BYTES)}.`
           );
-          return false;
         }
         const sourceDataUrl = preparedDataUrl || (await readFileAsDataUrl(file));
         const documentAssetDataUrl = isImage
@@ -243,10 +252,9 @@ export const useWorkbookSessionDocumentHandlers = ({
           });
           renderedPages = rendered.pages.slice(0, 8);
           if (!renderedPages.length) {
-            setError(
+            return failImport(
               "Не удалось добавить PDF: документ не удалось обработать. Проверьте файл или загрузите другую версию."
             );
-            return false;
           }
         }
         onStage?.("uploading");
@@ -287,10 +295,9 @@ export const useWorkbookSessionDocumentHandlers = ({
           : null;
         const objectImageUrl = isImage ? uploadedDocumentAsset.url : renderedPage?.imageUrl;
         if (isImage && !objectImageUrl) {
-          setError(
+          return failImport(
             "Не удалось добавить изображение: браузер не смог обработать файл. Попробуйте другой формат или меньший размер."
           );
-          return false;
         }
         const assetId = generateId();
         const uploadedAt = new Date().toISOString();
@@ -351,26 +358,46 @@ export const useWorkbookSessionDocumentHandlers = ({
         return true;
       } catch (error) {
         if (error instanceof ApiError && error.status === 413) {
-          setError(
+          if (error.message === "pdf_too_large") {
+            return failImport(
+              `Не удалось добавить PDF: серверный лимит обработки ${formatFileSizeMb(
+                WORKBOOK_PDF_IMPORT_MAX_BYTES
+              )}. Уменьшите размер файла или разделите документ.`
+            );
+          }
+          if (error.message === "workbook_asset_too_large") {
+            return failImport(
+              "Не удалось добавить файл: ассет превышает допустимый размер хранилища. Уменьшите файл и повторите попытку."
+            );
+          }
+          if (error.message === "request_body_too_large") {
+            return failImport(
+              "Не удалось добавить файл: payload слишком большой для передачи. Попробуйте более компактный PDF."
+            );
+          }
+          return failImport(
             "Не удалось добавить файл: объём слишком большой для обработки. Уменьшите размер файла и повторите попытку."
           );
+        } else if (error instanceof ApiError && error.code === "timeout") {
+          return failImport(
+            "Не удалось добавить PDF: сервер обрабатывает документ слишком долго. Уменьшите файл или повторите попытку позже."
+          );
         } else if (error instanceof ApiError && error.status === 503) {
-          setError(
+          return failImport(
             "Не удалось обработать PDF на сервере. Попробуйте позже или загрузите изображение."
           );
         } else if (
           error instanceof Error &&
           (error.message === "image_decode_failed" || error.message === "read_failed")
         ) {
-          setError(
+          return failImport(
             "Не удалось прочитать файл. Проверьте целостность файла или выберите другое расширение."
           );
         } else {
-          setError(
+          return failImport(
             "Импорт завершился с ошибкой. Проверьте формат/размер файла и повторите попытку."
           );
         }
-        return false;
       } finally {
         setUploadingDoc(false);
         setUploadProgress(0);

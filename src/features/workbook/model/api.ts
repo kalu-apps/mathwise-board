@@ -567,7 +567,7 @@ export async function renderWorkbookPdfPages(params: {
       width?: number;
       height?: number;
     }>;
-  }>("/workbook/pdf/render", params, { notifyDataUpdate: false });
+  }>("/workbook/pdf/render", params, { notifyDataUpdate: false, timeoutMs: 90_000 });
 }
 
 export async function uploadWorkbookAsset(params: {

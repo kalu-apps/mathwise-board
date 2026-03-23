@@ -376,6 +376,7 @@ export function WorkbookImportModal({
     let failureCount = 0;
     for (const item of queue) {
       try {
+        let itemFailureMessage: string | null = null;
         setItemPatch(item.id, { status: "uploading", error: undefined });
         setItemProgress(item.id, 6);
         setModalState("uploading");
@@ -389,6 +390,9 @@ export function WorkbookImportModal({
           preparedDataUrl: item.preparedDataUrl,
           onProgress: (progress) => {
             setItemProgress(item.id, progress);
+          },
+          onErrorMessage: (message) => {
+            itemFailureMessage = message;
           },
           onStage: (stage) => {
             if (stage !== "inserting") return;
@@ -406,7 +410,10 @@ export function WorkbookImportModal({
           failureCount += 1;
           setItemPatch(item.id, {
             status: "failed",
-            error: "Файл не вставлен на доску из-за ошибки импорта.",
+            error:
+              itemFailureMessage && itemFailureMessage.trim().length > 0
+                ? itemFailureMessage
+                : "Файл не вставлен на доску из-за ошибки импорта.",
             progress: 100,
           });
           reportWorkbookImportEvent({
