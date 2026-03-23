@@ -133,6 +133,92 @@ const resolveSafeCanvasSize = (width: number, height: number) => {
   };
 };
 
+const parseNumericSvgAttr = (node: Element, name: string, fallback = 0) => {
+  const raw = node.getAttribute(name);
+  if (typeof raw !== "string") return fallback;
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeForeignObjectTextForPreview = (svg: SVGSVGElement) => {
+  const textLikeForeignObjects = Array.from(
+    svg.querySelectorAll<SVGForeignObjectElement>("foreignObject")
+  ).filter((node) => {
+    return Boolean(
+      node.querySelector(".workbook-session__text-render") ??
+        node.querySelector(".workbook-session__text-editor-input")
+    );
+  });
+
+  textLikeForeignObjects.forEach((node) => {
+    const textRenderNode = node.querySelector<HTMLElement>(".workbook-session__text-render");
+    const textEditorNode = node.querySelector<HTMLTextAreaElement>(
+      ".workbook-session__text-editor-input"
+    );
+    const sourceNode = textEditorNode ?? textRenderNode;
+    if (!sourceNode) return;
+
+    const rawText = textEditorNode ? textEditorNode.value : sourceNode.textContent ?? "";
+    const normalizedText = rawText.replace(/\r\n/g, "\n");
+    const lines = normalizedText.split("\n");
+    if (lines.length === 0) {
+      node.remove();
+      return;
+    }
+
+    const x = parseNumericSvgAttr(node, "x", 0);
+    const y = parseNumericSvgAttr(node, "y", 0);
+    const width = Math.max(1, parseNumericSvgAttr(node, "width", 1));
+    const fontSize = Math.max(10, parseCssPixelSize(sourceNode.style.fontSize, 18));
+    const lineHeight = Math.max(fontSize * 1.32, fontSize + 4);
+    const textAlign =
+      sourceNode.style.textAlign === "center" || sourceNode.style.textAlign === "right"
+        ? sourceNode.style.textAlign
+        : "left";
+    const textAnchor =
+      textAlign === "center" ? "middle" : textAlign === "right" ? "end" : "start";
+    const textX =
+      textAlign === "center" ? x + width / 2 : textAlign === "right" ? x + width - 4 : x + 4;
+    const baselineY = y + Math.max(fontSize, 14);
+
+    const textNode = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    textNode.setAttribute("x", String(textX));
+    textNode.setAttribute("y", String(baselineY));
+    textNode.setAttribute("text-anchor", textAnchor);
+    textNode.setAttribute("fill", sourceNode.style.color || "#172039");
+    textNode.setAttribute("font-size", String(fontSize));
+    textNode.setAttribute(
+      "font-family",
+      sourceNode.style.fontFamily || "\"Fira Sans\", \"Segoe UI\", sans-serif"
+    );
+    textNode.setAttribute(
+      "font-weight",
+      sourceNode.style.fontWeight && sourceNode.style.fontWeight.length > 0
+        ? sourceNode.style.fontWeight
+        : "500"
+    );
+    textNode.setAttribute("font-style", sourceNode.style.fontStyle || "normal");
+    if (sourceNode.style.textDecoration) {
+      textNode.setAttribute("text-decoration", sourceNode.style.textDecoration);
+    }
+
+    lines.forEach((line, index) => {
+      const tspan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
+      tspan.setAttribute("x", String(textX));
+      if (index === 0) {
+        tspan.setAttribute("y", String(baselineY));
+      } else {
+        tspan.setAttribute("dy", String(lineHeight));
+      }
+      tspan.textContent = line.length > 0 ? line : " ";
+      textNode.appendChild(tspan);
+    });
+
+    node.parentNode?.insertBefore(textNode, node);
+    node.remove();
+  });
+};
+
 const serializeWorkbookCanvasSvg = async (
   svg: SVGSVGElement,
   sourceWidth: number,
@@ -143,6 +229,7 @@ const serializeWorkbookCanvasSvg = async (
   clonedSvg.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
   clonedSvg.setAttribute("width", String(Math.max(1, Math.round(sourceWidth))));
   clonedSvg.setAttribute("height", String(Math.max(1, Math.round(sourceHeight))));
+  normalizeForeignObjectTextForPreview(clonedSvg);
   await inlineSvgImagesAsDataUrls(clonedSvg);
   return new XMLSerializer().serializeToString(clonedSvg);
 };
