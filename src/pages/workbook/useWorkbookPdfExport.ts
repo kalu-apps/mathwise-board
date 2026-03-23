@@ -61,11 +61,10 @@ const resolvePageExportBounds = (): WorkbookExportBounds => ({
 
 const EXPORT_A4_PORTRAIT_RATIO = 210 / 297;
 const EXPORT_CONTENT_BOUNDS_PADDING_PX = 56;
-const EXPORT_IMAGE_READY_TIMEOUT_MS = 5_000;
 const EXPORT_MAX_CANVAS_PIXELS = 8_500_000;
 const EXPORT_MIN_SCALE = 0.35;
-const preloadedExportImageUrls = new Set<string>();
 const inlinedExportImageUrls = new Map<string, Promise<string | null>>();
+const WORKBOOK_ASSET_PATH_RE = /^\/api\/workbook\/sessions\/[^/]+\/assets\/[^/]+(?:\/content)?$/i;
 
 const resolveSvgImageHref = (node: SVGImageElement) => {
   const href = node.getAttribute("href");
@@ -73,52 +72,6 @@ const resolveSvgImageHref = (node: SVGImageElement) => {
   const xlinkHref = node.getAttributeNS("http://www.w3.org/1999/xlink", "href");
   return typeof xlinkHref === "string" && xlinkHref.trim().length > 0 ? xlinkHref.trim() : "";
 };
-
-const waitForImageUrlReady = (url: string, timeoutMs = EXPORT_IMAGE_READY_TIMEOUT_MS) =>
-  new Promise<boolean>((resolve) => {
-    const source = typeof url === "string" ? url.trim() : "";
-    if (!source) {
-      resolve(false);
-      return;
-    }
-    if (preloadedExportImageUrls.has(source)) {
-      resolve(true);
-      return;
-    }
-    let settled = false;
-    let timeoutId: number | null = null;
-    const finish = (ok: boolean) => {
-      if (settled) return;
-      settled = true;
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
-      if (ok) {
-        preloadedExportImageUrls.add(source);
-      }
-      resolve(ok);
-    };
-    try {
-      const image = new Image();
-      image.decoding = "async";
-      image.onload = () => finish(true);
-      image.onerror = () => finish(false);
-      image.src = source;
-      if (image.complete) {
-        finish(image.naturalWidth > 0 && image.naturalHeight > 0);
-        return;
-      }
-      if (typeof image.decode === "function") {
-        void image
-          .decode()
-          .then(() => finish(true))
-          .catch(() => undefined);
-      }
-      timeoutId = window.setTimeout(() => finish(false), timeoutMs);
-    } catch {
-      finish(false);
-    }
-  });
 
 const blobToDataUrl = (blob: Blob) =>
   new Promise<string | null>((resolve) => {
@@ -133,6 +86,32 @@ const blobToDataUrl = (blob: Blob) =>
     }
   });
 
+const resolveSameOriginWorkbookAssetUrl = (source: string) => {
+  if (typeof window === "undefined") return null;
+  try {
+    const parsed = new URL(source, window.location.origin);
+    if (!WORKBOOK_ASSET_PATH_RE.test(parsed.pathname)) return null;
+    return `${window.location.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return null;
+  }
+};
+
+const fetchImageAsDataUrl = async (source: string) => {
+  try {
+    const response = await fetch(source, {
+      method: "GET",
+      credentials: "include",
+      cache: "force-cache",
+    });
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return blobToDataUrl(blob);
+  } catch {
+    return null;
+  }
+};
+
 const resolveExportImageHref = async (rawHref: string) => {
   const normalizedHref = normalizeWorkbookAssetContentUrl(rawHref);
   const source = typeof normalizedHref === "string" ? normalizedHref.trim() : "";
@@ -146,18 +125,19 @@ const resolveExportImageHref = async (rawHref: string) => {
   let inlinePromise = inlinedExportImageUrls.get(source);
   if (!inlinePromise) {
     inlinePromise = (async () => {
-      try {
-        const response = await fetch(source, {
-          method: "GET",
-          credentials: "include",
-          cache: "force-cache",
-        });
-        if (!response.ok) return null;
-        const blob = await response.blob();
-        return blobToDataUrl(blob);
-      } catch {
-        return null;
+      const sameOriginSource = resolveSameOriginWorkbookAssetUrl(source);
+      const fetchCandidates =
+        typeof sameOriginSource === "string" && sameOriginSource.length > 0
+          ? Array.from(new Set([sameOriginSource, source]))
+          : [source];
+
+      for (const candidate of fetchCandidates) {
+        const inlined = await fetchImageAsDataUrl(candidate);
+        if (typeof inlined === "string" && inlined.length > 0) {
+          return inlined;
+        }
       }
+      return null;
     })();
     inlinedExportImageUrls.set(source, inlinePromise);
   }
@@ -166,9 +146,7 @@ const resolveExportImageHref = async (rawHref: string) => {
   if (typeof inlinedHref === "string" && inlinedHref.length > 0) {
     return inlinedHref;
   }
-
-  const isReachable = await waitForImageUrlReady(source);
-  return isReachable ? source : null;
+  return null;
 };
 
 const waitForSvgImageResources = async (svg: SVGSVGElement) => {
