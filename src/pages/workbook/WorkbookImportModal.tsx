@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
   Alert,
   Button,
@@ -125,11 +125,11 @@ export function WorkbookImportModal({
   const [items, setItems] = useState<WorkbookImportItem[]>([]);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
-  const dialogContainer = useMemo(() => {
-    if (container) return container;
-    if (typeof document === "undefined") return undefined;
-    return document.fullscreenElement ?? document.body;
-  }, [container]);
+  const dialogContainer =
+    container ??
+    (typeof document !== "undefined"
+      ? document.fullscreenElement ?? document.body
+      : undefined);
 
   const readyCount = useMemo(
     () => items.filter((item) => item.status === "ready").length,

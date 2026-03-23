@@ -2040,6 +2040,8 @@ export default function WorkbookSessionPage() {
         open={isImportModalOpen}
         sessionId={sessionId}
         initialFiles={pendingImportFiles}
+        container={overlayContainer}
+        fullScreen={isFullscreen}
         onClose={handleImportModalClose}
         onImportFile={handleImportModalFile}
       />
