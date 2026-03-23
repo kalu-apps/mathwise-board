@@ -113,6 +113,10 @@ import {
 import { WorkbookImportModal } from "./WorkbookImportModal";
 import { captureWorkbookSessionPreviewDataUrl } from "./workbookHubPreviewCapture";
 import { useWorkbookPageTransitionOverlay } from "./useWorkbookPageTransitionOverlay";
+import {
+  WORKBOOK_HUB_PREVIEW_BRIDGE_EVENT,
+  type WorkbookHubPreviewBridgeMessage,
+} from "./workbookHubPreviewBridge";
 
 export default function WorkbookSessionPage() {
   const { user, isAuthReady, openAuthModal } = useAuth();
@@ -1663,42 +1667,31 @@ export default function WorkbookSessionPage() {
     [renderToolButton, toolButtonsAfterCatalog]
   );
 
-  const persistSessionExitPreview = useCallback(async () => {
+  const buildSessionExitPreviewPayload = useCallback(async () => {
     if (!session || session.roleInSession !== "teacher") return;
     if (typeof window === "undefined") return;
     const previewDataUrl = await captureWorkbookSessionPreviewDataUrl(
       workspaceRef.current ?? sessionRootRef.current
     );
     if (!previewDataUrl) return;
-    try {
-      const uploadedPreview = await uploadWorkbookAsset({
-        sessionId: session.id,
-        fileName: `session-preview-${session.id}-${Date.now()}.jpg`,
-        dataUrl: previewDataUrl,
-        mimeType: "image/jpeg",
-      });
-      await updateWorkbookSessionDraftPreview({
-        sessionId: session.id,
-        previewUrl: uploadedPreview.url,
-        previewAlt:
-          typeof boardSettings.currentPage === "number" &&
-          Number.isFinite(boardSettings.currentPage)
-            ? `Последний вид доски · страница ${Math.max(1, Math.trunc(boardSettings.currentPage))}`
-            : "Последний вид доски",
-        page:
-          typeof boardSettings.currentPage === "number" &&
-          Number.isFinite(boardSettings.currentPage)
-            ? Math.max(1, Math.trunc(boardSettings.currentPage))
-            : undefined,
-        viewport: {
-          x: canvasViewport.x,
-          y: canvasViewport.y,
-          zoom: viewportZoom,
-        },
-      });
-    } catch {
-      // Hub preview capture is best-effort and must not block session exit.
-    }
+    return {
+      previewDataUrl,
+      previewAlt:
+        typeof boardSettings.currentPage === "number" &&
+        Number.isFinite(boardSettings.currentPage)
+          ? `Последний вид доски · страница ${Math.max(1, Math.trunc(boardSettings.currentPage))}`
+          : "Последний вид доски",
+      page:
+        typeof boardSettings.currentPage === "number" &&
+        Number.isFinite(boardSettings.currentPage)
+          ? Math.max(1, Math.trunc(boardSettings.currentPage))
+          : undefined,
+      viewport: {
+        x: canvasViewport.x,
+        y: canvasViewport.y,
+        zoom: viewportZoom,
+      },
+    };
   }, [
     boardSettings.currentPage,
     canvasViewport.x,
@@ -1708,6 +1701,59 @@ export default function WorkbookSessionPage() {
     viewportZoom,
     workspaceRef,
   ]);
+
+  const persistSessionExitPreview = useCallback(async () => {
+    const payload = await buildSessionExitPreviewPayload();
+    if (!session || !payload) return;
+    try {
+      const uploadedPreview = await uploadWorkbookAsset({
+        sessionId: session.id,
+        fileName: `session-preview-${session.id}-${Date.now()}.jpg`,
+        dataUrl: payload.previewDataUrl,
+        mimeType: "image/jpeg",
+      });
+      await updateWorkbookSessionDraftPreview({
+        sessionId: session.id,
+        previewUrl: uploadedPreview.url,
+        previewAlt: payload.previewAlt,
+        page: payload.page,
+        viewport: payload.viewport,
+      });
+    } catch {
+      // Hub preview capture is best-effort and must not block session exit.
+    }
+  }, [buildSessionExitPreviewPayload, session]);
+
+  const postSessionExitPreviewToHub = useCallback(async () => {
+    if (
+      typeof window === "undefined" ||
+      !session ||
+      session.roleInSession !== "teacher" ||
+      !window.opener ||
+      window.opener.closed
+    ) {
+      return false;
+    }
+    const payload = await buildSessionExitPreviewPayload();
+    if (!payload) return false;
+    const message: WorkbookHubPreviewBridgeMessage = {
+      type: WORKBOOK_HUB_PREVIEW_BRIDGE_EVENT,
+      payload: {
+        sessionId: session.id,
+        previewDataUrl: payload.previewDataUrl,
+        previewAlt: payload.previewAlt,
+        page: payload.page,
+        viewport: payload.viewport,
+        capturedAt: new Date().toISOString(),
+      },
+    };
+    try {
+      window.opener.postMessage(message, window.location.origin);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [buildSessionExitPreviewPayload, session]);
 
   const handleBack = useCallback(async () => {
     if (isBackNavigationPending) return;
@@ -1721,9 +1767,17 @@ export default function WorkbookSessionPage() {
           return;
         }
       }
-      // Hub preview refresh is best-effort and must never delay route transition.
-      void persistSessionExitPreview();
       if (typeof window !== "undefined" && window.opener && !window.opener.closed) {
+        // Try to hand off preview to the hub tab without waiting for upload in this tab.
+        const previewPosted = await Promise.race([
+          postSessionExitPreviewToHub(),
+          new Promise<boolean>((resolve) => {
+            window.setTimeout(() => resolve(false), 240);
+          }),
+        ]);
+        if (!previewPosted) {
+          void persistSessionExitPreview();
+        }
         try {
           window.opener.focus?.();
         } catch {
@@ -1735,6 +1789,8 @@ export default function WorkbookSessionPage() {
         }
         return;
       }
+      // Hub preview refresh is best-effort and must never delay route transition.
+      void persistSessionExitPreview();
       navigate(fromPath, { replace: true });
     } catch {
       setError("Не удалось завершить выход из тетради. Повторите попытку.");
@@ -1745,6 +1801,7 @@ export default function WorkbookSessionPage() {
     fromPath,
     isBackNavigationPending,
     navigate,
+    postSessionExitPreviewToHub,
     persistSessionExitPreview,
     persistSnapshots,
     setError,

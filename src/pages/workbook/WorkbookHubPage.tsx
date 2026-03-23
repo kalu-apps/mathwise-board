@@ -33,11 +33,17 @@ import {
   deleteWorkbookSession,
   getWorkbookDrafts,
   renameWorkbookSession,
+  updateWorkbookSessionDraftPreview,
+  uploadWorkbookAsset,
 } from "@/features/workbook/model/api";
 import type { WorkbookDraftCard, WorkbookInviteInfo } from "@/features/workbook/model/types";
 import { prefetchWorkbookSessionRuntime } from "./prefetchWorkbookSessionRuntime";
 import { APP_DATA_UPDATED_EVENT } from "@/shared/lib/dataUpdateBus";
 import { InlineMobiusLoader } from "@/shared/ui/loading";
+import {
+  isWorkbookHubPreviewBridgeMessage,
+  type WorkbookHubPreviewBridgePayload,
+} from "./workbookHubPreviewBridge";
 
 type HubScope = "class" | "personal";
 
@@ -147,6 +153,10 @@ export default function WorkbookHubPage() {
   const loadingInFlightRef = useRef(false);
   const queuedReloadRef = useRef(false);
   const draftsRef = useRef<WorkbookDraftCard[]>([]);
+  const previewPersistChainRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingPreviewPersistBySessionIdRef = useRef<Map<string, WorkbookHubPreviewBridgePayload>>(
+    new Map()
+  );
 
   useEffect(() => {
     draftsRef.current = drafts;
@@ -501,6 +511,136 @@ export default function WorkbookHubPage() {
           }
     );
   }, []);
+
+  const applyOptimisticPreviewToCard = useCallback((payload: WorkbookHubPreviewBridgePayload) => {
+    const capturedAt =
+      typeof payload.capturedAt === "string" && payload.capturedAt.trim().length > 0
+        ? payload.capturedAt
+        : new Date().toISOString();
+    setDrafts((current) =>
+      current.map((card) =>
+        card.sessionId === payload.sessionId
+          ? {
+              ...card,
+              previewUrl: payload.previewDataUrl,
+              previewAlt:
+                typeof payload.previewAlt === "string" && payload.previewAlt.trim().length > 0
+                  ? payload.previewAlt.trim()
+                  : card.previewAlt ?? "Последний вид доски",
+              updatedAt: capturedAt,
+            }
+          : card
+      )
+    );
+    setPreviewLoadErrorBySessionId((current) => {
+      if (!(payload.sessionId in current)) return current;
+      const next = { ...current };
+      delete next[payload.sessionId];
+      return next;
+    });
+  }, []);
+
+  const persistPreviewPayloadToServer = useCallback(
+    async (payload: WorkbookHubPreviewBridgePayload) => {
+      try {
+        const uploadedPreview = await uploadWorkbookAsset({
+          sessionId: payload.sessionId,
+          fileName: `session-preview-${payload.sessionId}-${Date.now()}.jpg`,
+          dataUrl: payload.previewDataUrl,
+          mimeType: "image/jpeg",
+        });
+        await updateWorkbookSessionDraftPreview({
+          sessionId: payload.sessionId,
+          previewUrl: uploadedPreview.url,
+          previewAlt:
+            typeof payload.previewAlt === "string" && payload.previewAlt.trim().length > 0
+              ? payload.previewAlt.trim()
+              : undefined,
+          page:
+            typeof payload.page === "number" && Number.isFinite(payload.page)
+              ? Math.max(1, Math.trunc(payload.page))
+              : undefined,
+          viewport:
+            payload.viewport &&
+            Number.isFinite(payload.viewport.x) &&
+            Number.isFinite(payload.viewport.y) &&
+            Number.isFinite(payload.viewport.zoom)
+              ? {
+                  x: payload.viewport.x,
+                  y: payload.viewport.y,
+                  zoom: payload.viewport.zoom,
+                }
+              : undefined,
+        });
+        const synchronizedAt =
+          typeof payload.capturedAt === "string" && payload.capturedAt.trim().length > 0
+            ? payload.capturedAt
+            : new Date().toISOString();
+        setDrafts((current) =>
+          current.map((card) =>
+            card.sessionId === payload.sessionId
+              ? {
+                  ...card,
+                  previewUrl: uploadedPreview.url,
+                  previewAlt:
+                    typeof payload.previewAlt === "string" && payload.previewAlt.trim().length > 0
+                      ? payload.previewAlt.trim()
+                      : card.previewAlt,
+                  updatedAt: synchronizedAt,
+                }
+              : card
+          )
+        );
+        setPreviewLoadErrorBySessionId((current) => {
+          if (!(payload.sessionId in current)) return current;
+          const next = { ...current };
+          delete next[payload.sessionId];
+          return next;
+        });
+      } catch {
+        // Preview persistence is best-effort; keep optimistic preview.
+      }
+    },
+    []
+  );
+
+  const flushPendingPreviewPersistQueue = useCallback(async () => {
+    while (pendingPreviewPersistBySessionIdRef.current.size > 0) {
+      const iterator = pendingPreviewPersistBySessionIdRef.current.entries().next();
+      if (iterator.done) break;
+      const [sessionId, payload] = iterator.value;
+      pendingPreviewPersistBySessionIdRef.current.delete(sessionId);
+      await persistPreviewPayloadToServer(payload);
+    }
+  }, [persistPreviewPayloadToServer]);
+
+  const enqueuePreviewPersist = useCallback(
+    (payload: WorkbookHubPreviewBridgePayload) => {
+      const existing = pendingPreviewPersistBySessionIdRef.current.get(payload.sessionId);
+      if (existing?.previewDataUrl === payload.previewDataUrl) return;
+      pendingPreviewPersistBySessionIdRef.current.set(payload.sessionId, payload);
+      previewPersistChainRef.current = previewPersistChainRef.current
+        .then(() => flushPendingPreviewPersistQueue())
+        .catch(() => undefined);
+    },
+    [flushPendingPreviewPersistQueue]
+  );
+
+  useEffect(() => {
+    if (!isAuthReady || !user || user.role !== "teacher") return;
+    const handlePreviewBridgeMessage = (event: MessageEvent<unknown>) => {
+      if (typeof window === "undefined") return;
+      if (event.origin !== window.location.origin) return;
+      if (!isWorkbookHubPreviewBridgeMessage(event.data)) return;
+      const payload = event.data.payload;
+      applyOptimisticPreviewToCard(payload);
+      enqueuePreviewPersist(payload);
+    };
+    window.addEventListener("message", handlePreviewBridgeMessage);
+    return () => {
+      window.removeEventListener("message", handlePreviewBridgeMessage);
+    };
+  }, [applyOptimisticPreviewToCard, enqueuePreviewPersist, isAuthReady, user]);
 
   if (!isAuthReady) {
     return (
