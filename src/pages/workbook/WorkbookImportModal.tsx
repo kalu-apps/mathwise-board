@@ -614,14 +614,13 @@ export function WorkbookImportModal({
                 </div>
                 <IconButton
                   className="workbook-session__import-item-remove"
-                  size="small"
                   aria-label={`Удалить ${item.name}`}
                   onClick={() =>
                     setItems((current) => current.filter((entry) => entry.id !== item.id))
                   }
                   disabled={isBusy}
                 >
-                  <CloseRoundedIcon fontSize="small" />
+                  <CloseRoundedIcon fontSize="inherit" />
                 </IconButton>
               </article>
             ))}
@@ -629,25 +628,30 @@ export function WorkbookImportModal({
         ) : null}
         {(modalState === "uploading" || modalState === "processing") && items.length > 0 ? (
           <div className="workbook-session__import-progress">
-            <LinearProgress variant="determinate" value={progressValue} />
-            {isBusy ? (
-              <CircularProgress
-                size={14}
-                thickness={4.6}
-                className="workbook-session__import-progress-spinner"
-              />
-            ) : null}
+            <LinearProgress
+              variant="determinate"
+              value={progressValue}
+              className="workbook-session__import-progress-bar"
+            />
             <span>{progressValue}%</span>
           </div>
         ) : null}
       </DialogContent>
       <DialogActions>
         <Button
+          className="workbook-session__import-upload-btn"
           variant="contained"
           onClick={() => void handleUpload()}
           disabled={isBusy || readyCount === 0}
         >
-          Загрузить
+          {isBusy ? (
+            <CircularProgress
+              size={16}
+              thickness={5}
+              className="workbook-session__import-upload-spinner"
+            />
+          ) : null}
+          {isBusy ? "Загружаем..." : "Загрузить"}
         </Button>
       </DialogActions>
     </Dialog>
