@@ -119,6 +119,7 @@ export default function WorkbookSessionPage() {
   const { sessionId = "" } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const [isBackNavigationPending, setIsBackNavigationPending] = useState(false);
 
   useEffect(() => {
     if (!sessionId.trim()) return;
@@ -1709,28 +1710,45 @@ export default function WorkbookSessionPage() {
   ]);
 
   const handleBack = useCallback(async () => {
-    if (dirtyRef.current) {
-      const saved = await persistSnapshots({ force: true });
-      if (!saved) {
-        setError("Не удалось сохранить изменения перед выходом из тетради.");
+    if (isBackNavigationPending) return;
+    setIsBackNavigationPending(true);
+    try {
+      if (dirtyRef.current) {
+        const saved = await persistSnapshots({ force: true });
+        if (!saved) {
+          setError("Не удалось сохранить изменения перед выходом из тетради.");
+          setIsBackNavigationPending(false);
+          return;
+        }
+      }
+      // Hub preview refresh is best-effort and must never delay route transition.
+      void persistSessionExitPreview();
+      if (typeof window !== "undefined" && window.opener && !window.opener.closed) {
+        try {
+          window.opener.focus?.();
+        } catch {
+          // ignore opener focus errors; fallback will still close/navigate current tab
+        }
+        window.close();
+        if (!window.closed) {
+          navigate(fromPath, { replace: true });
+        }
         return;
       }
+      navigate(fromPath, { replace: true });
+    } catch {
+      setError("Не удалось завершить выход из тетради. Повторите попытку.");
+      setIsBackNavigationPending(false);
     }
-    await persistSessionExitPreview();
-    if (typeof window !== "undefined" && window.opener && !window.opener.closed) {
-      try {
-        window.opener.focus?.();
-      } catch {
-        // ignore opener focus errors; fallback will still close/navigate current tab
-      }
-      window.close();
-      if (!window.closed) {
-        navigate(fromPath, { replace: true });
-      }
-      return;
-    }
-    navigate(fromPath, { replace: true });
-  }, [dirtyRef, fromPath, navigate, persistSessionExitPreview, persistSnapshots, setError]);
+  }, [
+    dirtyRef,
+    fromPath,
+    isBackNavigationPending,
+    navigate,
+    persistSessionExitPreview,
+    persistSnapshots,
+    setError,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2017,6 +2035,7 @@ export default function WorkbookSessionPage() {
           graphCatalogCursorActive={graphCatalogCursorActive}
           contextbarProps={contextbarProps}
           onBack={handleBack}
+          isBackNavigationPending={isBackNavigationPending}
           onWorkspaceDragOver={handleWorkspaceDragOver}
           onWorkspaceDrop={handleWorkspaceDrop}
           boardShellProps={{
