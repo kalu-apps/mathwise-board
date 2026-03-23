@@ -62,6 +62,8 @@ const resolvePageExportBounds = (): WorkbookExportBounds => ({
 const EXPORT_A4_PORTRAIT_RATIO = 210 / 297;
 const EXPORT_CONTENT_BOUNDS_PADDING_PX = 56;
 const EXPORT_IMAGE_READY_TIMEOUT_MS = 5_000;
+const EXPORT_MAX_CANVAS_PIXELS = 8_500_000;
+const EXPORT_MIN_SCALE = 0.35;
 const preloadedExportImageUrls = new Set<string>();
 const inlinedExportImageUrls = new Map<string, Promise<string | null>>();
 
@@ -409,11 +411,12 @@ export const useWorkbookPdfExport = ({
         const heightSource = bounds?.height ?? svg.viewBox.baseVal.height ?? 900;
         const width = Math.max(1, Math.round(widthSource));
         const height = Math.max(1, Math.round(heightSource));
-        const requestedScale = Math.max(1, Math.min(4, scale));
-        const safeScale = Math.min(
-          requestedScale,
-          MAX_EXPORT_CANVAS_SIDE / width,
-          MAX_EXPORT_CANVAS_SIDE / height
+        const requestedScale = Math.max(EXPORT_MIN_SCALE, Math.min(4, scale));
+        const scaleBySide = Math.min(MAX_EXPORT_CANVAS_SIDE / width, MAX_EXPORT_CANVAS_SIDE / height);
+        const scaleByPixels = Math.sqrt(EXPORT_MAX_CANVAS_PIXELS / Math.max(1, width * height));
+        const safeScale = Math.max(
+          EXPORT_MIN_SCALE,
+          Math.min(requestedScale, scaleBySide, scaleByPixels)
         );
         const canvas = document.createElement("canvas");
         canvas.width = Math.max(1, Math.round(width * safeScale));
@@ -509,7 +512,15 @@ export const useWorkbookPdfExport = ({
           ],
         ])
       );
-      const renderedPages: Array<{ dataUrl: string }> = [];
+      const { jsPDF } = await import("jspdf");
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "pt",
+        format: "a4",
+      });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      let renderedPagesCount = 0;
       setCanvasVisibilityMode("full");
       await waitForCanvasRender();
       for (const pageNumber of exportPages) {
@@ -525,9 +536,20 @@ export const useWorkbookPdfExport = ({
             bounds: tile.bounds,
           });
           if (!rendered) continue;
-          renderedPages.push({
-            dataUrl: rendered.canvas.toDataURL("image/png"),
-          });
+          if (renderedPagesCount > 0) {
+            pdf.addPage("a4", "portrait");
+          }
+          pdf.addImage(
+            rendered.canvas,
+            "JPEG",
+            0,
+            0,
+            pageWidth,
+            pageHeight,
+            undefined,
+            "FAST"
+          );
+          renderedPagesCount += 1;
           await yieldToMainThread();
         }
         await yieldToMainThread();
@@ -536,24 +558,10 @@ export const useWorkbookPdfExport = ({
         await switchBoardPageForExport(previousPage);
         activePage = previousPage;
       }
-      if (renderedPages.length === 0) {
+      if (renderedPagesCount === 0) {
         setError("Не удалось подготовить страницы для PDF.");
         return;
       }
-      const { jsPDF } = await import("jspdf");
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "pt",
-        format: "a4",
-      });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      renderedPages.forEach((page, index) => {
-        if (index > 0) {
-          pdf.addPage("a4", "portrait");
-        }
-        pdf.addImage(page.dataUrl, "PNG", 0, 0, pageWidth, pageHeight, undefined, "FAST");
-      });
       pdf.save(fileName);
     } catch {
       setError("Не удалось экспортировать PDF.");
