@@ -70,7 +70,7 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
               >
                 <ForumRoundedIcon fontSize="small" />
               </IconButton>
-              {sessionChatUnreadCount > 0 ? (
+              {sessionChatUnreadCount > 0 && !isSessionChatOpen ? (
                 <span
                   className="workbook-session__participants-chat-unread"
                   aria-label={`Непрочитанных сообщений: ${sessionChatUnreadCount}`}
