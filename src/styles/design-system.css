@@ -864,13 +864,21 @@ textarea::placeholder {
 
 .ui-confirm-dialog__title {
   font-weight: 700 !important;
-  padding-bottom: 8px !important;
+  padding-bottom: 4px !important;
 }
 
 .ui-confirm-dialog__content {
   padding-top: 0 !important;
   padding-bottom: 16px !important;
   line-height: 1.5;
+}
+
+.ui-confirm-dialog__content > p {
+  margin: 0 !important;
+}
+
+.ui-confirm-dialog__slot {
+  margin-top: 12px;
 }
 
 .ui-confirm-dialog__actions {

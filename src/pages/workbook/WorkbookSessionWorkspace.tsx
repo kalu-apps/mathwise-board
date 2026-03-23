@@ -4,7 +4,7 @@ import {
   type DragEventHandler,
   type MutableRefObject,
 } from "react";
-import { IconButton, Tooltip } from "@mui/material";
+import { CircularProgress, IconButton, Tooltip } from "@mui/material";
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import { WorkbookSessionContextbar } from "./WorkbookSessionContextbar";
 import { WorkbookSessionBoardShell } from "./WorkbookSessionBoardShell";
@@ -19,6 +19,7 @@ type WorkbookSessionWorkspaceProps = {
   graphCatalogCursorActive: boolean;
   contextbarProps: React.ComponentProps<typeof WorkbookSessionContextbar>;
   onBack: () => Promise<void> | void;
+  isBackNavigationPending?: boolean;
   boardShellProps: React.ComponentProps<typeof WorkbookSessionBoardShell>;
   docsWindowOpen: boolean;
   docsWindowProps: WorkbookSessionDocsWindowProps;
@@ -31,6 +32,7 @@ export function WorkbookSessionWorkspace({
   graphCatalogCursorActive,
   contextbarProps,
   onBack,
+  isBackNavigationPending = false,
   boardShellProps,
   docsWindowOpen,
   docsWindowProps,
@@ -47,16 +49,18 @@ export function WorkbookSessionWorkspace({
       onDrop={onWorkspaceDrop}
     >
       <div className="workbook-session__workspace-head">
-        <Tooltip title="Вернуться к тетрадям">
+        <Tooltip title={isBackNavigationPending ? "Возвращаемся к тетрадям..." : "Вернуться к тетрадям"}>
           <IconButton
             className="header__session-back workbook-session__session-back"
+            disabled={isBackNavigationPending}
             onClick={() => {
+              if (isBackNavigationPending) return;
               void onBack();
             }}
             size="small"
-            aria-label="Вернуться к тетрадям"
+            aria-label={isBackNavigationPending ? "Возвращаемся к тетрадям" : "Вернуться к тетрадям"}
           >
-            <ArrowBackRoundedIcon />
+            {isBackNavigationPending ? <CircularProgress size={16} thickness={5} /> : <ArrowBackRoundedIcon />}
           </IconButton>
         </Tooltip>
         <WorkbookSessionContextbar {...contextbarProps} />
