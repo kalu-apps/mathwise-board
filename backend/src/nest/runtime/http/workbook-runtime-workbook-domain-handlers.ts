@@ -1023,6 +1023,7 @@ const handleWorkbookSnapshotAndPdfRoute = async (
     let fileName = "document.pdf";
     let dpi = 128;
     let imageFormat: "png" | "jpeg" = "png";
+    let jpegQuality = 82;
     let maxPages = 8;
     let firstPage = 1;
     let requestedLastPage = firstPage + maxPages - 1;
@@ -1040,6 +1041,9 @@ const handleWorkbookSnapshotAndPdfRoute = async (
       dpi = queryDpi !== null ? Math.max(72, Math.min(240, Math.floor(queryDpi))) : 128;
       const queryImageFormat = readTextFromSearch(searchParams, "imageFormat");
       imageFormat = queryImageFormat === "jpeg" ? "jpeg" : "png";
+      const queryJpegQuality = readNumberFromSearch(searchParams, "jpegQuality");
+      jpegQuality =
+        queryJpegQuality !== null ? Math.max(70, Math.min(92, Math.floor(queryJpegQuality))) : 82;
       const queryMaxPages = readNumberFromSearch(searchParams, "maxPages");
       maxPages = queryMaxPages !== null ? Math.max(1, Math.min(12, Math.floor(queryMaxPages))) : 8;
       const queryFrom = readNumberFromSearch(searchParams, "pageFrom");
@@ -1056,6 +1060,7 @@ const handleWorkbookSnapshotAndPdfRoute = async (
         sourceId?: string;
         dpi?: number;
         imageFormat?: string;
+        jpegQuality?: number;
         maxPages?: number;
         pageFrom?: number;
         pageTo?: number;
@@ -1073,6 +1078,10 @@ const handleWorkbookSnapshotAndPdfRoute = async (
           ? Math.max(72, Math.min(240, Math.floor(body.dpi)))
           : 128;
       imageFormat = body?.imageFormat === "jpeg" ? "jpeg" : "png";
+      jpegQuality =
+        typeof body?.jpegQuality === "number" && Number.isFinite(body.jpegQuality)
+          ? Math.max(70, Math.min(92, Math.floor(body.jpegQuality)))
+          : 82;
       maxPages =
         typeof body?.maxPages === "number" && Number.isFinite(body.maxPages)
           ? Math.max(1, Math.min(12, Math.floor(body.maxPages)))
@@ -1114,6 +1123,7 @@ const handleWorkbookSnapshotAndPdfRoute = async (
         pdfBuffer,
         dpi,
         imageFormat,
+        jpegQuality,
         firstPage,
         lastPage,
         ensureId: deps.ensureId,

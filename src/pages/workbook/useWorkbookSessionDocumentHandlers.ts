@@ -116,11 +116,95 @@ type UseWorkbookSessionDocumentHandlersParams = {
 const PDF_IMPORT_RENDER_CHUNK_SIZE = 3;
 const PDF_IMPORT_UPLOAD_CONCURRENCY = 3;
 
-const resolvePdfImportDpi = (pageCount: number) => {
-  if (pageCount >= 10) return 102;
-  if (pageCount >= 7) return 108;
-  if (pageCount >= 4) return 116;
-  return 124;
+type WorkbookPdfImportRenderProfile = {
+  dpi: number;
+  imageFormat: "jpeg";
+  jpegQuality: number;
+};
+
+const clampInt = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, Math.trunc(value)));
+
+const resolvePdfImportRenderProfile = (params: {
+  selectedPages: number;
+  totalPages: number | null;
+  fileBytes: number;
+  byteLimitBytes: number;
+}): WorkbookPdfImportRenderProfile => {
+  const selectedPages = Math.max(1, Math.trunc(params.selectedPages));
+  let dpi: number;
+  let jpegQuality: number;
+  if (selectedPages <= 1) {
+    dpi = 156;
+    jpegQuality = 88;
+  } else if (selectedPages <= 2) {
+    dpi = 148;
+    jpegQuality = 88;
+  } else if (selectedPages <= 3) {
+    dpi = 142;
+    jpegQuality = 87;
+  } else if (selectedPages <= 5) {
+    dpi = 134;
+    jpegQuality = 86;
+  } else if (selectedPages <= 8) {
+    dpi = 124;
+    jpegQuality = 85;
+  } else {
+    dpi = 116;
+    jpegQuality = 84;
+  }
+
+  const totalPages =
+    typeof params.totalPages === "number" && Number.isFinite(params.totalPages)
+      ? Math.max(selectedPages, Math.trunc(params.totalPages))
+      : null;
+  const fileBytes =
+    typeof params.fileBytes === "number" && Number.isFinite(params.fileBytes)
+      ? Math.max(0, Math.trunc(params.fileBytes))
+      : 0;
+  const byteLimitBytes =
+    typeof params.byteLimitBytes === "number" && Number.isFinite(params.byteLimitBytes)
+      ? Math.max(1, Math.trunc(params.byteLimitBytes))
+      : WORKBOOK_PDF_IMPORT_MAX_BYTES;
+
+  if (totalPages && fileBytes > 0) {
+    const selectedShare = Math.max(0.05, Math.min(1, selectedPages / totalPages));
+    const estimatedRangeBytes = fileBytes * selectedShare * 1.35;
+    const budgetRatio = estimatedRangeBytes / byteLimitBytes;
+
+    if (budgetRatio >= 0.95) {
+      dpi -= 20;
+      jpegQuality -= 4;
+    } else if (budgetRatio >= 0.8) {
+      dpi -= 14;
+      jpegQuality -= 3;
+    } else if (budgetRatio >= 0.65) {
+      dpi -= 8;
+      jpegQuality -= 2;
+    } else if (budgetRatio >= 0.5) {
+      dpi -= 4;
+      jpegQuality -= 1;
+    }
+  }
+
+  return {
+    dpi: clampInt(dpi, 96, 176),
+    imageFormat: "jpeg",
+    jpegQuality: clampInt(jpegQuality, 78, 90),
+  };
+};
+
+const resolvePdfImportInsertSize = (pageCount: number) => {
+  const safePageCount = Math.max(1, Math.trunc(pageCount));
+  const compactHeight =
+    safePageCount <= 2 ? 312 : safePageCount <= 4 ? 286 : safePageCount <= 8 ? 252 : 224;
+  return {
+    compactHeight,
+    minWidth: Math.max(150, Math.round(compactHeight * 0.58)),
+    maxWidth: Math.max(250, Math.round(compactHeight * 1.48)),
+    itemGapX: Math.max(18, Math.round(compactHeight * 0.11)),
+    itemGapY: Math.max(20, Math.round(compactHeight * 0.12)),
+  };
 };
 
 const resolveApiErrorLimitBytes = (error: ApiError) => {
@@ -319,14 +403,15 @@ export const useWorkbookSessionDocumentHandlers = ({
             canvasViewport,
             boardObjectCount
           );
+          const renderProfile = resolvePdfImportRenderProfile({
+            selectedPages: pageCount,
+            totalPages,
+            fileBytes: file.size,
+            byteLimitBytes: WORKBOOK_PDF_IMPORT_MAX_BYTES,
+          });
           const gridColumns = pageCount <= 2 ? pageCount : 4;
-          const compactHeight = pageCount >= 7 ? 186 : 206;
-          const compactWidth = Math.max(
-            126,
-            Math.min(216, Math.round(compactHeight * 0.707))
-          );
-          const itemGapX = 18;
-          const itemGapY = 22;
+          const { compactHeight, minWidth, maxWidth, itemGapX, itemGapY } =
+            resolvePdfImportInsertSize(pageCount);
           const renderedPagesAccumulator: NonNullable<WorkbookDocumentAssetLike["renderedPages"]> = [];
           const renderedAssetIdsAccumulator: string[] = [];
           const chunkSize = Math.max(1, Math.min(PDF_IMPORT_RENDER_CHUNK_SIZE, pageCount));
@@ -343,8 +428,9 @@ export const useWorkbookSessionDocumentHandlers = ({
               fileName: file.name,
               sourceId,
               file: sourceId ? undefined : file,
-              dpi: resolvePdfImportDpi(pageCount),
-              imageFormat: "jpeg",
+              dpi: renderProfile.dpi,
+              imageFormat: renderProfile.imageFormat,
+              jpegQuality: renderProfile.jpegQuality,
               maxPages: chunkPageCount,
               pageFrom: chunkAbsoluteFrom,
               pageTo: chunkAbsoluteTo,
@@ -393,6 +479,19 @@ export const useWorkbookSessionDocumentHandlers = ({
               const pageIndex = uploadedChunkPage.page.page - 1;
               const column = pageIndex % gridColumns;
               const row = Math.floor(pageIndex / gridColumns);
+              const pageRatio =
+                typeof uploadedChunkPage.page.width === "number" &&
+                Number.isFinite(uploadedChunkPage.page.width) &&
+                uploadedChunkPage.page.width > 0 &&
+                typeof uploadedChunkPage.page.height === "number" &&
+                Number.isFinite(uploadedChunkPage.page.height) &&
+                uploadedChunkPage.page.height > 0
+                  ? uploadedChunkPage.page.width / uploadedChunkPage.page.height
+                  : 0.707;
+              const compactWidth = Math.max(
+                minWidth,
+                Math.min(maxWidth, Math.round(compactHeight * pageRatio))
+              );
               const object = buildWorkbookDocumentBoardObject({
                 objectId: generateId(),
                 assetId: uploadedChunkPage.assetId,
@@ -488,31 +587,34 @@ export const useWorkbookSessionDocumentHandlers = ({
           uploadedAt,
           renderedPages: syncedRenderedPages,
         });
-        if (isPdf && !pdfObjectsInserted && Array.isArray(syncedRenderedPages) && syncedRenderedPages.length > 0) {
+        if (
+          isPdf &&
+          !pdfObjectsInserted &&
+          Array.isArray(syncedRenderedPages) &&
+          syncedRenderedPages.length > 0
+        ) {
           onStage?.("inserting");
           const pageCount = syncedRenderedPages.length;
-          const gridColumns = pageCount <= 2 ? pageCount : pageCount <= 8 ? 4 : 4;
-          const compactHeight = pageCount >= 7 ? 186 : 206;
-          const primaryPage = syncedRenderedPages[0];
-          const primaryRatio =
-            typeof primaryPage?.width === "number" &&
-            Number.isFinite(primaryPage.width) &&
-            primaryPage.width > 0 &&
-            typeof primaryPage?.height === "number" &&
-            Number.isFinite(primaryPage.height) &&
-            primaryPage.height > 0
-              ? primaryPage.width / primaryPage.height
-              : 0.707;
-          const compactWidth = Math.max(
-            126,
-            Math.min(216, Math.round(compactHeight * primaryRatio))
-          );
-          const itemGapX = 18;
-          const itemGapY = 22;
+          const gridColumns = pageCount <= 2 ? pageCount : 4;
+          const { compactHeight, minWidth, maxWidth, itemGapX, itemGapY } =
+            resolvePdfImportInsertSize(pageCount);
           for (let index = 0; index < pageCount; index += 1) {
             const page = syncedRenderedPages[index];
             const column = index % gridColumns;
             const row = Math.floor(index / gridColumns);
+            const pageRatio =
+              typeof page?.width === "number" &&
+              Number.isFinite(page.width) &&
+              page.width > 0 &&
+              typeof page?.height === "number" &&
+              Number.isFinite(page.height) &&
+              page.height > 0
+                ? page.width / page.height
+                : 0.707;
+            const compactWidth = Math.max(
+              minWidth,
+              Math.min(maxWidth, Math.round(compactHeight * pageRatio))
+            );
             const object = buildWorkbookDocumentBoardObject({
               objectId: generateId(),
               assetId: renderedPageAssetIds[index] ?? documentAssetId,
@@ -531,14 +633,15 @@ export const useWorkbookSessionDocumentHandlers = ({
               ...object,
               width: compactWidth,
               height: compactHeight,
-                meta: {
-                  ...(object.meta ?? {}),
-                  [WORKBOOK_IMAGE_ASSET_META_KEY]: renderedPageAssetIds[index] ?? documentAssetId,
-                },
-              };
-              const created = await commitObjectCreate(pageImageObject);
-              if (!created) return false;
-            }
+              meta: {
+                ...(object.meta ?? {}),
+                [WORKBOOK_IMAGE_ASSET_META_KEY]:
+                  renderedPageAssetIds[index] ?? documentAssetId,
+              },
+            };
+            const created = await commitObjectCreate(pageImageObject);
+            if (!created) return false;
+          }
         } else if (!isPdf) {
           onStage?.("inserting");
           const object = buildWorkbookDocumentBoardObject({

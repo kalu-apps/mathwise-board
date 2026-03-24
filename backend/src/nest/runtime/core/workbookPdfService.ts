@@ -65,6 +65,7 @@ export const renderWorkbookPdfPagesViaPoppler = async (params: {
   pdfBuffer: Buffer;
   dpi: number;
   imageFormat?: "png" | "jpeg";
+  jpegQuality?: number;
   firstPage: number;
   lastPage: number;
   ensureId: () => string;
@@ -75,6 +76,17 @@ export const renderWorkbookPdfPagesViaPoppler = async (params: {
   await fsPromises.writeFile(inputPath, params.pdfBuffer);
 
   const resolvedImageFormat = params.imageFormat === "jpeg" ? "jpeg" : "png";
+  const resolvedJpegQuality = Math.max(
+    70,
+    Math.min(
+      92,
+      Math.floor(
+        typeof params.jpegQuality === "number" && Number.isFinite(params.jpegQuality)
+          ? params.jpegQuality
+          : 82
+      )
+    )
+  );
   const outputExtension = resolvedImageFormat === "jpeg" ? "jpg" : "png";
   const outputMimeType = resolvedImageFormat === "jpeg" ? "image/jpeg" : "image/png";
   const renderArgs =
@@ -82,7 +94,7 @@ export const renderWorkbookPdfPagesViaPoppler = async (params: {
       ? [
           "-jpeg",
           "-jpegopt",
-          "quality=82,progressive=y,optimize=y",
+          `quality=${resolvedJpegQuality},progressive=y,optimize=y`,
           "-r",
           String(params.dpi),
           "-f",
