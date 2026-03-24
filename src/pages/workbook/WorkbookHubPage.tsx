@@ -789,6 +789,7 @@ export default function WorkbookHubPage() {
           <div className="workbook-hub__hero-actions">
             <Button
               variant="contained"
+              className="workbook-hub__start-class-btn"
               startIcon={<SchoolRoundedIcon />}
               onClick={() => void handleCreateClassSession()}
               disabled={creatingClass}
