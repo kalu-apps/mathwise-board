@@ -2936,10 +2936,58 @@
   gap: 8px;
 }
 
+.workbook-session__text-font-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workbook-session__text-font-family-select {
+  width: 138px;
+  min-width: 138px;
+  max-width: 138px;
+}
+
+.workbook-session__text-font-family-select .MuiSelect-select {
+  font-size: 11px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.workbook-session__text-size-inline {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
+
+.workbook-session__text-size-inline input[type="range"] {
+  width: 100%;
+  min-width: 0;
+}
+
+.workbook-session__text-size-inline span {
+  min-width: 44px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
 .workbook-session__text-icon-row {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.workbook-session__text-icon-row--single {
+  width: 100%;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+.workbook-session__text-icon-row--single .MuiIconButton-root {
+  width: 28px;
+  height: 28px;
 }
 
 .workbook-session__text-icon-row .MuiIconButton-root.is-active {

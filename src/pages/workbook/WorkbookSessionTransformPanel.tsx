@@ -303,11 +303,11 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                 void onFlushSelectedTextDraftCommit();
               }}
             />
-            <div className="workbook-session__settings-row">
-              <span>Шрифт</span>
+            <div className="workbook-session__text-font-controls">
               <Select
                 native
                 size="small"
+                className="workbook-session__text-font-family-select"
                 value={selectedTextFontFamily}
                 disabled={!selectedTextObject}
                 onChange={(event) =>
@@ -323,10 +323,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                   </option>
                 ))}
               </Select>
-            </div>
-            <div className="workbook-session__settings-row">
-              <span>Размер</span>
-              <div className="workbook-session__line-range">
+              <div className="workbook-session__line-range workbook-session__text-size-inline">
                 <input
                   type="range"
                   min={12}
@@ -341,10 +338,11 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                     void onUpdateSelectedTextFormatting({ fontSize: nextSize });
                   }}
                 />
+                <span>{selectedTextFontSizeDraft}px</span>
               </div>
             </div>
             <div className="workbook-session__text-controls-grid">
-              <div className="workbook-session__text-icon-row">
+              <div className="workbook-session__text-icon-row workbook-session__text-icon-row--single">
                 <Tooltip title="Жирный" arrow>
                   <span>
                     <IconButton
@@ -390,8 +388,6 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                     </IconButton>
                   </span>
                 </Tooltip>
-              </div>
-              <div className="workbook-session__text-icon-row">
                 <Tooltip title="Слева" arrow>
                   <span>
                     <IconButton

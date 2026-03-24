@@ -320,21 +320,28 @@ export const useWorkbookSelectedGraphTextActions = ({
       const selectedTextObject =
         boardObjectsRef.current.find((item) => item.id === selectedObjectId) ?? null;
       if (!selectedTextObject || selectedTextObject.type !== "text") return;
-      await commitObjectUpdate(
-        selectedTextObject.id,
-        {
-          ...patch,
-          ...(metaPatch
-            ? {
-                meta: {
-                  ...(selectedTextObject.meta ?? {}),
-                  ...metaPatch,
-                },
-              }
-            : {}),
-        },
-        options
-      );
+      const nextPatch: Partial<WorkbookBoardObject> = {
+        ...patch,
+        ...(metaPatch
+          ? {
+              meta: {
+                ...(selectedTextObject.meta ?? {}),
+                ...metaPatch,
+              },
+            }
+          : {}),
+      };
+      const isPreviewOnly =
+        options?.trackHistory === false && options?.markDirty === false;
+      const shouldEmitItalicPreview =
+        metaPatch !== undefined && Object.prototype.hasOwnProperty.call(metaPatch, "textItalic");
+      if (shouldEmitItalicPreview && !isPreviewOnly) {
+        await commitObjectUpdate(selectedTextObject.id, nextPatch, {
+          trackHistory: false,
+          markDirty: false,
+        });
+      }
+      await commitObjectUpdate(selectedTextObject.id, nextPatch, options);
     },
     [boardObjectsRef, canSelect, commitObjectUpdate, selectedObjectId]
   );
