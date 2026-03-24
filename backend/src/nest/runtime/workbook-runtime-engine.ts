@@ -47,6 +47,7 @@ import {
   decodeWorkbookPdfDataUrl,
   inspectWorkbookPdfViaPoppler,
   renderWorkbookPdfPagesViaPoppler,
+  WORKBOOK_PDF_SOURCE_MAX_BYTES,
   WORKBOOK_PDF_RENDER_MAX_BYTES,
 } from "./core/workbookPdfService";
 import {
@@ -169,6 +170,10 @@ const WORKBOOK_ACCESS_LOG_HASH_SALT = String(process.env.WORKBOOK_ACCESS_LOG_HAS
 const WORKBOOK_REQUEST_BODY_MAX_BYTES = readPositiveInt(
   "WORKBOOK_REQUEST_BODY_MAX_BYTES",
   40 * 1024 * 1024
+);
+const WORKBOOK_PDF_SOURCE_BODY_MAX_BYTES = readPositiveInt(
+  "WORKBOOK_PDF_SOURCE_BODY_MAX_BYTES",
+  Math.max(WORKBOOK_REQUEST_BODY_MAX_BYTES, WORKBOOK_PDF_SOURCE_MAX_BYTES)
 );
 const WORKBOOK_VOLATILE_RATE_LIMIT_CAPACITY = readPositiveInt(
   "WORKBOOK_VOLATILE_RATE_LIMIT_CAPACITY",
@@ -771,6 +776,41 @@ const readRawBody = async (req: IncomingMessage): Promise<Buffer> => {
   }
   return readRawBodyInternal(req, {
     maxBytes: WORKBOOK_REQUEST_BODY_MAX_BYTES,
+  });
+};
+
+const readRawBodyWithLimit = async (
+  req: IncomingMessage,
+  maxBytes: number
+): Promise<Buffer> => {
+  const normalizedMaxBytes = Number.isFinite(maxBytes)
+    ? Math.max(1_024, Math.floor(maxBytes))
+    : WORKBOOK_REQUEST_BODY_MAX_BYTES;
+  const requestWithParsedBody = req as IncomingMessage & { body?: unknown };
+  if (Object.prototype.hasOwnProperty.call(requestWithParsedBody, "body")) {
+    const parsedBody = requestWithParsedBody.body;
+    if (Buffer.isBuffer(parsedBody)) {
+      if (parsedBody.length > normalizedMaxBytes) {
+        throw new Error(REQUEST_BODY_TOO_LARGE_ERROR);
+      }
+      return parsedBody;
+    }
+    if (typeof parsedBody === "string") {
+      const buffer = Buffer.from(parsedBody, "utf-8");
+      if (buffer.length > normalizedMaxBytes) {
+        throw new Error(REQUEST_BODY_TOO_LARGE_ERROR);
+      }
+      return buffer;
+    }
+    if (parsedBody == null) return Buffer.alloc(0);
+    const buffer = Buffer.from(String(parsedBody), "utf-8");
+    if (buffer.length > normalizedMaxBytes) {
+      throw new Error(REQUEST_BODY_TOO_LARGE_ERROR);
+    }
+    return buffer;
+  }
+  return readRawBodyInternal(req, {
+    maxBytes: normalizedMaxBytes,
   });
 };
 
@@ -2487,6 +2527,7 @@ export const handleWorkbookApiRequestByDomains = async (
           { req, res, db, method, pathname, searchParams },
           {
             WORKBOOK_EVENT_LIMIT,
+            WORKBOOK_PDF_SOURCE_MAX_BYTES: WORKBOOK_PDF_SOURCE_BODY_MAX_BYTES,
             WORKBOOK_PDF_RENDER_MAX_BYTES,
             PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS,
             ensureWorkbookPersistenceReady,
@@ -2497,6 +2538,7 @@ export const handleWorkbookApiRequestByDomains = async (
             enforceVolatileRateLimit,
             readBody,
             readRawBody,
+            readRawBodyWithLimit,
             badRequest,
             forbidden,
             notFound,

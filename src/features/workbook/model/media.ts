@@ -1,3 +1,5 @@
+// Source PDF can be larger than the final import payload as long as selected pages fit limits.
+export const WORKBOOK_PDF_SOURCE_MAX_BYTES = 64 * 1024 * 1024;
 export const WORKBOOK_PDF_IMPORT_MAX_BYTES = 20 * 1024 * 1024;
 export const WORKBOOK_IMAGE_IMPORT_MAX_BYTES = 20 * 1024 * 1024;
 // Keep payloads bounded for stability, but allow noticeably better visual quality.

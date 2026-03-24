@@ -105,23 +105,6 @@ export function WorkbookPdfImportPreviewModal({
         to: null as number | null,
       };
     }
-    if (
-      normalizedFileSize !== null &&
-      normalizedMaxFileBytes !== null &&
-      normalizedFileSize > normalizedMaxFileBytes
-    ) {
-      return {
-        valid: false,
-        error: `Не удалось добавить PDF: размер файла ${formatFileSizeMb(
-          normalizedFileSize
-        )} превышает лимит ${formatFileSizeMb(
-          normalizedMaxFileBytes
-        )}. Выбор диапазона страниц не уменьшает объём исходного файла.`,
-        warning: null as string | null,
-        from: null as number | null,
-        to: null as number | null,
-      };
-    }
     const rawFrom = parseSafePage(pageFrom);
     const rawTo = parseSafePage(pageTo);
     if (!Number.isFinite(rawFrom) || !Number.isFinite(rawTo)) {
@@ -172,14 +155,48 @@ export function WorkbookPdfImportPreviewModal({
         to,
       };
     }
+    const estimatedRangeBytes =
+      normalizedFileSize !== null && normalizedMaxFileBytes !== null && maxAvailablePage
+        ? Math.max(
+            1,
+            Math.round((normalizedFileSize * (selectedPages / maxAvailablePage)) * 1.2)
+          )
+        : null;
+    if (
+      estimatedRangeBytes !== null &&
+      normalizedMaxFileBytes !== null &&
+      estimatedRangeBytes > normalizedMaxFileBytes
+    ) {
+      return {
+        valid: false,
+        error: `Выбранный диапазон ориентировочно весит ${formatFileSizeMb(
+          estimatedRangeBytes
+        )}, это выше лимита импорта ${formatFileSizeMb(
+          normalizedMaxFileBytes
+        )}. Уменьшите диапазон страниц.`,
+        warning: null as string | null,
+        from,
+        to,
+      };
+    }
     let warning: string | null = null;
     if (
-      normalizedFileSize !== null &&
+      estimatedRangeBytes !== null &&
       normalizedMaxFileBytes !== null &&
-      normalizedFileSize > normalizedMaxFileBytes * 0.82
+      estimatedRangeBytes > normalizedMaxFileBytes * 0.82
     ) {
       warning =
-        "Файл близок к лимиту размера. Если импорт не выполнится, уменьшите PDF или выберите другой документ.";
+        `Диапазон близок к лимиту: ~${formatFileSizeMb(estimatedRangeBytes)} из ${formatFileSizeMb(
+          normalizedMaxFileBytes
+        )}.`;
+    } else if (
+      normalizedFileSize !== null &&
+      normalizedMaxFileBytes !== null &&
+      normalizedFileSize > normalizedMaxFileBytes &&
+      estimatedRangeBytes === null
+    ) {
+      warning =
+        "Размер исходного файла большой. Если импорт не выполнится, уменьшите диапазон страниц.";
     } else if (selectedPages >= Math.max(1, maxPagesPerImport - 1)) {
       warning = `Выбран почти максимальный диапазон (${selectedPages} стр. из ${maxPagesPerImport} допустимых).`;
     }
