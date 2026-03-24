@@ -201,32 +201,6 @@ export function WorkbookImportModal({
     );
   }, []);
 
-  const resolveItemStatusText = useCallback((item: WorkbookImportItem) => {
-    switch (item.status) {
-      case "preparing_pdf_source":
-        return "Подготавливаем PDF-источник…";
-      case "inspecting_pdf":
-        return "Определяем количество страниц…";
-      case "optimizing":
-        return "Оптимизируем файл…";
-      case "waiting":
-        return item.isPdf ? "Ожидает выбора диапазона страниц." : "Ожидает загрузки.";
-      case "ready":
-        return "Готов к загрузке.";
-      case "uploading":
-        return "Загрузка…";
-      case "inserting":
-        return "Вставка на доску…";
-      case "success":
-        return "Успешно добавлено на доску.";
-      case "failed":
-      case "invalid":
-        return null;
-      default:
-        return null;
-    }
-  }, []);
-
   const validateAndPrepareItems = useCallback(
     async (files: File[]) => {
       if (!files.length) return;
@@ -306,7 +280,6 @@ export function WorkbookImportModal({
               from: 1,
               to: 1,
             },
-            error: "Подготавливаем PDF…",
             progress: 6,
           };
           nextItems.push(stagedPdfItem);
@@ -322,7 +295,6 @@ export function WorkbookImportModal({
                 setItemPatch(stagedPdfItem.id, {
                   pdfSourceId: uploadedPdfSource.sourceId,
                   status: "inspecting_pdf",
-                  error: "Определяем количество страниц…",
                   progress: 34,
                 });
                 const inspectedPdf = await inspectWorkbookPdf({
@@ -346,7 +318,6 @@ export function WorkbookImportModal({
                     from: 1,
                     to: defaultTo,
                   },
-                  error: "Перед загрузкой выберите страницы PDF для импорта.",
                   progress: 100,
                 });
               } catch (error) {
@@ -400,7 +371,6 @@ export function WorkbookImportModal({
                       from: 1,
                       to: 1,
                     },
-                    error: "Перед загрузкой выберите страницы PDF для импорта.",
                     progress: 100,
                   });
                 } else {
@@ -859,11 +829,6 @@ export function WorkbookImportModal({
                       </span>
                     ) : null}
                   </div>
-                  {resolveItemStatusText(item) ? (
-                    <p className="workbook-session__import-item-status">
-                      {resolveItemStatusText(item)}
-                    </p>
-                  ) : null}
                   {item.isPdf ? (
                     <div className="workbook-session__import-item-actions">
                       <span className="workbook-session__import-item-range">

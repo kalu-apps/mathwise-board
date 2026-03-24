@@ -291,7 +291,6 @@ export const useWorkbookSessionDocumentHandlers = ({
               sizeBytes: number;
             }
           | null = null;
-        let nonBlockingPdfSourceWarning: string | null = null;
         if (isPdf) {
           onStage?.("uploading");
           const sourceId =
@@ -443,13 +442,8 @@ export const useWorkbookSessionDocumentHandlers = ({
             });
           } catch (error) {
             if (error instanceof ApiError && error.status === 413) {
-              if (error.message === "workbook_asset_too_large") {
-                nonBlockingPdfSourceWarning =
-                  "PDF импортирован как изображения страниц. Оригинал PDF не сохранён в библиотеке из-за лимита размера ассета.";
-              } else if (error.message === "request_body_too_large") {
-                nonBlockingPdfSourceWarning =
-                  "PDF импортирован как изображения страниц. Оригинал PDF не сохранён из-за транспортного лимита.";
-              }
+              // Non-blocking case: original PDF source is not persisted as library asset,
+              // but rendered pages have already been uploaded and inserted to the board.
             }
           }
         } else {
@@ -593,9 +587,6 @@ export const useWorkbookSessionDocumentHandlers = ({
           },
           { silent: true }
         );
-        if (nonBlockingPdfSourceWarning) {
-          setError(nonBlockingPdfSourceWarning);
-        }
         reportProgress(100);
         return true;
       } catch (error) {
