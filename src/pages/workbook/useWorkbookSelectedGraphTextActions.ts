@@ -403,10 +403,9 @@ export const useWorkbookSelectedGraphTextActions = ({
       }
       const selectedTextObject =
         boardObjectsRef.current.find((item) => item.id === selectedObjectId) ?? null;
+      if (selectedTextObject?.type !== "text") return;
       const currentValue =
-        selectedTextObject?.type === "text" && typeof selectedTextObject.text === "string"
-          ? selectedTextObject.text
-          : "";
+        typeof selectedTextObject.text === "string" ? selectedTextObject.text : "";
       if (currentValue === normalizedValue) {
         selectedTextDraftDirtyRef.current = false;
         return;
@@ -419,6 +418,14 @@ export const useWorkbookSelectedGraphTextActions = ({
           index: boardObjectIndexByIdRef.current,
         }).nextObjects
       );
+      void commitObjectUpdate(
+        selectedObjectId,
+        { text: normalizedValue },
+        {
+          trackHistory: false,
+          markDirty: false,
+        }
+      );
       selectedTextDraftCommitTimerRef.current = window.setTimeout(() => {
         void flushSelectedTextDraftCommit(normalizedValue, {
           trackHistory: false,
@@ -429,6 +436,7 @@ export const useWorkbookSelectedGraphTextActions = ({
       applyLocalBoardObjects,
       boardObjectIndexByIdRef,
       boardObjectsRef,
+      commitObjectUpdate,
       flushSelectedTextDraftCommit,
       selectedObjectId,
       selectedTextDraftCommitTimerRef,
