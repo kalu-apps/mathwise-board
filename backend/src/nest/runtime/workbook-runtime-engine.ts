@@ -1614,7 +1614,7 @@ const resolveSessionPresenceDurationMinutes = (db: MockDb, session: WorkbookSess
     return left.endTs - right.endTs;
   });
 
-  let mergedTotalMs = 0;
+  // Card duration should reflect only the latest continuous presence period.
   let currentStart = intervals[0].startTs;
   let currentEnd = intervals[0].endTs;
   for (let index = 1; index < intervals.length; index += 1) {
@@ -1623,16 +1623,15 @@ const resolveSessionPresenceDurationMinutes = (db: MockDb, session: WorkbookSess
       currentEnd = Math.max(currentEnd, interval.endTs);
       continue;
     }
-    mergedTotalMs += currentEnd - currentStart;
     currentStart = interval.startTs;
     currentEnd = interval.endTs;
   }
-  mergedTotalMs += currentEnd - currentStart;
+  const latestPeriodMs = currentEnd - currentStart;
 
-  if (!Number.isFinite(mergedTotalMs) || mergedTotalMs <= 0) {
+  if (!Number.isFinite(latestPeriodMs) || latestPeriodMs <= 0) {
     return null;
   }
-  return Math.max(1, Math.round(mergedTotalMs / 60_000));
+  return Math.max(1, Math.round(latestPeriodMs / 60_000));
 };
 
 type DraftPreviewMeta = {
