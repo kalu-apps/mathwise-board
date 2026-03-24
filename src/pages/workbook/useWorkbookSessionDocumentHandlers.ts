@@ -53,6 +53,7 @@ export type WorkbookPreparedDocumentImport = {
     from: number;
     to: number;
   };
+  pdfPageCount?: number;
   onStage?: (stage: WorkbookDocumentImportStage) => void;
   onProgress?: (progress: number) => void;
   onErrorMessage?: (message: string) => void;
@@ -199,6 +200,7 @@ export const useWorkbookSessionDocumentHandlers = ({
       file,
       preparedDataUrl,
       pdfPageRange,
+      pdfPageCount,
       onStage,
       onProgress,
       onErrorMessage,
@@ -250,14 +252,22 @@ export const useWorkbookSessionDocumentHandlers = ({
             }))
           : pdfDataUrl;
         if (isPdf) {
+          const totalPages =
+            typeof pdfPageCount === "number" && Number.isFinite(pdfPageCount)
+              ? Math.max(1, Math.trunc(pdfPageCount))
+              : null;
           const safeFrom =
             typeof pdfPageRange?.from === "number" && Number.isFinite(pdfPageRange.from)
               ? Math.max(1, Math.trunc(pdfPageRange.from))
               : 1;
-          const safeTo =
+          const requestedTo =
             typeof pdfPageRange?.to === "number" && Number.isFinite(pdfPageRange.to)
               ? Math.max(safeFrom, Math.trunc(pdfPageRange.to))
               : safeFrom + 7;
+          if (totalPages !== null && safeFrom > totalPages) {
+            return failImport("Не удалось добавить PDF: выбранная стартовая страница отсутствует в документе.");
+          }
+          const safeTo = totalPages !== null ? Math.min(totalPages, requestedTo) : requestedTo;
           const pageCount = Math.max(1, Math.min(12, safeTo - safeFrom + 1));
           const pageTo = safeFrom + pageCount - 1;
           reportProgress(45);

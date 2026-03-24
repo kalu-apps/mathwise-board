@@ -45,6 +45,7 @@ import {
 } from "./core/telemetryService";
 import {
   decodeWorkbookPdfDataUrl,
+  inspectWorkbookPdfViaPoppler,
   renderWorkbookPdfPagesViaPoppler,
   WORKBOOK_PDF_RENDER_MAX_BYTES,
 } from "./core/workbookPdfService";
@@ -2512,6 +2513,7 @@ export const handleWorkbookApiRequestByDomains = async (
             maybePublishPresenceSync,
             recordWorkbookAccessEvent,
             decodeWorkbookPdfDataUrl,
+            inspectWorkbookPdfViaPoppler,
             renderWorkbookPdfPagesViaPoppler,
             persistWorkbookAssetFromDataUrl,
             readWorkbookAssetById,

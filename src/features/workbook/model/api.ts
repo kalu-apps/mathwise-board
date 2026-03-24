@@ -572,6 +572,13 @@ export async function renderWorkbookPdfPages(params: {
   }>("/workbook/pdf/render", params, { notifyDataUpdate: false, timeoutMs: 90_000 });
 }
 
+export async function inspectWorkbookPdf(params: { fileName: string; dataUrl: string }) {
+  return api.post<{
+    fileName: string;
+    pageCount: number;
+  }>("/workbook/pdf/inspect", params, { notifyDataUpdate: false, timeoutMs: 45_000 });
+}
+
 export async function uploadWorkbookAsset(params: {
   sessionId: string;
   fileName: string;

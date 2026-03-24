@@ -20,6 +20,7 @@ import {
   WORKBOOK_PDF_IMPORT_MAX_BYTES,
   formatFileSizeMb,
   isPdfUploadFile,
+  normalizePdfDataUrl,
   optimizeImageDataUrl,
   readFileAsDataUrl,
   readFileExtension,
@@ -28,6 +29,7 @@ import { reportWorkbookImportEvent } from "@/features/workbook/model/workbookPer
 import { generateId } from "@/shared/lib/id";
 import type { WorkbookPreparedDocumentImport } from "./useWorkbookSessionDocumentHandlers";
 import { WorkbookPdfImportPreviewModal } from "./WorkbookPdfImportPreviewModal";
+import { inspectWorkbookPdf } from "@/features/workbook/model/api";
 
 type ImportModalState =
   | "idle"
@@ -68,6 +70,7 @@ type WorkbookImportItem = {
     from: number;
     to: number;
   };
+  pdfPageCount?: number;
   warning?: string;
   error?: string;
   status: ImportFileStatus;
@@ -251,16 +254,38 @@ export function WorkbookImportModal({
             ? `Большой файл (${formatFileSizeMb(file.size)}). Рекомендуется уменьшить размер.`
             : undefined;
         if (!isImage) {
-          nextItems.push({
-            ...baseItem,
-            warning,
-            status: "waiting",
-            pdfPageRange: {
-              from: 1,
-              to: 8,
-            },
-            error: "Перед загрузкой выберите страницы PDF для импорта.",
-          });
+          try {
+            const sourceDataUrl = await readFileAsDataUrl(file);
+            const normalizedPdfDataUrl = normalizePdfDataUrl(sourceDataUrl);
+            const inspectedPdf = await inspectWorkbookPdf({
+              fileName: file.name,
+              dataUrl: normalizedPdfDataUrl,
+            });
+            const pageCount = Math.max(1, Math.trunc(inspectedPdf.pageCount || 1));
+            const defaultTo = Math.max(1, Math.min(pageCount, MAX_PDF_PAGES_PER_IMPORT, 8));
+            nextItems.push({
+              ...baseItem,
+              warning:
+                pageCount > MAX_PDF_PAGES_PER_IMPORT
+                  ? `Документ содержит ${pageCount} стр. За раз можно импортировать до ${MAX_PDF_PAGES_PER_IMPORT}.`
+                  : warning,
+              status: "waiting",
+              preparedDataUrl: normalizedPdfDataUrl,
+              pdfPageCount: pageCount,
+              pdfPageRange: {
+                from: 1,
+                to: defaultTo,
+              },
+              error: "Перед загрузкой выберите страницы PDF для импорта.",
+            });
+          } catch {
+            nextItems.push({
+              ...baseItem,
+              status: "invalid",
+              error:
+                "Не удалось подготовить PDF для импорта (не удалось определить страницы). Попробуйте другой файл.",
+            });
+          }
           continue;
         }
         try {
@@ -439,6 +464,7 @@ export function WorkbookImportModal({
           file: item.file,
           preparedDataUrl: item.preparedDataUrl,
           pdfPageRange: item.isPdf ? item.pdfPageRange : undefined,
+          pdfPageCount: item.isPdf ? item.pdfPageCount : undefined,
           onProgress: (progress) => {
             setItemProgress(item.id, progress);
           },
@@ -669,7 +695,8 @@ export function WorkbookImportModal({
                   {item.isPdf ? (
                     <div className="workbook-session__import-item-actions">
                       <span className="workbook-session__import-item-range">
-                        Страницы: {item.pdfPageRange?.from ?? 1}-{item.pdfPageRange?.to ?? 8}
+                        Страницы: {item.pdfPageRange?.from ?? 1}-{item.pdfPageRange?.to ?? 1}
+                        {item.pdfPageCount ? ` из ${item.pdfPageCount}` : ""}
                       </span>
                       <Button
                         size="small"
@@ -735,6 +762,7 @@ export function WorkbookImportModal({
       <WorkbookPdfImportPreviewModal
         open={open && Boolean(pdfPreviewItem)}
         file={pdfPreviewItem?.file ?? null}
+        pageCount={pdfPreviewItem?.pdfPageCount ?? null}
         initialRange={pdfPreviewItem?.pdfPageRange ?? null}
         maxPagesPerImport={MAX_PDF_PAGES_PER_IMPORT}
         container={dialogContainer}
