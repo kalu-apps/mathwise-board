@@ -900,6 +900,8 @@ const handleWorkbookSnapshotAndPdfRoute = async (
       dataUrl?: string;
       dpi?: number;
       maxPages?: number;
+      pageFrom?: number;
+      pageTo?: number;
     } | null;
 
     const pdfBuffer = deps.decodeWorkbookPdfDataUrl(body?.dataUrl);
@@ -922,17 +924,29 @@ const handleWorkbookSnapshotAndPdfRoute = async (
       typeof body?.maxPages === "number" && Number.isFinite(body.maxPages)
         ? Math.max(1, Math.min(12, Math.floor(body.maxPages)))
         : 8;
+    const firstPage =
+      typeof body?.pageFrom === "number" && Number.isFinite(body.pageFrom)
+        ? Math.max(1, Math.floor(body.pageFrom))
+        : 1;
+    const requestedLastPage =
+      typeof body?.pageTo === "number" && Number.isFinite(body.pageTo)
+        ? Math.max(firstPage, Math.floor(body.pageTo))
+        : firstPage + maxPages - 1;
+    const lastPage = Math.min(firstPage + maxPages - 1, requestedLastPage);
 
     try {
       const pages = await deps.renderWorkbookPdfPagesViaPoppler({
         pdfBuffer,
         dpi,
-        maxPages,
+        firstPage,
+        lastPage,
         ensureId: deps.ensureId,
       });
       deps.json(res, 200, {
         renderer: "poppler",
         fileName: typeof body?.fileName === "string" ? body.fileName : "document.pdf",
+        pageFrom: firstPage,
+        pageTo: lastPage,
         pages,
       });
       return true;

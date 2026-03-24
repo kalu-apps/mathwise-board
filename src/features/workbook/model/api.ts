@@ -556,6 +556,8 @@ export async function renderWorkbookPdfPages(params: {
   dataUrl: string;
   dpi?: number;
   maxPages?: number;
+  pageFrom?: number;
+  pageTo?: number;
 }) {
   return api.post<{
     renderer: "poppler" | "unavailable";

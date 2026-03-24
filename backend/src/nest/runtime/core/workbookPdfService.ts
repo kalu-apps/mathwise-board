@@ -12,13 +12,32 @@ const toDataUrl = (buffer: Buffer, mimeType: string) =>
   `data:${mimeType};base64,${buffer.toString("base64")}`;
 
 export const decodeWorkbookPdfDataUrl = (value: unknown) => {
-  if (typeof value !== "string" || !value.startsWith("data:application/pdf;base64,")) {
+  if (typeof value !== "string" || !value.startsWith("data:")) {
     return null;
   }
-  const base64 = value.slice("data:application/pdf;base64,".length).trim();
+  const commaIndex = value.indexOf(",");
+  if (commaIndex <= 5) return null;
+  const meta = value.slice(5, commaIndex);
+  const base64 = value.slice(commaIndex + 1).trim();
   if (!base64) return null;
+  const metaParts = meta
+    .split(";")
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+  const mimeType = metaParts[0] ?? "";
+  const hasBase64 = metaParts.includes("base64");
+  const isAllowedMime =
+    mimeType === "application/pdf" ||
+    mimeType === "application/x-pdf" ||
+    mimeType === "application/octet-stream" ||
+    mimeType === "";
+  if (!hasBase64 || !isAllowedMime) return null;
   try {
-    return Buffer.from(base64, "base64");
+    const buffer = Buffer.from(base64, "base64");
+    if (!buffer.length) return null;
+    const markerIndex = buffer.indexOf(Buffer.from("%PDF-"));
+    if (markerIndex < 0 || markerIndex > 1024) return null;
+    return buffer;
   } catch {
     return null;
   }
@@ -27,7 +46,8 @@ export const decodeWorkbookPdfDataUrl = (value: unknown) => {
 export const renderWorkbookPdfPagesViaPoppler = async (params: {
   pdfBuffer: Buffer;
   dpi: number;
-  maxPages: number;
+  firstPage: number;
+  lastPage: number;
   ensureId: () => string;
 }) => {
   const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "workbook-pdf-"));
@@ -41,9 +61,9 @@ export const renderWorkbookPdfPagesViaPoppler = async (params: {
       "-r",
       String(params.dpi),
       "-f",
-      "1",
+      String(params.firstPage),
       "-l",
-      String(params.maxPages),
+      String(params.lastPage),
       inputPath,
       outputPrefix,
     ]);

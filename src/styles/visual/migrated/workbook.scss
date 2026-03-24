@@ -4231,6 +4231,26 @@
   color: rgba(53, 63, 90, 0.72);
 }
 
+.workbook-session__import-item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workbook-session__import-item-range {
+  font-size: 11px;
+  color: rgba(53, 63, 90, 0.78);
+}
+
+.workbook-session__import-item-actions .MuiButton-root {
+  min-height: 26px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .workbook-session__import-item-warning,
 .workbook-session__import-item-error {
   margin: 0;
@@ -4340,6 +4360,72 @@
   width: 1em !important;
   height: 1em !important;
   color: currentColor;
+}
+
+.workbook-session__pdf-preview-modal-paper {
+  border-radius: 16px !important;
+}
+
+.workbook-session__pdf-preview-modal-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workbook-session__pdf-preview-modal-close.MuiIconButton-root {
+  color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
+}
+
+.workbook-session__pdf-preview-modal-close.MuiIconButton-root:hover {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.workbook-session__pdf-preview-modal-content {
+  display: grid;
+  gap: 10px;
+}
+
+.workbook-session__pdf-preview-modal-alert {
+  margin: 0;
+}
+
+.workbook-session__pdf-preview-frame-shell {
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 88%, transparent);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface-soft) 92%, transparent);
+  min-height: 56vh;
+}
+
+.workbook-session__pdf-preview-frame {
+  width: 100%;
+  height: 56vh;
+  border: 0;
+  display: block;
+}
+
+.workbook-session__pdf-preview-fallback {
+  display: grid;
+  place-items: center;
+  height: 56vh;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.workbook-session__pdf-preview-range-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 180px));
+  gap: 10px;
+}
+
+.workbook-session__pdf-preview-hint {
+  margin: 0;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text-secondary) 92%, transparent);
 }
 
 @keyframes workbook-import-progress-flow {
