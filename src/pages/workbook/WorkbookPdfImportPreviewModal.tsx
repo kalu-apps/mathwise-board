@@ -14,6 +14,7 @@ import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 type WorkbookPdfImportPreviewModalProps = {
   open: boolean;
   file: File | null;
+  pageCount: number | null;
   container?: Element | null;
   initialRange?: {
     from: number;
@@ -32,6 +33,7 @@ const clampPageValue = (value: number) => {
 export function WorkbookPdfImportPreviewModal({
   open,
   file,
+  pageCount,
   container,
   initialRange,
   maxPagesPerImport = 12,
@@ -60,11 +62,13 @@ export function WorkbookPdfImportPreviewModal({
       return;
     }
     const from = clampPageValue(initialRange?.from ?? 1);
-    const to = Math.max(from, clampPageValue(initialRange?.to ?? Math.max(8, from)));
+    const maxPage = pageCount && Number.isFinite(pageCount) ? Math.max(1, Math.trunc(pageCount)) : null;
+    const defaultTo = Math.max(1, Math.min(maxPagesPerImport, maxPage ?? Math.max(8, from)));
+    const to = Math.max(from, clampPageValue(initialRange?.to ?? defaultTo));
     setPageFrom(String(from));
-    setPageTo(String(to));
+    setPageTo(String(maxPage ? Math.min(maxPage, to) : to));
     setRangeError(null);
-  }, [initialRange?.from, initialRange?.to, open]);
+  }, [initialRange?.from, initialRange?.to, maxPagesPerImport, open, pageCount]);
 
   const handleConfirm = useCallback(() => {
     const rawFrom = Number.parseInt(pageFrom, 10);
@@ -79,6 +83,14 @@ export function WorkbookPdfImportPreviewModal({
       setRangeError("Конечная страница не может быть меньше начальной.");
       return;
     }
+    if (pageCount && from > pageCount) {
+      setRangeError(`В документе только ${pageCount} стр.`);
+      return;
+    }
+    if (pageCount && to > pageCount) {
+      setRangeError(`Нельзя выбрать страницу выше ${pageCount}.`);
+      return;
+    }
     const selectedPages = to - from + 1;
     if (selectedPages > maxPagesPerImport) {
       setRangeError(`За один импорт можно выбрать не более ${maxPagesPerImport} страниц.`);
@@ -86,7 +98,7 @@ export function WorkbookPdfImportPreviewModal({
     }
     setRangeError(null);
     onConfirm({ from, to });
-  }, [maxPagesPerImport, onConfirm, pageFrom, pageTo]);
+  }, [maxPagesPerImport, onConfirm, pageCount, pageFrom, pageTo]);
 
   return (
     <Dialog
@@ -94,7 +106,6 @@ export function WorkbookPdfImportPreviewModal({
       onClose={onCancel}
       container={container}
       fullWidth
-      maxWidth="xl"
       className="workbook-session__pdf-preview-modal"
       PaperProps={{ className: "workbook-session__pdf-preview-modal-paper" }}
     >
@@ -133,7 +144,7 @@ export function WorkbookPdfImportPreviewModal({
             type="number"
             value={pageFrom}
             onChange={(event) => setPageFrom(event.target.value)}
-            inputProps={{ min: 1 }}
+            inputProps={{ min: 1, max: pageCount ?? undefined }}
           />
           <TextField
             label="По страницу"
@@ -141,12 +152,14 @@ export function WorkbookPdfImportPreviewModal({
             type="number"
             value={pageTo}
             onChange={(event) => setPageTo(event.target.value)}
-            inputProps={{ min: 1 }}
+            inputProps={{ min: 1, max: pageCount ?? undefined }}
           />
         </div>
         <p className="workbook-session__pdf-preview-hint">
-          За один импорт допускается до {maxPagesPerImport} страниц. Если документ больше,
-          загрузите следующий диапазон отдельным импортом.
+          {pageCount
+            ? `Всего страниц: ${pageCount}. За один импорт допускается до ${maxPagesPerImport} страниц.`
+            : `За один импорт допускается до ${maxPagesPerImport} страниц.`}{" "}
+          Если документ больше, загрузите следующий диапазон отдельным импортом.
         </p>
         {rangeError ? (
           <Alert severity="warning" className="workbook-session__pdf-preview-modal-alert">

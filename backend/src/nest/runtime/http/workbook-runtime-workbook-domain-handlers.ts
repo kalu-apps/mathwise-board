@@ -962,6 +962,41 @@ const handleWorkbookSnapshotAndPdfRoute = async (
     }
   }
 
+  if (pathname === "/api/workbook/pdf/inspect" && method === "POST") {
+    const body = (await deps.readBody(req)) as {
+      fileName?: string;
+      dataUrl?: string;
+    } | null;
+    const pdfBuffer = deps.decodeWorkbookPdfDataUrl(body?.dataUrl);
+    if (!pdfBuffer) {
+      deps.badRequest(res, "Некорректный PDF payload.");
+      return true;
+    }
+    if (pdfBuffer.length > deps.WORKBOOK_PDF_RENDER_MAX_BYTES) {
+      deps.json(res, 413, {
+        error: "pdf_too_large",
+      });
+      return true;
+    }
+    try {
+      const inspected = await deps.inspectWorkbookPdfViaPoppler({
+        pdfBuffer,
+      });
+      deps.json(res, 200, {
+        fileName: typeof body?.fileName === "string" ? body.fileName : "document.pdf",
+        pageCount: inspected.pageCount,
+      });
+      return true;
+    } catch {
+      deps.json(res, 503, {
+        fileName: typeof body?.fileName === "string" ? body.fileName : "document.pdf",
+        error:
+          "PDF inspect backend недоступен. Установите poppler (pdfinfo) или используйте другой документ.",
+      });
+      return true;
+    }
+  }
+
   return false;
 };
 

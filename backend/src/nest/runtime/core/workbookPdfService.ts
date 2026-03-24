@@ -89,3 +89,22 @@ export const renderWorkbookPdfPagesViaPoppler = async (params: {
     await fsPromises.rm(tempRoot, { recursive: true, force: true });
   }
 };
+
+export const inspectWorkbookPdfViaPoppler = async (params: { pdfBuffer: Buffer }) => {
+  const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "workbook-pdf-"));
+  const inputPath = path.join(tempRoot, "input.pdf");
+  await fsPromises.writeFile(inputPath, params.pdfBuffer);
+  try {
+    const { stdout } = await execFileAsync("pdfinfo", [inputPath]);
+    const pagesMatch = String(stdout ?? "").match(/^\s*Pages:\s*(\d+)\s*$/im);
+    const pageCount = Number.parseInt(pagesMatch?.[1] ?? "", 10);
+    if (!Number.isFinite(pageCount) || pageCount <= 0) {
+      throw new Error("workbook_pdf_page_count_unavailable");
+    }
+    return {
+      pageCount: Math.max(1, Math.trunc(pageCount)),
+    };
+  } finally {
+    await fsPromises.rm(tempRoot, { recursive: true, force: true });
+  }
+};
