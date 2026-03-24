@@ -278,6 +278,42 @@ export const persistWorkbookAssetFromDataUrl = async (params: {
   };
 };
 
+export const persistWorkbookAssetFromBuffer = async (params: {
+  sessionId: string;
+  buffer: Buffer;
+  fileName?: string;
+  mimeType?: string;
+}) => {
+  const buffer = Buffer.isBuffer(params.buffer) ? params.buffer : Buffer.from(params.buffer);
+  if (!buffer.length) {
+    throw new Error("workbook_asset_invalid_data_url");
+  }
+  if (buffer.length > WORKBOOK_ASSET_MAX_BYTES) {
+    throw new Error("workbook_asset_too_large");
+  }
+  const mimeType =
+    String(params.mimeType ?? "").trim().toLowerCase() || "application/octet-stream";
+  const hash = crypto.createHash("sha256").update(buffer).digest("hex");
+  const ext = resolveAssetExtension(mimeType, params.fileName);
+  const assetId = `${hash}.${ext}`;
+  const existingAsset = await findExistingAssetPath(assetId);
+  if (!existingAsset) {
+    const assetPath = resolveAssetPath(assetId);
+    await ensureDir(path.dirname(assetPath));
+    try {
+      await fsPromises.access(assetPath, fs.constants.R_OK);
+    } catch {
+      await fsPromises.writeFile(assetPath, buffer);
+    }
+  }
+  return {
+    assetId,
+    url: buildWorkbookAssetUrl(params.sessionId, assetId),
+    mimeType: resolveMimeTypeByExt(ext),
+    sizeBytes: buffer.length,
+  };
+};
+
 export const readWorkbookAssetById = async (assetId: string) => {
   const normalizedAssetId = String(assetId ?? "").trim().toLowerCase();
   if (!SAFE_ASSET_ID_RE.test(normalizedAssetId) && !SAFE_ASSET_HASH_RE.test(normalizedAssetId)) {

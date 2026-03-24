@@ -35,3 +35,23 @@ export const readJsonBody = async (
     throw new Error(INVALID_JSON_BODY_ERROR);
   }
 };
+
+export const readRawBody = async (
+  req: IncomingMessage,
+  options?: { maxBytes?: number }
+): Promise<Buffer> => {
+  const maxBytes = normalizeMaxBytes(options?.maxBytes);
+  const chunks: Buffer[] = [];
+  let bytesRead = 0;
+
+  for await (const chunk of req) {
+    const bufferChunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytesRead += bufferChunk.length;
+    if (bytesRead > maxBytes) {
+      throw new Error(REQUEST_BODY_TOO_LARGE_ERROR);
+    }
+    chunks.push(bufferChunk);
+  }
+
+  return Buffer.concat(chunks);
+};

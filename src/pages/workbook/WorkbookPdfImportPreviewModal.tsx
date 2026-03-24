@@ -234,19 +234,6 @@ export function WorkbookPdfImportPreviewModal({
         <Alert severity="info" className="workbook-session__pdf-preview-modal-alert">
           Файл пока не загружен на доску. Проверьте содержимое и укажите страницы для импорта.
         </Alert>
-        <div className="workbook-session__pdf-preview-frame-shell">
-          {previewUrl ? (
-            <iframe
-              src={`${previewUrl}#view=FitH&toolbar=1&navpanes=0`}
-              title={file?.name ?? "PDF preview"}
-              className="workbook-session__pdf-preview-frame"
-            />
-          ) : (
-            <div className="workbook-session__pdf-preview-fallback">
-              Предпросмотр PDF недоступен в текущем браузере.
-            </div>
-          )}
-        </div>
         <div className="workbook-session__pdf-preview-range-row">
           <label className="workbook-session__pdf-preview-range-field">
             <span>С страницы</span>
@@ -279,12 +266,6 @@ export function WorkbookPdfImportPreviewModal({
             />
           </label>
         </div>
-        <p className="workbook-session__pdf-preview-hint">
-          {maxAvailablePage
-            ? `Всего страниц: ${maxAvailablePage}. За один импорт допускается до ${maxPagesPerImport} страниц.`
-            : `За один импорт допускается до ${maxPagesPerImport} страниц.`}{" "}
-          Если документ больше, загрузите следующий диапазон отдельным импортом.
-        </p>
         {validationState.warning ? (
           <Alert severity="warning" className="workbook-session__pdf-preview-modal-alert">
             {validationState.warning}
@@ -295,6 +276,19 @@ export function WorkbookPdfImportPreviewModal({
             {validationState.error}
           </Alert>
         ) : null}
+        <div className="workbook-session__pdf-preview-frame-shell">
+          {previewUrl ? (
+            <iframe
+              src={`${previewUrl}#view=FitH&toolbar=1&navpanes=0`}
+              title={file?.name ?? "PDF preview"}
+              className="workbook-session__pdf-preview-frame"
+            />
+          ) : (
+            <div className="workbook-session__pdf-preview-fallback">
+              Предпросмотр PDF недоступен в текущем браузере.
+            </div>
+          )}
+        </div>
       </DialogContent>
       <DialogActions>
         <Button variant="contained" onClick={handleConfirm} disabled={!validationState.valid}>

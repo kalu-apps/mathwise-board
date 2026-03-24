@@ -1,4 +1,4 @@
-import { api, isRecoverableApiError } from "@/shared/api/client";
+import { api, ApiError, isRecoverableApiError } from "@/shared/api/client";
 import { buildApiUrl } from "@/shared/api/base";
 import { generateId } from "@/shared/lib/id";
 import type { User } from "@/entities/user/model/types";
@@ -553,12 +553,36 @@ export async function leaveWorkbookPresence(sessionId: string, payload?: Workboo
 
 export async function renderWorkbookPdfPages(params: {
   fileName: string;
-  dataUrl: string;
+  dataUrl?: string;
+  file?: File;
   dpi?: number;
   maxPages?: number;
   pageFrom?: number;
   pageTo?: number;
 }) {
+  if (params.file instanceof File) {
+    return postWorkbookPdfBinary<{
+      renderer: "poppler" | "unavailable";
+      fileName: string;
+      pages: Array<{
+        id: string;
+        page: number;
+        imageUrl: string;
+        width?: number;
+        height?: number;
+      }>;
+    }>("/workbook/pdf/render", {
+      file: params.file,
+      timeoutMs: 90_000,
+      query: {
+        fileName: params.fileName,
+        dpi: params.dpi,
+        maxPages: params.maxPages,
+        pageFrom: params.pageFrom,
+        pageTo: params.pageTo,
+      },
+    });
+  }
   return api.post<{
     renderer: "poppler" | "unavailable";
     fileName: string;
@@ -572,7 +596,23 @@ export async function renderWorkbookPdfPages(params: {
   }>("/workbook/pdf/render", params, { notifyDataUpdate: false, timeoutMs: 90_000 });
 }
 
-export async function inspectWorkbookPdf(params: { fileName: string; dataUrl: string }) {
+export async function inspectWorkbookPdf(params: {
+  fileName: string;
+  dataUrl?: string;
+  file?: File;
+}) {
+  if (params.file instanceof File) {
+    return postWorkbookPdfBinary<{
+      fileName: string;
+      pageCount: number;
+    }>("/workbook/pdf/inspect", {
+      file: params.file,
+      timeoutMs: 45_000,
+      query: {
+        fileName: params.fileName,
+      },
+    });
+  }
   return api.post<{
     fileName: string;
     pageCount: number;
@@ -600,6 +640,121 @@ export async function uploadWorkbookAsset(params: {
     { notifyDataUpdate: false, timeoutMs: 60_000 }
   );
 }
+
+export async function uploadWorkbookAssetFile(params: {
+  sessionId: string;
+  fileName: string;
+  file: File;
+  mimeType?: string;
+  timeoutMs?: number;
+}) {
+  const query = new URLSearchParams();
+  query.set("fileName", params.fileName);
+  if (typeof params.mimeType === "string" && params.mimeType.trim().length > 0) {
+    query.set("mimeType", params.mimeType);
+  }
+  const response = await fetch(
+    buildApiUrl(
+      `/workbook/sessions/${encodeURIComponent(params.sessionId)}/assets?${query.toString()}`
+    ),
+    {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type":
+          params.mimeType?.trim() || params.file.type || "application/octet-stream",
+      },
+      body: params.file,
+      signal: createTimeoutSignal(params.timeoutMs ?? 60_000),
+    }
+  );
+  const data = await parseBinaryApiResponse(response);
+  if (!response.ok) {
+    throw asApiError(response, data);
+  }
+  return data as {
+    assetId: string;
+    url: string;
+    mimeType: string;
+    sizeBytes: number;
+  };
+}
+
+const createTimeoutSignal = (timeoutMs: number) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, Math.max(1_000, Math.floor(timeoutMs)));
+  controller.signal.addEventListener(
+    "abort",
+    () => {
+      clearTimeout(timeoutId);
+    },
+    { once: true }
+  );
+  return controller.signal;
+};
+
+const parseBinaryApiResponse = async (response: Response) => {
+  const raw = await response.text();
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return raw;
+  }
+};
+
+const extractBinaryApiErrorMessage = (response: Response, data: unknown) => {
+  if (typeof data === "object" && data !== null && "error" in data) {
+    const maybeError = (data as { error?: unknown }).error;
+    if (typeof maybeError === "string" && maybeError.trim().length > 0) {
+      return maybeError;
+    }
+  }
+  if (typeof data === "string" && data.trim().length > 0) {
+    return data;
+  }
+  return response.statusText || "Request failed";
+};
+
+const asApiError = (response: Response, data: unknown) => {
+  const message = extractBinaryApiErrorMessage(response, data);
+  return new ApiError(message, response.status, data);
+};
+
+const postWorkbookPdfBinary = async <T>(
+  path: string,
+  params: {
+    file: File;
+    timeoutMs: number;
+    query?: Record<string, string | number | undefined>;
+  }
+) => {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params.query ?? {})) {
+    if (value == null) continue;
+    query.set(key, String(value));
+  }
+  const querySuffix = query.toString();
+  const response = await fetch(
+    buildApiUrl(`${path}${querySuffix ? `?${querySuffix}` : ""}`),
+    {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/pdf",
+      },
+      body: params.file,
+      signal: createTimeoutSignal(params.timeoutMs),
+    }
+  );
+  const data = await parseBinaryApiResponse(response);
+  if (!response.ok) {
+    throw asApiError(response, data);
+  }
+  return data as T;
+};
 
 export async function updateWorkbookSessionDraftPreview(params: {
   sessionId: string;

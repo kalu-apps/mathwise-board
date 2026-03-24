@@ -20,7 +20,6 @@ import {
   WORKBOOK_PDF_IMPORT_MAX_BYTES,
   formatFileSizeMb,
   isPdfUploadFile,
-  normalizePdfDataUrl,
   optimizeImageDataUrl,
   readFileAsDataUrl,
   readFileExtension,
@@ -260,11 +259,9 @@ export function WorkbookImportModal({
             : undefined;
         if (!isImage) {
           try {
-            const sourceDataUrl = await readFileAsDataUrl(file);
-            const normalizedPdfDataUrl = normalizePdfDataUrl(sourceDataUrl);
             const inspectedPdf = await inspectWorkbookPdf({
               fileName: file.name,
-              dataUrl: normalizedPdfDataUrl,
+              file,
             });
             const pageCount = Math.max(1, Math.trunc(inspectedPdf.pageCount || 1));
             const defaultTo = Math.max(1, Math.min(pageCount, MAX_PDF_PAGES_PER_IMPORT, 8));
@@ -275,7 +272,6 @@ export function WorkbookImportModal({
                   ? `Документ содержит ${pageCount} стр. За раз можно импортировать до ${MAX_PDF_PAGES_PER_IMPORT}.`
                   : warning,
               status: "waiting",
-              preparedDataUrl: normalizedPdfDataUrl,
               pdfPageCount: pageCount,
               pdfPageRange: {
                 from: 1,
@@ -287,11 +283,17 @@ export function WorkbookImportModal({
             let message =
               "Не удалось подготовить PDF для импорта (не удалось определить страницы). Попробуйте другой файл.";
             if (error instanceof ApiError && error.status === 413) {
-              message = `Не удалось добавить PDF: размер файла ${formatFileSizeMb(
-                file.size
-              )} превышает лимит ${formatFileSizeMb(
-                WORKBOOK_PDF_IMPORT_MAX_BYTES
-              )}. Выбор диапазона страниц не снизит этот лимит, так как сервер получает исходный файл целиком.`;
+              if (error.message === "pdf_too_large") {
+                message = `Не удалось добавить PDF: размер файла ${formatFileSizeMb(
+                  file.size
+                )} превышает лимит ${formatFileSizeMb(WORKBOOK_PDF_IMPORT_MAX_BYTES)}.`;
+              } else if (error.message === "request_body_too_large") {
+                message =
+                  "Не удалось подготовить PDF: превышен транспортный лимит запроса. Диапазон страниц примените после выбора документа меньшего размера.";
+              } else {
+                message =
+                  "Не удалось подготовить PDF: объём payload превысил лимит сервера.";
+              }
             } else if (error instanceof ApiError && error.status === 503) {
               message =
                 "Не удалось подготовить PDF для импорта: серверный рендер PDF временно недоступен.";
