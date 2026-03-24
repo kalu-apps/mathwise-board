@@ -1554,17 +1554,30 @@ const resolveSessionPresenceDurationMinutes = (db: MockDb, session: WorkbookSess
 
     if (activeStartTs !== null) {
       const activeStart = activeStartTs;
-      const endCandidates = [
-        parseIsoTs(participant.leftAt),
-        parseIsoTs(participant.lastSeenAt),
-        parseIsoTs(participant.lastVisitEndedAt),
-        parseIsoTs(session.endedAt),
-        parseIsoTs(session.lastActivityAt),
-      ].filter((value) => Number.isFinite(value) && value > activeStart);
-      if (participant.isActive || isParticipantOnline(participant) || participant.currentVisitStartedAt) {
-        endCandidates.push(now);
+      const leftAtTs = parseIsoTs(participant.leftAt);
+      const lastSeenAtTs = parseIsoTs(participant.lastSeenAt);
+      const lastVisitEndedAtTs = parseIsoTs(participant.lastVisitEndedAt);
+      const sessionEndedAtTs = parseIsoTs(session.endedAt);
+
+      let resolvedEndTs = NaN;
+      if (participant.isActive && Number.isFinite(lastSeenAtTs)) {
+        // Keep counting only while participant is considered online by timeout window.
+        const onlineUntilTs = lastSeenAtTs + ONLINE_TIMEOUT_MS;
+        resolvedEndTs = isParticipantOnline(participant) ? now : onlineUntilTs;
       }
-      const resolvedEndTs = endCandidates.length ? Math.max(...endCandidates) : NaN;
+      if (!Number.isFinite(resolvedEndTs) || resolvedEndTs <= activeStart) {
+        const fallbackEndCandidates = [leftAtTs, lastVisitEndedAtTs, lastSeenAtTs].filter(
+          (value) => Number.isFinite(value) && value > activeStart
+        );
+        if (fallbackEndCandidates.length) {
+          resolvedEndTs = Math.max(...fallbackEndCandidates);
+        }
+      }
+      if (Number.isFinite(sessionEndedAtTs) && sessionEndedAtTs > activeStart) {
+        resolvedEndTs = Number.isFinite(resolvedEndTs)
+          ? Math.min(resolvedEndTs, sessionEndedAtTs)
+          : sessionEndedAtTs;
+      }
       if (Number.isFinite(resolvedEndTs)) {
         pushInterval(intervals, activeStart, resolvedEndTs);
       }
@@ -1593,15 +1606,7 @@ const resolveSessionPresenceDurationMinutes = (db: MockDb, session: WorkbookSess
   });
 
   if (!intervals.length) {
-    const sessionStartedAt = parseIsoTs(session.startedAt ?? session.createdAt);
-    const sessionEndedAt =
-      session.status === "ended"
-        ? parseIsoTs(session.endedAt ?? session.lastActivityAt)
-        : now;
-    if (!Number.isFinite(sessionStartedAt) || !Number.isFinite(sessionEndedAt)) {
-      return null;
-    }
-    return Math.max(1, Math.round((sessionEndedAt - sessionStartedAt) / 60_000));
+    return null;
   }
 
   intervals.sort((left, right) => {
