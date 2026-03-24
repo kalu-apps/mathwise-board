@@ -7,6 +7,71 @@ const parseCssPixelSize = (value: string, fallback: number) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+type WorkbookPreviewTextMeasure = (value: string) => number;
+
+const buildWorkbookPreviewTextMeasure = (
+  sourceNode: HTMLElement,
+  fontSize: number
+): WorkbookPreviewTextMeasure => {
+  const measureCanvas = document.createElement("canvas");
+  const measureContext = measureCanvas.getContext("2d");
+  if (!measureContext) {
+    return (value: string) => value.length * Math.max(4, fontSize * 0.58);
+  }
+  const fontFamily =
+    sourceNode.style.fontFamily && sourceNode.style.fontFamily.trim().length > 0
+      ? sourceNode.style.fontFamily
+      : "\"Fira Sans\", \"Segoe UI\", sans-serif";
+  const fontStyle =
+    sourceNode.style.fontStyle && sourceNode.style.fontStyle.trim().length > 0
+      ? sourceNode.style.fontStyle
+      : "normal";
+  const fontWeight =
+    sourceNode.style.fontWeight && sourceNode.style.fontWeight.trim().length > 0
+      ? sourceNode.style.fontWeight
+      : "500";
+  measureContext.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+  return (value: string) => measureContext.measureText(value).width;
+};
+
+const wrapWorkbookPreviewTextLines = (
+  value: string,
+  maxWidth: number,
+  measure: WorkbookPreviewTextMeasure
+) => {
+  const availableWidth = Math.max(1, maxWidth);
+  const sourceLines = value.split("\n");
+  const wrapped: string[] = [];
+  sourceLines.forEach((sourceLine) => {
+    if (sourceLine.length === 0) {
+      wrapped.push("");
+      return;
+    }
+    if (measure(sourceLine) <= availableWidth) {
+      wrapped.push(sourceLine);
+      return;
+    }
+    let currentLine = "";
+    for (const character of sourceLine) {
+      const nextLine = `${currentLine}${character}`;
+      if (currentLine.length === 0 || measure(nextLine) <= availableWidth) {
+        currentLine = nextLine;
+        continue;
+      }
+      wrapped.push(currentLine);
+      currentLine = character;
+      if (measure(currentLine) > availableWidth) {
+        wrapped.push(currentLine);
+        currentLine = "";
+      }
+    }
+    if (currentLine.length > 0) {
+      wrapped.push(currentLine);
+    }
+  });
+  return wrapped;
+};
+
 const drawWorkbookGrid = (
   context: CanvasRenderingContext2D,
   params: {
@@ -160,16 +225,21 @@ const normalizeForeignObjectTextForPreview = (svg: SVGSVGElement) => {
 
     const rawText = textEditorNode ? textEditorNode.value : sourceNode.textContent ?? "";
     const normalizedText = rawText.replace(/\r\n/g, "\n");
-    const lines = normalizedText.split("\n");
+    const x = parseNumericSvgAttr(node, "x", 0);
+    const y = parseNumericSvgAttr(node, "y", 0);
+    const width = Math.max(1, parseNumericSvgAttr(node, "width", 1));
+    const fontSize = Math.max(10, parseCssPixelSize(sourceNode.style.fontSize, 18));
+    const textMeasure = buildWorkbookPreviewTextMeasure(sourceNode, fontSize);
+    const lines = wrapWorkbookPreviewTextLines(
+      normalizedText,
+      Math.max(1, width - 8),
+      textMeasure
+    );
     if (lines.length === 0) {
       node.remove();
       return;
     }
 
-    const x = parseNumericSvgAttr(node, "x", 0);
-    const y = parseNumericSvgAttr(node, "y", 0);
-    const width = Math.max(1, parseNumericSvgAttr(node, "width", 1));
-    const fontSize = Math.max(10, parseCssPixelSize(sourceNode.style.fontSize, 18));
     const lineHeight = Math.max(fontSize * 1.32, fontSize + 4);
     const textAlign =
       sourceNode.style.textAlign === "center" || sourceNode.style.textAlign === "right"
