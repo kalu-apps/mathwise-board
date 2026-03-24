@@ -111,11 +111,12 @@ const WHITEBOARD_TEACHER_PASSWORD = (() => {
 })();
 
 const AUTH_COOKIE_NAME = "math_tutor_session";
+const AUTH_SESSION_INACTIVITY_TTL_MS = 30 * 60 * 1000;
 const AUTH_SESSION_TTL_MS = (() => {
-  const fallback = 12 * 60 * 60 * 1000;
+  const fallback = AUTH_SESSION_INACTIVITY_TTL_MS;
   const parsed = Number.parseInt(String(process.env.AUTH_SESSION_TTL_MS ?? "").trim(), 10);
   if (!Number.isFinite(parsed) || parsed < 5 * 60_000) return fallback;
-  return parsed;
+  return Math.min(parsed, AUTH_SESSION_INACTIVITY_TTL_MS);
 })();
 const AUTH_SESSION_PERSIST_INTERVAL_MS = 60_000;
 const ONLINE_TIMEOUT_MS = 20_000;

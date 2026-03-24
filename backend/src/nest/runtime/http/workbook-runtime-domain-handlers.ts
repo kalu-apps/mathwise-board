@@ -90,6 +90,31 @@ export const handleAuthDomainRoute = async (
       return true;
     }
     const teacher = deps.pickTeacher(db);
+    const now = Date.now();
+    const expiredTeacherTokens = db.authSessions
+      .filter((session) => {
+        if (session.userId !== teacher.id) return false;
+        return new Date(session.expiresAt).getTime() <= now;
+      })
+      .map((session) => session.token);
+    if (expiredTeacherTokens.length > 0) {
+      const expiredTokenSet = new Set(expiredTeacherTokens);
+      db.authSessions = db.authSessions.filter((session) => !expiredTokenSet.has(session.token));
+      expiredTeacherTokens.forEach((token) => deps.removeAuthSessionPersistenceToken(token));
+      deps.closeUserPresenceAcrossSessions(db, teacher.id);
+    }
+    const hasActiveTeacherSession = db.authSessions.some((session) => {
+      if (session.userId !== teacher.id) return false;
+      return new Date(session.expiresAt).getTime() > now;
+    });
+    if (hasActiveTeacherSession) {
+      deps.json(res, 409, {
+        error:
+          "Учитель уже авторизован в другом браузере или устройстве. Завершите текущую сессию или дождитесь авто-выхода через 30 минут неактивности.",
+        code: "teacher_already_logged_in",
+      });
+      return true;
+    }
     deps.setAuthSession(db, res, teacher);
     deps.saveDb();
     deps.json(res, 200, deps.safeUser(teacher));
