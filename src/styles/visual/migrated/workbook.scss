@@ -2809,24 +2809,25 @@
 
 .workbook-session__graph-inline-action {
   border: none;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+  border-radius: 8px;
+  background: transparent;
   box-shadow: none;
-  padding: 4px 6px;
-  min-height: 26px;
+  padding: 2px;
+  min-height: 24px;
+  min-width: 24px;
   width: 100%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 0;
   color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
+  font-size: 0;
+  font-weight: 500;
   cursor: pointer;
   transition:
     color 0.18s ease,
-    opacity 0.18s ease;
+    opacity 0.18s ease,
+    background-color 0.18s ease;
 }
 
 .workbook-session__graph-inline-action:focus {
@@ -2835,11 +2836,17 @@
 
 .workbook-session__graph-inline-action:hover {
   color: var(--brand-strong);
-  background: color-mix(in srgb, #8da4ff 8%, var(--surface-elevated));
+  background: color-mix(in srgb, #8da4ff 10%, transparent);
+}
+
+.workbook-session__graph-inline-action:focus-visible {
+  outline: none;
+  box-shadow: none;
+  background: color-mix(in srgb, #8da4ff 10%, transparent);
 }
 
 .workbook-session__graph-inline-action svg {
-  font-size: 16px;
+  font-size: 17px;
 }
 
 .workbook-session__graph-inline-action:disabled {
@@ -2849,7 +2856,7 @@
 
 .workbook-session__graph-inline-action--danger:hover:not(:disabled) {
   color: color-mix(in srgb, #d13f55 86%, var(--text-primary));
-  background: color-mix(in srgb, #ffbac5 16%, var(--surface-elevated));
+  background: color-mix(in srgb, #ffbac5 14%, transparent);
 }
 
 .workbook-session__graph-chip-action {
@@ -5473,6 +5480,7 @@
   }
 
   .workbook-session__graph-inline-action {
-    font-size: 10px;
+    min-height: 22px;
+    min-width: 22px;
   }
 }

@@ -10,6 +10,7 @@ import {
   DialogTitle,
   IconButton,
   Skeleton,
+  TextField,
   Tooltip,
   Typography,
 } from "@mui/material";
@@ -40,6 +41,7 @@ import type { WorkbookDraftCard, WorkbookInviteInfo } from "@/features/workbook/
 import { prefetchWorkbookSessionRuntime } from "./prefetchWorkbookSessionRuntime";
 import { APP_DATA_UPDATED_EVENT } from "@/shared/lib/dataUpdateBus";
 import { InlineMobiusLoader } from "@/shared/ui/loading";
+import { PlatformConfirmDialog } from "@/shared/ui/PlatformConfirmDialog";
 import {
   consumeWorkbookHubPreviewRefreshHints,
   isWorkbookHubPreviewBridgeMessage,
@@ -149,6 +151,8 @@ export default function WorkbookHubPage() {
     personal: 1,
   });
   const [pendingDeleteCard, setPendingDeleteCard] = useState<WorkbookDraftCard | null>(null);
+  const [pendingRenameCard, setPendingRenameCard] = useState<WorkbookDraftCard | null>(null);
+  const [renameTitleDraft, setRenameTitleDraft] = useState("");
   const [previewLoadErrorBySessionId, setPreviewLoadErrorBySessionId] = useState<
     Record<string, string>
   >({});
@@ -473,11 +477,16 @@ export default function WorkbookHubPage() {
     }
   };
 
-  const handleRenameCard = async (card: WorkbookDraftCard) => {
+  const handleRenameCard = (card: WorkbookDraftCard) => {
     if (!card.canDelete) return;
-    const nextTitleRaw = window.prompt("Введите новое название карточки:", card.title);
-    if (nextTitleRaw === null) return;
-    const nextTitle = nextTitleRaw.trim();
+    setPendingRenameCard(card);
+    setRenameTitleDraft(card.title);
+  };
+
+  const handleConfirmRenameCard = async () => {
+    const card = pendingRenameCard;
+    if (!card || !card.canDelete) return;
+    const nextTitle = renameTitleDraft.trim();
     if (nextTitle.length < 2) {
       setError("Название должно содержать минимум 2 символа.");
       return;
@@ -500,6 +509,7 @@ export default function WorkbookHubPage() {
             : item
         )
       );
+      setPendingRenameCard(null);
       triggerDraftCardsReload(true);
     } catch {
       setError("Не удалось изменить название карточки.");
@@ -1185,6 +1195,40 @@ export default function WorkbookHubPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <PlatformConfirmDialog
+        open={Boolean(pendingRenameCard)}
+        title="Изменить название карточки"
+        description="Введите новое название. Изменение сразу отобразится в карточке."
+        confirmLabel="Сохранить"
+        tone="neutral"
+        loading={Boolean(renamingSessionId)}
+        confirmDisabled={
+          renameTitleDraft.trim().length < 2 ||
+          renameTitleDraft.trim() === (pendingRenameCard?.title ?? "")
+        }
+        content={
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="Название карточки"
+            value={renameTitleDraft}
+            onChange={(event) => setRenameTitleDraft(event.target.value)}
+            disabled={Boolean(renamingSessionId)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || event.shiftKey) return;
+              event.preventDefault();
+              void handleConfirmRenameCard();
+            }}
+          />
+        }
+        onCancel={() => {
+          if (renamingSessionId) return;
+          setPendingRenameCard(null);
+        }}
+        onConfirm={() => void handleConfirmRenameCard()}
+      />
 
     </section>
   );
