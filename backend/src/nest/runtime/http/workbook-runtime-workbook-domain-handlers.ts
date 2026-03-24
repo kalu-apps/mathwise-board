@@ -45,6 +45,22 @@ const firstHeaderValue = (value: string | string[] | undefined) => {
   return String(value ?? "").trim();
 };
 
+const isPdfBinaryRequest = (req: IncomingMessage) => {
+  const contentType = firstHeaderValue(req.headers["content-type"]).toLowerCase();
+  return contentType.startsWith("application/pdf");
+};
+
+const readNumberFromSearch = (
+  searchParams: URLSearchParams,
+  key: string
+): number | null => {
+  const rawValue = searchParams.get(key);
+  if (!rawValue) return null;
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed;
+};
+
 const resolveRequestOrigin = (req: IncomingMessage) => {
   const forwardedProtoRaw = firstHeaderValue(req.headers["x-forwarded-proto"]);
   const forwardedHostRaw = firstHeaderValue(req.headers["x-forwarded-host"]);
@@ -226,7 +242,7 @@ const handleWorkbookAssetsRoute = async (
   context: RuntimeRequestContext,
   deps: WorkbookDomainDeps
 ): Promise<boolean> => {
-  const { req, res, db, method, pathname } = context;
+  const { req, res, db, method, pathname, searchParams } = context;
 
   const workbookAssetUploadMatch = pathname.match(/^\/api\/workbook\/sessions\/([^/]+)\/assets$/);
   if (workbookAssetUploadMatch && method === "POST") {
@@ -237,22 +253,43 @@ const handleWorkbookAssetsRoute = async (
       deps.forbidden(res);
       return true;
     }
-    const body = (await deps.readBody(req)) as {
-      fileName?: string;
-      mimeType?: string;
-      dataUrl?: string;
-    } | null;
-    if (typeof body?.dataUrl !== "string" || !body.dataUrl.startsWith("data:")) {
-      deps.badRequest(res, "Некорректный payload ассета.");
-      return true;
-    }
     try {
-      const stored = await deps.persistWorkbookAssetFromDataUrl({
-        sessionId,
-        dataUrl: body.dataUrl,
-        fileName: typeof body.fileName === "string" ? body.fileName : undefined,
-        mimeType: typeof body.mimeType === "string" ? body.mimeType : undefined,
-      });
+      let stored: {
+        assetId: string;
+        url: string;
+        mimeType: string;
+        sizeBytes: number;
+      };
+      if (isPdfBinaryRequest(req)) {
+        const binaryBody = (await deps.readRawBody(req)) as Buffer;
+        const fileNameFromQuery = searchParams.get("fileName");
+        const mimeTypeFromQuery = searchParams.get("mimeType");
+        stored = await deps.persistWorkbookAssetFromBuffer({
+          sessionId,
+          buffer: Buffer.isBuffer(binaryBody) ? binaryBody : Buffer.from(binaryBody ?? []),
+          fileName: fileNameFromQuery ? fileNameFromQuery : undefined,
+          mimeType:
+            typeof mimeTypeFromQuery === "string" && mimeTypeFromQuery.trim().length > 0
+              ? mimeTypeFromQuery
+              : "application/pdf",
+        });
+      } else {
+        const body = (await deps.readBody(req)) as {
+          fileName?: string;
+          mimeType?: string;
+          dataUrl?: string;
+        } | null;
+        if (typeof body?.dataUrl !== "string" || !body.dataUrl.startsWith("data:")) {
+          deps.badRequest(res, "Некорректный payload ассета.");
+          return true;
+        }
+        stored = await deps.persistWorkbookAssetFromDataUrl({
+          sessionId,
+          dataUrl: body.dataUrl,
+          fileName: typeof body.fileName === "string" ? body.fileName : undefined,
+          mimeType: typeof body.mimeType === "string" ? body.mimeType : undefined,
+        });
+      }
       deps.json(res, 200, {
         assetId: stored.assetId,
         url: toAbsoluteAssetUrl(req, stored.url),
@@ -895,17 +932,61 @@ const handleWorkbookSnapshotAndPdfRoute = async (
   }
 
   if (pathname === "/api/workbook/pdf/render" && method === "POST") {
-    const body = (await deps.readBody(req)) as {
-      fileName?: string;
-      dataUrl?: string;
-      dpi?: number;
-      maxPages?: number;
-      pageFrom?: number;
-      pageTo?: number;
-    } | null;
-
-    const pdfBuffer = deps.decodeWorkbookPdfDataUrl(body?.dataUrl);
-    if (!pdfBuffer) {
+    let fileName = "document.pdf";
+    let dpi = 128;
+    let maxPages = 8;
+    let firstPage = 1;
+    let requestedLastPage = firstPage + maxPages - 1;
+    let pdfBuffer: Buffer | null = null;
+    if (isPdfBinaryRequest(req)) {
+      const binaryBody = (await deps.readRawBody(req)) as Buffer;
+      pdfBuffer = Buffer.isBuffer(binaryBody) ? binaryBody : Buffer.from(binaryBody ?? []);
+      const queryFileName = searchParams.get("fileName");
+      if (queryFileName && queryFileName.trim().length > 0) {
+        fileName = queryFileName;
+      }
+      const queryDpi = readNumberFromSearch(searchParams, "dpi");
+      dpi = queryDpi !== null ? Math.max(72, Math.min(240, Math.floor(queryDpi))) : 128;
+      const queryMaxPages = readNumberFromSearch(searchParams, "maxPages");
+      maxPages = queryMaxPages !== null ? Math.max(1, Math.min(12, Math.floor(queryMaxPages))) : 8;
+      const queryFrom = readNumberFromSearch(searchParams, "pageFrom");
+      firstPage = queryFrom !== null ? Math.max(1, Math.floor(queryFrom)) : 1;
+      const queryTo = readNumberFromSearch(searchParams, "pageTo");
+      requestedLastPage =
+        queryTo !== null
+          ? Math.max(firstPage, Math.floor(queryTo))
+          : firstPage + maxPages - 1;
+    } else {
+      const body = (await deps.readBody(req)) as {
+        fileName?: string;
+        dataUrl?: string;
+        dpi?: number;
+        maxPages?: number;
+        pageFrom?: number;
+        pageTo?: number;
+      } | null;
+      pdfBuffer = deps.decodeWorkbookPdfDataUrl(body?.dataUrl);
+      if (typeof body?.fileName === "string") {
+        fileName = body.fileName;
+      }
+      dpi =
+        typeof body?.dpi === "number" && Number.isFinite(body.dpi)
+          ? Math.max(72, Math.min(240, Math.floor(body.dpi)))
+          : 128;
+      maxPages =
+        typeof body?.maxPages === "number" && Number.isFinite(body.maxPages)
+          ? Math.max(1, Math.min(12, Math.floor(body.maxPages)))
+          : 8;
+      firstPage =
+        typeof body?.pageFrom === "number" && Number.isFinite(body.pageFrom)
+          ? Math.max(1, Math.floor(body.pageFrom))
+          : 1;
+      requestedLastPage =
+        typeof body?.pageTo === "number" && Number.isFinite(body.pageTo)
+          ? Math.max(firstPage, Math.floor(body.pageTo))
+          : firstPage + maxPages - 1;
+    }
+    if (!pdfBuffer || !pdfBuffer.length) {
       deps.badRequest(res, "Некорректный PDF payload.");
       return true;
     }
@@ -916,22 +997,6 @@ const handleWorkbookSnapshotAndPdfRoute = async (
       return true;
     }
 
-    const dpi =
-      typeof body?.dpi === "number" && Number.isFinite(body.dpi)
-        ? Math.max(72, Math.min(240, Math.floor(body.dpi)))
-        : 128;
-    const maxPages =
-      typeof body?.maxPages === "number" && Number.isFinite(body.maxPages)
-        ? Math.max(1, Math.min(12, Math.floor(body.maxPages)))
-        : 8;
-    const firstPage =
-      typeof body?.pageFrom === "number" && Number.isFinite(body.pageFrom)
-        ? Math.max(1, Math.floor(body.pageFrom))
-        : 1;
-    const requestedLastPage =
-      typeof body?.pageTo === "number" && Number.isFinite(body.pageTo)
-        ? Math.max(firstPage, Math.floor(body.pageTo))
-        : firstPage + maxPages - 1;
     const lastPage = Math.min(firstPage + maxPages - 1, requestedLastPage);
 
     try {
@@ -944,7 +1009,7 @@ const handleWorkbookSnapshotAndPdfRoute = async (
       });
       deps.json(res, 200, {
         renderer: "poppler",
-        fileName: typeof body?.fileName === "string" ? body.fileName : "document.pdf",
+        fileName,
         pageFrom: firstPage,
         pageTo: lastPage,
         pages,
@@ -953,7 +1018,7 @@ const handleWorkbookSnapshotAndPdfRoute = async (
     } catch {
       deps.json(res, 503, {
         renderer: "unavailable",
-        fileName: typeof body?.fileName === "string" ? body.fileName : "document.pdf",
+        fileName,
         pages: [],
         error:
           "PDF render backend недоступен. Установите poppler (pdftoppm) или используйте image-файл.",
@@ -963,12 +1028,26 @@ const handleWorkbookSnapshotAndPdfRoute = async (
   }
 
   if (pathname === "/api/workbook/pdf/inspect" && method === "POST") {
-    const body = (await deps.readBody(req)) as {
-      fileName?: string;
-      dataUrl?: string;
-    } | null;
-    const pdfBuffer = deps.decodeWorkbookPdfDataUrl(body?.dataUrl);
-    if (!pdfBuffer) {
+    let fileName = "document.pdf";
+    let pdfBuffer: Buffer | null = null;
+    if (isPdfBinaryRequest(req)) {
+      const binaryBody = (await deps.readRawBody(req)) as Buffer;
+      pdfBuffer = Buffer.isBuffer(binaryBody) ? binaryBody : Buffer.from(binaryBody ?? []);
+      const queryFileName = searchParams.get("fileName");
+      if (queryFileName && queryFileName.trim().length > 0) {
+        fileName = queryFileName;
+      }
+    } else {
+      const body = (await deps.readBody(req)) as {
+        fileName?: string;
+        dataUrl?: string;
+      } | null;
+      pdfBuffer = deps.decodeWorkbookPdfDataUrl(body?.dataUrl);
+      if (typeof body?.fileName === "string") {
+        fileName = body.fileName;
+      }
+    }
+    if (!pdfBuffer || !pdfBuffer.length) {
       deps.badRequest(res, "Некорректный PDF payload.");
       return true;
     }
@@ -983,13 +1062,13 @@ const handleWorkbookSnapshotAndPdfRoute = async (
         pdfBuffer,
       });
       deps.json(res, 200, {
-        fileName: typeof body?.fileName === "string" ? body.fileName : "document.pdf",
+        fileName,
         pageCount: inspected.pageCount,
       });
       return true;
     } catch {
       deps.json(res, 503, {
-        fileName: typeof body?.fileName === "string" ? body.fileName : "document.pdf",
+        fileName,
         error:
           "PDF inspect backend недоступен. Установите poppler (pdfinfo) или используйте другой документ.",
       });

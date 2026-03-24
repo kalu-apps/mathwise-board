@@ -51,6 +51,7 @@ import {
 } from "./core/workbookPdfService";
 import {
   getWorkbookAssetStorageDiagnostics,
+  persistWorkbookAssetFromBuffer,
   persistWorkbookAssetFromDataUrl,
   readWorkbookAssetBuffer,
   readWorkbookAssetById,
@@ -67,6 +68,7 @@ import {
 import { getWorkbookPersistenceReadiness } from "./core/runtimeReadiness";
 import {
   INVALID_JSON_BODY_ERROR,
+  readRawBody as readRawBodyInternal,
   readJsonBody,
   REQUEST_BODY_TOO_LARGE_ERROR,
 } from "./core/httpBody";
@@ -750,6 +752,24 @@ const readBody = async (req: IncomingMessage): Promise<unknown> => {
     return parsedBody ?? null;
   }
   return readJsonBody(req, {
+    maxBytes: WORKBOOK_REQUEST_BODY_MAX_BYTES,
+  });
+};
+
+const readRawBody = async (req: IncomingMessage): Promise<Buffer> => {
+  const requestWithParsedBody = req as IncomingMessage & { body?: unknown };
+  if (Object.prototype.hasOwnProperty.call(requestWithParsedBody, "body")) {
+    const parsedBody = requestWithParsedBody.body;
+    if (Buffer.isBuffer(parsedBody)) {
+      return parsedBody;
+    }
+    if (typeof parsedBody === "string") {
+      return Buffer.from(parsedBody, "utf-8");
+    }
+    if (parsedBody == null) return Buffer.alloc(0);
+    return Buffer.from(String(parsedBody), "utf-8");
+  }
+  return readRawBodyInternal(req, {
     maxBytes: WORKBOOK_REQUEST_BODY_MAX_BYTES,
   });
 };
@@ -2476,6 +2496,7 @@ export const handleWorkbookApiRequestByDomains = async (
             applyStudentControls,
             enforceVolatileRateLimit,
             readBody,
+            readRawBody,
             badRequest,
             forbidden,
             notFound,
@@ -2515,6 +2536,7 @@ export const handleWorkbookApiRequestByDomains = async (
             decodeWorkbookPdfDataUrl,
             inspectWorkbookPdfViaPoppler,
             renderWorkbookPdfPagesViaPoppler,
+            persistWorkbookAssetFromBuffer,
             persistWorkbookAssetFromDataUrl,
             readWorkbookAssetById,
             readWorkbookAssetBuffer,

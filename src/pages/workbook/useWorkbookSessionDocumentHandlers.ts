@@ -1,5 +1,9 @@
 import { useCallback, type ChangeEvent, type MutableRefObject } from "react";
-import { renderWorkbookPdfPages, uploadWorkbookAsset } from "@/features/workbook/model/api";
+import {
+  renderWorkbookPdfPages,
+  uploadWorkbookAsset,
+  uploadWorkbookAssetFile,
+} from "@/features/workbook/model/api";
 import { buildWorkbookBoardObjectIndex } from "@/features/workbook/model/boardObjectStore";
 import {
   buildWorkbookDocumentAsset,
@@ -13,7 +17,6 @@ import {
   formatFileSizeMb,
   isImageUploadFile,
   isPdfUploadFile,
-  normalizePdfDataUrl,
   optimizeImageDataUrl,
   readFileAsDataUrl,
   WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
@@ -242,8 +245,9 @@ export const useWorkbookSessionDocumentHandlers = ({
             )} превышает лимит ${formatFileSizeMb(WORKBOOK_IMAGE_IMPORT_MAX_BYTES)}.`
           );
         }
-        const sourceDataUrl = preparedDataUrl || (await readFileAsDataUrl(file));
-        const pdfDataUrl = isPdf ? normalizePdfDataUrl(sourceDataUrl) : sourceDataUrl;
+        const sourceDataUrl = isImage
+          ? preparedDataUrl || (await readFileAsDataUrl(file))
+          : "";
         const documentAssetDataUrl = isImage
           ? preparedDataUrl ||
             (await optimizeImageDataUrl(sourceDataUrl, {
@@ -251,7 +255,7 @@ export const useWorkbookSessionDocumentHandlers = ({
               quality: 0.82,
               maxChars: WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS,
             }))
-          : pdfDataUrl;
+          : "";
         if (isPdf) {
           const totalPages =
             typeof pdfPageCount === "number" && Number.isFinite(pdfPageCount)
@@ -274,7 +278,7 @@ export const useWorkbookSessionDocumentHandlers = ({
           reportProgress(45);
           const rendered = await renderWorkbookPdfPages({
             fileName: file.name,
-            dataUrl: documentAssetDataUrl,
+            file,
             dpi: 128,
             maxPages: pageCount,
             pageFrom: safeFrom,
@@ -292,12 +296,19 @@ export const useWorkbookSessionDocumentHandlers = ({
         }
         onStage?.("uploading");
         reportProgress(56);
-        const uploadedDocumentAsset = await uploadWorkbookAsset({
-          sessionId,
-          fileName: file.name,
-          dataUrl: documentAssetDataUrl,
-          mimeType: file.type || (isPdf ? "application/pdf" : isImage ? "image/jpeg" : undefined),
-        });
+        const uploadedDocumentAsset = isPdf
+          ? await uploadWorkbookAssetFile({
+              sessionId,
+              fileName: file.name,
+              file,
+              mimeType: file.type || "application/pdf",
+            })
+          : await uploadWorkbookAsset({
+              sessionId,
+              fileName: file.name,
+              dataUrl: documentAssetDataUrl,
+              mimeType: file.type || (isImage ? "image/jpeg" : undefined),
+            });
         let syncedRenderedPages = renderedPages;
         if (Array.isArray(renderedPages) && renderedPages.length > 0) {
           const uploadedRenderedPages: NonNullable<WorkbookDocumentAssetLike["renderedPages"]> = [];
@@ -451,6 +462,11 @@ export const useWorkbookSessionDocumentHandlers = ({
               `Не удалось добавить PDF: серверный лимит обработки ${formatFileSizeMb(
                 WORKBOOK_PDF_IMPORT_MAX_BYTES
               )}. Уменьшите размер файла или разделите документ.`
+            );
+          }
+          if (error.message === "request_body_too_large") {
+            return failImport(
+              "Не удалось добавить PDF: превышен транспортный лимит запроса. Загрузите меньший файл или повторите попытку позже."
             );
           }
           if (error.message === "workbook_asset_too_large") {
