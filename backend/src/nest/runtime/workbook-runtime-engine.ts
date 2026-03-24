@@ -775,7 +775,14 @@ const readRawBody = async (req: IncomingMessage): Promise<Buffer> => {
     if (typeof parsedBody === "string") {
       return Buffer.from(parsedBody, "utf-8");
     }
-    if (parsedBody == null) return Buffer.alloc(0);
+    // For binary routes (for example application/pdf), Express may expose
+    // `req.body` as `undefined` while the raw stream is still unread.
+    // In that case we must read the stream instead of returning empty payload.
+    if (parsedBody == null) {
+      return readRawBodyInternal(req, {
+        maxBytes: WORKBOOK_REQUEST_BODY_MAX_BYTES,
+      });
+    }
     return Buffer.from(String(parsedBody), "utf-8");
   }
   return readRawBodyInternal(req, {
@@ -806,7 +813,13 @@ const readRawBodyWithLimit = async (
       }
       return buffer;
     }
-    if (parsedBody == null) return Buffer.alloc(0);
+    // Same as readRawBody(): do not collapse unknown binary payloads to empty
+    // body when middleware left req.body undefined.
+    if (parsedBody == null) {
+      return readRawBodyInternal(req, {
+        maxBytes: normalizedMaxBytes,
+      });
+    }
     const buffer = Buffer.from(String(parsedBody), "utf-8");
     if (buffer.length > normalizedMaxBytes) {
       throw new Error(REQUEST_BODY_TOO_LARGE_ERROR);
