@@ -255,7 +255,7 @@ const normalizeForeignObjectTextForPreview = (svg: SVGSVGElement) => {
     textNode.setAttribute("x", String(textX));
     textNode.setAttribute("y", String(baselineY));
     textNode.setAttribute("text-anchor", textAnchor);
-    textNode.setAttribute("fill", sourceNode.style.color || "#172039");
+    textNode.setAttribute("fill", sourceNode.style.color || "#1f252b");
     textNode.setAttribute("font-size", String(fontSize));
     textNode.setAttribute(
       "font-family",

@@ -159,7 +159,7 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                     value={
                       sharedBoardSettings.gridColor.startsWith("#")
                         ? sharedBoardSettings.gridColor
-                        : "#8893be"
+                        : "#6d88ad"
                     }
                     onChange={(event) =>
                       onSharedBoardSettingsChange({

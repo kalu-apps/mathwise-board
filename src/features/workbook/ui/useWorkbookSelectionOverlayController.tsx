@@ -116,7 +116,7 @@ export const useWorkbookSelectionOverlayController = (
             cx={marker.x}
             cy={marker.y}
             r={2.8}
-            fill="#ff8e3c"
+            fill="#c4872f"
             stroke="#ffffff"
             strokeWidth={1}
           />
@@ -124,7 +124,7 @@ export const useWorkbookSelectionOverlayController = (
             <text
               x={markerPlacement.x}
               y={markerPlacement.y}
-              fill="#ff8e3c"
+              fill="#c4872f"
               fontSize={8.5}
               fontWeight={700}
               textAnchor={markerPlacement.textAnchor}

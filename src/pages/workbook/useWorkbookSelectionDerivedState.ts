@@ -131,7 +131,7 @@ export const useWorkbookSelectionDerivedState = ({
       normalizeShapeAngleMarks(
         selectedShape2dObject,
         selectedShape2dLabels.length,
-        selectedShape2dObject?.color || "#4f63ff"
+        selectedShape2dObject?.color || "#2f4f7f"
       ),
     [selectedShape2dLabels.length, selectedShape2dObject]
   );
@@ -171,7 +171,7 @@ export const useWorkbookSelectionDerivedState = ({
     const raw = Array.isArray(selectedShape2dObject.meta?.vertexColors)
       ? selectedShape2dObject.meta.vertexColors
       : [];
-    const fallback = selectedShape2dObject.color || "#4f63ff";
+    const fallback = selectedShape2dObject.color || "#2f4f7f";
     return selectedShape2dLabels.map((_, index) =>
       typeof raw[index] === "string" && raw[index] ? raw[index] : fallback
     );
@@ -187,7 +187,7 @@ export const useWorkbookSelectionDerivedState = ({
     const raw = Array.isArray(selectedShape2dObject.meta?.segmentColors)
       ? selectedShape2dObject.meta.segmentColors
       : [];
-    const fallback = selectedShape2dObject.color || "#4f63ff";
+    const fallback = selectedShape2dObject.color || "#2f4f7f";
     return selectedShape2dSegments.map((_, index) =>
       typeof raw[index] === "string" && raw[index] ? raw[index] : fallback
     );
@@ -243,7 +243,7 @@ export const useWorkbookSelectionDerivedState = ({
   );
 
   const selectedLineColor = useMemo(
-    () => selectedLineObject?.color || "#4f63ff",
+    () => selectedLineObject?.color || "#2f4f7f",
     [selectedLineObject]
   );
 
@@ -258,7 +258,7 @@ export const useWorkbookSelectionDerivedState = ({
   );
 
   const selectedDividerColor = useMemo(
-    () => selectedDividerObject?.color || "#4f63ff",
+    () => selectedDividerObject?.color || "#2f4f7f",
     [selectedDividerObject]
   );
 
@@ -293,7 +293,7 @@ export const useWorkbookSelectionDerivedState = ({
 
   const selectedFunctionGraphAxisColor = useMemo(() => {
     const raw = selectedFunctionGraphObject?.meta?.axisColor;
-    return typeof raw === "string" && raw.startsWith("#") ? raw : "#ff8e3c";
+    return typeof raw === "string" && raw.startsWith("#") ? raw : "#c4872f";
   }, [selectedFunctionGraphObject]);
 
   const selectedFunctionGraphPlaneColor = useMemo(() => {
@@ -302,11 +302,11 @@ export const useWorkbookSelectionDerivedState = ({
   }, [selectedFunctionGraphObject]);
 
   const selectedTextColor = useMemo(() => {
-    if (!selectedTextObject) return "#172039";
+    if (!selectedTextObject) return "#1f252b";
     return typeof selectedTextObject.meta?.textColor === "string" &&
       selectedTextObject.meta.textColor
       ? selectedTextObject.meta.textColor
-      : selectedTextObject.color || "#172039";
+      : selectedTextObject.color || "#1f252b";
   }, [selectedTextObject]);
 
   const selectedTextBackground = useMemo(

@@ -8,6 +8,10 @@ import {
   type WorkbookExportBounds,
 } from "@/features/workbook/model/export";
 import { normalizeWorkbookAssetContentUrl } from "@/features/workbook/model/workbookAssetUrl";
+import {
+  WORKBOOK_BOARD_BACKGROUND_COLOR,
+  WORKBOOK_BOARD_GRID_COLOR,
+} from "@/features/workbook/model/workbookVisualColors";
 import type {
   WorkbookBoardObject,
   WorkbookBoardSettings,
@@ -146,7 +150,7 @@ const normalizeForeignObjectTextForExport = (svg: SVGSVGElement) => {
     textNode.setAttribute("x", String(textX));
     textNode.setAttribute("y", String(baselineY));
     textNode.setAttribute("text-anchor", textAnchor);
-    textNode.setAttribute("fill", sourceNode.style.color || "#172039");
+    textNode.setAttribute("fill", sourceNode.style.color || "#1f252b");
     textNode.setAttribute("font-size", String(fontSize));
     textNode.setAttribute(
       "font-family",
@@ -524,11 +528,11 @@ export const useWorkbookPdfExport = ({
         if (!ctx) return null;
         ctx.save();
         ctx.scale(safeScale, safeScale);
-        ctx.fillStyle = boardSettings.backgroundColor || "#f5f7ff";
+        ctx.fillStyle = boardSettings.backgroundColor || WORKBOOK_BOARD_BACKGROUND_COLOR;
         ctx.fillRect(0, 0, width, height);
         if (boardSettings.showGrid) {
           const gridStep = Math.max(8, Math.min(96, Math.floor(boardSettings.gridSize || 22)));
-          ctx.strokeStyle = boardSettings.gridColor || "rgba(92, 129, 192, 0.32)";
+          ctx.strokeStyle = boardSettings.gridColor || WORKBOOK_BOARD_GRID_COLOR;
           ctx.lineWidth = 1;
           ctx.beginPath();
           const minGridX = bounds ? Math.floor(bounds.minX / gridStep) * gridStep : 0;

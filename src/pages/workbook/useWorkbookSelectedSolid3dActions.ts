@@ -123,7 +123,7 @@ export const useWorkbookSelectedSolid3dActions = ({
         ...state,
         faceColors: {
           ...(state.faceColors ?? {}),
-          [String(faceIndex)]: color || "#5f6aa0",
+          [String(faceIndex)]: color || "#5f6f86",
         },
       }));
     },
@@ -146,7 +146,7 @@ export const useWorkbookSelectedSolid3dActions = ({
       );
       if (!targetObject) return;
       await commitObjectUpdate(targetObject.id, {
-        fill: color || "#5f6aa0",
+        fill: color || "#5f6f86",
       });
     },
     [boardObjects, canSelect, commitObjectUpdate, selectedObjectId]
@@ -192,7 +192,7 @@ export const useWorkbookSelectedSolid3dActions = ({
         ...state,
         edgeColors: {
           ...(state.edgeColors ?? {}),
-          [edgeKey]: color || "#4f63ff",
+          [edgeKey]: color || "#2f4f7f",
         },
       }));
     },
@@ -239,7 +239,7 @@ export const useWorkbookSelectedSolid3dActions = ({
           vertexIndex: nextVertexIndex,
           label: "",
           style: "arc_single",
-          color: "#ff8e3c",
+          color: "#c4872f",
           visible: true,
         },
       ],

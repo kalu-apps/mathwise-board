@@ -10,6 +10,11 @@ import FormatColorTextRoundedIcon from "@mui/icons-material/FormatColorTextRound
 import FormatItalicRoundedIcon from "@mui/icons-material/FormatItalicRounded";
 import FormatUnderlinedRoundedIcon from "@mui/icons-material/FormatUnderlinedRounded";
 import ShowChartRoundedIcon from "@mui/icons-material/ShowChartRounded";
+import {
+  WORKBOOK_BOARD_PRIMARY_COLOR,
+  WORKBOOK_SYSTEM_COLORS,
+  WORKBOOK_TEXT_FALLBACK_COLOR,
+} from "@/features/workbook/model/workbookVisualColors";
 import { WorkbookSessionTransformPanelShape2d } from "./WorkbookSessionTransformPanel.shape2d";
 import { WorkbookSessionTransformPanelSolid3d } from "./WorkbookSessionTransformPanel.solid3d";
 import type { WorkbookSessionTransformPanelProps } from "./WorkbookSessionTransformPanel.types";
@@ -439,8 +444,8 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                       disabled={!selectedTextObject}
                       onChange={(event) =>
                         void onUpdateSelectedTextFormatting(
-                          { color: event.target.value || "#172039" },
-                          { textColor: event.target.value || "#172039" }
+                          { color: event.target.value || WORKBOOK_TEXT_FALLBACK_COLOR },
+                          { textColor: event.target.value || WORKBOOK_TEXT_FALLBACK_COLOR }
                         )
                       }
                     />
@@ -453,7 +458,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                       type="color"
                       value={
                         selectedTextBackground === "transparent"
-                          ? "#ffffff"
+                          ? WORKBOOK_SYSTEM_COLORS.white
                           : selectedTextBackground
                       }
                       disabled={!selectedTextObject}
@@ -532,7 +537,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                 disabled={!selectedDividerObject}
                 onChange={(event) =>
                   void onUpdateSelectedDividerObject({
-                    color: event.target.value || "#4f63ff",
+                    color: event.target.value || WORKBOOK_BOARD_PRIMARY_COLOR,
                   })
                 }
               />
@@ -633,7 +638,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                 disabled={!selectedLineObject}
                 onChange={(event) =>
                   void onUpdateSelectedLineObject({
-                    color: event.target.value || "#4f63ff",
+                    color: event.target.value || WORKBOOK_BOARD_PRIMARY_COLOR,
                   })
                 }
               />

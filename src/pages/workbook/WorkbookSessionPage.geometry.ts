@@ -371,7 +371,7 @@ export const DEFAULT_PEN_TOOL_SETTINGS: ToolPaintSettings = {
 };
 
 export const DEFAULT_HIGHLIGHTER_TOOL_SETTINGS: ToolPaintSettings = {
-  color: "#ffd54f",
+  color: "#c4872f",
   width: getDefaultToolWidth("highlighter"),
 };
 

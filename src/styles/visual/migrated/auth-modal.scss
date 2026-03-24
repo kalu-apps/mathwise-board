@@ -173,7 +173,7 @@
     border-radius: 14px;
     background: var(--btn-primary-bg);
     text-transform: none;
-    box-shadow: 0 12px 24px rgba(79, 70, 229, 0.25);
+    box-shadow: 0 12px 24px color-mix(in srgb, var(--brand-solid) 25%, transparent);
 
     &:hover {
       background: var(--btn-primary-bg-hover);

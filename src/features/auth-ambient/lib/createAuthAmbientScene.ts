@@ -103,12 +103,12 @@ const presentationGeometryCache = new Map<string, THREE.BufferGeometry>();
 
 const SHARED_LINE_COLORS = {
   dark: {
-    edge: "#c8daee",
-    construction: "#9fb4cb",
+    edge: "#d5dde6",
+    construction: "#8fa0b3",
   },
   light: {
-    edge: "#2f5ca3",
-    construction: "#5577b1",
+    edge: "#2f4f7f",
+    construction: "#5f6f86",
   },
 } as const;
 
@@ -1019,7 +1019,7 @@ export const createAuthAmbientScene = ({
       color: "#ffffff",
       transparent: !torusDraft,
       opacity: torusDraft ? 1 : isRound ? 0 : config.opacity,
-      emissive: "#0a0f1b",
+      emissive: "#1f252b",
       emissiveIntensity: isRound ? 0 : 0.12,
       shininess: isRound ? 0 : config.shading === "smooth" ? 92 : 56,
       flatShading: config.shading === "flat",

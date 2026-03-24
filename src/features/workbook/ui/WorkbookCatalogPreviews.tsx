@@ -36,7 +36,7 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
                 <polygon
                   key={`face-${template.id}-${index}`}
                   points={face.points.map((point) => `${mapX(point.x)},${mapY(point.y)}`).join(" ")}
-                  fill="rgba(63, 78, 145, 0.12)"
+                  fill="rgba(47, 79, 127, 0.12)"
                   stroke="none"
                 />
               ))}
@@ -47,7 +47,7 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
                   y1={mapY(segment.from.y)}
                   x2={mapX(segment.to.x)}
                   y2={mapY(segment.to.y)}
-                  stroke="#111827"
+                  stroke="#1f252b"
                   strokeWidth={2}
                   strokeDasharray={segment.hidden ? "6 5" : undefined}
                   strokeLinecap="round"
@@ -58,31 +58,31 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
         : null}
       {presetId === "cylinder" ? (
         <>
-          <path d={pathArc(60, 30, 24, 7, "front")} fill="none" stroke="#111827" strokeWidth={2} />
+          <path d={pathArc(60, 30, 24, 7, "front")} fill="none" stroke="#1f252b" strokeWidth={2} />
           <path
             d={pathArc(60, 30, 24, 7, "back")}
             fill="none"
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={2}
             strokeDasharray="6 5"
           />
-          <line x1={36} y1={30} x2={36} y2={74} stroke="#111827" strokeWidth={2} />
-          <line x1={84} y1={30} x2={84} y2={74} stroke="#111827" strokeWidth={2} />
+          <line x1={36} y1={30} x2={36} y2={74} stroke="#1f252b" strokeWidth={2} />
+          <line x1={84} y1={30} x2={84} y2={74} stroke="#1f252b" strokeWidth={2} />
           <line
             x1={60}
             y1={30}
             x2={60}
             y2={74}
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={1.5}
             strokeDasharray="6 5"
             opacity={0.7}
           />
-          <path d={pathArc(60, 74, 24, 7, "front")} fill="none" stroke="#111827" strokeWidth={2} />
+          <path d={pathArc(60, 74, 24, 7, "front")} fill="none" stroke="#1f252b" strokeWidth={2} />
           <path
             d={pathArc(60, 74, 24, 7, "back")}
             fill="none"
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={2}
             strokeDasharray="6 5"
           />
@@ -90,23 +90,23 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
       ) : null}
       {presetId === "cone" ? (
         <>
-          <line x1={60} y1={18} x2={36} y2={76} stroke="#111827" strokeWidth={2} />
-          <line x1={60} y1={18} x2={84} y2={76} stroke="#111827" strokeWidth={2} />
+          <line x1={60} y1={18} x2={36} y2={76} stroke="#1f252b" strokeWidth={2} />
+          <line x1={60} y1={18} x2={84} y2={76} stroke="#1f252b" strokeWidth={2} />
           <line
             x1={60}
             y1={18}
             x2={60}
             y2={76}
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={1.5}
             strokeDasharray="6 5"
             opacity={0.72}
           />
-          <path d={pathArc(60, 76, 24, 7, "front")} fill="none" stroke="#111827" strokeWidth={2} />
+          <path d={pathArc(60, 76, 24, 7, "front")} fill="none" stroke="#1f252b" strokeWidth={2} />
           <path
             d={pathArc(60, 76, 24, 7, "back")}
             fill="none"
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={2}
             strokeDasharray="6 5"
           />
@@ -114,31 +114,31 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
       ) : null}
       {presetId === "truncated_cone" ? (
         <>
-          <path d={pathArc(60, 28, 13, 4, "front")} fill="none" stroke="#111827" strokeWidth={2} />
+          <path d={pathArc(60, 28, 13, 4, "front")} fill="none" stroke="#1f252b" strokeWidth={2} />
           <path
             d={pathArc(60, 28, 13, 4, "back")}
             fill="none"
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={2}
             strokeDasharray="6 5"
           />
-          <line x1={47} y1={28} x2={36} y2={76} stroke="#111827" strokeWidth={2} />
-          <line x1={73} y1={28} x2={84} y2={76} stroke="#111827" strokeWidth={2} />
+          <line x1={47} y1={28} x2={36} y2={76} stroke="#1f252b" strokeWidth={2} />
+          <line x1={73} y1={28} x2={84} y2={76} stroke="#1f252b" strokeWidth={2} />
           <line
             x1={60}
             y1={28}
             x2={60}
             y2={76}
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={1.5}
             strokeDasharray="6 5"
             opacity={0.72}
           />
-          <path d={pathArc(60, 76, 24, 7, "front")} fill="none" stroke="#111827" strokeWidth={2} />
+          <path d={pathArc(60, 76, 24, 7, "front")} fill="none" stroke="#1f252b" strokeWidth={2} />
           <path
             d={pathArc(60, 76, 24, 7, "back")}
             fill="none"
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={2}
             strokeDasharray="6 5"
           />
@@ -151,28 +151,28 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             cy={50}
             rx={28}
             ry={24}
-            fill="rgba(63, 78, 145, 0.08)"
-            stroke="#111827"
+            fill="rgba(47, 79, 127, 0.08)"
+            stroke="#1f252b"
             strokeWidth={2}
           />
-          <path d={pathArc(60, 50, 28, 7, "front")} fill="none" stroke="#111827" strokeWidth={1.8} />
+          <path d={pathArc(60, 50, 28, 7, "front")} fill="none" stroke="#1f252b" strokeWidth={1.8} />
           <path
             d={pathArc(60, 50, 28, 7, "back")}
             fill="none"
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={1.8}
             strokeDasharray="6 5"
           />
           <path
             d="M 60 26 A 9 24 0 0 0 60 74"
             fill="none"
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={1.6}
           />
           <path
             d="M 60 26 A 9 24 0 0 1 60 74"
             fill="none"
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={1.4}
             strokeDasharray="6 5"
             opacity={0.8}
@@ -183,15 +183,15 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
         <>
           <path
             d="M 32 58 A 28 28 0 0 1 88 58 L 88 58 L 32 58 Z"
-            fill="rgba(63, 78, 145, 0.08)"
-            stroke="#111827"
+            fill="rgba(47, 79, 127, 0.08)"
+            stroke="#1f252b"
             strokeWidth={2}
           />
-          <path d={pathArc(60, 58, 28, 7, "front")} fill="none" stroke="#111827" strokeWidth={2} />
+          <path d={pathArc(60, 58, 28, 7, "front")} fill="none" stroke="#1f252b" strokeWidth={2} />
           <path
             d={pathArc(60, 58, 28, 7, "back")}
             fill="none"
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={2}
             strokeDasharray="6 5"
           />
@@ -200,7 +200,7 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             y1={30}
             x2={60}
             y2={58}
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={1.4}
             strokeDasharray="6 5"
             opacity={0.72}
@@ -214,23 +214,23 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             cy={50}
             rx={30}
             ry={18}
-            fill="rgba(63, 78, 145, 0.06)"
-            stroke="#111827"
+            fill="rgba(47, 79, 127, 0.06)"
+            stroke="#1f252b"
             strokeWidth={2}
           />
-          <path d={pathArc(60, 50, 30, 18, "front")} fill="none" stroke="#111827" strokeWidth={2} />
+          <path d={pathArc(60, 50, 30, 18, "front")} fill="none" stroke="#1f252b" strokeWidth={2} />
           <path
             d={pathArc(60, 50, 30, 8, "back")}
             fill="none"
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={2}
             strokeDasharray="6 5"
           />
-          <path d={pathArc(60, 50, 14, 8, "front")} fill="none" stroke="#111827" strokeWidth={1.8} />
+          <path d={pathArc(60, 50, 14, 8, "front")} fill="none" stroke="#1f252b" strokeWidth={1.8} />
           <path
             d={pathArc(60, 50, 14, 8, "back")}
             fill="none"
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={1.8}
             strokeDasharray="6 5"
           />
@@ -239,7 +239,7 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             y1={50}
             x2={90}
             y2={50}
-            stroke="#111827"
+            stroke="#1f252b"
             strokeWidth={1.4}
             strokeDasharray="6 5"
             opacity={0.72}
@@ -289,8 +289,8 @@ export const ShapeCatalogPreview = ({
           height={52}
           rx={8}
           ry={8}
-          fill="rgba(79, 99, 255, 0.08)"
-          stroke="#4f63ff"
+          fill="rgba(47, 79, 127, 0.08)"
+          stroke="#2f4f7f"
           strokeWidth={5}
         />
       </svg>
@@ -304,8 +304,8 @@ export const ShapeCatalogPreview = ({
           cy={50}
           rx={33}
           ry={25}
-          fill="rgba(79, 99, 255, 0.08)"
-          stroke="#4f63ff"
+          fill="rgba(47, 79, 127, 0.08)"
+          stroke="#2f4f7f"
           strokeWidth={5}
         />
       </svg>
@@ -317,13 +317,13 @@ export const ShapeCatalogPreview = ({
         <polyline
           points="14,70 30,38 47,62 62,28 83,54"
           fill="none"
-          stroke="#4f63ff"
+          stroke="#2f4f7f"
           strokeWidth={5}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-        <circle cx={14} cy={70} r={3.5} fill="#4f63ff" />
-        <circle cx={83} cy={54} r={3.5} fill="#4f63ff" />
+        <circle cx={14} cy={70} r={3.5} fill="#2f4f7f" />
+        <circle cx={83} cy={54} r={3.5} fill="#2f4f7f" />
       </svg>
     );
   }
@@ -331,8 +331,8 @@ export const ShapeCatalogPreview = ({
     <svg viewBox="0 0 100 100" role="img" aria-hidden="true">
       <polygon
         points={previewPolygonPoints ?? ""}
-        fill="rgba(79, 99, 255, 0.08)"
-        stroke="#4f63ff"
+        fill="rgba(47, 79, 127, 0.08)"
+        stroke="#2f4f7f"
         strokeWidth={5}
         strokeLinejoin="round"
       />

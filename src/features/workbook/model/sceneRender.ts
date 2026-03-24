@@ -6,6 +6,10 @@ import {
   type GraphFunctionDraft,
 } from "./functionGraph";
 import {
+  WORKBOOK_GRAPH_AXIS_COLOR,
+  WORKBOOK_GRAPH_PLANE_COLOR,
+} from "./workbookVisualColors";
+import {
   resolveObjectEraserMaskPathsForRender,
   type ObjectEraserCut,
   type ObjectEraserPreviewPath,
@@ -493,14 +497,14 @@ export const prepareFunctionGraphRenderState = (params: {
   const axisColor =
     typeof axisColorRaw === "string" && axisColorRaw.startsWith("#")
       ? axisColorRaw
-      : "#ff8e3c";
+      : WORKBOOK_GRAPH_AXIS_COLOR;
   const planeColorRaw = object.meta?.planeColor;
   const planeColor =
     typeof planeColorRaw === "string"
       ? planeColorRaw === "transparent" || planeColorRaw.startsWith("#")
         ? planeColorRaw
-        : "#8ea7ff"
-      : "#8ea7ff";
+        : WORKBOOK_GRAPH_PLANE_COLOR
+      : WORKBOOK_GRAPH_PLANE_COLOR;
   const autoStep = getAutoGraphGridStep({
     width: normalized.width,
     height: normalized.height,

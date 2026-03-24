@@ -5,6 +5,12 @@ import {
   type GraphFunctionDraft,
 } from "@/features/workbook/model/functionGraph";
 import {
+  WORKBOOK_BOARD_ANNOTATION_COLOR,
+  WORKBOOK_BOARD_BACKGROUND_COLOR,
+  WORKBOOK_BOARD_GRID_COLOR,
+  WORKBOOK_BOARD_PRIMARY_COLOR,
+} from "@/features/workbook/model/workbookVisualColors";
+import {
   clampWorkbookObjectToPageFrame,
   resolveWorkbookPageFrameBounds,
   WORKBOOK_PAGE_FRAME_WIDTH,
@@ -152,8 +158,8 @@ export const isWorkbookTabLockStale = (record: WorkbookTabLockRecord | null, now
   !record || nowTs - record.updatedAt > TAB_LOCK_TTL_MS;
 
 export const defaultColorByLayer: Record<WorkbookLayer, string> = {
-  board: "#4f63ff",
-  annotations: "#ff8e3c",
+  board: WORKBOOK_BOARD_PRIMARY_COLOR,
+  annotations: WORKBOOK_BOARD_ANNOTATION_COLOR,
 };
 
 export const defaultWidthByTool: Partial<Record<WorkbookTool, number>> = {
@@ -195,8 +201,8 @@ export const DEFAULT_BOARD_SETTINGS: WorkbookBoardSettings = {
   title: "Рабочая тетрадь",
   showGrid: true,
   gridSize: 22,
-  gridColor: "rgba(92, 129, 192, 0.32)",
-  backgroundColor: "#ffffff",
+  gridColor: WORKBOOK_BOARD_GRID_COLOR,
+  backgroundColor: WORKBOOK_BOARD_BACKGROUND_COLOR,
   snapToGrid: false,
   showPageNumbers: false,
   currentPage: 1,

@@ -13,6 +13,10 @@ import {
   DEFAULT_BOARD_SETTINGS,
   DEFAULT_LIBRARY,
 } from "@/pages/workbook/WorkbookSessionPage.core";
+import {
+  WORKBOOK_BOARD_HIGHLIGHTER_COLOR,
+  WORKBOOK_BOARD_PRIMARY_COLOR,
+} from "@/features/workbook/model/workbookVisualColors";
 
 const COMPACT_VIEWPORT_MAX_WIDTH = 760;
 const DOCKED_CONTEXTBAR_MAX_WIDTH = 1024;
@@ -51,15 +55,15 @@ export const initialRuntimeSlice = (): WorkbookSessionRuntimeSlice => ({
 export const initialToolingSlice = (): WorkbookSessionToolingSlice => ({
   tool: "select",
   penToolSettings: {
-    color: "#4f63ff",
+    color: WORKBOOK_BOARD_PRIMARY_COLOR,
     width: 3,
   },
   highlighterToolSettings: {
-    color: "#ffd54f",
+    color: WORKBOOK_BOARD_HIGHLIGHTER_COLOR,
     width: 12,
   },
   eraserRadius: 14,
-  strokeColor: "#4f63ff",
+  strokeColor: WORKBOOK_BOARD_PRIMARY_COLOR,
   strokeWidth: 3,
   polygonSides: 5,
   polygonMode: "regular",

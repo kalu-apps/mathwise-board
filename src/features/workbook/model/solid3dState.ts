@@ -212,7 +212,7 @@ const readSection = (value: unknown): Solid3dSectionState | null => {
     tiltX: clamp(toFinite(source.tiltX, 0), -180, 180),
     tiltY: clamp(toFinite(source.tiltY, 0), -180, 180),
     keepSide: isKeepSide(source.keepSide) ? source.keepSide : "both",
-    color: toString(source.color, "#ff8e3c"),
+    color: toString(source.color, "#c4872f"),
     thickness: clamp(toFinite(source.thickness, 2), 1, 8),
     fillEnabled: source.fillEnabled !== false,
     fillOpacity: clamp(toFinite(source.fillOpacity, 0.18), 0.05, 0.9),
@@ -258,7 +258,7 @@ const readAngleMark = (value: unknown): Solid3dAngleMark | null => {
       source.style === "arc_triple"
         ? source.style
         : "arc_single",
-    color: toString(source.color, "#ff8e3c"),
+    color: toString(source.color, "#c4872f"),
     visible: source.visible !== false,
   };
 };
@@ -475,7 +475,7 @@ export const writeSolid3dState = (
               mark.style === "arc_triple"
                 ? mark.style
                 : "arc_single",
-            color: toString(mark.color, "#ff8e3c"),
+            color: toString(mark.color, "#c4872f"),
             visible: Boolean(mark.visible),
           }))
           .filter(

@@ -210,7 +210,7 @@ export const useWorkbookSelectedStructureActions = ({
     }));
     const bounds = getPointsBounds(polylinePoints);
     const createdAt = new Date().toISOString();
-    const fallbackColor = "#4f63ff";
+    const fallbackColor = "#2f4f7f";
     const figureKind = classifyConnectedFigureKind(polylinePoints);
     const created: WorkbookBoardObject =
       polylinePoints.length === 2

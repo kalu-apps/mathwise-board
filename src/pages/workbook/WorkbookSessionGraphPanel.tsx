@@ -122,7 +122,7 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                 <input
                   type="color"
                   value={selectedFunctionGraphAxisColor}
-                  onChange={(event) => onAxisColorChange(event.target.value || "#ff8e3c")}
+                  onChange={(event) => onAxisColorChange(event.target.value || "#c4872f")}
                 />
               </label>
               <label>
@@ -131,7 +131,7 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                   <input
                     type="color"
                     value={selectedFunctionGraphPlaneColor}
-                    onChange={(event) => onPlaneColorChange(event.target.value || "#8ea7ff")}
+                    onChange={(event) => onPlaneColorChange(event.target.value || "#5f6f86")}
                   />
                   <Tooltip title="Убрать фон" arrow>
                     <IconButton

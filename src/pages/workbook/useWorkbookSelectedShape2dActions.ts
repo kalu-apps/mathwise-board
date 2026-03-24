@@ -94,7 +94,7 @@ export const useWorkbookSelectedShape2dActions = ({
       if (!target || !is2dFigureObject(target)) return;
       const vertices = resolve2dFigureVertices(target);
       if (!vertices.length) return;
-      const fallback = target.color || "#4f63ff";
+      const fallback = target.color || "#2f4f7f";
       const next = normalizeShapeAngleMarks(target, vertices.length, fallback);
       const currentMark = next[index];
       if (!currentMark) return;
@@ -170,7 +170,7 @@ export const useWorkbookSelectedShape2dActions = ({
       const vertices = resolve2dFigureVertices(target);
       if (!vertices.length) return;
       const raw = Array.isArray(target.meta?.vertexColors) ? target.meta.vertexColors : [];
-      const fallback = target.color || "#4f63ff";
+      const fallback = target.color || "#2f4f7f";
       const next = vertices.map((_, itemIndex) =>
         typeof raw[itemIndex] === "string" && raw[itemIndex] ? raw[itemIndex] : fallback
       );
@@ -229,7 +229,7 @@ export const useWorkbookSelectedShape2dActions = ({
       if (!target || !is2dFigureObject(target)) return;
       const vertices = resolve2dFigureVertices(target);
       if (!vertices.length) return;
-      const fallback = target.color || "#4f63ff";
+      const fallback = target.color || "#2f4f7f";
       const currentValue =
         normalizeShapeAngleMarks(target, vertices.length, fallback)[index]?.valueText ?? "";
       if (currentValue === nextValue) return;
@@ -334,7 +334,7 @@ export const useWorkbookSelectedShape2dActions = ({
       const closed = is2dFigureClosed(target);
       const segmentCount = closed ? vertices.length : Math.max(0, vertices.length - 1);
       const raw = Array.isArray(target.meta?.segmentColors) ? target.meta.segmentColors : [];
-      const fallback = target.color || "#4f63ff";
+      const fallback = target.color || "#2f4f7f";
       const next = Array.from({ length: segmentCount }, (_, itemIndex) =>
         typeof raw[itemIndex] === "string" && raw[itemIndex] ? raw[itemIndex] : fallback
       );

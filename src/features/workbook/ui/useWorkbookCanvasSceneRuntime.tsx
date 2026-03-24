@@ -56,6 +56,7 @@ import { renderWorkbookCanvasPrimaryObject } from "./WorkbookCanvasPrimaryObject
 import { renderWorkbookCanvasSecondaryObject } from "./WorkbookCanvasSecondaryObjectRenderer";
 import { renderWorkbookCanvasSolid3dObject } from "./WorkbookCanvasSolid3dRenderer";
 import { useWorkbookSelectionOverlayController } from "./useWorkbookSelectionOverlayController";
+import { WORKBOOK_BOARD_PRIMARY_COLOR } from "../model/workbookVisualColors";
 
 type Rect = {
   x: number;
@@ -221,7 +222,7 @@ export const useWorkbookCanvasSceneRuntime = ({
       });
       const { object, normalized, transform } = prepared;
       const commonProps = {
-        stroke: object.color ?? "#4f63ff",
+        stroke: object.color ?? WORKBOOK_BOARD_PRIMARY_COLOR,
         strokeWidth: object.strokeWidth ?? 2,
         fill: object.fill ?? "transparent",
         opacity: object.opacity ?? 1,

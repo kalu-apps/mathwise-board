@@ -1,4 +1,8 @@
 import type { WorkbookPoint } from "./types";
+import {
+  WORKBOOK_GRAPH_COLORS,
+  WORKBOOK_SYSTEM_COLORS,
+} from "./workbookVisualColors";
 
 export type GraphFunctionDraft = {
   id: string;
@@ -64,14 +68,7 @@ const ALLOWED_EXPRESSION_IDENTIFIERS = new Set([
   "log10",
 ]);
 
-export const GRAPH_FUNCTION_COLORS = [
-  "#4f63ff",
-  "#ff8e3c",
-  "#2a9d8f",
-  "#e63946",
-  "#7c3aed",
-  "#0f766e",
-];
+export const GRAPH_FUNCTION_COLORS = [...WORKBOOK_GRAPH_COLORS];
 
 export const FUNCTION_GRAPH_PRESETS: FunctionGraphPreset[] = [
   {
@@ -79,70 +76,70 @@ export const FUNCTION_GRAPH_PRESETS: FunctionGraphPreset[] = [
     title: "Линейная",
     expression: "y = x",
     description: "Прямая",
-    color: "#4f63ff",
+    color: WORKBOOK_GRAPH_COLORS[0],
   },
   {
     id: "parabola",
     title: "Парабола",
     expression: "y = x^2",
     description: "Квадратичная",
-    color: "#e63946",
+    color: WORKBOOK_GRAPH_COLORS[3],
   },
   {
     id: "cube",
     title: "Кубическая",
     expression: "y = x^3",
     description: "Полином 3-й степени",
-    color: "#2a9d8f",
+    color: WORKBOOK_GRAPH_COLORS[1],
   },
   {
     id: "hyperbola",
     title: "Гипербола",
     expression: "y = 1 / x",
     description: "Обратная пропорциональность",
-    color: "#ff8e3c",
+    color: WORKBOOK_SYSTEM_COLORS.warning,
   },
   {
     id: "modulus",
     title: "Модуль",
     expression: "y = abs(x)",
     description: "Функция модуля",
-    color: "#7c3aed",
+    color: WORKBOOK_GRAPH_COLORS[4],
   },
   {
     id: "root",
     title: "Корень",
     expression: "y = sqrt(x)",
     description: "Квадратный корень",
-    color: "#0f766e",
+    color: WORKBOOK_GRAPH_COLORS[5],
   },
   {
     id: "sine",
     title: "Синус",
     expression: "y = sin(x)",
     description: "Тригонометрическая",
-    color: "#2563eb",
+    color: WORKBOOK_GRAPH_COLORS[6],
   },
   {
     id: "cosine",
     title: "Косинус",
     expression: "y = cos(x)",
     description: "Тригонометрическая",
-    color: "#9333ea",
+    color: WORKBOOK_GRAPH_COLORS[4],
   },
   {
     id: "exponential",
     title: "Экспонента",
     expression: "y = e^x",
     description: "Показательная",
-    color: "#be123c",
+    color: WORKBOOK_SYSTEM_COLORS.danger,
   },
   {
     id: "logarithm",
     title: "Логарифм",
     expression: "y = ln(x)",
     description: "Натуральный логарифм",
-    color: "#0d9488",
+    color: WORKBOOK_SYSTEM_COLORS.secondary,
   },
 ];
 
@@ -487,7 +484,7 @@ export const buildFunctionGraphPlots = (
       return {
         id: item.id,
         expression: validation.expression,
-        color: item.color || "#4f63ff",
+        color: item.color || WORKBOOK_GRAPH_COLORS[0],
         width:
           typeof item.width === "number" && Number.isFinite(item.width)
             ? clamp(item.width, 1, 6)

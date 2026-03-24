@@ -17,6 +17,12 @@ import {
   resolveWorkbookStrokeSvgBlendMode,
 } from "../model/strokeRenderStyle";
 import { toPath, toSmoothPath } from "../model/stroke";
+import {
+  WORKBOOK_BOARD_PRIMARY_COLOR,
+  WORKBOOK_SELECTION_HELPER_COLOR,
+  WORKBOOK_SHAPE_FILL_SOFT,
+  WORKBOOK_SYSTEM_COLORS,
+} from "../model/workbookVisualColors";
 
 export type WorkbookCanvasDividerLine = {
   key: string;
@@ -25,6 +31,15 @@ export type WorkbookCanvasDividerLine = {
   x2: number;
   y2: number;
 };
+
+const WORKBOOK_LAYER_COLORS = {
+  autoDivider: "rgba(95, 111, 134, 0.68)",
+  eraserFill: WORKBOOK_SHAPE_FILL_SOFT,
+  primary: WORKBOOK_BOARD_PRIMARY_COLOR,
+  warning: WORKBOOK_SELECTION_HELPER_COLOR,
+  white: WORKBOOK_SYSTEM_COLORS.white,
+  black: WORKBOOK_SYSTEM_COLORS.black,
+} as const;
 
 export const WorkbookAutoDividerLayer = memo(function WorkbookAutoDividerLayer({
   lines,
@@ -40,7 +55,7 @@ export const WorkbookAutoDividerLayer = memo(function WorkbookAutoDividerLayer({
           y1={line.y1}
           x2={line.x2}
           y2={line.y2}
-          stroke="#a1a9c8"
+          stroke={WORKBOOK_LAYER_COLORS.autoDivider}
           strokeWidth={1}
           strokeDasharray="5 5"
           opacity={0.7}
@@ -245,7 +260,7 @@ export const WorkbookObjectSceneLayer = memo(function WorkbookObjectSceneLayer({
                   y={entry.maskBounds?.y ?? 0}
                   width={entry.maskBounds?.width ?? 1}
                   height={entry.maskBounds?.height ?? 1}
-                  fill="#ffffff"
+                  fill={WORKBOOK_LAYER_COLORS.white}
                 />
                 {entry.resolvedEraserCuts.map((cut, index) => (
                   <circle
@@ -253,14 +268,14 @@ export const WorkbookObjectSceneLayer = memo(function WorkbookObjectSceneLayer({
                     cx={cut.x}
                     cy={cut.y}
                     r={Math.max(1, cut.radius)}
-                    fill="#000000"
+                    fill={WORKBOOK_LAYER_COLORS.black}
                   />
                 ))}
                 {entry.maskPaths.map((path, index) => (
                   <path
                     key={`${entry.id}-erase-path-${index}`}
                     d={toSmoothPath(path.points)}
-                    stroke="#000000"
+                    stroke={WORKBOOK_LAYER_COLORS.black}
                     strokeWidth={Math.max(1, path.radius * 2)}
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -517,12 +532,12 @@ export const WorkbookDraftOverlayLayer = memo(function WorkbookDraftOverlayLayer
             cx={eraserCursorPoint.x}
             cy={eraserCursorPoint.y}
             r={Math.max(4, width)}
-            fill="rgba(79, 99, 255, 0.08)"
-            stroke="#4f63ff"
+            fill={WORKBOOK_LAYER_COLORS.eraserFill}
+            stroke={WORKBOOK_LAYER_COLORS.primary}
             strokeWidth={1.1}
             strokeDasharray="5 4"
           />
-          <circle cx={eraserCursorPoint.x} cy={eraserCursorPoint.y} r={1.5} fill="#4f63ff" />
+          <circle cx={eraserCursorPoint.x} cy={eraserCursorPoint.y} r={1.5} fill={WORKBOOK_LAYER_COLORS.primary} />
         </g>
       ) : null}
 
@@ -533,7 +548,7 @@ export const WorkbookDraftOverlayLayer = memo(function WorkbookDraftOverlayLayer
           width={areaSelectionDraftRect.width}
           height={areaSelectionDraftRect.height}
           fill="none"
-          stroke="#4f63ff"
+          stroke={WORKBOOK_LAYER_COLORS.primary}
           strokeWidth={1.2}
           strokeDasharray="7 5"
         />
@@ -546,7 +561,7 @@ export const WorkbookDraftOverlayLayer = memo(function WorkbookDraftOverlayLayer
           width={areaSelectionDraftRect.width}
           height={areaSelectionDraftRect.height}
           fill="none"
-          stroke="#4f63ff"
+          stroke={WORKBOOK_LAYER_COLORS.primary}
           strokeWidth={1.2}
           strokeDasharray="7 5"
         />
@@ -559,7 +574,7 @@ export const WorkbookDraftOverlayLayer = memo(function WorkbookDraftOverlayLayer
           width={areaSelectionResizeRect.width}
           height={areaSelectionResizeRect.height}
           fill="none"
-          stroke="#4f63ff"
+          stroke={WORKBOOK_LAYER_COLORS.primary}
           strokeWidth={1.2}
           strokeDasharray="7 5"
         />
@@ -600,7 +615,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
             width={areaSelection.rect.width}
             height={areaSelection.rect.height}
             fill="none"
-            stroke="#4f63ff"
+            stroke={WORKBOOK_LAYER_COLORS.primary}
             strokeWidth={1.2}
             strokeDasharray="7 5"
           />
@@ -611,8 +626,8 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                   cx={handle.x}
                   cy={handle.y}
                   r={4}
-                  fill="#4f63ff"
-                  stroke="#ffffff"
+                  fill={WORKBOOK_LAYER_COLORS.primary}
+                  stroke={WORKBOOK_LAYER_COLORS.white}
                   strokeWidth={1}
                 />
               ))
@@ -630,7 +645,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                     selectedSolidResizeHandles.map((handle) => ({ x: handle.x, y: handle.y }))
                   )} Z`}
                   fill="none"
-                  stroke="#4f63ff"
+                  stroke={WORKBOOK_LAYER_COLORS.primary}
                   strokeWidth={1}
                   strokeDasharray="4 4"
                   strokeOpacity={0.72}
@@ -642,8 +657,8 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                   cx={handle.x}
                   cy={handle.y}
                   r={3.5}
-                  fill="#4f63ff"
-                  stroke="#ffffff"
+                  fill={WORKBOOK_LAYER_COLORS.primary}
+                  stroke={WORKBOOK_LAYER_COLORS.white}
                   strokeWidth={1}
                 />
               ))}
@@ -654,7 +669,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
               y1={selectedPreviewObject.y + selectedPreviewObject.height / 2}
               x2={selectedPreviewObject.x + selectedPreviewObject.width}
               y2={selectedPreviewObject.y + selectedPreviewObject.height / 2}
-              stroke="#ff8e3c"
+              stroke={WORKBOOK_LAYER_COLORS.warning}
               strokeWidth={2}
               strokeDasharray="6 4"
             />
@@ -664,7 +679,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
               cy={selectedPreviewObject.y + selectedPreviewObject.height / 2}
               r={8}
               fill="none"
-              stroke="#ff8e3c"
+              stroke={WORKBOOK_LAYER_COLORS.warning}
               strokeWidth={1.6}
               strokeDasharray="6 4"
             />
@@ -681,7 +696,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                       y1={selectedPreviewObject.y}
                       x2={selectedLineControls?.c1.x ?? selectedPreviewObject.x}
                       y2={selectedLineControls?.c1.y ?? selectedPreviewObject.y}
-                      stroke="#5f71ff"
+                      stroke={WORKBOOK_LAYER_COLORS.primary}
                       strokeWidth={1}
                       strokeDasharray="4 3"
                     />
@@ -696,7 +711,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                         selectedLineControls?.c2.y ??
                         selectedPreviewObject.y + selectedPreviewObject.height
                       }
-                      stroke="#5f71ff"
+                      stroke={WORKBOOK_LAYER_COLORS.primary}
                       strokeWidth={1}
                       strokeDasharray="4 3"
                     />
@@ -706,7 +721,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                       width={selectedRect.width}
                       height={selectedRect.height}
                       fill="none"
-                      stroke="#ff8e3c"
+                      stroke={WORKBOOK_LAYER_COLORS.warning}
                       strokeWidth={1.5}
                       strokeDasharray="6 4"
                     />
@@ -730,8 +745,8 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                             height={6}
                             rx={1.5}
                             ry={1.5}
-                            fill="#ff8e3c"
-                            stroke="#ffffff"
+                            fill={WORKBOOK_LAYER_COLORS.warning}
+                            stroke={WORKBOOK_LAYER_COLORS.white}
                             strokeWidth={1}
                           />
                         ))}
@@ -739,8 +754,8 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                           cx={selectedLineControls?.c1.x ?? selectedPreviewObject.x}
                           cy={selectedLineControls?.c1.y ?? selectedPreviewObject.y}
                           r={3.2}
-                          fill="#5f71ff"
-                          stroke="#ffffff"
+                          fill={WORKBOOK_LAYER_COLORS.primary}
+                          stroke={WORKBOOK_LAYER_COLORS.white}
                           strokeWidth={1}
                         />
                         <circle
@@ -753,32 +768,32 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                             selectedPreviewObject.y + selectedPreviewObject.height
                           }
                           r={3.3}
-                          fill="#5f71ff"
-                          stroke="#ffffff"
+                          fill={WORKBOOK_LAYER_COLORS.primary}
+                          stroke={WORKBOOK_LAYER_COLORS.white}
                           strokeWidth={1}
                         />
                         <circle
                           cx={selectedPreviewObject.x}
                           cy={selectedPreviewObject.y}
                           r={3.5}
-                          fill={lineKind === "segment" ? "#ffffff" : "#ff8e3c"}
-                          stroke="#ff8e3c"
+                          fill={lineKind === "segment" ? WORKBOOK_LAYER_COLORS.white : WORKBOOK_LAYER_COLORS.warning}
+                          stroke={WORKBOOK_LAYER_COLORS.warning}
                           strokeWidth={1.2}
                         />
                         <circle
                           cx={selectedPreviewObject.x + selectedPreviewObject.width}
                           cy={selectedPreviewObject.y + selectedPreviewObject.height}
                           r={3.5}
-                          fill={lineKind === "segment" ? "#ffffff" : "#ff8e3c"}
-                          stroke="#ff8e3c"
+                          fill={lineKind === "segment" ? WORKBOOK_LAYER_COLORS.white : WORKBOOK_LAYER_COLORS.warning}
+                          stroke={WORKBOOK_LAYER_COLORS.warning}
                           strokeWidth={1.2}
                         />
                         <circle
                           cx={selectedRect.x + selectedRect.width / 2}
                           cy={selectedRect.y - 18}
                           r={3.5}
-                          fill="#5f71ff"
-                          stroke="#ffffff"
+                          fill={WORKBOOK_LAYER_COLORS.primary}
+                          stroke={WORKBOOK_LAYER_COLORS.white}
                           strokeWidth={1}
                         />
                       </>
@@ -803,7 +818,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                 width={selectedRect.width}
                 height={selectedRect.height}
                 fill="none"
-                stroke="#ff8e3c"
+                stroke={WORKBOOK_LAYER_COLORS.warning}
                 strokeWidth={1.5}
                 strokeDasharray="6 4"
               />
@@ -839,8 +854,8 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                       height={6}
                       rx={1.5}
                       ry={1.5}
-                      fill="#ff8e3c"
-                      stroke="#ffffff"
+                      fill={WORKBOOK_LAYER_COLORS.warning}
+                      stroke={WORKBOOK_LAYER_COLORS.white}
                       strokeWidth={1}
                     />
                   ))}
@@ -849,7 +864,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                     y1={selectedRect.y}
                     x2={selectedRect.x + selectedRect.width / 2}
                     y2={selectedRect.y - 14}
-                    stroke="#5f71ff"
+                    stroke={WORKBOOK_LAYER_COLORS.primary}
                     strokeWidth={1.2}
                     strokeDasharray="4 3"
                   />
@@ -857,8 +872,8 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                     cx={selectedRect.x + selectedRect.width / 2}
                     cy={selectedRect.y - 18}
                     r={3.5}
-                    fill="#5f71ff"
-                    stroke="#ffffff"
+                    fill={WORKBOOK_LAYER_COLORS.primary}
+                    stroke={WORKBOOK_LAYER_COLORS.white}
                     strokeWidth={1}
                   />
                 </>

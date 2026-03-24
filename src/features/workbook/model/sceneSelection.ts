@@ -144,7 +144,7 @@ export const buildAreaSelectionProxyObject = (params: {
   y: params.rect.y,
   width: params.rect.width,
   height: params.rect.height,
-  color: "#4f63ff",
+  color: "#2f4f7f",
   fill: "transparent",
   strokeWidth: 1,
   opacity: 1,

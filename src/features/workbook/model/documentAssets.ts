@@ -4,6 +4,7 @@ import type {
   WorkbookPoint,
 } from "./types";
 import { WORKBOOK_IMAGE_ASSET_META_KEY } from "./scene";
+import { WORKBOOK_TEXT_FALLBACK_COLOR } from "./workbookVisualColors";
 
 type WorkbookDocumentRenderedPage =
   NonNullable<WorkbookDocumentAsset["renderedPages"]>[number];
@@ -87,7 +88,7 @@ export const buildWorkbookDocumentBoardObject = (params: {
     y: params.insertPosition.y,
     width: isVisualImage ? 380 : 320,
     height: isVisualImage ? 260 : 120,
-    color: "#16213e",
+    color: WORKBOOK_TEXT_FALLBACK_COLOR,
     fill: "transparent",
     strokeWidth: 2,
     opacity: 1,
@@ -125,7 +126,7 @@ export const buildWorkbookSnapshotBoardObject = (params: {
     y: params.insertPosition.y,
     width: 320,
     height: 220,
-    color: "#16213e",
+    color: WORKBOOK_TEXT_FALLBACK_COLOR,
     fill: "transparent",
     strokeWidth: 2,
     opacity: 1,

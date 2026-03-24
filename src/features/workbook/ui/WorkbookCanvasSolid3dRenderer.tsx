@@ -59,7 +59,7 @@ export const renderWorkbookCanvasSolid3dObject = ({
       typeof object.meta?.presetId === "string" ? object.meta.presetId : "cube";
     const presetId = resolveSolid3dPresetId(presetIdRaw);
     const isRoundPreset = isRoundSolidPreset(presetId);
-    const color = object.color ?? "#4f63ff";
+    const color = object.color ?? "#2f4f7f";
     const strokeWidth = object.strokeWidth ?? 2;
     const solidState = readSolid3dState(object.meta);
     const hiddenFaceSet = new Set(solidState.hiddenFaceIds);
@@ -547,7 +547,7 @@ export const renderWorkbookCanvasSolid3dObject = ({
         const label = typeof mark.label === "string" ? mark.label.trim() : "";
         return {
           id: mark.id,
-          color: mark.color || "#ff8e3c",
+          color: mark.color || "#c4872f",
           center,
           dirA,
           dirB,
@@ -1230,7 +1230,7 @@ export const renderWorkbookCanvasSolid3dObject = ({
                   textAnchor={placement?.textAnchor ?? "start"}
                   dominantBaseline="central"
                   paintOrder="stroke"
-                  stroke="rgba(245, 247, 255, 0.94)"
+                  stroke="rgba(248, 251, 255, 0.92)"
                   strokeWidth={2}
                   strokeLinejoin="round"
                 >
@@ -1260,7 +1260,7 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 textAnchor={marker.placement.textAnchor}
                 dominantBaseline="central"
                 paintOrder="stroke"
-                stroke="rgba(245, 247, 255, 0.94)"
+                stroke="rgba(248, 251, 255, 0.92)"
                 strokeWidth={2}
                 strokeLinejoin="round"
               >

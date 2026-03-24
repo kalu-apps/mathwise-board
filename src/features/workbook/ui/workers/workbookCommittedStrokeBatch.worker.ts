@@ -181,7 +181,7 @@ const renderPayload = (payload: RenderPayload): RenderResult => {
       color:
         typeof stroke.color === "string" && stroke.color.trim().length > 0
           ? stroke.color
-          : "#1f2937",
+          : "#1f252b",
       width: clampPositive(stroke.width, 2) * safeZoom,
       opacity: resolveWorkbookStrokeOpacity(stroke.tool),
       compositeOperation: resolveWorkbookStrokeCanvasCompositeOperation(stroke.tool),

@@ -24,6 +24,12 @@ import type {
 } from "./types";
 import { normalizeWorkbookObjectZOrder } from "./objectZOrder";
 import { normalizeWorkbookAssetContentUrl } from "./workbookAssetUrl";
+import {
+  WORKBOOK_BOARD_ANNOTATION_COLOR,
+  WORKBOOK_BOARD_BACKGROUND_COLOR,
+  WORKBOOK_BOARD_GRID_COLOR,
+  WORKBOOK_BOARD_PRIMARY_COLOR,
+} from "./workbookVisualColors";
 
 const toFiniteNumber = (value: unknown, fallback = 0) => {
   const numeric = typeof value === "number" ? value : Number(value);
@@ -124,7 +130,8 @@ const normalizeStroke = (raw: unknown): WorkbookStroke | null => {
   };
   const id = typeof source.id === "string" ? source.id : "";
   const layer = isLayer(source.layer) ? source.layer : null;
-  const color = typeof source.color === "string" ? source.color : "#5f71ff";
+  const color =
+    typeof source.color === "string" ? source.color : WORKBOOK_BOARD_PRIMARY_COLOR;
   const width = Math.max(1, Math.min(40, Math.round(toFiniteNumber(source.width, 3))));
   const tool =
     source.tool === "highlighter" || source.tool === "eraser" ? source.tool : "pen";
@@ -197,7 +204,8 @@ const normalizeBoardObject = (raw: unknown): WorkbookBoardObject | null => {
     width: toFiniteNumber(source.width, 0),
     height: toFiniteNumber(source.height, 0),
     rotation: toFiniteNumber(source.rotation, 0),
-    color: typeof source.color === "string" ? source.color : "#5468ff",
+    color:
+      typeof source.color === "string" ? source.color : WORKBOOK_BOARD_PRIMARY_COLOR,
     fill: typeof source.fill === "string" ? source.fill : "transparent",
     strokeWidth: Math.max(1, Math.min(24, toFiniteNumber(source.strokeWidth, 2))),
     opacity: Math.max(0.1, Math.min(1, toFiniteNumber(source.opacity, 1))),
@@ -340,7 +348,8 @@ const normalizeDocumentAnnotation = (
   return {
     id,
     page: Math.max(1, toSafeInt(source.page, 1)),
-    color: typeof source.color === "string" ? source.color : "#ff8e3c",
+    color:
+      typeof source.color === "string" ? source.color : WORKBOOK_BOARD_ANNOTATION_COLOR,
     width: Math.max(1, Math.min(24, toFiniteNumber(source.width, 2))),
     points,
     authorUserId,
@@ -452,8 +461,8 @@ const normalizeBoardSettings = (raw: unknown): WorkbookBoardSettings => {
       title: "Рабочая тетрадь",
       showGrid: true,
       gridSize: 22,
-      gridColor: "rgba(92, 129, 192, 0.32)",
-      backgroundColor: "#ffffff",
+      gridColor: WORKBOOK_BOARD_GRID_COLOR,
+      backgroundColor: WORKBOOK_BOARD_BACKGROUND_COLOR,
       snapToGrid: false,
       showPageNumbers: false,
       currentPage: 1,
@@ -477,8 +486,8 @@ const normalizeBoardSettings = (raw: unknown): WorkbookBoardSettings => {
         : "Рабочая тетрадь",
     showGrid: source.showGrid !== false,
     gridSize: Math.max(8, Math.min(96, toSafeInt(source.gridSize, 22))),
-    gridColor: toColor(source.gridColor, "rgba(92, 129, 192, 0.32)"),
-    backgroundColor: toColor(source.backgroundColor, "#ffffff"),
+    gridColor: toColor(source.gridColor, WORKBOOK_BOARD_GRID_COLOR),
+    backgroundColor: toColor(source.backgroundColor, WORKBOOK_BOARD_BACKGROUND_COLOR),
     snapToGrid: Boolean(source.snapToGrid),
     showPageNumbers: Boolean(source.showPageNumbers),
     currentPage: Math.max(1, toSafeInt(source.currentPage, 1)),

@@ -91,15 +91,15 @@ export const useWorkbookMathPresetCreationHandlers = ({
         height: type === "coordinate_grid" ? 240 : defaultSolidHeight,
         color:
           type === "section3d"
-            ? "#ff8e3c"
+            ? "#c4872f"
             : type === "net3d"
-              ? "#2a9d8f"
-              : "#4f63ff",
+              ? "#2f7464"
+              : "#2f4f7f",
         fill:
           type === "section3d"
-            ? "rgba(255, 142, 60, 0.2)"
+            ? "rgba(196, 135, 47, 0.22)"
             : type === "net3d"
-              ? "rgba(88, 209, 146, 0.14)"
+              ? "rgba(47, 116, 100, 0.18)"
               : "transparent",
         strokeWidth: 2,
         opacity: 1,

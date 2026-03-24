@@ -839,7 +839,7 @@ export const useWorkbookSessionDocumentHandlers = ({
             annotation: {
               id: generateId(),
               page: documentState.page,
-              color: "#ff8e3c",
+              color: "#c4872f",
               width: 3,
               points: [
                 { x: 24, y: 24 },

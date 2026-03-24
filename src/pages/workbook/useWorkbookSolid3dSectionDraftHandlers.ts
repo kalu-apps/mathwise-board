@@ -183,7 +183,7 @@ export const useWorkbookSolid3dSectionDraftHandlers = ({
       tiltX: 0,
       tiltY: 0,
       keepSide: "both",
-      color: "#ff8e3c",
+      color: "#c4872f",
       thickness: 2,
       fillEnabled: true,
       fillOpacity: 0.18,

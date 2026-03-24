@@ -28,6 +28,13 @@ import {
 } from "../model/sceneGeometry";
 import { normalizeShapeAngleMarks, resolveRenderedShapeAngleMarkStyle } from "../model/shapeAngleMarks";
 import { toPath } from "../model/stroke";
+import {
+  WORKBOOK_BOARD_PRIMARY_COLOR,
+  WORKBOOK_SELECTION_HELPER_COLOR,
+  WORKBOOK_SHAPE_FILL_SOFT,
+  WORKBOOK_SYSTEM_COLORS,
+  WORKBOOK_TEXT_FALLBACK_COLOR,
+} from "../model/workbookVisualColors";
 
 type PrimaryObjectRendererParams = {
   object: WorkbookBoardObject;
@@ -77,6 +84,17 @@ export const renderWorkbookCanvasPrimaryObject = ({
   commitInlineTextEdit,
   functionGraphRenderStateById,
 }: PrimaryObjectRendererParams): ReactNode | null => {
+    const WORKBOOK_RENDER_COLORS = {
+      primary: WORKBOOK_BOARD_PRIMARY_COLOR,
+      warning: WORKBOOK_SELECTION_HELPER_COLOR,
+      white: WORKBOOK_SYSTEM_COLORS.white,
+      text: WORKBOOK_TEXT_FALLBACK_COLOR,
+      softFill: WORKBOOK_SHAPE_FILL_SOFT,
+      softStroke: "rgba(248, 251, 255, 0.92)",
+      warningFillSoft: "rgba(255, 244, 163, 0.92)",
+      lightSurfaceFill: "rgba(238, 243, 248, 0.94)",
+      primaryFillSoft: "rgba(47, 79, 127, 0.14)",
+    } as const;
     const render2dFigureOverlay = (vertices: WorkbookPoint[]) => {
       if (vertices.length < 2) return null;
       const labels = resolve2dFigureVertexLabels(object, vertices.length);
@@ -96,7 +114,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
       const angleMarks = normalizeShapeAngleMarks(
         object,
         vertices.length,
-        object.color ?? "#4f63ff"
+        object.color ?? WORKBOOK_RENDER_COLORS.primary
       );
       const vertexColorsRaw = Array.isArray(object.meta?.vertexColors)
         ? object.meta.vertexColors
@@ -115,7 +133,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
             const segmentColor =
               typeof segmentColorsRaw[index] === "string" && segmentColorsRaw[index]
                 ? segmentColorsRaw[index]
-                : object.color ?? "#4f63ff";
+                : object.color ?? WORKBOOK_RENDER_COLORS.primary;
             return (
               <line
                 key={`${object.id}-segment-color-${index}`}
@@ -138,14 +156,14 @@ export const renderWorkbookCanvasPrimaryObject = ({
                 const vertexColor =
                   typeof vertexColorsRaw[index] === "string" && vertexColorsRaw[index]
                     ? vertexColorsRaw[index]
-                    : object.color ?? "#4f63ff";
+                    : object.color ?? WORKBOOK_RENDER_COLORS.primary;
                 return (
                   <>
               <circle
                 cx={vertex.x}
                 cy={vertex.y}
                 r={1.9}
-                fill="#ffffff"
+                fill={WORKBOOK_RENDER_COLORS.white}
                 stroke={vertexColor}
                 strokeWidth={1}
               />
@@ -159,7 +177,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
                   textAnchor={labelPlacements[index]?.textAnchor ?? "start"}
                   dominantBaseline="central"
                   paintOrder="stroke"
-                  stroke="rgba(245, 247, 255, 0.94)"
+                  stroke={WORKBOOK_RENDER_COLORS.softStroke}
                   strokeWidth={2}
                   strokeLinejoin="round"
                 >
@@ -187,7 +205,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
             const segmentColor =
               typeof segmentColorsRaw[index] === "string" && segmentColorsRaw[index]
                 ? segmentColorsRaw[index]
-                : object.color ?? "#24315f";
+                : object.color ?? WORKBOOK_RENDER_COLORS.primary;
             return (
               <text
                 key={`${object.id}-segment-note-${index}`}
@@ -220,7 +238,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
                 const angleDeg = (Math.acos(dot) * 180) / Math.PI;
                 const angleMark = angleMarks[index] ?? {
                   valueText: "",
-                  color: object.color ?? "#4f63ff",
+                  color: object.color ?? WORKBOOK_RENDER_COLORS.primary,
                   style: "auto" as const,
                 };
                 const renderedStyle = resolveRenderedShapeAngleMarkStyle(
@@ -228,7 +246,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
                   angleDeg
                 );
                 const note = angleMark.valueText.trim();
-                const angleColor = angleMark.color || object.color || "#4f63ff";
+                const angleColor = angleMark.color || object.color || WORKBOOK_RENDER_COLORS.primary;
                 const bisector = { x: unitA.x + unitB.x, y: unitA.y + unitB.y };
                 const bisectorLength = Math.hypot(bisector.x, bisector.y);
                 const labelDirection =
@@ -341,11 +359,11 @@ export const renderWorkbookCanvasPrimaryObject = ({
             <text
               x={basis.start.x + basis.normal.x * labelOffset}
               y={basis.start.y + basis.normal.y * labelOffset}
-              fill={object.color ?? "#1f2d66"}
+              fill={object.color ?? WORKBOOK_RENDER_COLORS.primary}
               fontSize={13}
               fontWeight={600}
               paintOrder="stroke"
-              stroke="rgba(245, 247, 255, 0.94)"
+              stroke={WORKBOOK_RENDER_COLORS.softStroke}
               strokeWidth={2}
               strokeLinejoin="round"
             >
@@ -356,11 +374,11 @@ export const renderWorkbookCanvasPrimaryObject = ({
             <text
               x={basis.end.x + basis.normal.x * labelOffset}
               y={basis.end.y + basis.normal.y * labelOffset}
-              fill={object.color ?? "#1f2d66"}
+              fill={object.color ?? WORKBOOK_RENDER_COLORS.primary}
               fontSize={13}
               fontWeight={600}
               paintOrder="stroke"
-              stroke="rgba(245, 247, 255, 0.94)"
+              stroke={WORKBOOK_RENDER_COLORS.softStroke}
               strokeWidth={2}
               strokeLinejoin="round"
             >
@@ -382,19 +400,19 @@ export const renderWorkbookCanvasPrimaryObject = ({
             cx={center.x}
             cy={center.y}
             r={Math.max(2.8, Math.min(7, Math.abs(object.width) * 0.33))}
-            fill={object.fill ?? "#ffffff"}
-            stroke={object.color ?? "#4f63ff"}
+            fill={object.fill ?? WORKBOOK_RENDER_COLORS.white}
+            stroke={object.color ?? WORKBOOK_RENDER_COLORS.primary}
             strokeWidth={Math.max(1, object.strokeWidth ?? 2)}
           />
           {showLabels && label ? (
             <text
               x={center.x + 6}
               y={center.y - 6}
-              fill={object.color ?? "#2a376d"}
+              fill={object.color ?? WORKBOOK_RENDER_COLORS.primary}
               fontSize={10}
               fontWeight={700}
               paintOrder="stroke"
-              stroke="rgba(245, 247, 255, 0.94)"
+              stroke={WORKBOOK_RENDER_COLORS.softStroke}
               strokeWidth={2}
               strokeLinejoin="round"
             >
@@ -419,7 +437,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
             y1={y}
             x2={object.x + object.width}
             y2={y}
-            stroke={isAuto ? "#a1a9c8" : (object.color ?? "#4f63ff")}
+            stroke={isAuto ? "rgba(95, 111, 134, 0.68)" : (object.color ?? WORKBOOK_RENDER_COLORS.primary)}
             strokeWidth={isAuto ? 1.1 : (object.strokeWidth ?? 1.6)}
             strokeDasharray={isAuto ? "5 5" : dividerLineStyle === "dashed" ? "9 6" : undefined}
             opacity={0.8}
@@ -519,7 +537,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
       const textColor =
         typeof object.meta?.textColor === "string" && object.meta.textColor
           ? object.meta.textColor
-          : object.color ?? "#172039";
+          : object.color ?? WORKBOOK_RENDER_COLORS.text;
       const fontFamily =
         typeof object.meta?.textFontFamily === "string" && object.meta.textFontFamily
           ? object.meta.textFontFamily
@@ -649,14 +667,14 @@ export const renderWorkbookCanvasPrimaryObject = ({
             height={Math.max(38, normalized.height)}
             rx={8}
             ry={8}
-            fill="rgba(230, 237, 255, 0.9)"
-            stroke={object.color ?? "#4f63ff"}
+            fill="rgba(238, 243, 248, 0.9)"
+            stroke={object.color ?? WORKBOOK_RENDER_COLORS.primary}
             strokeWidth={object.strokeWidth ?? 2}
           />
           <text
             x={normalized.x + 10}
             y={normalized.y + 24}
-            fill={object.color ?? "#22316a"}
+            fill={object.color ?? WORKBOOK_RENDER_COLORS.primary}
             fontSize={Math.max(14, object.fontSize ?? 18)}
             fontWeight={700}
           >
@@ -792,8 +810,8 @@ export const renderWorkbookCanvasPrimaryObject = ({
             height={normalized.height}
             rx={12}
             ry={12}
-            fill={object.fill ?? "rgba(79, 99, 255, 0.04)"}
-            stroke={object.color ?? "#4f63ff"}
+            fill={object.fill ?? WORKBOOK_RENDER_COLORS.softFill}
+            stroke={object.color ?? WORKBOOK_RENDER_COLORS.primary}
             strokeWidth={object.strokeWidth ?? 2}
             strokeDasharray="10 6"
           />
@@ -804,13 +822,13 @@ export const renderWorkbookCanvasPrimaryObject = ({
             height={24}
             rx={8}
             ry={8}
-            fill="rgba(79, 99, 255, 0.14)"
+            fill={WORKBOOK_RENDER_COLORS.primaryFillSoft}
             stroke="none"
           />
           <text
             x={normalized.x + 16}
             y={normalized.y + 24}
-            fill="#1c2f78"
+            fill={WORKBOOK_RENDER_COLORS.primary}
             fontSize={12}
             fontWeight={700}
           >
@@ -834,14 +852,14 @@ export const renderWorkbookCanvasPrimaryObject = ({
             height={normalized.height}
             rx={10}
             ry={10}
-            fill={object.fill ?? "rgba(255, 244, 163, 0.92)"}
-            stroke={object.color ?? "#e6af2e"}
+            fill={object.fill ?? WORKBOOK_RENDER_COLORS.warningFillSoft}
+            stroke={object.color ?? WORKBOOK_RENDER_COLORS.warning}
             strokeWidth={object.strokeWidth ?? 1.8}
           />
           <text
             x={normalized.x + 10}
             y={normalized.y + 24}
-            fill="#5f4300"
+            fill="#6d4a24"
             fontSize={13}
             fontWeight={600}
           >
@@ -865,8 +883,8 @@ export const renderWorkbookCanvasPrimaryObject = ({
             height={normalized.height}
             rx={12}
             ry={12}
-            fill={object.fill ?? "rgba(228, 241, 255, 0.95)"}
-            stroke={object.color ?? "#5f71ff"}
+            fill={object.fill ?? WORKBOOK_RENDER_COLORS.lightSurfaceFill}
+            stroke={object.color ?? WORKBOOK_RENDER_COLORS.primary}
             strokeWidth={object.strokeWidth ?? 1.8}
           />
           <path
@@ -875,14 +893,14 @@ export const renderWorkbookCanvasPrimaryObject = ({
             } ${normalized.y + normalized.height + 14} L ${normalized.x + 48} ${
               normalized.y + normalized.height
             } Z`}
-            fill={object.fill ?? "rgba(228, 241, 255, 0.95)"}
-            stroke={object.color ?? "#5f71ff"}
+            fill={object.fill ?? WORKBOOK_RENDER_COLORS.lightSurfaceFill}
+            stroke={object.color ?? WORKBOOK_RENDER_COLORS.primary}
             strokeWidth={object.strokeWidth ?? 1.4}
           />
           <text
             x={normalized.x + 10}
             y={normalized.y + 22}
-            fill="#22316a"
+            fill={WORKBOOK_RENDER_COLORS.primary}
             fontSize={13}
             fontWeight={600}
           >

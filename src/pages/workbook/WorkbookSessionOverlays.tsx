@@ -351,7 +351,7 @@ export function WorkbookSessionOverlays({
                     value={contextMenuSection.color}
                     onChange={(event) =>
                       void updateSolid3dSection(contextMenuSection.id, {
-                        color: event.target.value || "#ff8e3c",
+                        color: event.target.value || "#c4872f",
                       }, solid3dSectionContextMenu?.objectId)
                     }
                   />

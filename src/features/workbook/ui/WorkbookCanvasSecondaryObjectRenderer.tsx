@@ -1,5 +1,10 @@
 import type { ReactNode } from "react";
 import type { WorkbookBoardObject } from "../model/types";
+import {
+  WORKBOOK_GRAPH_AXIS_COLOR,
+  WORKBOOK_SELECTION_HELPER_COLOR,
+  WORKBOOK_SYSTEM_COLORS,
+} from "../model/workbookVisualColors";
 
 type SecondaryObjectRendererParams = {
   object: WorkbookBoardObject;
@@ -17,6 +22,14 @@ export const renderWorkbookCanvasSecondaryObject = ({
   normalized,
   transform,
 }: SecondaryObjectRendererParams): ReactNode | null => {
+  const secondary = WORKBOOK_SYSTEM_COLORS.secondary;
+  const tertiary = WORKBOOK_SYSTEM_COLORS.tertiary;
+  const warning = WORKBOOK_SELECTION_HELPER_COLOR;
+  const warningSoft = WORKBOOK_SYSTEM_COLORS.warningSoft;
+  const successSoft = WORKBOOK_SYSTEM_COLORS.successSoft;
+  const textPrimary = WORKBOOK_SYSTEM_COLORS.textPrimary;
+  const warningText = "#6d4a24";
+
   if (object.type === "coordinate_grid") {
     const step =
       typeof object.meta?.step === "number" && Number.isFinite(object.meta.step)
@@ -31,7 +44,7 @@ export const renderWorkbookCanvasSecondaryObject = ({
           y1={normalized.y}
           x2={x}
           y2={normalized.y + normalized.height}
-          stroke={object.color ?? "#6d78ac"}
+          stroke={object.color ?? tertiary}
           strokeWidth={0.8}
           opacity={0.45}
         />
@@ -45,7 +58,7 @@ export const renderWorkbookCanvasSecondaryObject = ({
           y1={y}
           x2={normalized.x + normalized.width}
           y2={y}
-          stroke={object.color ?? "#6d78ac"}
+          stroke={object.color ?? tertiary}
           strokeWidth={0.8}
           opacity={0.45}
         />
@@ -58,7 +71,7 @@ export const renderWorkbookCanvasSecondaryObject = ({
         y1={normalized.y + normalized.height / 2}
         x2={normalized.x + normalized.width}
         y2={normalized.y + normalized.height / 2}
-        stroke="#ff8e3c"
+        stroke={WORKBOOK_GRAPH_AXIS_COLOR}
         strokeWidth={1.2}
         opacity={0.95}
       />
@@ -70,7 +83,7 @@ export const renderWorkbookCanvasSecondaryObject = ({
         y1={normalized.y}
         x2={normalized.x + normalized.width / 2}
         y2={normalized.y + normalized.height}
-        stroke="#ff8e3c"
+        stroke={WORKBOOK_GRAPH_AXIS_COLOR}
         strokeWidth={1.2}
         opacity={0.95}
       />
@@ -91,14 +104,14 @@ export const renderWorkbookCanvasSecondaryObject = ({
           height={30}
           rx={10}
           ry={10}
-          fill="rgba(255, 248, 225, 0.95)"
-          stroke="#ffb703"
+          fill={warningSoft}
+          stroke={warning}
           strokeWidth={1.1}
         />
         <text
           x={normalized.x + padding}
           y={normalized.y + 20}
-          fill="#7a4f00"
+          fill={warningText}
           fontSize={13}
           fontWeight={700}
         >
@@ -117,8 +130,8 @@ export const renderWorkbookCanvasSecondaryObject = ({
     return (
       <path
         d={path}
-        fill={object.fill ?? "rgba(255, 142, 60, 0.2)"}
-        stroke={object.color ?? "#ff8e3c"}
+        fill={object.fill ?? warningSoft}
+        stroke={object.color ?? warning}
         strokeWidth={object.strokeWidth ?? 2}
         strokeLinejoin="round"
         transform={transform}
@@ -149,8 +162,8 @@ export const renderWorkbookCanvasSecondaryObject = ({
             y={cellRect.y}
             width={cell}
             height={cell}
-            fill={object.fill ?? "rgba(88, 209, 146, 0.14)"}
-            stroke={object.color ?? "#2a9d8f"}
+            fill={object.fill ?? successSoft}
+            stroke={object.color ?? secondary}
             strokeWidth={object.strokeWidth ?? 2}
             rx={3}
             ry={3}
@@ -160,7 +173,7 @@ export const renderWorkbookCanvasSecondaryObject = ({
           <text
             x={normalized.x + 8}
             y={normalized.y + normalized.height + 18}
-            fill="#1b6d63"
+            fill={textPrimary}
             fontSize={12}
             fontWeight={600}
           >

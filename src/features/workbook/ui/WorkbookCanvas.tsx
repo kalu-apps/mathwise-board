@@ -79,6 +79,12 @@ import {
   resolveWorkbookCanvasModeFlags,
   resolveWorkbookStrokeVisual,
 } from "../model/sceneTools";
+import {
+  WORKBOOK_BOARD_BACKGROUND_COLOR,
+  WORKBOOK_BOARD_GRID_COLOR,
+  WORKBOOK_BOARD_PRIMARY_COLOR,
+  WORKBOOK_SYSTEM_COLORS,
+} from "../model/workbookVisualColors";
 import { useAnimationFrameState } from "@/shared/lib/useAnimationFrameState";
 import { isWorkbookNewRendererEnabled } from "../model/featureFlags";
 import {
@@ -142,8 +148,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   viewportZoom = 1,
   visibilityMode = "viewport",
   showGrid = true,
-  gridColor = "rgba(92, 129, 192, 0.32)",
-  backgroundColor = "#ffffff",
+  gridColor = WORKBOOK_BOARD_GRID_COLOR,
+  backgroundColor = WORKBOOK_BOARD_BACKGROUND_COLOR,
   imageAssetUrls = {},
   incomingEraserPreviews = [],
   showPageNumbers = false,
@@ -1128,9 +1134,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
             <path d="M0,0 L0,7 L8,3.5 z" fill={color} />
           </marker>
           <radialGradient id="workbook-sphere-gradient" cx="35%" cy="30%" r="70%">
-            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.9" />
-            <stop offset="35%" stopColor="#a8b7ff" stopOpacity="0.88" />
-            <stop offset="100%" stopColor="#4f63ff" stopOpacity="0.96" />
+            <stop offset="0%" stopColor={WORKBOOK_SYSTEM_COLORS.white} stopOpacity="0.9" />
+            <stop offset="35%" stopColor={WORKBOOK_SYSTEM_COLORS.tertiary} stopOpacity="0.88" />
+            <stop offset="100%" stopColor={WORKBOOK_BOARD_PRIMARY_COLOR} stopOpacity="0.96" />
           </radialGradient>
         </defs>
 

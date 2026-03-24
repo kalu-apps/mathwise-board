@@ -6,6 +6,11 @@ import { getSolid3dMesh } from "./solid3dGeometry";
 import { DEFAULT_SOLID3D_STATE, writeSolid3dState } from "./solid3dState";
 import { getFigureVertexLabel, normalizeRect, resolvePolygonFigureKind } from "./sceneGeometry";
 import type { WorkbookBoardObject, WorkbookLayer, WorkbookPoint } from "./types";
+import {
+  WORKBOOK_GRAPH_AXIS_COLOR,
+  WORKBOOK_GRAPH_PLANE_COLOR,
+  WORKBOOK_SYSTEM_COLORS,
+} from "./workbookVisualColors";
 
 export type WorkbookShapeDraftTool =
   | "line"
@@ -85,7 +90,7 @@ export const buildWorkbookPointObject = (params: {
   width: 8,
   height: 8,
   color: params.color,
-  fill: "#ffffff",
+  fill: WORKBOOK_SYSTEM_COLORS.white,
   strokeWidth: Math.max(1, params.width),
   opacity: 1,
   authorUserId: params.authorUserId,
@@ -289,11 +294,11 @@ export const buildWorkbookShapeObject = (
     color,
     fill:
       draft.tool === "sticker"
-        ? "rgba(255, 244, 163, 0.92)"
+        ? "rgba(212, 196, 132, 0.54)"
         : draft.tool === "comment"
-          ? "rgba(226, 240, 255, 0.95)"
+          ? "rgba(238, 243, 248, 0.94)"
           : draft.tool === "frame"
-            ? "rgba(77, 105, 255, 0.05)"
+            ? "rgba(47, 79, 127, 0.07)"
             : draft.tool === "divider"
               ? "transparent"
               : "transparent",
@@ -333,8 +338,8 @@ export const buildWorkbookShapeObject = (
           : draft.tool === "function_graph"
             ? {
                 functions: graphFunctions,
-                axisColor: "#ff8e3c",
-                planeColor: "transparent",
+                axisColor: WORKBOOK_GRAPH_AXIS_COLOR,
+                planeColor: WORKBOOK_GRAPH_PLANE_COLOR,
               }
             : draft.tool === "line" || draft.tool === "arrow"
               ? {

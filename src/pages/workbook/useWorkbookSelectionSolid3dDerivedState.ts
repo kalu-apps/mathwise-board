@@ -76,7 +76,7 @@ export const useWorkbookSelectionSolid3dDerivedState = ({
     () =>
       selectedObject?.type === "solid3d" && typeof selectedObject.fill === "string" && selectedObject.fill
         ? selectedObject.fill
-        : "#5f6aa0",
+        : "#5f6f86",
     [selectedObject]
   );
 
