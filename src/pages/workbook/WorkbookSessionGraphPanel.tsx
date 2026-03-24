@@ -243,48 +243,58 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                           />
                         </div>
                         <div className="workbook-session__graph-card-actions">
-                          <button
-                            type="button"
-                            className="workbook-session__graph-inline-action"
-                            onClick={() =>
-                              onToggleGraphFunctionVisibility(item.id, item.visible === false)
-                            }
+                          <Tooltip
+                            title={item.visible !== false ? "Скрыть график" : "Показать график"}
+                            arrow
                           >
-                            {item.visible !== false ? (
-                              <VisibilityRoundedIcon fontSize="small" />
-                            ) : (
-                              <VisibilityOffRoundedIcon fontSize="small" />
-                            )}
-                            <span>{item.visible !== false ? "Скрыть" : "Показать"}</span>
-                          </button>
-                          <button
-                            type="button"
-                            className="workbook-session__graph-inline-action"
-                            onClick={() => onReflectGraphFunctionByAxis(item.id, "x")}
-                            aria-label="Зеркало относительно OX"
-                          >
-                            <SwapVertRoundedIcon fontSize="small" />
-                            <span>OX</span>
-                          </button>
-                          <button
-                            type="button"
-                            className="workbook-session__graph-inline-action"
-                            onClick={() => onReflectGraphFunctionByAxis(item.id, "y")}
-                            aria-label="Зеркало относительно OY"
-                          >
-                            <SwapHorizRoundedIcon fontSize="small" />
-                            <span>OY</span>
-                          </button>
-                          <button
-                            type="button"
-                            className="workbook-session__graph-inline-action workbook-session__graph-inline-action--danger"
-                            onClick={() => onRemoveGraphFunction(item.id)}
-                            disabled={graphTabFunctions.length <= 1}
-                            aria-label="Удалить функцию"
-                          >
-                            <DeleteOutlineRoundedIcon fontSize="small" />
-                            <span>Удалить</span>
-                          </button>
+                            <button
+                              type="button"
+                              className="workbook-session__graph-inline-action"
+                              onClick={() =>
+                                onToggleGraphFunctionVisibility(item.id, item.visible === false)
+                              }
+                              aria-label={item.visible !== false ? "Скрыть график" : "Показать график"}
+                            >
+                              {item.visible !== false ? (
+                                <VisibilityRoundedIcon fontSize="small" />
+                              ) : (
+                                <VisibilityOffRoundedIcon fontSize="small" />
+                              )}
+                            </button>
+                          </Tooltip>
+                          <Tooltip title="Отразить по оси OX" arrow>
+                            <button
+                              type="button"
+                              className="workbook-session__graph-inline-action"
+                              onClick={() => onReflectGraphFunctionByAxis(item.id, "x")}
+                              aria-label="Отразить по оси OX"
+                            >
+                              <SwapVertRoundedIcon fontSize="small" />
+                            </button>
+                          </Tooltip>
+                          <Tooltip title="Отразить по оси OY" arrow>
+                            <button
+                              type="button"
+                              className="workbook-session__graph-inline-action"
+                              onClick={() => onReflectGraphFunctionByAxis(item.id, "y")}
+                              aria-label="Отразить по оси OY"
+                            >
+                              <SwapHorizRoundedIcon fontSize="small" />
+                            </button>
+                          </Tooltip>
+                          <Tooltip title="Удалить функцию" arrow>
+                            <span>
+                              <button
+                                type="button"
+                                className="workbook-session__graph-inline-action workbook-session__graph-inline-action--danger"
+                                onClick={() => onRemoveGraphFunction(item.id)}
+                                disabled={graphTabFunctions.length <= 1}
+                                aria-label="Удалить функцию"
+                              >
+                                <DeleteOutlineRoundedIcon fontSize="small" />
+                              </button>
+                            </span>
+                          </Tooltip>
                         </div>
                       </div>
                     ))}
