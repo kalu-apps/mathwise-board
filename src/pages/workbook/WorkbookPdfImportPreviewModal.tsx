@@ -7,13 +7,15 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
-  TextField,
 } from "@mui/material";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
+import { formatFileSizeMb } from "@/features/workbook/model/media";
 
 type WorkbookPdfImportPreviewModalProps = {
   open: boolean;
   file: File | null;
+  fileSizeBytes?: number | null;
+  maxFileBytes?: number;
   pageCount: number | null;
   container?: Element | null;
   initialRange?: {
@@ -21,6 +23,7 @@ type WorkbookPdfImportPreviewModalProps = {
     to: number;
   } | null;
   maxPagesPerImport?: number;
+  blockedReason?: string | null;
   onCancel: () => void;
   onConfirm: (range: { from: number; to: number }) => void;
 };
@@ -33,16 +36,45 @@ const clampPageValue = (value: number) => {
 export function WorkbookPdfImportPreviewModal({
   open,
   file,
+  fileSizeBytes,
+  maxFileBytes,
   pageCount,
   container,
   initialRange,
   maxPagesPerImport = 12,
+  blockedReason,
   onCancel,
   onConfirm,
 }: WorkbookPdfImportPreviewModalProps) {
-  const [pageFrom, setPageFrom] = useState("1");
-  const [pageTo, setPageTo] = useState("8");
-  const [rangeError, setRangeError] = useState<string | null>(null);
+  const normalizedMaxFileBytes = useMemo(
+    () =>
+      typeof maxFileBytes === "number" && Number.isFinite(maxFileBytes) && maxFileBytes > 0
+        ? maxFileBytes
+        : null,
+    [maxFileBytes]
+  );
+  const normalizedFileSize = useMemo(
+    () =>
+      typeof fileSizeBytes === "number" && Number.isFinite(fileSizeBytes) && fileSizeBytes > 0
+        ? fileSizeBytes
+        : file?.size ?? null,
+    [file?.size, fileSizeBytes]
+  );
+  const maxAvailablePage = useMemo(
+    () => (pageCount && Number.isFinite(pageCount) ? Math.max(1, Math.trunc(pageCount)) : null),
+    [pageCount]
+  );
+  const initialFrom = useMemo(() => clampPageValue(initialRange?.from ?? 1), [initialRange?.from]);
+  const initialTo = useMemo(() => {
+    const fallbackTo = Math.max(
+      1,
+      Math.min(maxPagesPerImport, maxAvailablePage ?? Math.max(8, initialFrom))
+    );
+    const desiredTo = clampPageValue(initialRange?.to ?? fallbackTo);
+    return maxAvailablePage ? Math.min(maxAvailablePage, Math.max(initialFrom, desiredTo)) : desiredTo;
+  }, [initialFrom, initialRange?.to, maxAvailablePage, maxPagesPerImport]);
+  const [pageFrom, setPageFrom] = useState(() => String(initialFrom));
+  const [pageTo, setPageTo] = useState(() => String(initialTo));
 
   const previewUrl = useMemo(() => {
     if (!open || !file) return null;
@@ -56,56 +88,134 @@ export function WorkbookPdfImportPreviewModal({
     };
   }, [previewUrl]);
 
-  useEffect(() => {
-    if (!open) {
-      setRangeError(null);
-      return;
-    }
-    const from = clampPageValue(initialRange?.from ?? 1);
-    const maxPage = pageCount && Number.isFinite(pageCount) ? Math.max(1, Math.trunc(pageCount)) : null;
-    const defaultTo = Math.max(1, Math.min(maxPagesPerImport, maxPage ?? Math.max(8, from)));
-    const to = Math.max(from, clampPageValue(initialRange?.to ?? defaultTo));
-    setPageFrom(String(from));
-    setPageTo(String(maxPage ? Math.min(maxPage, to) : to));
-    setRangeError(null);
-  }, [initialRange?.from, initialRange?.to, maxPagesPerImport, open, pageCount]);
+  const parseSafePage = useCallback((value: string) => {
+    if (typeof value !== "string") return NaN;
+    const sanitized = value.replace(/[^\d]/g, "");
+    if (!sanitized) return NaN;
+    return Number.parseInt(sanitized, 10);
+  }, []);
 
-  const handleConfirm = useCallback(() => {
-    const rawFrom = Number.parseInt(pageFrom, 10);
-    const rawTo = Number.parseInt(pageTo, 10);
+  const validationState = useMemo(() => {
+    if (blockedReason && blockedReason.trim().length > 0) {
+      return {
+        valid: false,
+        error: blockedReason,
+        warning: null as string | null,
+        from: null as number | null,
+        to: null as number | null,
+      };
+    }
+    if (
+      normalizedFileSize !== null &&
+      normalizedMaxFileBytes !== null &&
+      normalizedFileSize > normalizedMaxFileBytes
+    ) {
+      return {
+        valid: false,
+        error: `Не удалось добавить PDF: размер файла ${formatFileSizeMb(
+          normalizedFileSize
+        )} превышает лимит ${formatFileSizeMb(
+          normalizedMaxFileBytes
+        )}. Выбор диапазона страниц не уменьшает объём исходного файла.`,
+        warning: null as string | null,
+        from: null as number | null,
+        to: null as number | null,
+      };
+    }
+    const rawFrom = parseSafePage(pageFrom);
+    const rawTo = parseSafePage(pageTo);
     if (!Number.isFinite(rawFrom) || !Number.isFinite(rawTo)) {
-      setRangeError("Укажите корректный диапазон страниц.");
-      return;
+      return {
+        valid: false,
+        error: "Укажите корректный диапазон страниц.",
+        warning: null as string | null,
+        from: null as number | null,
+        to: null as number | null,
+      };
     }
     const from = clampPageValue(rawFrom);
     const to = clampPageValue(rawTo);
     if (to < from) {
-      setRangeError("Конечная страница не может быть меньше начальной.");
-      return;
+      return {
+        valid: false,
+        error: "Конечная страница не может быть меньше начальной.",
+        warning: null as string | null,
+        from,
+        to,
+      };
     }
-    if (pageCount && from > pageCount) {
-      setRangeError(`В документе только ${pageCount} стр.`);
-      return;
+    if (maxAvailablePage && from > maxAvailablePage) {
+      return {
+        valid: false,
+        error: `В документе только ${maxAvailablePage} стр.`,
+        warning: null as string | null,
+        from,
+        to,
+      };
     }
-    if (pageCount && to > pageCount) {
-      setRangeError(`Нельзя выбрать страницу выше ${pageCount}.`);
-      return;
+    if (maxAvailablePage && to > maxAvailablePage) {
+      return {
+        valid: false,
+        error: `Нельзя выбрать страницу выше ${maxAvailablePage}.`,
+        warning: null as string | null,
+        from,
+        to,
+      };
     }
     const selectedPages = to - from + 1;
     if (selectedPages > maxPagesPerImport) {
-      setRangeError(`За один импорт можно выбрать не более ${maxPagesPerImport} страниц.`);
+      return {
+        valid: false,
+        error: `За один импорт можно выбрать не более ${maxPagesPerImport} страниц.`,
+        warning: null as string | null,
+        from,
+        to,
+      };
+    }
+    let warning: string | null = null;
+    if (
+      normalizedFileSize !== null &&
+      normalizedMaxFileBytes !== null &&
+      normalizedFileSize > normalizedMaxFileBytes * 0.82
+    ) {
+      warning =
+        "Файл близок к лимиту размера. Если импорт не выполнится, уменьшите PDF или выберите другой документ.";
+    } else if (selectedPages >= Math.max(1, maxPagesPerImport - 1)) {
+      warning = `Выбран почти максимальный диапазон (${selectedPages} стр. из ${maxPagesPerImport} допустимых).`;
+    }
+    return {
+      valid: true,
+      error: null as string | null,
+      warning,
+      from,
+      to,
+    };
+  }, [
+    blockedReason,
+    maxAvailablePage,
+    maxPagesPerImport,
+    normalizedFileSize,
+    normalizedMaxFileBytes,
+    pageFrom,
+    pageTo,
+    parseSafePage,
+  ]);
+
+  const handleConfirm = useCallback(() => {
+    if (!validationState.valid || validationState.from === null || validationState.to === null) {
       return;
     }
-    setRangeError(null);
-    onConfirm({ from, to });
-  }, [maxPagesPerImport, onConfirm, pageCount, pageFrom, pageTo]);
+    onConfirm({ from: validationState.from, to: validationState.to });
+  }, [onConfirm, validationState]);
 
   return (
     <Dialog
       open={open}
       onClose={onCancel}
       container={container}
+      fullScreen
       fullWidth
+      maxWidth={false}
       className="workbook-session__pdf-preview-modal"
       PaperProps={{ className: "workbook-session__pdf-preview-modal-paper" }}
     >
@@ -138,37 +248,56 @@ export function WorkbookPdfImportPreviewModal({
           )}
         </div>
         <div className="workbook-session__pdf-preview-range-row">
-          <TextField
-            label="С страницы"
-            size="small"
-            type="number"
-            value={pageFrom}
-            onChange={(event) => setPageFrom(event.target.value)}
-            inputProps={{ min: 1, max: pageCount ?? undefined }}
-          />
-          <TextField
-            label="По страницу"
-            size="small"
-            type="number"
-            value={pageTo}
-            onChange={(event) => setPageTo(event.target.value)}
-            inputProps={{ min: 1, max: pageCount ?? undefined }}
-          />
+          <label className="workbook-session__pdf-preview-range-field">
+            <span>С страницы</span>
+            <input
+              className="workbook-session__pdf-preview-range-input"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={pageFrom}
+              onChange={(event) => {
+                const sanitized = event.target.value.replace(/[^\d]/g, "");
+                setPageFrom(sanitized);
+              }}
+              placeholder="1"
+              aria-label="Номер начальной страницы"
+            />
+          </label>
+          <label className="workbook-session__pdf-preview-range-field">
+            <span>По страницу</span>
+            <input
+              className="workbook-session__pdf-preview-range-input"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={pageTo}
+              onChange={(event) => {
+                const sanitized = event.target.value.replace(/[^\d]/g, "");
+                setPageTo(sanitized);
+              }}
+              placeholder="1"
+              aria-label="Номер конечной страницы"
+            />
+          </label>
         </div>
         <p className="workbook-session__pdf-preview-hint">
-          {pageCount
-            ? `Всего страниц: ${pageCount}. За один импорт допускается до ${maxPagesPerImport} страниц.`
+          {maxAvailablePage
+            ? `Всего страниц: ${maxAvailablePage}. За один импорт допускается до ${maxPagesPerImport} страниц.`
             : `За один импорт допускается до ${maxPagesPerImport} страниц.`}{" "}
           Если документ больше, загрузите следующий диапазон отдельным импортом.
         </p>
-        {rangeError ? (
+        {validationState.warning ? (
           <Alert severity="warning" className="workbook-session__pdf-preview-modal-alert">
-            {rangeError}
+            {validationState.warning}
+          </Alert>
+        ) : null}
+        {validationState.error ? (
+          <Alert severity="error" className="workbook-session__pdf-preview-modal-alert">
+            {validationState.error}
           </Alert>
         ) : null}
       </DialogContent>
       <DialogActions>
-        <Button variant="contained" onClick={handleConfirm}>
+        <Button variant="contained" onClick={handleConfirm} disabled={!validationState.valid}>
           Применить диапазон
         </Button>
       </DialogActions>

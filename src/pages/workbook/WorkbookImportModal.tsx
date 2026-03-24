@@ -30,6 +30,7 @@ import { generateId } from "@/shared/lib/id";
 import type { WorkbookPreparedDocumentImport } from "./useWorkbookSessionDocumentHandlers";
 import { WorkbookPdfImportPreviewModal } from "./WorkbookPdfImportPreviewModal";
 import { inspectWorkbookPdf } from "@/features/workbook/model/api";
+import { ApiError } from "@/shared/api/client";
 
 type ImportModalState =
   | "idle"
@@ -244,7 +245,11 @@ export function WorkbookImportModal({
           nextItems.push({
             ...baseItem,
             status: "invalid",
-            error: `Файл превышает лимит ${formatFileSizeMb(maxBytes)}.`,
+            error: isPdf
+              ? `Не удалось добавить PDF: размер файла ${formatFileSizeMb(file.size)} превышает лимит ${formatFileSizeMb(
+                  maxBytes
+                )}. Выбор отдельных страниц не поможет, так как обрабатывается исходный файл целиком.`
+              : `Файл превышает лимит ${formatFileSizeMb(maxBytes)}.`,
           });
           continue;
         }
@@ -278,12 +283,23 @@ export function WorkbookImportModal({
               },
               error: "Перед загрузкой выберите страницы PDF для импорта.",
             });
-          } catch {
+          } catch (error) {
+            let message =
+              "Не удалось подготовить PDF для импорта (не удалось определить страницы). Попробуйте другой файл.";
+            if (error instanceof ApiError && error.status === 413) {
+              message = `Не удалось добавить PDF: размер файла ${formatFileSizeMb(
+                file.size
+              )} превышает лимит ${formatFileSizeMb(
+                WORKBOOK_PDF_IMPORT_MAX_BYTES
+              )}. Выбор диапазона страниц не снизит этот лимит, так как сервер получает исходный файл целиком.`;
+            } else if (error instanceof ApiError && error.status === 503) {
+              message =
+                "Не удалось подготовить PDF для импорта: серверный рендер PDF временно недоступен.";
+            }
             nextItems.push({
               ...baseItem,
               status: "invalid",
-              error:
-                "Не удалось подготовить PDF для импорта (не удалось определить страницы). Попробуйте другой файл.",
+              error: message,
             });
           }
           continue;
@@ -381,22 +397,32 @@ export function WorkbookImportModal({
   const handleConfirmPdfPreview = useCallback(
     (range: { from: number; to: number }) => {
       if (!pdfPreviewItemId) return;
-      setItems((current) =>
-        current.map((item) =>
-          item.id === pdfPreviewItemId
-            ? {
-                ...item,
-                status: "ready",
-                error: undefined,
-                pdfPageRange: range,
-              }
-            : item
-        )
+      const hasReadyAfterConfirm = items.some(
+        (item) =>
+          (item.id !== pdfPreviewItemId && item.status === "ready") ||
+          (item.id === pdfPreviewItemId && item.status !== "invalid")
       );
+      setItems((current) => {
+        return current.map((item) => {
+          if (item.id !== pdfPreviewItemId) return item;
+          if (item.status === "invalid") {
+            return {
+              ...item,
+              pdfPageRange: range,
+            };
+          }
+          return {
+            ...item,
+            status: "ready",
+            error: undefined,
+            pdfPageRange: range,
+          };
+        });
+      });
       setPdfPreviewItemId(null);
-      setModalState("ready");
+      setModalState(hasReadyAfterConfirm ? "ready" : "files_selected");
     },
-    [pdfPreviewItemId]
+    [items, pdfPreviewItemId]
   );
 
   const restoreFullscreenAfterPicker = useCallback(() => {
@@ -485,11 +511,13 @@ export function WorkbookImportModal({
         });
         if (!imported) {
           failureCount += 1;
+          const normalizedFailureMessage =
+            typeof itemFailureMessage === "string" ? itemFailureMessage.trim() : "";
           setItemPatch(item.id, {
             status: "failed",
             error:
-              itemFailureMessage && itemFailureMessage.trim().length > 0
-                ? itemFailureMessage
+              normalizedFailureMessage.length > 0
+                ? normalizedFailureMessage
                 : "Файл не вставлен на доску из-за ошибки импорта.",
             progress: 100,
           });
@@ -760,12 +788,24 @@ export function WorkbookImportModal({
       </DialogActions>
       </Dialog>
       <WorkbookPdfImportPreviewModal
+        key={
+          open && pdfPreviewItem
+            ? `pdf-preview-${pdfPreviewItem.id}-${pdfPreviewItem.pdfPageRange?.from ?? 1}-${pdfPreviewItem.pdfPageRange?.to ?? 1}`
+            : "pdf-preview-closed"
+        }
         open={open && Boolean(pdfPreviewItem)}
         file={pdfPreviewItem?.file ?? null}
+        fileSizeBytes={pdfPreviewItem?.size ?? null}
         pageCount={pdfPreviewItem?.pdfPageCount ?? null}
+        maxFileBytes={WORKBOOK_PDF_IMPORT_MAX_BYTES}
         initialRange={pdfPreviewItem?.pdfPageRange ?? null}
         maxPagesPerImport={MAX_PDF_PAGES_PER_IMPORT}
-        container={dialogContainer}
+        blockedReason={pdfPreviewItem?.status === "invalid" ? pdfPreviewItem.error ?? null : null}
+        container={
+          typeof document !== "undefined"
+            ? document.fullscreenElement ?? document.body
+            : dialogContainer
+        }
         onCancel={handleCancelPdfPreview}
         onConfirm={handleConfirmPdfPreview}
       />
