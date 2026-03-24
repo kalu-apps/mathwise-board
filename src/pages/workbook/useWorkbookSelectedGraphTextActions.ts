@@ -1,5 +1,4 @@
 import { useCallback, type MutableRefObject } from "react";
-import { applyWorkbookBoardObjectPatchById } from "@/features/workbook/model/boardObjectStore";
 import {
   GRAPH_FUNCTION_COLORS,
   normalizeGraphScale,
@@ -19,7 +18,6 @@ type UseWorkbookSelectedGraphTextActionsParams = {
   canSelect: boolean;
   boardObjects: WorkbookBoardObject[];
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
-  boardObjectIndexByIdRef: MutableRefObject<Map<string, number>>;
   selectedLineStartLabelDraft: string;
   selectedLineEndLabelDraft: string;
   lineWidthDraft: number;
@@ -37,9 +35,6 @@ type UseWorkbookSelectedGraphTextActionsParams = {
       markDirty?: boolean;
     }
   ) => void | Promise<void>;
-  applyLocalBoardObjects: (
-    updater: (current: WorkbookBoardObject[]) => WorkbookBoardObject[]
-  ) => void;
   selectedTextDraftValueRef: MutableRefObject<string>;
   selectedTextDraftObjectIdRef: MutableRefObject<string | null>;
   selectedTextDraftDirtyRef: MutableRefObject<boolean>;
@@ -51,7 +46,6 @@ export const useWorkbookSelectedGraphTextActions = ({
   canSelect,
   boardObjects,
   boardObjectsRef,
-  boardObjectIndexByIdRef,
   selectedLineStartLabelDraft,
   selectedLineEndLabelDraft,
   lineWidthDraft,
@@ -62,7 +56,6 @@ export const useWorkbookSelectedGraphTextActions = ({
   setGraphExpressionDraft,
   setGraphDraftError,
   commitObjectUpdate,
-  applyLocalBoardObjects,
   selectedTextDraftValueRef,
   selectedTextDraftObjectIdRef,
   selectedTextDraftDirtyRef,
@@ -410,22 +403,6 @@ export const useWorkbookSelectedGraphTextActions = ({
         selectedTextDraftDirtyRef.current = false;
         return;
       }
-      applyLocalBoardObjects((current) =>
-        applyWorkbookBoardObjectPatchById({
-          objects: current,
-          objectId: selectedObjectId,
-          patch: { text: normalizedValue },
-          index: boardObjectIndexByIdRef.current,
-        }).nextObjects
-      );
-      void commitObjectUpdate(
-        selectedObjectId,
-        { text: normalizedValue },
-        {
-          trackHistory: false,
-          markDirty: false,
-        }
-      );
       selectedTextDraftCommitTimerRef.current = window.setTimeout(() => {
         void flushSelectedTextDraftCommit(normalizedValue, {
           trackHistory: false,
@@ -433,10 +410,7 @@ export const useWorkbookSelectedGraphTextActions = ({
       }, 180);
     },
     [
-      applyLocalBoardObjects,
-      boardObjectIndexByIdRef,
       boardObjectsRef,
-      commitObjectUpdate,
       flushSelectedTextDraftCommit,
       selectedObjectId,
       selectedTextDraftCommitTimerRef,
