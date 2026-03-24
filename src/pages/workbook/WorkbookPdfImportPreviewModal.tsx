@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -24,6 +25,8 @@ type WorkbookPdfImportPreviewModalProps = {
   } | null;
   maxPagesPerImport?: number;
   blockedReason?: string | null;
+  isPreparing?: boolean;
+  preparingMessage?: string;
   onCancel: () => void;
   onConfirm: (range: { from: number; to: number }) => void;
 };
@@ -43,6 +46,8 @@ export function WorkbookPdfImportPreviewModal({
   initialRange,
   maxPagesPerImport = 12,
   blockedReason,
+  isPreparing = false,
+  preparingMessage = "Подготавливаем PDF. Определяем количество страниц…",
   onCancel,
   onConfirm,
 }: WorkbookPdfImportPreviewModalProps) {
@@ -68,7 +73,7 @@ export function WorkbookPdfImportPreviewModal({
   const initialTo = useMemo(() => {
     const fallbackTo = Math.max(
       1,
-      Math.min(maxPagesPerImport, maxAvailablePage ?? Math.max(8, initialFrom))
+      Math.min(maxPagesPerImport, maxAvailablePage ?? initialFrom)
     );
     const desiredTo = clampPageValue(initialRange?.to ?? fallbackTo);
     return maxAvailablePage ? Math.min(maxAvailablePage, Math.max(initialFrom, desiredTo)) : desiredTo;
@@ -96,6 +101,15 @@ export function WorkbookPdfImportPreviewModal({
   }, []);
 
   const validationState = useMemo(() => {
+    if (isPreparing) {
+      return {
+        valid: false,
+        error: null as string | null,
+        warning: null as string | null,
+        from: null as number | null,
+        to: null as number | null,
+      };
+    }
     if (blockedReason && blockedReason.trim().length > 0) {
       return {
         valid: false,
@@ -209,6 +223,7 @@ export function WorkbookPdfImportPreviewModal({
     };
   }, [
     blockedReason,
+    isPreparing,
     maxAvailablePage,
     maxPagesPerImport,
     normalizedFileSize,
@@ -286,6 +301,14 @@ export function WorkbookPdfImportPreviewModal({
         {validationState.warning ? (
           <Alert severity="warning" className="workbook-session__pdf-preview-modal-alert">
             {validationState.warning}
+          </Alert>
+        ) : null}
+        {isPreparing ? (
+          <Alert severity="info" className="workbook-session__pdf-preview-modal-alert">
+            <span className="workbook-session__pdf-preview-preparing">
+              <CircularProgress size={14} thickness={5} />
+              <span>{preparingMessage}</span>
+            </span>
           </Alert>
         ) : null}
         {validationState.error ? (

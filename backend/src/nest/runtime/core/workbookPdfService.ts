@@ -64,6 +64,7 @@ export const decodeWorkbookPdfDataUrl = (value: unknown) => {
 export const renderWorkbookPdfPagesViaPoppler = async (params: {
   pdfBuffer: Buffer;
   dpi: number;
+  imageFormat?: "png" | "jpeg";
   firstPage: number;
   lastPage: number;
   ensureId: () => string;
@@ -73,23 +74,43 @@ export const renderWorkbookPdfPagesViaPoppler = async (params: {
   const outputPrefix = path.join(tempRoot, "page");
   await fsPromises.writeFile(inputPath, params.pdfBuffer);
 
+  const resolvedImageFormat = params.imageFormat === "jpeg" ? "jpeg" : "png";
+  const outputExtension = resolvedImageFormat === "jpeg" ? "jpg" : "png";
+  const outputMimeType = resolvedImageFormat === "jpeg" ? "image/jpeg" : "image/png";
+  const renderArgs =
+    resolvedImageFormat === "jpeg"
+      ? [
+          "-jpeg",
+          "-jpegopt",
+          "quality=82,progressive=y,optimize=y",
+          "-r",
+          String(params.dpi),
+          "-f",
+          String(params.firstPage),
+          "-l",
+          String(params.lastPage),
+          inputPath,
+          outputPrefix,
+        ]
+      : [
+          "-png",
+          "-r",
+          String(params.dpi),
+          "-f",
+          String(params.firstPage),
+          "-l",
+          String(params.lastPage),
+          inputPath,
+          outputPrefix,
+        ];
+
   try {
-    await execFileAsync("pdftoppm", [
-      "-png",
-      "-r",
-      String(params.dpi),
-      "-f",
-      String(params.firstPage),
-      "-l",
-      String(params.lastPage),
-      inputPath,
-      outputPrefix,
-    ]);
+    await execFileAsync("pdftoppm", renderArgs);
 
     const files = await fsPromises.readdir(tempRoot);
     const pages = await Promise.all(
       files
-        .filter((name) => /^page-\d+\.png$/i.test(name))
+        .filter((name) => new RegExp(`^page-\\d+\\.${outputExtension}$`, "i").test(name))
         .map(async (name) => {
           const page = Number(name.match(/(\d+)/)?.[1] ?? "0");
           const fullPath = path.join(tempRoot, name);
@@ -97,7 +118,7 @@ export const renderWorkbookPdfPagesViaPoppler = async (params: {
           return {
             id: params.ensureId(),
             page,
-            imageUrl: toDataUrl(image, "image/png"),
+            imageUrl: toDataUrl(image, outputMimeType),
           };
         })
     );

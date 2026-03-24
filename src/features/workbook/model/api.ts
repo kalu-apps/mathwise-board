@@ -557,6 +557,7 @@ export async function renderWorkbookPdfPages(params: {
   dataUrl?: string;
   file?: File;
   dpi?: number;
+  imageFormat?: "png" | "jpeg";
   maxPages?: number;
   pageFrom?: number;
   pageTo?: number;
@@ -579,6 +580,7 @@ export async function renderWorkbookPdfPages(params: {
         fileName: params.fileName,
         sourceId: params.sourceId,
         dpi: params.dpi,
+        imageFormat: params.imageFormat,
         maxPages: params.maxPages,
         pageFrom: params.pageFrom,
         pageTo: params.pageTo,
@@ -604,6 +606,7 @@ export async function renderWorkbookPdfPages(params: {
       query: {
         fileName: params.fileName,
         dpi: params.dpi,
+        imageFormat: params.imageFormat,
         maxPages: params.maxPages,
         pageFrom: params.pageFrom,
         pageTo: params.pageTo,

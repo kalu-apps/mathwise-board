@@ -4170,6 +4170,19 @@
   margin: 0 !important;
 }
 
+.workbook-session__import-preparing-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.workbook-session__import-preparing-status .MuiCircularProgress-root {
+  color: currentColor;
+  flex: 0 0 auto;
+}
+
 .workbook-session__import-dropzone {
   border: 1px dashed rgba(77, 106, 183, 0.4);
   border-radius: 12px;
@@ -4304,6 +4317,13 @@
   margin: 0;
   font-size: 11px;
   line-height: 1.4;
+}
+
+.workbook-session__import-item-status {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(53, 63, 90, 0.78);
 }
 
 .workbook-session__import-item-warning {
@@ -4453,6 +4473,19 @@
 
 .workbook-session__pdf-preview-modal-alert {
   margin: 0;
+}
+
+.workbook-session__pdf-preview-preparing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.workbook-session__pdf-preview-preparing .MuiCircularProgress-root {
+  color: currentColor;
+  flex: 0 0 auto;
 }
 
 .workbook-session__pdf-preview-frame-shell {

@@ -1022,6 +1022,7 @@ const handleWorkbookSnapshotAndPdfRoute = async (
   if (pathname === "/api/workbook/pdf/render" && method === "POST") {
     let fileName = "document.pdf";
     let dpi = 128;
+    let imageFormat: "png" | "jpeg" = "png";
     let maxPages = 8;
     let firstPage = 1;
     let requestedLastPage = firstPage + maxPages - 1;
@@ -1037,6 +1038,8 @@ const handleWorkbookSnapshotAndPdfRoute = async (
       sourceId = readTextFromSearch(searchParams, "sourceId");
       const queryDpi = readNumberFromSearch(searchParams, "dpi");
       dpi = queryDpi !== null ? Math.max(72, Math.min(240, Math.floor(queryDpi))) : 128;
+      const queryImageFormat = readTextFromSearch(searchParams, "imageFormat");
+      imageFormat = queryImageFormat === "jpeg" ? "jpeg" : "png";
       const queryMaxPages = readNumberFromSearch(searchParams, "maxPages");
       maxPages = queryMaxPages !== null ? Math.max(1, Math.min(12, Math.floor(queryMaxPages))) : 8;
       const queryFrom = readNumberFromSearch(searchParams, "pageFrom");
@@ -1052,6 +1055,7 @@ const handleWorkbookSnapshotAndPdfRoute = async (
         dataUrl?: string;
         sourceId?: string;
         dpi?: number;
+        imageFormat?: string;
         maxPages?: number;
         pageFrom?: number;
         pageTo?: number;
@@ -1068,6 +1072,7 @@ const handleWorkbookSnapshotAndPdfRoute = async (
         typeof body?.dpi === "number" && Number.isFinite(body.dpi)
           ? Math.max(72, Math.min(240, Math.floor(body.dpi)))
           : 128;
+      imageFormat = body?.imageFormat === "jpeg" ? "jpeg" : "png";
       maxPages =
         typeof body?.maxPages === "number" && Number.isFinite(body.maxPages)
           ? Math.max(1, Math.min(12, Math.floor(body.maxPages)))
@@ -1108,6 +1113,7 @@ const handleWorkbookSnapshotAndPdfRoute = async (
       const pages = (await deps.renderWorkbookPdfPagesViaPoppler({
         pdfBuffer,
         dpi,
+        imageFormat,
         firstPage,
         lastPage,
         ensureId: deps.ensureId,

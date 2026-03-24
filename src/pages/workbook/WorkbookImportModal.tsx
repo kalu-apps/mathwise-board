@@ -46,6 +46,8 @@ type ImportModalState =
 
 type ImportFileStatus =
   | "waiting"
+  | "preparing_pdf_source"
+  | "inspecting_pdf"
   | "invalid"
   | "ready"
   | "optimizing"
@@ -101,6 +103,9 @@ const SOFT_PDF_LIMIT_BYTES = Math.round(WORKBOOK_PDF_IMPORT_MAX_BYTES * 0.67);
 const MAX_IMAGE_PIXELS = 14_000_000;
 const MAX_PDF_PAGES_PER_IMPORT = 12;
 
+const isPdfPreparationStatus = (status: ImportFileStatus) =>
+  status === "preparing_pdf_source" || status === "inspecting_pdf";
+
 const readImageMeta = async (dataUrl: string) =>
   new Promise<{ width: number; height: number }>((resolve, reject) => {
     const image = new Image();
@@ -148,6 +153,11 @@ export function WorkbookImportModal({
     () => items.filter((item) => item.status === "ready").length,
     [items]
   );
+  const preparingPdfCount = useMemo(
+    () => items.filter((item) => isPdfPreparationStatus(item.status)).length,
+    [items]
+  );
+  const isPreparingPdf = preparingPdfCount > 0;
   const hasFailures = useMemo(
     () => items.some((item) => item.status === "failed" || item.status === "invalid"),
     [items]
@@ -191,6 +201,32 @@ export function WorkbookImportModal({
     );
   }, []);
 
+  const resolveItemStatusText = useCallback((item: WorkbookImportItem) => {
+    switch (item.status) {
+      case "preparing_pdf_source":
+        return "Подготавливаем PDF-источник…";
+      case "inspecting_pdf":
+        return "Определяем количество страниц…";
+      case "optimizing":
+        return "Оптимизируем файл…";
+      case "waiting":
+        return item.isPdf ? "Ожидает выбора диапазона страниц." : "Ожидает загрузки.";
+      case "ready":
+        return "Готов к загрузке.";
+      case "uploading":
+        return "Загрузка…";
+      case "inserting":
+        return "Вставка на доску…";
+      case "success":
+        return "Успешно добавлено на доску.";
+      case "failed":
+      case "invalid":
+        return null;
+      default:
+        return null;
+    }
+  }, []);
+
   const validateAndPrepareItems = useCallback(
     async (files: File[]) => {
       if (!files.length) return;
@@ -214,6 +250,8 @@ export function WorkbookImportModal({
         setBatchError(null);
       }
       const nextItems: WorkbookImportItem[] = [];
+      const imagePreparationJobs: Array<Promise<void>> = [];
+      const pdfPreparationJobs: Array<Promise<void>> = [];
       for (const file of safeFiles) {
         const extension = readFileExtension(file.name);
         const lowerMime = file.type.toLowerCase();
@@ -260,158 +298,193 @@ export function WorkbookImportModal({
             ? `Большой файл (${formatFileSizeMb(file.size)}). Рекомендуется уменьшить размер.`
             : undefined;
         if (!isImage) {
-          let pdfSourceId: string | null = null;
-          try {
-            const uploadedPdfSource = await createWorkbookPdfSource({
-              fileName: file.name,
-              file,
-            });
-            pdfSourceId = uploadedPdfSource.sourceId;
-            const inspectedPdf = await inspectWorkbookPdf({
-              fileName: file.name,
-              sourceId: uploadedPdfSource.sourceId,
-            });
-            const pageCount = Math.max(1, Math.trunc(inspectedPdf.pageCount || 1));
-            const defaultTo = Math.max(1, Math.min(pageCount, MAX_PDF_PAGES_PER_IMPORT, 8));
-            nextItems.push({
-              ...baseItem,
-              pdfSourceId: uploadedPdfSource.sourceId,
-              warning:
-                pageCount > MAX_PDF_PAGES_PER_IMPORT
-                  ? `Документ содержит ${pageCount} стр. За раз можно импортировать до ${MAX_PDF_PAGES_PER_IMPORT}.`
-                  : warning,
-              status: "waiting",
-              pdfPageCount: pageCount,
-              pdfPageRange: {
-                from: 1,
-                to: defaultTo,
-              },
-              error: "Перед загрузкой выберите страницы PDF для импорта.",
-            });
-          } catch (error) {
-            let message =
-              "Не удалось подготовить PDF для импорта (не удалось определить страницы). Попробуйте другой файл.";
-            let keepAsWaiting = Boolean(pdfSourceId);
-            let fallbackWarning: string | undefined;
-            if (error instanceof ApiError && error.status === 413) {
-              const normalizedError = String(error.message ?? "").toLowerCase();
-              const isIngress413 =
-                normalizedError.includes("request entity too large") ||
-                normalizedError.includes("content too large");
-              if (error.message === "pdf_too_large") {
-                message = `Не удалось добавить PDF: размер файла ${formatFileSizeMb(
-                  file.size
-                )} превышает лимит ${formatFileSizeMb(WORKBOOK_PDF_SOURCE_MAX_BYTES)}.`;
-              } else if (error.message === "request_body_too_large") {
-                message =
-                  "Не удалось загрузить PDF-источник: превышен транспортный лимит запроса.";
-                keepAsWaiting = false;
-              } else if (isIngress413) {
-                message =
-                  "Не удалось загрузить PDF-источник: ingress/proxy отклонил upload (413 до backend). Увеличьте nginx client_max_body_size.";
-                keepAsWaiting = false;
-              } else {
-                message =
-                  "Не удалось подготовить PDF: объём payload превысил лимит сервера.";
-                keepAsWaiting = Boolean(pdfSourceId);
-                fallbackWarning = pdfSourceId
-                  ? "Документ загружен как источник, но проинспектировать страницы не удалось. Выберите диапазон вручную."
-                  : undefined;
+          const stagedPdfItem: WorkbookImportItem = {
+            ...baseItem,
+            status: "preparing_pdf_source",
+            warning,
+            pdfPageRange: {
+              from: 1,
+              to: 1,
+            },
+            error: "Подготавливаем PDF…",
+            progress: 6,
+          };
+          nextItems.push(stagedPdfItem);
+          pdfPreparationJobs.push(
+            (async () => {
+              let pdfSourceId: string | null = null;
+              try {
+                const uploadedPdfSource = await createWorkbookPdfSource({
+                  fileName: file.name,
+                  file,
+                });
+                pdfSourceId = uploadedPdfSource.sourceId;
+                setItemPatch(stagedPdfItem.id, {
+                  pdfSourceId: uploadedPdfSource.sourceId,
+                  status: "inspecting_pdf",
+                  error: "Определяем количество страниц…",
+                  progress: 34,
+                });
+                const inspectedPdf = await inspectWorkbookPdf({
+                  fileName: file.name,
+                  sourceId: uploadedPdfSource.sourceId,
+                });
+                const pageCount = Math.max(1, Math.trunc(inspectedPdf.pageCount || 1));
+                const defaultTo = Math.max(
+                  1,
+                  Math.min(pageCount, MAX_PDF_PAGES_PER_IMPORT)
+                );
+                setItemPatch(stagedPdfItem.id, {
+                  pdfSourceId: uploadedPdfSource.sourceId,
+                  warning:
+                    pageCount > MAX_PDF_PAGES_PER_IMPORT
+                      ? `Документ содержит ${pageCount} стр. За раз можно импортировать до ${MAX_PDF_PAGES_PER_IMPORT}.`
+                      : warning,
+                  status: "waiting",
+                  pdfPageCount: pageCount,
+                  pdfPageRange: {
+                    from: 1,
+                    to: defaultTo,
+                  },
+                  error: "Перед загрузкой выберите страницы PDF для импорта.",
+                  progress: 100,
+                });
+              } catch (error) {
+                let message =
+                  "Не удалось подготовить PDF для импорта (не удалось определить страницы). Попробуйте другой файл.";
+                let keepAsWaiting = Boolean(pdfSourceId);
+                let fallbackWarning: string | undefined;
+                if (error instanceof ApiError && error.status === 413) {
+                  const normalizedError = String(error.message ?? "").toLowerCase();
+                  const isIngress413 =
+                    normalizedError.includes("request entity too large") ||
+                    normalizedError.includes("content too large");
+                  if (error.message === "pdf_too_large") {
+                    message = `Не удалось добавить PDF: размер файла ${formatFileSizeMb(
+                      file.size
+                    )} превышает лимит ${formatFileSizeMb(WORKBOOK_PDF_SOURCE_MAX_BYTES)}.`;
+                  } else if (error.message === "request_body_too_large") {
+                    message =
+                      "Не удалось загрузить PDF-источник: превышен транспортный лимит запроса.";
+                    keepAsWaiting = false;
+                  } else if (isIngress413) {
+                    message =
+                      "Не удалось загрузить PDF-источник: ingress/proxy отклонил upload (413 до backend). Увеличьте nginx client_max_body_size.";
+                    keepAsWaiting = false;
+                  } else {
+                    message =
+                      "Не удалось подготовить PDF: объём payload превысил лимит сервера.";
+                    keepAsWaiting = Boolean(pdfSourceId);
+                    fallbackWarning = pdfSourceId
+                      ? "Документ загружен как источник, но проинспектировать страницы не удалось. Выберите диапазон вручную."
+                      : undefined;
+                  }
+                } else if (error instanceof ApiError && error.status === 404) {
+                  message =
+                    "Не удалось подготовить PDF: временный источник документа не найден. Выберите файл заново.";
+                  keepAsWaiting = false;
+                } else if (error instanceof ApiError && error.status === 503) {
+                  message =
+                    "Не удалось подготовить PDF для импорта: серверный рендер PDF временно недоступен.";
+                  keepAsWaiting = Boolean(pdfSourceId);
+                  fallbackWarning = pdfSourceId
+                    ? "Сервер временно не ответил на inspect. Можно выбрать диапазон вручную и повторить импорт."
+                    : undefined;
+                }
+                if (keepAsWaiting) {
+                  setItemPatch(stagedPdfItem.id, {
+                    pdfSourceId: pdfSourceId ?? undefined,
+                    status: "waiting",
+                    warning: fallbackWarning ?? warning,
+                    pdfPageRange: {
+                      from: 1,
+                      to: 1,
+                    },
+                    error: "Перед загрузкой выберите страницы PDF для импорта.",
+                    progress: 100,
+                  });
+                } else {
+                  setItemPatch(stagedPdfItem.id, {
+                    status: "invalid",
+                    error: message,
+                    progress: 100,
+                  });
+                }
               }
-            } else if (error instanceof ApiError && error.status === 404) {
-              message =
-                "Не удалось подготовить PDF: временный источник документа не найден. Выберите файл заново.";
-              keepAsWaiting = false;
-            } else if (error instanceof ApiError && error.status === 503) {
-              message =
-                "Не удалось подготовить PDF для импорта: серверный рендер PDF временно недоступен.";
-              keepAsWaiting = Boolean(pdfSourceId);
-              fallbackWarning = pdfSourceId
-                ? "Сервер временно не ответил на inspect. Можно выбрать диапазон вручную и повторить импорт."
-                : undefined;
-            }
-            if (keepAsWaiting) {
-              nextItems.push({
-                ...baseItem,
-                pdfSourceId: pdfSourceId ?? undefined,
-                status: "waiting",
-                warning: fallbackWarning,
-                pdfPageRange: {
-                  from: 1,
-                  to: 1,
-                },
-                error: "Перед загрузкой выберите страницы PDF для импорта.",
-              });
-            } else {
-              nextItems.push({
-                ...baseItem,
-                status: "invalid",
-                error: message,
-              });
-            }
-          }
+            })()
+          );
           continue;
         }
-        try {
-          setModalState("validating");
-          reportWorkbookImportEvent({
-            name: "optimization_started",
-            sessionId,
-            counters: { fileBytes: file.size },
-          });
-          const sourceDataUrl = await readFileAsDataUrl(file);
-          const { width, height } = await readImageMeta(sourceDataUrl);
-          const pixels = width * height;
-          const needsAggressiveResize = pixels > MAX_IMAGE_PIXELS;
-          const preparedDataUrl = await optimizeImageDataUrl(sourceDataUrl, {
-            maxEdge: needsAggressiveResize ? 1_920 : 2_280,
-            quality: needsAggressiveResize ? 0.8 : 0.86,
-            maxChars: WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS,
-          });
-          reportWorkbookImportEvent({
-            name: "optimization_finished",
-            sessionId,
-            counters: {
-              sourceBytes: file.size,
-              width,
-              height,
-              pixels,
-            },
-          });
-          nextItems.push({
-            ...baseItem,
-            status: "ready",
-            warning:
-              needsAggressiveResize
-                ? "Изображение очень большого разрешения. Применена безопасная оптимизация."
-                : warning,
-            previewUrl: preparedDataUrl,
-            preparedDataUrl,
-            width,
-            height,
-          });
-        } catch {
-          nextItems.push({
-            ...baseItem,
-            status: "invalid",
-            error: "Не удалось обработать изображение. Выберите другой файл.",
-          });
-          reportWorkbookImportEvent({
-            name: "validation_failed",
-            sessionId,
-            reason: "image_processing_failed",
-            counters: { fileBytes: file.size },
-          });
-        }
+        const stagedImageItem: WorkbookImportItem = {
+          ...baseItem,
+          status: "optimizing",
+          warning,
+          progress: 8,
+        };
+        nextItems.push(stagedImageItem);
+        imagePreparationJobs.push(
+          (async () => {
+            try {
+              reportWorkbookImportEvent({
+                name: "optimization_started",
+                sessionId,
+                counters: { fileBytes: file.size },
+              });
+              const sourceDataUrl = await readFileAsDataUrl(file);
+              const { width, height } = await readImageMeta(sourceDataUrl);
+              const pixels = width * height;
+              const needsAggressiveResize = pixels > MAX_IMAGE_PIXELS;
+              const preparedDataUrl = await optimizeImageDataUrl(sourceDataUrl, {
+                maxEdge: needsAggressiveResize ? 1_920 : 2_280,
+                quality: needsAggressiveResize ? 0.8 : 0.86,
+                maxChars: WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS,
+              });
+              reportWorkbookImportEvent({
+                name: "optimization_finished",
+                sessionId,
+                counters: {
+                  sourceBytes: file.size,
+                  width,
+                  height,
+                  pixels,
+                },
+              });
+              setItemPatch(stagedImageItem.id, {
+                status: "ready",
+                warning:
+                  needsAggressiveResize
+                    ? "Изображение очень большого разрешения. Применена безопасная оптимизация."
+                    : warning,
+                previewUrl: preparedDataUrl,
+                preparedDataUrl,
+                width,
+                height,
+                progress: 100,
+              });
+            } catch {
+              setItemPatch(stagedImageItem.id, {
+                status: "invalid",
+                error: "Не удалось обработать изображение. Выберите другой файл.",
+                progress: 100,
+              });
+              reportWorkbookImportEvent({
+                name: "validation_failed",
+                sessionId,
+                reason: "image_processing_failed",
+                counters: { fileBytes: file.size },
+              });
+            }
+          })()
+        );
       }
       setItems((current) => [...current, ...nextItems]);
-      const firstPdfNeedingSetup = nextItems.find((item) => item.isPdf && item.status === "waiting");
+      const firstPdfNeedingSetup = nextItems.find((item) => item.isPdf);
       if (firstPdfNeedingSetup) {
-        setPdfPreviewItemId(firstPdfNeedingSetup.id);
+        setPdfPreviewItemId((current) => current ?? firstPdfNeedingSetup.id);
       }
       const validCount = nextItems.filter((item) => item.status === "ready").length;
-      const pendingPdfCount = nextItems.filter((item) => item.status === "waiting").length;
-      setModalState(validCount > 0 ? "ready" : pendingPdfCount > 0 ? "files_selected" : "failed");
+      const hasProcessableItems = nextItems.some((item) => item.status !== "invalid");
+      setModalState(validCount > 0 ? "ready" : hasProcessableItems ? "files_selected" : "failed");
       reportWorkbookImportEvent({
         name: "files_selected",
         sessionId,
@@ -422,8 +495,9 @@ export function WorkbookImportModal({
           rejectedFiles: nextItems.length - validCount,
         },
       });
+      void Promise.allSettled([...imagePreparationJobs, ...pdfPreparationJobs]);
     },
-    [sessionId]
+    [sessionId, setItemPatch]
   );
 
   const handleCollectFiles = useCallback(
@@ -702,6 +776,14 @@ export function WorkbookImportModal({
             {batchError}
           </Alert>
         ) : null}
+        {isPreparingPdf ? (
+          <Alert severity="info" className="workbook-session__import-modal-alert">
+            <span className="workbook-session__import-preparing-status">
+              <CircularProgress size={14} thickness={5} />
+              <span>Подготавливаем PDF: загружаем источник и определяем количество страниц…</span>
+            </span>
+          </Alert>
+        ) : null}
         <div
           className={`workbook-session__import-dropzone${
             modalState === "dragover" ? " is-dragover" : ""
@@ -777,6 +859,11 @@ export function WorkbookImportModal({
                       </span>
                     ) : null}
                   </div>
+                  {resolveItemStatusText(item) ? (
+                    <p className="workbook-session__import-item-status">
+                      {resolveItemStatusText(item)}
+                    </p>
+                  ) : null}
                   {item.isPdf ? (
                     <div className="workbook-session__import-item-actions">
                       <span className="workbook-session__import-item-range">
@@ -829,18 +916,18 @@ export function WorkbookImportModal({
       <DialogActions>
         <Button
           className="workbook-session__import-upload-btn"
-          variant="contained"
-          onClick={() => void handleUpload()}
-          disabled={isBusy || readyCount === 0}
-        >
-          {isBusy ? (
+            variant="contained"
+            onClick={() => void handleUpload()}
+            disabled={isBusy || isPreparingPdf || readyCount === 0}
+          >
+          {isBusy || isPreparingPdf ? (
             <CircularProgress
               size={16}
               thickness={5}
               className="workbook-session__import-upload-spinner"
             />
           ) : null}
-          {isBusy ? "Загружаем..." : "Загрузить"}
+          {isBusy ? "Загружаем..." : isPreparingPdf ? "Подготовка PDF..." : "Загрузить"}
         </Button>
       </DialogActions>
       </Dialog>
@@ -858,6 +945,12 @@ export function WorkbookImportModal({
         initialRange={pdfPreviewItem?.pdfPageRange ?? null}
         maxPagesPerImport={MAX_PDF_PAGES_PER_IMPORT}
         blockedReason={pdfPreviewItem?.status === "invalid" ? pdfPreviewItem.error ?? null : null}
+        isPreparing={pdfPreviewItem ? isPdfPreparationStatus(pdfPreviewItem.status) : false}
+        preparingMessage={
+          pdfPreviewItem?.status === "inspecting_pdf"
+            ? "Определяем количество страниц…"
+            : "Подготавливаем PDF-источник…"
+        }
         container={
           typeof document !== "undefined"
             ? document.fullscreenElement ?? document.body

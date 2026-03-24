@@ -113,6 +113,16 @@ type UseWorkbookSessionDocumentHandlersParams = {
   persistSnapshots: (options?: { silent?: boolean; force?: boolean }) => Promise<boolean>;
 };
 
+const PDF_IMPORT_RENDER_CHUNK_SIZE = 3;
+const PDF_IMPORT_UPLOAD_CONCURRENCY = 3;
+
+const resolvePdfImportDpi = (pageCount: number) => {
+  if (pageCount >= 10) return 102;
+  if (pageCount >= 7) return 108;
+  if (pageCount >= 4) return 116;
+  return 124;
+};
+
 const resolveApiErrorLimitBytes = (error: ApiError) => {
   if (!error || typeof error !== "object") return null;
   const details = error.details as { limitBytes?: unknown } | null | undefined;
@@ -236,8 +246,9 @@ export const useWorkbookSessionDocumentHandlers = ({
       try {
         setUploadingDoc(true);
         reportProgress(20);
-        let renderedPages: WorkbookDocumentAssetLike["renderedPages"] = undefined;
+        let syncedRenderedPages: WorkbookDocumentAssetLike["renderedPages"] = undefined;
         let renderedPageAssetIds: string[] = [];
+        let pdfObjectsInserted = false;
         const isPdf = isPdfUploadFile(file);
         const isImage = isImageUploadFile(file);
         if (!isPdf && !isImage) {
@@ -270,7 +281,19 @@ export const useWorkbookSessionDocumentHandlers = ({
               maxChars: WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS,
             }))
           : "";
+        const documentAssetId = generateId();
+        const uploadedAt = new Date().toISOString();
+        let uploadedDocumentAsset:
+          | {
+              assetId: string;
+              url: string;
+              mimeType: string;
+              sizeBytes: number;
+            }
+          | null = null;
+        let nonBlockingPdfSourceWarning: string | null = null;
         if (isPdf) {
+          onStage?.("uploading");
           const sourceId =
             typeof pdfSourceId === "string" && pdfSourceId.trim().length > 0
               ? pdfSourceId.trim()
@@ -292,39 +315,125 @@ export const useWorkbookSessionDocumentHandlers = ({
           }
           const safeTo = totalPages !== null ? Math.min(totalPages, requestedTo) : requestedTo;
           const pageCount = Math.max(1, Math.min(12, safeTo - safeFrom + 1));
-          const pageTo = safeFrom + pageCount - 1;
-          reportProgress(45);
-          const rendered = await renderWorkbookPdfPages({
-            fileName: file.name,
-            sourceId,
-            file: sourceId ? undefined : file,
-            dpi: 128,
-            maxPages: pageCount,
-            pageFrom: safeFrom,
-            pageTo,
-          });
-          renderedPages = rendered.pages.slice(0, pageCount).map((page, index) => ({
-            ...page,
-            page: index + 1,
-          }));
-          if (!renderedPages.length) {
+          reportProgress(28);
+          const insertPosition = resolveWorkbookBoardInsertPosition(
+            canvasViewport,
+            boardObjectCount
+          );
+          const gridColumns = pageCount <= 2 ? pageCount : 4;
+          const compactHeight = pageCount >= 7 ? 186 : 206;
+          const compactWidth = Math.max(
+            126,
+            Math.min(216, Math.round(compactHeight * 0.707))
+          );
+          const itemGapX = 18;
+          const itemGapY = 22;
+          const renderedPagesAccumulator: NonNullable<WorkbookDocumentAssetLike["renderedPages"]> = [];
+          const renderedAssetIdsAccumulator: string[] = [];
+          const chunkSize = Math.max(1, Math.min(PDF_IMPORT_RENDER_CHUNK_SIZE, pageCount));
+          let insertedPages = 0;
+          for (
+            let chunkRelativeStart = 0;
+            chunkRelativeStart < pageCount;
+            chunkRelativeStart += chunkSize
+          ) {
+            const chunkPageCount = Math.min(chunkSize, pageCount - chunkRelativeStart);
+            const chunkAbsoluteFrom = safeFrom + chunkRelativeStart;
+            const chunkAbsoluteTo = chunkAbsoluteFrom + chunkPageCount - 1;
+            const renderedChunk = await renderWorkbookPdfPages({
+              fileName: file.name,
+              sourceId,
+              file: sourceId ? undefined : file,
+              dpi: resolvePdfImportDpi(pageCount),
+              imageFormat: "jpeg",
+              maxPages: chunkPageCount,
+              pageFrom: chunkAbsoluteFrom,
+              pageTo: chunkAbsoluteTo,
+            });
+            const normalizedChunkPages = renderedChunk.pages.slice(0, chunkPageCount).map((page, index) => ({
+              ...page,
+              page: chunkRelativeStart + index + 1,
+            }));
+            if (!normalizedChunkPages.length) {
+              return failImport(
+                "Не удалось добавить PDF: документ не удалось обработать. Проверьте файл или загрузите другую версию."
+              );
+            }
+            const uploadWindowSize = Math.max(1, Math.min(PDF_IMPORT_UPLOAD_CONCURRENCY, normalizedChunkPages.length));
+            const uploadedChunkPages: Array<{
+              page: NonNullable<WorkbookDocumentAssetLike["renderedPages"]>[number];
+              assetId: string;
+            }> = [];
+            for (let index = 0; index < normalizedChunkPages.length; index += uploadWindowSize) {
+              const batch = normalizedChunkPages.slice(index, index + uploadWindowSize);
+              const uploadedBatch = await Promise.all(
+                batch.map(async (page) => {
+                  const uploadedPageAsset = await uploadWorkbookAsset({
+                    sessionId,
+                    fileName: `${file.name}-page-${page.page}.jpg`,
+                    dataUrl: page.imageUrl,
+                    mimeType: "image/jpeg",
+                  });
+                  return {
+                    page: {
+                      ...page,
+                      imageUrl: uploadedPageAsset.url,
+                    },
+                    assetId: uploadedPageAsset.assetId,
+                  };
+                })
+              );
+              uploadedChunkPages.push(...uploadedBatch);
+            }
+            uploadedChunkPages.sort((left, right) => left.page.page - right.page.page);
+            for (const uploadedChunkPage of uploadedChunkPages) {
+              if (!pdfObjectsInserted) {
+                onStage?.("inserting");
+                pdfObjectsInserted = true;
+              }
+              const pageIndex = uploadedChunkPage.page.page - 1;
+              const column = pageIndex % gridColumns;
+              const row = Math.floor(pageIndex / gridColumns);
+              const object = buildWorkbookDocumentBoardObject({
+                objectId: generateId(),
+                assetId: uploadedChunkPage.assetId,
+                fileName: `${file.name} · стр. ${uploadedChunkPage.page.page}`,
+                authorUserId: userId ?? "unknown",
+                createdAt: uploadedAt,
+                insertPosition: {
+                  x: insertPosition.x + column * (compactWidth + itemGapX),
+                  y: insertPosition.y + row * (compactHeight + itemGapY),
+                },
+                imageUrl: uploadedChunkPage.page.imageUrl,
+                renderedPage: uploadedChunkPage.page,
+                type: "image",
+              });
+              const pageImageObject: WorkbookBoardObject = {
+                ...object,
+                width: compactWidth,
+                height: compactHeight,
+                meta: {
+                  ...(object.meta ?? {}),
+                  [WORKBOOK_IMAGE_ASSET_META_KEY]: uploadedChunkPage.assetId,
+                },
+              };
+              const created = await commitObjectCreate(pageImageObject);
+              if (!created) return false;
+              renderedPagesAccumulator.push(uploadedChunkPage.page);
+              renderedAssetIdsAccumulator.push(uploadedChunkPage.assetId);
+              insertedPages += 1;
+              const progress = 34 + Math.round((insertedPages / pageCount) * 54);
+              reportProgress(Math.min(88, progress));
+            }
+          }
+          syncedRenderedPages = renderedPagesAccumulator;
+          renderedPageAssetIds = renderedAssetIdsAccumulator;
+          if (!syncedRenderedPages.length) {
             return failImport(
-              "Не удалось добавить PDF: документ не удалось обработать. Проверьте файл или загрузите другую версию."
+              "Не удалось добавить PDF: не удалось получить изображения выбранных страниц."
             );
           }
-        }
-        onStage?.("uploading");
-        reportProgress(56);
-        let uploadedDocumentAsset:
-          | {
-              assetId: string;
-              url: string;
-              mimeType: string;
-              sizeBytes: number;
-            }
-          | null = null;
-        let nonBlockingPdfSourceWarning: string | null = null;
-        if (isPdf) {
+          reportProgress(90);
           try {
             uploadedDocumentAsset = await uploadWorkbookAssetFile({
               sessionId,
@@ -344,37 +453,16 @@ export const useWorkbookSessionDocumentHandlers = ({
             }
           }
         } else {
+          onStage?.("uploading");
+          reportProgress(56);
           uploadedDocumentAsset = await uploadWorkbookAsset({
             sessionId,
             fileName: file.name,
             dataUrl: documentAssetDataUrl,
             mimeType: file.type || (isImage ? "image/jpeg" : undefined),
           });
+          reportProgress(72);
         }
-        let syncedRenderedPages = renderedPages;
-        if (Array.isArray(renderedPages) && renderedPages.length > 0) {
-          const uploadedRenderedPages: NonNullable<WorkbookDocumentAssetLike["renderedPages"]> = [];
-          const uploadedRenderedPageAssetIds: string[] = [];
-          for (let index = 0; index < renderedPages.length; index += 1) {
-            const renderedPage = renderedPages[index];
-            const uploadedPageAsset = await uploadWorkbookAsset({
-              sessionId,
-              fileName: `${file.name}-page-${renderedPage.page}.jpg`,
-              dataUrl: renderedPage.imageUrl,
-              mimeType: "image/jpeg",
-            });
-            uploadedRenderedPages.push({
-              ...renderedPage,
-              imageUrl: uploadedPageAsset.url,
-            });
-            uploadedRenderedPageAssetIds.push(uploadedPageAsset.assetId);
-            const progress = 58 + Math.round(((index + 1) / renderedPages.length) * 14);
-            reportProgress(Math.min(72, progress));
-          }
-          syncedRenderedPages = uploadedRenderedPages;
-          renderedPageAssetIds = uploadedRenderedPageAssetIds;
-        }
-        reportProgress(72);
         const insertPosition = resolveWorkbookBoardInsertPosition(
           canvasViewport,
           boardObjectCount
@@ -395,12 +483,10 @@ export const useWorkbookSessionDocumentHandlers = ({
             "Не удалось добавить PDF: не удалось получить изображения выбранных страниц."
           );
         }
-        const assetId = generateId();
-        const uploadedAt = new Date().toISOString();
         const documentAssetUrl =
           uploadedDocumentAsset?.url || objectImageUrl || "";
         const asset = buildWorkbookDocumentAsset({
-          assetId,
+          assetId: documentAssetId,
           fileName: file.name,
           type: isPdf ? "pdf" : isImage ? "image" : "file",
           url: documentAssetUrl,
@@ -408,8 +494,8 @@ export const useWorkbookSessionDocumentHandlers = ({
           uploadedAt,
           renderedPages: syncedRenderedPages,
         });
-        onStage?.("inserting");
-        if (isPdf && Array.isArray(syncedRenderedPages) && syncedRenderedPages.length > 0) {
+        if (isPdf && !pdfObjectsInserted && Array.isArray(syncedRenderedPages) && syncedRenderedPages.length > 0) {
+          onStage?.("inserting");
           const pageCount = syncedRenderedPages.length;
           const gridColumns = pageCount <= 2 ? pageCount : pageCount <= 8 ? 4 : 4;
           const compactHeight = pageCount >= 7 ? 186 : 206;
@@ -435,7 +521,7 @@ export const useWorkbookSessionDocumentHandlers = ({
             const row = Math.floor(index / gridColumns);
             const object = buildWorkbookDocumentBoardObject({
               objectId: generateId(),
-              assetId: renderedPageAssetIds[index] ?? assetId,
+              assetId: renderedPageAssetIds[index] ?? documentAssetId,
               fileName: `${file.name} · стр. ${page.page}`,
               authorUserId: userId ?? "unknown",
               createdAt: uploadedAt,
@@ -451,18 +537,19 @@ export const useWorkbookSessionDocumentHandlers = ({
               ...object,
               width: compactWidth,
               height: compactHeight,
-              meta: {
-                ...(object.meta ?? {}),
-                [WORKBOOK_IMAGE_ASSET_META_KEY]: renderedPageAssetIds[index] ?? assetId,
-              },
-            };
-            const created = await commitObjectCreate(pageImageObject);
-            if (!created) return false;
-          }
-        } else {
+                meta: {
+                  ...(object.meta ?? {}),
+                  [WORKBOOK_IMAGE_ASSET_META_KEY]: renderedPageAssetIds[index] ?? documentAssetId,
+                },
+              };
+              const created = await commitObjectCreate(pageImageObject);
+              if (!created) return false;
+            }
+        } else if (!isPdf) {
+          onStage?.("inserting");
           const object = buildWorkbookDocumentBoardObject({
             objectId: generateId(),
-            assetId,
+            assetId: documentAssetId,
             fileName: file.name,
             authorUserId: userId ?? "unknown",
             createdAt: uploadedAt,
@@ -475,7 +562,7 @@ export const useWorkbookSessionDocumentHandlers = ({
           if (!created) return false;
         }
         try {
-          await syncUploadedDocumentAsset(assetId, asset);
+          await syncUploadedDocumentAsset(documentAssetId, asset);
         } catch (error) {
           if (error instanceof ApiError && error.status === 413) {
             setError(
