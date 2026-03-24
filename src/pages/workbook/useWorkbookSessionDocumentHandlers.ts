@@ -513,6 +513,10 @@ export const useWorkbookSessionDocumentHandlers = ({
         return true;
       } catch (error) {
         if (error instanceof ApiError && error.status === 413) {
+          const normalizedError = String(error.message ?? "").toLowerCase();
+          const isIngress413 =
+            normalizedError.includes("request entity too large") ||
+            normalizedError.includes("content too large");
           if (error.message === "pdf_too_large") {
             const limitBytes = resolveApiErrorLimitBytes(error) ?? WORKBOOK_PDF_SOURCE_MAX_BYTES;
             return failImport(
@@ -532,6 +536,11 @@ export const useWorkbookSessionDocumentHandlers = ({
           if (error.message === "request_body_too_large") {
             return failImport(
               "Не удалось добавить PDF: превышен транспортный лимит запроса. Загрузите меньший файл или повторите попытку позже."
+            );
+          }
+          if (isIngress413) {
+            return failImport(
+              "Не удалось добавить PDF: ingress/proxy отклонил upload (413 до backend). Увеличьте nginx client_max_body_size."
             );
           }
           if (error.message === "workbook_asset_too_large") {

@@ -294,6 +294,10 @@ export function WorkbookImportModal({
             let keepAsWaiting = Boolean(pdfSourceId);
             let fallbackWarning: string | undefined;
             if (error instanceof ApiError && error.status === 413) {
+              const normalizedError = String(error.message ?? "").toLowerCase();
+              const isIngress413 =
+                normalizedError.includes("request entity too large") ||
+                normalizedError.includes("content too large");
               if (error.message === "pdf_too_large") {
                 message = `Не удалось добавить PDF: размер файла ${formatFileSizeMb(
                   file.size
@@ -301,6 +305,10 @@ export function WorkbookImportModal({
               } else if (error.message === "request_body_too_large") {
                 message =
                   "Не удалось загрузить PDF-источник: превышен транспортный лимит запроса.";
+                keepAsWaiting = false;
+              } else if (isIngress413) {
+                message =
+                  "Не удалось загрузить PDF-источник: ingress/proxy отклонил upload (413 до backend). Увеличьте nginx client_max_body_size.";
                 keepAsWaiting = false;
               } else {
                 message =

@@ -1,0 +1,15 @@
+# Include this snippet inside BOTH `server` blocks that proxy:
+# - board.your-domain.tld
+# - api.your-domain.tld
+#
+# Root fix for `/api/workbook/pdf/source` 413 before handler:
+# upstream nginx must allow request body larger than default 1MB.
+#
+# Keep this value ABOVE WORKBOOK_PDF_SOURCE_MAX_BYTES + request overhead.
+# Recommended baseline for current product limits: 80m.
+
+client_max_body_size 80m;
+
+# Optional but recommended for large uploads:
+client_body_timeout 120s;
+proxy_read_timeout 120s;

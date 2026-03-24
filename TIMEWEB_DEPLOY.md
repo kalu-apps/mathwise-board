@@ -64,6 +64,11 @@ WORKBOOK_SESSION_AFFINITY_COOKIE_SAME_SITE=Lax
 WORKBOOK_SESSION_AFFINITY_COOKIE_SECURE=1
 WORKBOOK_SESSION_AFFINITY_COOKIE_HTTP_ONLY=0
 WORKBOOK_SESSION_AFFINITY_COOKIE_DOMAIN=.your-domain.tld
+NEST_BODY_LIMIT_MB=80
+WORKBOOK_REQUEST_BODY_MAX_BYTES=41943040
+WORKBOOK_PDF_SOURCE_BODY_MAX_BYTES=67108864
+WORKBOOK_PDF_SOURCE_MAX_BYTES=67108864
+WORKBOOK_PDF_RENDER_MAX_BYTES=20971520
 
 MEDIA_STUN_URLS=stun:stun.l.google.com:19302
 MEDIA_TURN_URLS=turn:turn.your-domain.tld:3478?transport=udp,turns:turn.your-domain.tld:5349?transport=tcp
@@ -154,6 +159,30 @@ PONG
 ## 3) Nginx + SSL на `mw-app-01`
 - Nginx проксирует `board` и `api.board` на `127.0.0.1:4173`.
 - SSL выпускается certbot для обоих доменов.
+
+### 3.0) Upload limits для PDF source (обязательно)
+Иначе `POST /api/workbook/pdf/source` будет резаться `413` на уровне nginx до создания `sourceId`.
+
+1. В `server`-блоки `board.mathwise.ru` и `api.board.mathwise.ru` добавить:
+   - [`docs/nginx/board-api-upload-limits.conf.example`](./docs/nginx/board-api-upload-limits.conf.example)
+2. Проверить, что effective `client_max_body_size` не ниже `80m`.
+3. Перезагрузить nginx:
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Быстрая проверка (ожидаем backend JSON, а не nginx HTML 413):
+```bash
+dd if=/dev/zero of=/tmp/pdf-source-smoke.pdf bs=1M count=2
+curl -si -X POST \
+  'https://api.your-domain.tld/api/workbook/pdf/source?fileName=pdf-source-smoke.pdf' \
+  -H 'Content-Type: application/pdf' \
+  --data-binary @/tmp/pdf-source-smoke.pdf | head -n 12
+```
+
+Ожидаемый признак корректного ingress:
+- нет HTML-страницы `413 Request Entity Too Large` от nginx;
+- ответ приходит от backend (`application/json` и/или `x-powered-by: Express`).
 
 ### 3.1) Maintenance-страница на время релиза (рекомендуется)
 Цель: если backend перезапускается/недоступен, пользователю показывается фирменная страница обслуживания, а не `502/504`.
