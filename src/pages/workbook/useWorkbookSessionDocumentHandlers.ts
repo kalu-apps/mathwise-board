@@ -53,6 +53,7 @@ export type WorkbookDocumentImportStage = "uploading" | "inserting";
 export type WorkbookPreparedDocumentImport = {
   file: File;
   preparedDataUrl?: string;
+  pdfSourceId?: string;
   pdfPageRange?: {
     from: number;
     to: number;
@@ -214,6 +215,7 @@ export const useWorkbookSessionDocumentHandlers = ({
     async ({
       file,
       preparedDataUrl,
+      pdfSourceId,
       pdfPageRange,
       pdfPageCount,
       onStage,
@@ -221,17 +223,17 @@ export const useWorkbookSessionDocumentHandlers = ({
       onErrorMessage,
     }: WorkbookPreparedDocumentImport) => {
       if (!file || !canInsertImage || !sessionId) return false;
+      const failImport = (message: string) => {
+        setError(message);
+        onErrorMessage?.(message);
+        return false;
+      };
+      const reportProgress = (value: number) => {
+        const normalized = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
+        setUploadProgress(normalized);
+        onProgress?.(normalized);
+      };
       try {
-        const failImport = (message: string) => {
-          setError(message);
-          onErrorMessage?.(message);
-          return false;
-        };
-        const reportProgress = (value: number) => {
-          const normalized = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
-          setUploadProgress(normalized);
-          onProgress?.(normalized);
-        };
         setUploadingDoc(true);
         reportProgress(20);
         let renderedPages: WorkbookDocumentAssetLike["renderedPages"] = undefined;
@@ -269,6 +271,10 @@ export const useWorkbookSessionDocumentHandlers = ({
             }))
           : "";
         if (isPdf) {
+          const sourceId =
+            typeof pdfSourceId === "string" && pdfSourceId.trim().length > 0
+              ? pdfSourceId.trim()
+              : undefined;
           const totalPages =
             typeof pdfPageCount === "number" && Number.isFinite(pdfPageCount)
               ? Math.max(1, Math.trunc(pdfPageCount))
@@ -290,7 +296,8 @@ export const useWorkbookSessionDocumentHandlers = ({
           reportProgress(45);
           const rendered = await renderWorkbookPdfPages({
             fileName: file.name,
-            file,
+            sourceId,
+            file: sourceId ? undefined : file,
             dpi: 128,
             maxPages: pageCount,
             pageFrom: safeFrom,
@@ -535,6 +542,13 @@ export const useWorkbookSessionDocumentHandlers = ({
           return failImport(
             "Не удалось добавить файл: объём слишком большой для обработки. Уменьшите размер файла и повторите попытку."
           );
+        } else if (error instanceof ApiError && error.status === 404) {
+          if (error.message === "pdf_source_not_found") {
+            return failImport(
+              "Не удалось добавить PDF: временный источник не найден или истёк. Выберите PDF заново."
+            );
+          }
+          return failImport("Не удалось добавить файл: ресурс не найден. Повторите попытку.");
         } else if (error instanceof ApiError && error.code === "timeout") {
           return failImport(
             "Не удалось добавить PDF: сервер обрабатывает документ слишком долго. Уменьшите файл или повторите попытку позже."

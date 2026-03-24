@@ -51,6 +51,10 @@ import {
   WORKBOOK_PDF_RENDER_MAX_BYTES,
 } from "./core/workbookPdfService";
 import {
+  createWorkbookPdfTempSource,
+  readWorkbookPdfTempSourceBuffer,
+} from "./core/workbookPdfSourceStore";
+import {
   getWorkbookAssetStorageDiagnostics,
   persistWorkbookAssetFromBuffer,
   persistWorkbookAssetFromDataUrl,
@@ -2576,6 +2580,8 @@ export const handleWorkbookApiRequestByDomains = async (
             maybePublishPresenceSync,
             recordWorkbookAccessEvent,
             decodeWorkbookPdfDataUrl,
+            createWorkbookPdfTempSource,
+            readWorkbookPdfTempSourceBuffer,
             inspectWorkbookPdfViaPoppler,
             renderWorkbookPdfPagesViaPoppler,
             persistWorkbookAssetFromBuffer,

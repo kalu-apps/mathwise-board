@@ -28,6 +28,17 @@ type WorkbookDomainDeps = Record<string, any> & {
   WORKBOOK_PDF_SOURCE_MAX_BYTES: number;
   WORKBOOK_PDF_RENDER_MAX_BYTES: number;
   PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS: number;
+  createWorkbookPdfTempSource: (params: {
+    pdfBuffer: Buffer;
+    fileName?: string;
+  }) => Promise<{
+    sourceId: string;
+    fileName: string;
+    sizeBytes: number;
+    createdAt: string;
+    expiresAt: string;
+  }>;
+  readWorkbookPdfTempSourceBuffer: (sourceId: string) => Promise<Buffer | null>;
   workbookStreamClientsBySession: Map<string, Map<string, WorkbookStreamClient>>;
   nowIso: () => string;
   ensureId: () => string;
@@ -60,6 +71,13 @@ const readNumberFromSearch = (
   const parsed = Number.parseInt(rawValue, 10);
   if (!Number.isFinite(parsed)) return null;
   return parsed;
+};
+
+const readTextFromSearch = (searchParams: URLSearchParams, key: string): string | null => {
+  const rawValue = searchParams.get(key);
+  if (!rawValue) return null;
+  const normalized = rawValue.trim();
+  return normalized.length > 0 ? normalized : null;
 };
 
 const readPdfBinaryBody = async (
@@ -961,6 +979,46 @@ const handleWorkbookSnapshotAndPdfRoute = async (
     return true;
   }
 
+  if (pathname === "/api/workbook/pdf/source" && method === "POST") {
+    let fileName = "document.pdf";
+    let pdfBuffer: Buffer | null = null;
+    if (isPdfBinaryRequest(req)) {
+      const binaryBody = await readPdfBinaryBody(req, deps);
+      pdfBuffer = Buffer.isBuffer(binaryBody) ? binaryBody : Buffer.from(binaryBody ?? []);
+      const queryFileName = readTextFromSearch(searchParams, "fileName");
+      if (queryFileName) {
+        fileName = queryFileName;
+      }
+    } else {
+      const body = (await deps.readBody(req)) as {
+        fileName?: string;
+        dataUrl?: string;
+      } | null;
+      pdfBuffer = deps.decodeWorkbookPdfDataUrl(body?.dataUrl);
+      if (typeof body?.fileName === "string" && body.fileName.trim().length > 0) {
+        fileName = body.fileName.trim();
+      }
+    }
+    if (!pdfBuffer || !pdfBuffer.length) {
+      deps.badRequest(res, "Некорректный PDF payload.");
+      return true;
+    }
+    if (pdfBuffer.length > deps.WORKBOOK_PDF_SOURCE_MAX_BYTES) {
+      deps.json(res, 413, {
+        error: "pdf_too_large",
+        sizeBytes: pdfBuffer.length,
+        limitBytes: deps.WORKBOOK_PDF_SOURCE_MAX_BYTES,
+      });
+      return true;
+    }
+    const source = await deps.createWorkbookPdfTempSource({
+      pdfBuffer,
+      fileName,
+    });
+    deps.json(res, 200, source);
+    return true;
+  }
+
   if (pathname === "/api/workbook/pdf/render" && method === "POST") {
     let fileName = "document.pdf";
     let dpi = 128;
@@ -968,13 +1026,15 @@ const handleWorkbookSnapshotAndPdfRoute = async (
     let firstPage = 1;
     let requestedLastPage = firstPage + maxPages - 1;
     let pdfBuffer: Buffer | null = null;
+    let sourceId: string | null = null;
     if (isPdfBinaryRequest(req)) {
       const binaryBody = await readPdfBinaryBody(req, deps);
       pdfBuffer = Buffer.isBuffer(binaryBody) ? binaryBody : Buffer.from(binaryBody ?? []);
-      const queryFileName = searchParams.get("fileName");
-      if (queryFileName && queryFileName.trim().length > 0) {
+      const queryFileName = readTextFromSearch(searchParams, "fileName");
+      if (queryFileName) {
         fileName = queryFileName;
       }
+      sourceId = readTextFromSearch(searchParams, "sourceId");
       const queryDpi = readNumberFromSearch(searchParams, "dpi");
       dpi = queryDpi !== null ? Math.max(72, Math.min(240, Math.floor(queryDpi))) : 128;
       const queryMaxPages = readNumberFromSearch(searchParams, "maxPages");
@@ -990,14 +1050,19 @@ const handleWorkbookSnapshotAndPdfRoute = async (
       const body = (await deps.readBody(req)) as {
         fileName?: string;
         dataUrl?: string;
+        sourceId?: string;
         dpi?: number;
         maxPages?: number;
         pageFrom?: number;
         pageTo?: number;
       } | null;
-      pdfBuffer = deps.decodeWorkbookPdfDataUrl(body?.dataUrl);
-      if (typeof body?.fileName === "string") {
-        fileName = body.fileName;
+      if (typeof body?.sourceId === "string" && body.sourceId.trim().length > 0) {
+        sourceId = body.sourceId.trim();
+      } else {
+        pdfBuffer = deps.decodeWorkbookPdfDataUrl(body?.dataUrl);
+      }
+      if (typeof body?.fileName === "string" && body.fileName.trim().length > 0) {
+        fileName = body.fileName.trim();
       }
       dpi =
         typeof body?.dpi === "number" && Number.isFinite(body.dpi)
@@ -1016,6 +1081,14 @@ const handleWorkbookSnapshotAndPdfRoute = async (
           ? Math.max(firstPage, Math.floor(body.pageTo))
           : firstPage + maxPages - 1;
     }
+    if (!pdfBuffer && sourceId) {
+      const sourceBuffer = await deps.readWorkbookPdfTempSourceBuffer(sourceId);
+      if (!sourceBuffer) {
+        deps.json(res, 404, { error: "pdf_source_not_found" });
+        return true;
+      }
+      pdfBuffer = sourceBuffer;
+    }
     if (!pdfBuffer || !pdfBuffer.length) {
       deps.badRequest(res, "Некорректный PDF payload.");
       return true;
@@ -1032,14 +1105,20 @@ const handleWorkbookSnapshotAndPdfRoute = async (
     const lastPage = Math.min(firstPage + maxPages - 1, requestedLastPage);
 
     try {
-      const pages = await deps.renderWorkbookPdfPagesViaPoppler({
+      const pages = (await deps.renderWorkbookPdfPagesViaPoppler({
         pdfBuffer,
         dpi,
         firstPage,
         lastPage,
         ensureId: deps.ensureId,
-      });
-      const renderedBytes = pages.reduce((sum, page) => {
+      })) as Array<{
+        id: string;
+        page: number;
+        imageUrl: string;
+        width?: number;
+        height?: number;
+      }>;
+      const renderedBytes = pages.reduce((sum: number, page) => {
         return sum + estimateDataUrlBase64Bytes(page.imageUrl);
       }, 0);
       if (renderedBytes > deps.WORKBOOK_PDF_RENDER_MAX_BYTES) {
@@ -1056,6 +1135,7 @@ const handleWorkbookSnapshotAndPdfRoute = async (
       deps.json(res, 200, {
         renderer: "poppler",
         fileName,
+        sourceId,
         pageFrom: firstPage,
         pageTo: lastPage,
         pages,
@@ -1076,22 +1156,37 @@ const handleWorkbookSnapshotAndPdfRoute = async (
   if (pathname === "/api/workbook/pdf/inspect" && method === "POST") {
     let fileName = "document.pdf";
     let pdfBuffer: Buffer | null = null;
+    let sourceId: string | null = null;
     if (isPdfBinaryRequest(req)) {
       const binaryBody = await readPdfBinaryBody(req, deps);
       pdfBuffer = Buffer.isBuffer(binaryBody) ? binaryBody : Buffer.from(binaryBody ?? []);
-      const queryFileName = searchParams.get("fileName");
-      if (queryFileName && queryFileName.trim().length > 0) {
+      const queryFileName = readTextFromSearch(searchParams, "fileName");
+      if (queryFileName) {
         fileName = queryFileName;
       }
+      sourceId = readTextFromSearch(searchParams, "sourceId");
     } else {
       const body = (await deps.readBody(req)) as {
         fileName?: string;
         dataUrl?: string;
+        sourceId?: string;
       } | null;
-      pdfBuffer = deps.decodeWorkbookPdfDataUrl(body?.dataUrl);
-      if (typeof body?.fileName === "string") {
-        fileName = body.fileName;
+      if (typeof body?.sourceId === "string" && body.sourceId.trim().length > 0) {
+        sourceId = body.sourceId.trim();
+      } else {
+        pdfBuffer = deps.decodeWorkbookPdfDataUrl(body?.dataUrl);
       }
+      if (typeof body?.fileName === "string" && body.fileName.trim().length > 0) {
+        fileName = body.fileName.trim();
+      }
+    }
+    if (!pdfBuffer && sourceId) {
+      const sourceBuffer = await deps.readWorkbookPdfTempSourceBuffer(sourceId);
+      if (!sourceBuffer) {
+        deps.json(res, 404, { error: "pdf_source_not_found" });
+        return true;
+      }
+      pdfBuffer = sourceBuffer;
     }
     if (!pdfBuffer || !pdfBuffer.length) {
       deps.badRequest(res, "Некорректный PDF payload.");
@@ -1111,6 +1206,7 @@ const handleWorkbookSnapshotAndPdfRoute = async (
       });
       deps.json(res, 200, {
         fileName,
+        sourceId,
         pageCount: inspected.pageCount,
       });
       return true;

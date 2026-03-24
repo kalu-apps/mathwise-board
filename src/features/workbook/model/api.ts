@@ -553,6 +553,7 @@ export async function leaveWorkbookPresence(sessionId: string, payload?: Workboo
 
 export async function renderWorkbookPdfPages(params: {
   fileName: string;
+  sourceId?: string;
   dataUrl?: string;
   file?: File;
   dpi?: number;
@@ -560,10 +561,36 @@ export async function renderWorkbookPdfPages(params: {
   pageFrom?: number;
   pageTo?: number;
 }) {
+  if (typeof params.sourceId === "string" && params.sourceId.trim().length > 0) {
+    return api.post<{
+      renderer: "poppler" | "unavailable";
+      fileName: string;
+      sourceId?: string | null;
+      pages: Array<{
+        id: string;
+        page: number;
+        imageUrl: string;
+        width?: number;
+        height?: number;
+      }>;
+    }>(
+      "/workbook/pdf/render",
+      {
+        fileName: params.fileName,
+        sourceId: params.sourceId,
+        dpi: params.dpi,
+        maxPages: params.maxPages,
+        pageFrom: params.pageFrom,
+        pageTo: params.pageTo,
+      },
+      { notifyDataUpdate: false, timeoutMs: 90_000 }
+    );
+  }
   if (params.file instanceof File) {
     return postWorkbookPdfBinary<{
       renderer: "poppler" | "unavailable";
       fileName: string;
+      sourceId?: string | null;
       pages: Array<{
         id: string;
         page: number;
@@ -598,12 +625,28 @@ export async function renderWorkbookPdfPages(params: {
 
 export async function inspectWorkbookPdf(params: {
   fileName: string;
+  sourceId?: string;
   dataUrl?: string;
   file?: File;
 }) {
+  if (typeof params.sourceId === "string" && params.sourceId.trim().length > 0) {
+    return api.post<{
+      fileName: string;
+      sourceId?: string | null;
+      pageCount: number;
+    }>(
+      "/workbook/pdf/inspect",
+      {
+        fileName: params.fileName,
+        sourceId: params.sourceId,
+      },
+      { notifyDataUpdate: false, timeoutMs: 45_000 }
+    );
+  }
   if (params.file instanceof File) {
     return postWorkbookPdfBinary<{
       fileName: string;
+      sourceId?: string | null;
       pageCount: number;
     }>("/workbook/pdf/inspect", {
       file: params.file,
@@ -617,6 +660,22 @@ export async function inspectWorkbookPdf(params: {
     fileName: string;
     pageCount: number;
   }>("/workbook/pdf/inspect", params, { notifyDataUpdate: false, timeoutMs: 45_000 });
+}
+
+export async function createWorkbookPdfSource(params: { fileName: string; file: File }) {
+  return postWorkbookPdfBinary<{
+    sourceId: string;
+    fileName: string;
+    sizeBytes: number;
+    createdAt: string;
+    expiresAt: string;
+  }>("/workbook/pdf/source", {
+    file: params.file,
+    timeoutMs: 90_000,
+    query: {
+      fileName: params.fileName,
+    },
+  });
 }
 
 export async function uploadWorkbookAsset(params: {

@@ -29,7 +29,7 @@ import { reportWorkbookImportEvent } from "@/features/workbook/model/workbookPer
 import { generateId } from "@/shared/lib/id";
 import type { WorkbookPreparedDocumentImport } from "./useWorkbookSessionDocumentHandlers";
 import { WorkbookPdfImportPreviewModal } from "./WorkbookPdfImportPreviewModal";
-import { inspectWorkbookPdf } from "@/features/workbook/model/api";
+import { createWorkbookPdfSource, inspectWorkbookPdf } from "@/features/workbook/model/api";
 import { ApiError } from "@/shared/api/client";
 
 type ImportModalState =
@@ -72,6 +72,7 @@ type WorkbookImportItem = {
     to: number;
   };
   pdfPageCount?: number;
+  pdfSourceId?: string;
   warning?: string;
   error?: string;
   status: ImportFileStatus;
@@ -259,15 +260,22 @@ export function WorkbookImportModal({
             ? `Большой файл (${formatFileSizeMb(file.size)}). Рекомендуется уменьшить размер.`
             : undefined;
         if (!isImage) {
+          let pdfSourceId: string | null = null;
           try {
-            const inspectedPdf = await inspectWorkbookPdf({
+            const uploadedPdfSource = await createWorkbookPdfSource({
               fileName: file.name,
               file,
+            });
+            pdfSourceId = uploadedPdfSource.sourceId;
+            const inspectedPdf = await inspectWorkbookPdf({
+              fileName: file.name,
+              sourceId: uploadedPdfSource.sourceId,
             });
             const pageCount = Math.max(1, Math.trunc(inspectedPdf.pageCount || 1));
             const defaultTo = Math.max(1, Math.min(pageCount, MAX_PDF_PAGES_PER_IMPORT, 8));
             nextItems.push({
               ...baseItem,
+              pdfSourceId: uploadedPdfSource.sourceId,
               warning:
                 pageCount > MAX_PDF_PAGES_PER_IMPORT
                   ? `Документ содержит ${pageCount} стр. За раз можно импортировать до ${MAX_PDF_PAGES_PER_IMPORT}.`
@@ -283,7 +291,7 @@ export function WorkbookImportModal({
           } catch (error) {
             let message =
               "Не удалось подготовить PDF для импорта (не удалось определить страницы). Попробуйте другой файл.";
-            let keepAsWaiting = false;
+            let keepAsWaiting = Boolean(pdfSourceId);
             let fallbackWarning: string | undefined;
             if (error instanceof ApiError && error.status === 413) {
               if (error.message === "pdf_too_large") {
@@ -292,24 +300,32 @@ export function WorkbookImportModal({
                 )} превышает лимит ${formatFileSizeMb(WORKBOOK_PDF_SOURCE_MAX_BYTES)}.`;
               } else if (error.message === "request_body_too_large") {
                 message =
-                  "Не удалось автоматически определить число страниц: превышен транспортный лимит запроса.";
-                keepAsWaiting = true;
-                fallbackWarning =
-                  "Определить количество страниц не удалось. Выберите диапазон вручную и загрузите меньший фрагмент.";
+                  "Не удалось загрузить PDF-источник: превышен транспортный лимит запроса.";
+                keepAsWaiting = false;
               } else {
                 message =
                   "Не удалось подготовить PDF: объём payload превысил лимит сервера.";
-                keepAsWaiting = true;
-                fallbackWarning =
-                  "Документ не удалось проинспектировать полностью. Попробуйте выбрать небольшой диапазон страниц.";
+                keepAsWaiting = Boolean(pdfSourceId);
+                fallbackWarning = pdfSourceId
+                  ? "Документ загружен как источник, но проинспектировать страницы не удалось. Выберите диапазон вручную."
+                  : undefined;
               }
+            } else if (error instanceof ApiError && error.status === 404) {
+              message =
+                "Не удалось подготовить PDF: временный источник документа не найден. Выберите файл заново.";
+              keepAsWaiting = false;
             } else if (error instanceof ApiError && error.status === 503) {
               message =
                 "Не удалось подготовить PDF для импорта: серверный рендер PDF временно недоступен.";
+              keepAsWaiting = Boolean(pdfSourceId);
+              fallbackWarning = pdfSourceId
+                ? "Сервер временно не ответил на inspect. Можно выбрать диапазон вручную и повторить импорт."
+                : undefined;
             }
             if (keepAsWaiting) {
               nextItems.push({
                 ...baseItem,
+                pdfSourceId: pdfSourceId ?? undefined,
                 status: "waiting",
                 warning: fallbackWarning,
                 pdfPageRange: {
@@ -501,10 +517,19 @@ export function WorkbookImportModal({
     let failureCount = 0;
     for (const item of queue) {
       try {
-        let itemFailureMessage: string | null = null;
+        let itemFailureMessage = "";
         setItemPatch(item.id, { status: "uploading", error: undefined });
         setItemProgress(item.id, 6);
         setModalState("uploading");
+        if (item.isPdf && (!item.pdfSourceId || item.pdfSourceId.trim().length === 0)) {
+          failureCount += 1;
+          setItemPatch(item.id, {
+            status: "failed",
+            error: "PDF-источник не подготовлен. Выберите файл заново.",
+            progress: 100,
+          });
+          continue;
+        }
         reportWorkbookImportEvent({
           name: "upload_started",
           sessionId,
@@ -513,13 +538,14 @@ export function WorkbookImportModal({
         const imported = await onImportFile({
           file: item.file,
           preparedDataUrl: item.preparedDataUrl,
+          pdfSourceId: item.isPdf ? item.pdfSourceId : undefined,
           pdfPageRange: item.isPdf ? item.pdfPageRange : undefined,
           pdfPageCount: item.isPdf ? item.pdfPageCount : undefined,
           onProgress: (progress) => {
             setItemProgress(item.id, progress);
           },
           onErrorMessage: (message) => {
-            itemFailureMessage = message;
+            itemFailureMessage = typeof message === "string" ? message : "";
           },
           onStage: (stage) => {
             if (stage !== "inserting") return;
@@ -535,8 +561,7 @@ export function WorkbookImportModal({
         });
         if (!imported) {
           failureCount += 1;
-          const normalizedFailureMessage =
-            typeof itemFailureMessage === "string" ? itemFailureMessage.trim() : "";
+          const normalizedFailureMessage = itemFailureMessage.trim();
           setItemPatch(item.id, {
             status: "failed",
             error:
