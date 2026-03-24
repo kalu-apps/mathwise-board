@@ -13,6 +13,7 @@ import {
   formatFileSizeMb,
   isImageUploadFile,
   isPdfUploadFile,
+  normalizePdfDataUrl,
   optimizeImageDataUrl,
   readFileAsDataUrl,
   WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
@@ -48,6 +49,10 @@ export type WorkbookDocumentImportStage = "uploading" | "inserting";
 export type WorkbookPreparedDocumentImport = {
   file: File;
   preparedDataUrl?: string;
+  pdfPageRange?: {
+    from: number;
+    to: number;
+  };
   onStage?: (stage: WorkbookDocumentImportStage) => void;
   onProgress?: (progress: number) => void;
   onErrorMessage?: (message: string) => void;
@@ -193,6 +198,7 @@ export const useWorkbookSessionDocumentHandlers = ({
     async ({
       file,
       preparedDataUrl,
+      pdfPageRange,
       onStage,
       onProgress,
       onErrorMessage,
@@ -234,6 +240,7 @@ export const useWorkbookSessionDocumentHandlers = ({
           );
         }
         const sourceDataUrl = preparedDataUrl || (await readFileAsDataUrl(file));
+        const pdfDataUrl = isPdf ? normalizePdfDataUrl(sourceDataUrl) : sourceDataUrl;
         const documentAssetDataUrl = isImage
           ? preparedDataUrl ||
             (await optimizeImageDataUrl(sourceDataUrl, {
@@ -241,16 +248,31 @@ export const useWorkbookSessionDocumentHandlers = ({
               quality: 0.82,
               maxChars: WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS,
             }))
-          : sourceDataUrl;
+          : pdfDataUrl;
         if (isPdf) {
+          const safeFrom =
+            typeof pdfPageRange?.from === "number" && Number.isFinite(pdfPageRange.from)
+              ? Math.max(1, Math.trunc(pdfPageRange.from))
+              : 1;
+          const safeTo =
+            typeof pdfPageRange?.to === "number" && Number.isFinite(pdfPageRange.to)
+              ? Math.max(safeFrom, Math.trunc(pdfPageRange.to))
+              : safeFrom + 7;
+          const pageCount = Math.max(1, Math.min(12, safeTo - safeFrom + 1));
+          const pageTo = safeFrom + pageCount - 1;
           reportProgress(45);
           const rendered = await renderWorkbookPdfPages({
             fileName: file.name,
             dataUrl: documentAssetDataUrl,
             dpi: 128,
-            maxPages: 8,
+            maxPages: pageCount,
+            pageFrom: safeFrom,
+            pageTo,
           });
-          renderedPages = rendered.pages.slice(0, 8);
+          renderedPages = rendered.pages.slice(0, pageCount).map((page, index) => ({
+            ...page,
+            page: index + 1,
+          }));
           if (!renderedPages.length) {
             return failImport(
               "Не удалось добавить PDF: документ не удалось обработать. Проверьте файл или загрузите другую версию."

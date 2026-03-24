@@ -27,6 +27,7 @@ import {
 import { reportWorkbookImportEvent } from "@/features/workbook/model/workbookPerformance";
 import { generateId } from "@/shared/lib/id";
 import type { WorkbookPreparedDocumentImport } from "./useWorkbookSessionDocumentHandlers";
+import { WorkbookPdfImportPreviewModal } from "./WorkbookPdfImportPreviewModal";
 
 type ImportModalState =
   | "idle"
@@ -63,6 +64,10 @@ type WorkbookImportItem = {
   height?: number;
   previewUrl?: string;
   preparedDataUrl?: string;
+  pdfPageRange?: {
+    from: number;
+    to: number;
+  };
   warning?: string;
   error?: string;
   status: ImportFileStatus;
@@ -89,6 +94,7 @@ const MAX_FILES_PER_BATCH = 9;
 const SOFT_IMAGE_LIMIT_BYTES = Math.round(WORKBOOK_IMAGE_IMPORT_MAX_BYTES * 0.65);
 const SOFT_PDF_LIMIT_BYTES = Math.round(WORKBOOK_PDF_IMPORT_MAX_BYTES * 0.67);
 const MAX_IMAGE_PIXELS = 14_000_000;
+const MAX_PDF_PAGES_PER_IMPORT = 12;
 
 const readImageMeta = async (dataUrl: string) =>
   new Promise<{ width: number; height: number }>((resolve, reject) => {
@@ -124,6 +130,7 @@ export function WorkbookImportModal({
   const fullscreenRestorePendingRef = useRef(false);
   const [modalState, setModalState] = useState<ImportModalState>("idle");
   const [items, setItems] = useState<WorkbookImportItem[]>([]);
+  const [pdfPreviewItemId, setPdfPreviewItemId] = useState<string | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const dialogContainer =
@@ -154,6 +161,10 @@ export function WorkbookImportModal({
     return Math.min(100, Math.round(totalProgress / items.length));
   }, [items]);
   const hasQueuedItems = items.length > 0;
+  const pdfPreviewItem = useMemo(
+    () => items.find((item) => item.id === pdfPreviewItemId && item.isPdf) ?? null,
+    [items, pdfPreviewItemId]
+  );
 
   const setItemPatch = useCallback((itemId: string, patch: Partial<WorkbookImportItem>) => {
     setItems((current) =>
@@ -243,7 +254,12 @@ export function WorkbookImportModal({
           nextItems.push({
             ...baseItem,
             warning,
-            status: "ready",
+            status: "waiting",
+            pdfPageRange: {
+              from: 1,
+              to: 8,
+            },
+            error: "Перед загрузкой выберите страницы PDF для импорта.",
           });
           continue;
         }
@@ -300,8 +316,13 @@ export function WorkbookImportModal({
         }
       }
       setItems((current) => [...current, ...nextItems]);
+      const firstPdfNeedingSetup = nextItems.find((item) => item.isPdf && item.status === "waiting");
+      if (firstPdfNeedingSetup) {
+        setPdfPreviewItemId(firstPdfNeedingSetup.id);
+      }
       const validCount = nextItems.filter((item) => item.status === "ready").length;
-      setModalState(validCount > 0 ? "ready" : "failed");
+      const pendingPdfCount = nextItems.filter((item) => item.status === "waiting").length;
+      setModalState(validCount > 0 ? "ready" : pendingPdfCount > 0 ? "files_selected" : "failed");
       reportWorkbookImportEvent({
         name: "files_selected",
         sessionId,
@@ -322,6 +343,35 @@ export function WorkbookImportModal({
       void validateAndPrepareItems(files);
     },
     [validateAndPrepareItems]
+  );
+
+  const handleOpenPdfPreview = useCallback((itemId: string) => {
+    setPdfPreviewItemId(itemId);
+  }, []);
+
+  const handleCancelPdfPreview = useCallback(() => {
+    setPdfPreviewItemId(null);
+  }, []);
+
+  const handleConfirmPdfPreview = useCallback(
+    (range: { from: number; to: number }) => {
+      if (!pdfPreviewItemId) return;
+      setItems((current) =>
+        current.map((item) =>
+          item.id === pdfPreviewItemId
+            ? {
+                ...item,
+                status: "ready",
+                error: undefined,
+                pdfPageRange: range,
+              }
+            : item
+        )
+      );
+      setPdfPreviewItemId(null);
+      setModalState("ready");
+    },
+    [pdfPreviewItemId]
   );
 
   const restoreFullscreenAfterPicker = useCallback(() => {
@@ -388,6 +438,7 @@ export function WorkbookImportModal({
         const imported = await onImportFile({
           file: item.file,
           preparedDataUrl: item.preparedDataUrl,
+          pdfPageRange: item.isPdf ? item.pdfPageRange : undefined,
           onProgress: (progress) => {
             setItemProgress(item.id, progress);
           },
@@ -470,6 +521,7 @@ export function WorkbookImportModal({
     if (isBusy) return;
     fullscreenRestorePendingRef.current = false;
     fullscreenRestoreTargetRef.current = null;
+    setPdfPreviewItemId(null);
     onClose();
   }, [isBusy, onClose]);
 
@@ -477,6 +529,7 @@ export function WorkbookImportModal({
     if (!open) {
       setModalState("idle");
       setItems([]);
+      setPdfPreviewItemId(null);
       setBatchError(null);
       setIsBusy(false);
       return;
@@ -493,20 +546,21 @@ export function WorkbookImportModal({
   }, [handleCollectFiles, initialFiles, open]);
 
   return (
-    <Dialog
-      open={open}
-      onClose={handleClose}
-      container={dialogContainer}
-      fullWidth
-      maxWidth={hasQueuedItems ? "md" : "sm"}
-      className="workbook-session__import-modal"
-      PaperProps={{
-        className: `workbook-session__import-modal-paper${
-          hasQueuedItems ? " workbook-session__import-modal-paper--expanded" : ""
-        }`,
-      }}
-      disableEscapeKeyDown={isBusy}
-    >
+    <>
+      <Dialog
+        open={open}
+        onClose={handleClose}
+        container={dialogContainer}
+        fullWidth
+        maxWidth={hasQueuedItems ? "md" : "sm"}
+        className="workbook-session__import-modal"
+        PaperProps={{
+          className: `workbook-session__import-modal-paper${
+            hasQueuedItems ? " workbook-session__import-modal-paper--expanded" : ""
+          }`,
+        }}
+        disableEscapeKeyDown={isBusy}
+      >
       <DialogTitle className="workbook-session__import-modal-title">
         <span>Импорт файлов в доску</span>
         <IconButton
@@ -612,6 +666,21 @@ export function WorkbookImportModal({
                       </span>
                     ) : null}
                   </div>
+                  {item.isPdf ? (
+                    <div className="workbook-session__import-item-actions">
+                      <span className="workbook-session__import-item-range">
+                        Страницы: {item.pdfPageRange?.from ?? 1}-{item.pdfPageRange?.to ?? 8}
+                      </span>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => handleOpenPdfPreview(item.id)}
+                        disabled={isBusy}
+                      >
+                        Выбрать страницы
+                      </Button>
+                    </div>
+                  ) : null}
                   {item.warning ? (
                     <p className="workbook-session__import-item-warning">{item.warning}</p>
                   ) : null}
@@ -622,9 +691,10 @@ export function WorkbookImportModal({
                 <IconButton
                   className="workbook-session__import-item-remove"
                   aria-label={`Удалить ${item.name}`}
-                  onClick={() =>
-                    setItems((current) => current.filter((entry) => entry.id !== item.id))
-                  }
+                  onClick={() => {
+                    setItems((current) => current.filter((entry) => entry.id !== item.id));
+                    setPdfPreviewItemId((current) => (current === item.id ? null : current));
+                  }}
                   disabled={isBusy}
                 >
                   <CloseRoundedIcon fontSize="inherit" />
@@ -661,6 +731,16 @@ export function WorkbookImportModal({
           {isBusy ? "Загружаем..." : "Загрузить"}
         </Button>
       </DialogActions>
-    </Dialog>
+      </Dialog>
+      <WorkbookPdfImportPreviewModal
+        open={open && Boolean(pdfPreviewItem)}
+        file={pdfPreviewItem?.file ?? null}
+        initialRange={pdfPreviewItem?.pdfPageRange ?? null}
+        maxPagesPerImport={MAX_PDF_PAGES_PER_IMPORT}
+        container={dialogContainer}
+        onCancel={handleCancelPdfPreview}
+        onConfirm={handleConfirmPdfPreview}
+      />
+    </>
   );
 }

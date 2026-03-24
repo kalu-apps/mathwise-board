@@ -51,6 +51,23 @@ export const readFileAsDataUrl = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
+export const normalizePdfDataUrl = (value: string) => {
+  if (typeof value !== "string") return value;
+  if (!value.startsWith("data:")) return value;
+  const commaIndex = value.indexOf(",");
+  if (commaIndex <= 5) return value;
+  const meta = value.slice(5, commaIndex);
+  const body = value.slice(commaIndex + 1).trim();
+  if (!body) return value;
+  const metaParts = meta
+    .split(";")
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+  const hasBase64 = metaParts.includes("base64");
+  if (!hasBase64) return value;
+  return `data:application/pdf;base64,${body}`;
+};
+
 const loadImageFromDataUrl = (dataUrl: string): Promise<HTMLImageElement> =>
   new Promise((resolve, reject) => {
     const image = new Image();
