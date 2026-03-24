@@ -23,6 +23,7 @@ import {
   WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS,
   WORKBOOK_IMAGE_IMPORT_MAX_BYTES,
   WORKBOOK_PDF_IMPORT_MAX_BYTES,
+  WORKBOOK_PDF_SOURCE_MAX_BYTES,
 } from "@/features/workbook/model/media";
 import { normalizeScenePayload, WORKBOOK_IMAGE_ASSET_META_KEY } from "@/features/workbook/model/scene";
 import type {
@@ -109,6 +110,17 @@ type UseWorkbookSessionDocumentHandlersParams = {
     }
   ) => Promise<boolean> | boolean;
   persistSnapshots: (options?: { silent?: boolean; force?: boolean }) => Promise<boolean>;
+};
+
+const resolveApiErrorLimitBytes = (error: ApiError) => {
+  if (!error || typeof error !== "object") return null;
+  const details = error.details as { limitBytes?: unknown } | null | undefined;
+  if (!details || typeof details !== "object") return null;
+  const limitBytes = details.limitBytes;
+  if (typeof limitBytes !== "number" || !Number.isFinite(limitBytes) || limitBytes <= 0) {
+    return null;
+  }
+  return Math.floor(limitBytes);
 };
 
 export const useWorkbookSessionDocumentHandlers = ({
@@ -231,10 +243,10 @@ export const useWorkbookSessionDocumentHandlers = ({
             "Не удалось добавить файл: поддерживаются PDF и изображения (PNG, JPG, WEBP, SVG, AVIF, TIFF и другие)."
           );
         }
-        if (isPdf && file.size > WORKBOOK_PDF_IMPORT_MAX_BYTES) {
+        if (isPdf && file.size > WORKBOOK_PDF_SOURCE_MAX_BYTES) {
           return failImport(
             `Не удалось добавить PDF: размер файла ${formatFileSizeMb(file.size)} превышает лимит ${formatFileSizeMb(
-              WORKBOOK_PDF_IMPORT_MAX_BYTES
+              WORKBOOK_PDF_SOURCE_MAX_BYTES
             )}.`
           );
         }
@@ -296,19 +308,42 @@ export const useWorkbookSessionDocumentHandlers = ({
         }
         onStage?.("uploading");
         reportProgress(56);
-        const uploadedDocumentAsset = isPdf
-          ? await uploadWorkbookAssetFile({
+        let uploadedDocumentAsset:
+          | {
+              assetId: string;
+              url: string;
+              mimeType: string;
+              sizeBytes: number;
+            }
+          | null = null;
+        let nonBlockingPdfSourceWarning: string | null = null;
+        if (isPdf) {
+          try {
+            uploadedDocumentAsset = await uploadWorkbookAssetFile({
               sessionId,
               fileName: file.name,
               file,
               mimeType: file.type || "application/pdf",
-            })
-          : await uploadWorkbookAsset({
-              sessionId,
-              fileName: file.name,
-              dataUrl: documentAssetDataUrl,
-              mimeType: file.type || (isImage ? "image/jpeg" : undefined),
             });
+          } catch (error) {
+            if (error instanceof ApiError && error.status === 413) {
+              if (error.message === "workbook_asset_too_large") {
+                nonBlockingPdfSourceWarning =
+                  "PDF импортирован как изображения страниц. Оригинал PDF не сохранён в библиотеке из-за лимита размера ассета.";
+              } else if (error.message === "request_body_too_large") {
+                nonBlockingPdfSourceWarning =
+                  "PDF импортирован как изображения страниц. Оригинал PDF не сохранён из-за транспортного лимита.";
+              }
+            }
+          }
+        } else {
+          uploadedDocumentAsset = await uploadWorkbookAsset({
+            sessionId,
+            fileName: file.name,
+            dataUrl: documentAssetDataUrl,
+            mimeType: file.type || (isImage ? "image/jpeg" : undefined),
+          });
+        }
         let syncedRenderedPages = renderedPages;
         if (Array.isArray(renderedPages) && renderedPages.length > 0) {
           const uploadedRenderedPages: NonNullable<WorkbookDocumentAssetLike["renderedPages"]> = [];
@@ -340,19 +375,28 @@ export const useWorkbookSessionDocumentHandlers = ({
         const renderedPage = isPdf
           ? resolvePrimaryDocumentRenderedPage(syncedRenderedPages, 1)
           : null;
-        const objectImageUrl = isImage ? uploadedDocumentAsset.url : renderedPage?.imageUrl;
+        const objectImageUrl = isImage
+          ? uploadedDocumentAsset?.url
+          : renderedPage?.imageUrl;
         if (isImage && !objectImageUrl) {
           return failImport(
             "Не удалось добавить изображение: браузер не смог обработать файл. Попробуйте другой формат или меньший размер."
           );
         }
+        if (isPdf && !objectImageUrl) {
+          return failImport(
+            "Не удалось добавить PDF: не удалось получить изображения выбранных страниц."
+          );
+        }
         const assetId = generateId();
         const uploadedAt = new Date().toISOString();
+        const documentAssetUrl =
+          uploadedDocumentAsset?.url || objectImageUrl || "";
         const asset = buildWorkbookDocumentAsset({
           assetId,
           fileName: file.name,
           type: isPdf ? "pdf" : isImage ? "image" : "file",
-          url: uploadedDocumentAsset.url,
+          url: documentAssetUrl,
           uploadedBy: userId ?? "unknown",
           uploadedAt,
           renderedPages: syncedRenderedPages,
@@ -446,22 +490,36 @@ export const useWorkbookSessionDocumentHandlers = ({
             name: file.name,
             type: isPdf ? "pdf" : isImage ? "image" : "office",
             ownerUserId: userId ?? "unknown",
-            sourceUrl: isImage ? uploadedDocumentAsset.url : objectImageUrl ?? uploadedDocumentAsset.url,
+            sourceUrl: isImage
+              ? uploadedDocumentAsset?.url ?? objectImageUrl ?? ""
+              : uploadedDocumentAsset?.url ?? objectImageUrl ?? "",
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             folderId: null,
           },
           { silent: true }
         );
+        if (nonBlockingPdfSourceWarning) {
+          setError(nonBlockingPdfSourceWarning);
+        }
         reportProgress(100);
         return true;
       } catch (error) {
         if (error instanceof ApiError && error.status === 413) {
           if (error.message === "pdf_too_large") {
+            const limitBytes = resolveApiErrorLimitBytes(error) ?? WORKBOOK_PDF_SOURCE_MAX_BYTES;
             return failImport(
               `Не удалось добавить PDF: серверный лимит обработки ${formatFileSizeMb(
-                WORKBOOK_PDF_IMPORT_MAX_BYTES
+                limitBytes
               )}. Уменьшите размер файла или разделите документ.`
+            );
+          }
+          if (error.message === "pdf_selected_range_too_large") {
+            const limitBytes = resolveApiErrorLimitBytes(error) ?? WORKBOOK_PDF_IMPORT_MAX_BYTES;
+            return failImport(
+              `Не удалось добавить PDF: выбранный диапазон страниц превышает лимит импорта ${formatFileSizeMb(
+                limitBytes
+              )}. Уменьшите диапазон и повторите попытку.`
             );
           }
           if (error.message === "request_body_too_large") {
@@ -472,11 +530,6 @@ export const useWorkbookSessionDocumentHandlers = ({
           if (error.message === "workbook_asset_too_large") {
             return failImport(
               "Не удалось добавить файл: ассет превышает допустимый размер хранилища. Уменьшите файл и повторите попытку."
-            );
-          }
-          if (error.message === "request_body_too_large") {
-            return failImport(
-              "Не удалось добавить файл: payload слишком большой для передачи. Попробуйте более компактный PDF."
             );
           }
           return failImport(

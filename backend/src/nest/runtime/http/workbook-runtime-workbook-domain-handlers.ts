@@ -25,6 +25,7 @@ type PresenceState = "active" | "inactive";
 
 type WorkbookDomainDeps = Record<string, any> & {
   WORKBOOK_EVENT_LIMIT: number;
+  WORKBOOK_PDF_SOURCE_MAX_BYTES: number;
   WORKBOOK_PDF_RENDER_MAX_BYTES: number;
   PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS: number;
   workbookStreamClientsBySession: Map<string, Map<string, WorkbookStreamClient>>;
@@ -59,6 +60,35 @@ const readNumberFromSearch = (
   const parsed = Number.parseInt(rawValue, 10);
   if (!Number.isFinite(parsed)) return null;
   return parsed;
+};
+
+const readPdfBinaryBody = async (
+  req: IncomingMessage,
+  deps: WorkbookDomainDeps
+): Promise<Buffer> => {
+  const limitBytes = Number.isFinite(deps.WORKBOOK_PDF_SOURCE_MAX_BYTES)
+    ? Math.max(1_024, Math.floor(deps.WORKBOOK_PDF_SOURCE_MAX_BYTES))
+    : 64 * 1024 * 1024;
+  if (typeof deps.readRawBodyWithLimit === "function") {
+    const raw = await deps.readRawBodyWithLimit(req, limitBytes);
+    return Buffer.isBuffer(raw) ? raw : Buffer.from(raw ?? []);
+  }
+  const raw = await deps.readRawBody(req);
+  return Buffer.isBuffer(raw) ? raw : Buffer.from(raw ?? []);
+};
+
+const estimateDataUrlBase64Bytes = (value: unknown) => {
+  if (typeof value !== "string" || !value.startsWith("data:")) return 0;
+  const commaIndex = value.indexOf(",");
+  if (commaIndex <= 0) return 0;
+  const meta = value.slice(5, commaIndex).toLowerCase();
+  const body = value.slice(commaIndex + 1).trim();
+  if (!body) return 0;
+  if (!meta.includes("base64")) {
+    return Buffer.byteLength(body, "utf-8");
+  }
+  const padding = body.endsWith("==") ? 2 : body.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((body.length * 3) / 4) - padding);
 };
 
 const resolveRequestOrigin = (req: IncomingMessage) => {
@@ -261,7 +291,7 @@ const handleWorkbookAssetsRoute = async (
         sizeBytes: number;
       };
       if (isPdfBinaryRequest(req)) {
-        const binaryBody = (await deps.readRawBody(req)) as Buffer;
+        const binaryBody = await readPdfBinaryBody(req, deps);
         const fileNameFromQuery = searchParams.get("fileName");
         const mimeTypeFromQuery = searchParams.get("mimeType");
         stored = await deps.persistWorkbookAssetFromBuffer({
@@ -939,7 +969,7 @@ const handleWorkbookSnapshotAndPdfRoute = async (
     let requestedLastPage = firstPage + maxPages - 1;
     let pdfBuffer: Buffer | null = null;
     if (isPdfBinaryRequest(req)) {
-      const binaryBody = (await deps.readRawBody(req)) as Buffer;
+      const binaryBody = await readPdfBinaryBody(req, deps);
       pdfBuffer = Buffer.isBuffer(binaryBody) ? binaryBody : Buffer.from(binaryBody ?? []);
       const queryFileName = searchParams.get("fileName");
       if (queryFileName && queryFileName.trim().length > 0) {
@@ -990,9 +1020,11 @@ const handleWorkbookSnapshotAndPdfRoute = async (
       deps.badRequest(res, "Некорректный PDF payload.");
       return true;
     }
-    if (pdfBuffer.length > deps.WORKBOOK_PDF_RENDER_MAX_BYTES) {
+    if (pdfBuffer.length > deps.WORKBOOK_PDF_SOURCE_MAX_BYTES) {
       deps.json(res, 413, {
         error: "pdf_too_large",
+        sizeBytes: pdfBuffer.length,
+        limitBytes: deps.WORKBOOK_PDF_SOURCE_MAX_BYTES,
       });
       return true;
     }
@@ -1007,6 +1039,20 @@ const handleWorkbookSnapshotAndPdfRoute = async (
         lastPage,
         ensureId: deps.ensureId,
       });
+      const renderedBytes = pages.reduce((sum, page) => {
+        return sum + estimateDataUrlBase64Bytes(page.imageUrl);
+      }, 0);
+      if (renderedBytes > deps.WORKBOOK_PDF_RENDER_MAX_BYTES) {
+        deps.json(res, 413, {
+          error: "pdf_selected_range_too_large",
+          sizeBytes: renderedBytes,
+          limitBytes: deps.WORKBOOK_PDF_RENDER_MAX_BYTES,
+          pageFrom: firstPage,
+          pageTo: lastPage,
+          pageCount: pages.length,
+        });
+        return true;
+      }
       deps.json(res, 200, {
         renderer: "poppler",
         fileName,
@@ -1031,7 +1077,7 @@ const handleWorkbookSnapshotAndPdfRoute = async (
     let fileName = "document.pdf";
     let pdfBuffer: Buffer | null = null;
     if (isPdfBinaryRequest(req)) {
-      const binaryBody = (await deps.readRawBody(req)) as Buffer;
+      const binaryBody = await readPdfBinaryBody(req, deps);
       pdfBuffer = Buffer.isBuffer(binaryBody) ? binaryBody : Buffer.from(binaryBody ?? []);
       const queryFileName = searchParams.get("fileName");
       if (queryFileName && queryFileName.trim().length > 0) {
@@ -1051,9 +1097,11 @@ const handleWorkbookSnapshotAndPdfRoute = async (
       deps.badRequest(res, "Некорректный PDF payload.");
       return true;
     }
-    if (pdfBuffer.length > deps.WORKBOOK_PDF_RENDER_MAX_BYTES) {
+    if (pdfBuffer.length > deps.WORKBOOK_PDF_SOURCE_MAX_BYTES) {
       deps.json(res, 413, {
         error: "pdf_too_large",
+        sizeBytes: pdfBuffer.length,
+        limitBytes: deps.WORKBOOK_PDF_SOURCE_MAX_BYTES,
       });
       return true;
     }

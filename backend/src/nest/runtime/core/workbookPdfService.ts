@@ -6,7 +6,25 @@ import { promises as fsPromises } from "node:fs";
 
 const execFileAsync = promisify(execFileCallback);
 
-export const WORKBOOK_PDF_RENDER_MAX_BYTES = 20 * 1024 * 1024;
+const readPositiveInt = (value: string | undefined, fallback: number, max: number) => {
+  const parsed = Number.parseInt(String(value ?? "").trim(), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(max, parsed);
+};
+
+// Source file limit: governs how large a PDF can be for inspect/render pre-processing.
+export const WORKBOOK_PDF_SOURCE_MAX_BYTES = readPositiveInt(
+  process.env.WORKBOOK_PDF_SOURCE_MAX_BYTES,
+  64 * 1024 * 1024,
+  256 * 1024 * 1024
+);
+
+// Final rendered payload limit: governs how much page image data can be imported at once.
+export const WORKBOOK_PDF_RENDER_MAX_BYTES = readPositiveInt(
+  process.env.WORKBOOK_PDF_RENDER_MAX_BYTES,
+  20 * 1024 * 1024,
+  128 * 1024 * 1024
+);
 
 const toDataUrl = (buffer: Buffer, mimeType: string) =>
   `data:${mimeType};base64,${buffer.toString("base64")}`;
