@@ -39,6 +39,41 @@ const toFiniteNumber = (value: unknown, fallback = 0) => {
 const toSafeInt = (value: unknown, fallback = 0) =>
   Math.max(0, Math.floor(toFiniteNumber(value, fallback)));
 
+const normalizePageOrder = (rawOrder: unknown, maxKnownPage: number) => {
+  const safeMaxPage = Math.max(1, toSafeInt(maxKnownPage, 1));
+  const incoming = Array.isArray(rawOrder) ? rawOrder : [];
+  const used = new Set<number>();
+  const normalized: number[] = [];
+  incoming.forEach((candidate) => {
+    const page = Math.max(1, toSafeInt(candidate, 1));
+    if (page < 1 || page > safeMaxPage || used.has(page)) return;
+    used.add(page);
+    normalized.push(page);
+  });
+  for (let page = 1; page <= safeMaxPage; page += 1) {
+    if (used.has(page)) continue;
+    normalized.push(page);
+  }
+  return normalized;
+};
+
+const normalizePageTitles = (rawTitles: unknown, maxKnownPage: number): Record<string, string> => {
+  const safeMaxPage = Math.max(1, toSafeInt(maxKnownPage, 1));
+  if (!rawTitles || typeof rawTitles !== "object" || Array.isArray(rawTitles)) {
+    return {};
+  }
+  const nextTitles: Record<string, string> = {};
+  Object.entries(rawTitles as Record<string, unknown>).forEach(([key, value]) => {
+    const page = Number.parseInt(key, 10);
+    if (!Number.isFinite(page) || page < 1 || page > safeMaxPage) return;
+    if (typeof value !== "string") return;
+    const title = value.trim().slice(0, 96);
+    if (!title) return;
+    nextTitles[String(page)] = title;
+  });
+  return nextTitles;
+};
+
 const toColor = (value: unknown, fallback: string) =>
   typeof value === "string" && value.trim().length > 0 ? value : fallback;
 
@@ -467,6 +502,8 @@ const normalizeBoardSettings = (raw: unknown): WorkbookBoardSettings => {
       showPageNumbers: false,
       currentPage: 1,
       pagesCount: 1,
+      pageOrder: [1],
+      pageTitles: {},
       activeFrameId: null,
       autoSectionDividers: false,
       dividerStep: 960,
@@ -475,6 +512,9 @@ const normalizeBoardSettings = (raw: unknown): WorkbookBoardSettings => {
     };
   }
   const source = raw as Partial<WorkbookBoardSettings>;
+  const pagesCount = Math.max(1, toSafeInt(source.pagesCount, 1));
+  const pageOrder = normalizePageOrder((source as { pageOrder?: unknown }).pageOrder, pagesCount);
+  const pageTitles = normalizePageTitles((source as { pageTitles?: unknown }).pageTitles, pagesCount);
   const sceneLayers = normalizeSceneLayers(
     (source as Partial<Record<"sceneLayers", unknown>>).sceneLayers,
     (source as Partial<Record<"activeSceneLayerId", unknown>>).activeSceneLayerId
@@ -491,7 +531,9 @@ const normalizeBoardSettings = (raw: unknown): WorkbookBoardSettings => {
     snapToGrid: Boolean(source.snapToGrid),
     showPageNumbers: Boolean(source.showPageNumbers),
     currentPage: Math.max(1, toSafeInt(source.currentPage, 1)),
-    pagesCount: Math.max(1, toSafeInt(source.pagesCount, 1)),
+    pagesCount,
+    pageOrder,
+    pageTitles,
     activeFrameId:
       typeof source.activeFrameId === "string" ? source.activeFrameId : null,
     autoSectionDividers: Boolean(source.autoSectionDividers),

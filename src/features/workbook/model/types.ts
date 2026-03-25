@@ -198,6 +198,8 @@ export type WorkbookBoardSettings = {
   showPageNumbers: boolean;
   currentPage: number;
   pagesCount: number;
+  pageOrder: number[];
+  pageTitles: Record<string, string>;
   activeFrameId: string | null;
   autoSectionDividers: boolean;
   dividerStep: number;

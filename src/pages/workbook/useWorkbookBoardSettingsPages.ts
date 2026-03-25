@@ -9,6 +9,8 @@ import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import {
   buildBoardSettingsDiffPatch,
   cloneSerializable,
+  normalizeWorkbookPageOrder,
+  normalizeWorkbookPageTitles,
   resolveMaxKnownWorkbookPage,
   toSafeWorkbookPage,
 } from "./WorkbookSessionPage.core";
@@ -199,6 +201,21 @@ export const useWorkbookBoardSettingsPages = ({
           merged.activeSceneLayerId
         );
         const nextPagesCount = Math.max(1, Math.round(merged.pagesCount || 1));
+        const maxKnownPage = resolveMaxKnownWorkbookPage({
+          pagesCount: nextPagesCount,
+          boardObjects: boardObjectsRef.current,
+          boardStrokes: boardStrokesRef.current,
+          annotationStrokes: annotationStrokesRef.current,
+        });
+        const safePagesCount = Math.max(nextPagesCount, maxKnownPage);
+        const normalizedPageOrder = normalizeWorkbookPageOrder(
+          merged.pageOrder,
+          safePagesCount
+        );
+        const normalizedPageTitles = normalizeWorkbookPageTitles(
+          merged.pageTitles,
+          safePagesCount
+        );
         const nextSettings: WorkbookBoardSettings = {
           ...merged,
           sceneLayers: normalizedLayers.sceneLayers,
@@ -211,11 +228,13 @@ export const useWorkbookBoardSettingsPages = ({
           currentPage: Math.max(
             1,
             Math.min(
-              nextPagesCount,
+              safePagesCount,
               Math.round(merged.currentPage || current.currentPage || 1)
             )
           ),
-          pagesCount: nextPagesCount,
+          pagesCount: safePagesCount,
+          pageOrder: normalizedPageOrder,
+          pageTitles: normalizedPageTitles,
           dividerStep: Math.max(
             320,
             Math.min(2400, Math.round(merged.dividerStep || current.dividerStep || 320))
@@ -226,6 +245,9 @@ export const useWorkbookBoardSettingsPages = ({
       });
     },
     [
+      annotationStrokesRef,
+      boardObjectsRef,
+      boardStrokesRef,
       canManageSharedBoardSettings,
       isBoardPageMutationPending,
       queuedBoardSettingsHistoryBeforeRef,
@@ -243,7 +265,9 @@ export const useWorkbookBoardSettingsPages = ({
         boardStrokes: boardStrokesRef.current,
         annotationStrokes: annotationStrokesRef.current,
       });
+      const pageOrder = normalizeWorkbookPageOrder(boardSettingsRef.current.pageOrder, maxKnownPage);
       const safeNextPage = Math.min(maxKnownPage, toSafeWorkbookPage(page));
+      if (!pageOrder.includes(safeNextPage)) return;
       const currentPage = toSafeWorkbookPage(boardSettingsRef.current.currentPage);
       if (safeNextPage === currentPage) return;
       handleSharedBoardSettingsChange({
@@ -252,6 +276,81 @@ export const useWorkbookBoardSettingsPages = ({
           toSafeWorkbookPage(boardSettingsRef.current.pagesCount),
           safeNextPage
         ),
+      });
+    },
+    [
+      annotationStrokesRef,
+      boardObjectsRef,
+      boardSettingsRef,
+      boardStrokesRef,
+      canManageSharedBoardSettings,
+      handleSharedBoardSettingsChange,
+      isBoardPageMutationPending,
+    ]
+  );
+
+  const handleRenameBoardPage = useCallback(
+    (page: number, title: string) => {
+      if (!canManageSharedBoardSettings || isBoardPageMutationPending) return;
+      const maxKnownPage = resolveMaxKnownWorkbookPage({
+        pagesCount: boardSettingsRef.current.pagesCount,
+        boardObjects: boardObjectsRef.current,
+        boardStrokes: boardStrokesRef.current,
+        annotationStrokes: annotationStrokesRef.current,
+      });
+      const safePage = Math.min(maxKnownPage, toSafeWorkbookPage(page));
+      const normalizedTitles = normalizeWorkbookPageTitles(
+        boardSettingsRef.current.pageTitles,
+        maxKnownPage
+      );
+      const nextTitle = title.trim().slice(0, 96);
+      const currentTitle = (normalizedTitles[String(safePage)] ?? "").trim();
+      if (nextTitle === currentTitle) return;
+      if (nextTitle.length > 0) {
+        normalizedTitles[String(safePage)] = nextTitle;
+      } else {
+        delete normalizedTitles[String(safePage)];
+      }
+      handleSharedBoardSettingsChange({
+        pageTitles: normalizedTitles,
+      });
+    },
+    [
+      annotationStrokesRef,
+      boardObjectsRef,
+      boardSettingsRef,
+      boardStrokesRef,
+      canManageSharedBoardSettings,
+      handleSharedBoardSettingsChange,
+      isBoardPageMutationPending,
+    ]
+  );
+
+  const handleReorderBoardPages = useCallback(
+    (nextOrder: number[]) => {
+      if (!canManageSharedBoardSettings || isBoardPageMutationPending) return;
+      const maxKnownPage = resolveMaxKnownWorkbookPage({
+        pagesCount: boardSettingsRef.current.pagesCount,
+        boardObjects: boardObjectsRef.current,
+        boardStrokes: boardStrokesRef.current,
+        annotationStrokes: annotationStrokesRef.current,
+      });
+      const currentOrder = normalizeWorkbookPageOrder(boardSettingsRef.current.pageOrder, maxKnownPage);
+      const normalizedNextOrder = normalizeWorkbookPageOrder(nextOrder, maxKnownPage);
+      if (
+        currentOrder.length === normalizedNextOrder.length
+        && currentOrder.every((pageId, index) => pageId === normalizedNextOrder[index])
+      ) {
+        return;
+      }
+      const currentPage = toSafeWorkbookPage(boardSettingsRef.current.currentPage);
+      const safeCurrentPage = normalizedNextOrder.includes(currentPage)
+        ? currentPage
+        : normalizedNextOrder[0] ?? 1;
+      handleSharedBoardSettingsChange({
+        pageOrder: normalizedNextOrder,
+        currentPage: safeCurrentPage,
+        pagesCount: Math.max(toSafeWorkbookPage(boardSettingsRef.current.pagesCount), maxKnownPage),
       });
     },
     [
@@ -274,9 +373,11 @@ export const useWorkbookBoardSettingsPages = ({
       annotationStrokes: annotationStrokesRef.current,
     });
     const nextPage = maxKnownPage + 1;
+    const currentOrder = normalizeWorkbookPageOrder(boardSettingsRef.current.pageOrder, maxKnownPage);
     handleSharedBoardSettingsChange({
       pagesCount: nextPage,
       currentPage: nextPage,
+      pageOrder: [...currentOrder, nextPage],
     });
   }, [
     annotationStrokesRef,
@@ -402,12 +503,35 @@ export const useWorkbookBoardSettingsPages = ({
           currentPage > safeTargetPage
             ? currentPage - 1
             : Math.min(currentPage, nextPagesCount);
+        const currentPageOrder = normalizeWorkbookPageOrder(
+          boardSettingsSnapshot.pageOrder,
+          maxKnownPage
+        );
+        const nextPageOrder = normalizeWorkbookPageOrder(
+          currentPageOrder
+            .filter((pageId) => pageId !== safeTargetPage)
+            .map((pageId) => (pageId > safeTargetPage ? pageId - 1 : pageId)),
+          nextPagesCount
+        );
+        const nextPageTitles = normalizeWorkbookPageTitles(
+          boardSettingsSnapshot.pageTitles,
+          maxKnownPage
+        );
+        const shiftedPageTitles: Record<string, string> = {};
+        Object.entries(nextPageTitles).forEach(([key, value]) => {
+          const parsedPage = Number.parseInt(key, 10);
+          if (!Number.isFinite(parsedPage) || parsedPage === safeTargetPage) return;
+          const shiftedPage = parsedPage > safeTargetPage ? parsedPage - 1 : parsedPage;
+          shiftedPageTitles[String(shiftedPage)] = value;
+        });
         events.push({
           type: "board.settings.update",
           payload: {
             boardSettings: {
               pagesCount: nextPagesCount,
               currentPage: nextCurrentPage,
+              pageOrder: nextPageOrder,
+              pageTitles: shiftedPageTitles,
             },
           },
         });
@@ -440,6 +564,8 @@ export const useWorkbookBoardSettingsPages = ({
   return {
     handleSharedBoardSettingsChange,
     handleSelectBoardPage,
+    handleRenameBoardPage,
+    handleReorderBoardPages,
     handleAddBoardPage,
     handleDeleteBoardPage,
   };

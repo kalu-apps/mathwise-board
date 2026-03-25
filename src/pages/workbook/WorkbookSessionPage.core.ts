@@ -71,6 +71,59 @@ export const MAIN_SCENE_LAYER_NAME = "Основной слой";
 export const toSafeWorkbookPage = (value: number | null | undefined) =>
   Math.max(1, Math.round(value || 1));
 
+export const normalizeWorkbookPageOrder = (
+  rawOrder: unknown,
+  maxKnownPage: number
+): number[] => {
+  const safeMaxPage = Math.max(1, toSafeWorkbookPage(maxKnownPage));
+  const incoming = Array.isArray(rawOrder) ? rawOrder : [];
+  const used = new Set<number>();
+  const normalized: number[] = [];
+  incoming.forEach((candidate) => {
+    const page = toSafeWorkbookPage(typeof candidate === "number" ? candidate : Number(candidate));
+    if (page < 1 || page > safeMaxPage || used.has(page)) return;
+    used.add(page);
+    normalized.push(page);
+  });
+  for (let page = 1; page <= safeMaxPage; page += 1) {
+    if (used.has(page)) continue;
+    normalized.push(page);
+  }
+  return normalized;
+};
+
+export const normalizeWorkbookPageTitles = (
+  rawTitles: unknown,
+  maxKnownPage: number
+): Record<string, string> => {
+  const safeMaxPage = Math.max(1, toSafeWorkbookPage(maxKnownPage));
+  if (!rawTitles || typeof rawTitles !== "object" || Array.isArray(rawTitles)) {
+    return {};
+  }
+  const nextTitles: Record<string, string> = {};
+  Object.entries(rawTitles as Record<string, unknown>).forEach(([key, value]) => {
+    const page = Number.parseInt(key, 10);
+    if (!Number.isFinite(page) || page < 1 || page > safeMaxPage) return;
+    if (typeof value !== "string") return;
+    const title = value.trim().slice(0, 96);
+    if (title.length === 0) return;
+    nextTitles[String(page)] = title;
+  });
+  return nextTitles;
+};
+
+export const resolveWorkbookPageTitle = (
+  page: number,
+  pageTitles: Record<string, string> | null | undefined
+) => {
+  const safePage = toSafeWorkbookPage(page);
+  const title =
+    pageTitles && typeof pageTitles[String(safePage)] === "string"
+      ? pageTitles[String(safePage)]?.trim() ?? ""
+      : "";
+  return title.length > 0 ? title : `Страница ${safePage}`;
+};
+
 export const resolveMaxKnownWorkbookPage = (params: {
   pagesCount: number;
   boardObjects: WorkbookBoardObject[];
@@ -207,6 +260,8 @@ export const DEFAULT_BOARD_SETTINGS: WorkbookBoardSettings = {
   showPageNumbers: false,
   currentPage: 1,
   pagesCount: 1,
+  pageOrder: [1],
+  pageTitles: {},
   activeFrameId: null,
   autoSectionDividers: false,
   dividerStep: 960,

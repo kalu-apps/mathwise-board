@@ -6,8 +6,16 @@ import type { WorkbookBoardSettings } from "@/features/workbook/model/types";
 
 export type WorkbookBoardPageOption = {
   page: number;
+  position: number;
   hasContent: boolean;
   label: string;
+  title: string;
+  preview: {
+    objectCount: number;
+    strokeCount: number;
+    annotationCount: number;
+    imageUrl: string | null;
+  };
 };
 
 export type WorkbookSessionBoardSettingsPanelProps = {
@@ -30,8 +38,16 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
       : [
           {
             page: Math.max(1, Math.round(sharedBoardSettings.currentPage || 1)),
+            position: 1,
             hasContent: false,
             label: "Страница 1",
+            title: "Страница 1",
+            preview: {
+              objectCount: 0,
+              strokeCount: 0,
+              annotationCount: 0,
+              imageUrl: null,
+            },
           },
         ];
   const safeCurrentPage = Math.max(1, Math.round(sharedBoardSettings.currentPage || 1));

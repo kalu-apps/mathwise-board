@@ -45,6 +45,7 @@ interface WorkbookSessionContextbarProps {
   boardPageOptions: WorkbookBoardPageOption[];
   currentBoardPage: number;
   totalBoardPages: number;
+  onOpenPageManager: () => void;
   canManageBoardPages: boolean;
   isBoardPageMutationPending: boolean;
   onSelectBoardPage: (page: number) => void;
@@ -91,6 +92,7 @@ export function WorkbookSessionContextbar({
   boardPageOptions,
   currentBoardPage,
   totalBoardPages,
+  onOpenPageManager,
   canManageBoardPages,
   isBoardPageMutationPending,
   onSelectBoardPage,
@@ -121,8 +123,13 @@ export function WorkbookSessionContextbar({
   isCompactViewport,
 }: WorkbookSessionContextbarProps) {
   const safeCurrentBoardPage = Math.max(1, Math.round(currentBoardPage || 1));
+  const orderedPageIds = boardPageOptions.map((option) => option.page);
+  const currentPageOrderIndexRaw = orderedPageIds.indexOf(safeCurrentBoardPage);
+  const currentPageOrderIndex = currentPageOrderIndexRaw >= 0 ? currentPageOrderIndexRaw : 0;
+  const currentPagePosition = currentPageOrderIndex + 1;
   const safeTotalBoardPages = Math.max(
-    safeCurrentBoardPage,
+    currentPagePosition,
+    boardPageOptions.length,
     Math.round(totalBoardPages || 1)
   );
   const pagesWithContent = boardPageOptions.reduce(
@@ -130,8 +137,10 @@ export function WorkbookSessionContextbar({
     0
   );
   const canMutatePages = canManageBoardPages && !isBoardPageMutationPending;
-  const canGoPrev = canMutatePages && safeCurrentBoardPage > 1;
-  const canGoNext = canMutatePages && safeCurrentBoardPage < safeTotalBoardPages;
+  const prevPageId = orderedPageIds[currentPageOrderIndex - 1] ?? null;
+  const nextPageId = orderedPageIds[currentPageOrderIndex + 1] ?? null;
+  const canGoPrev = canMutatePages && typeof prevPageId === "number";
+  const canGoNext = canMutatePages && typeof nextPageId === "number";
   const canDeleteCurrentPage = canMutatePages && safeTotalBoardPages > 1;
 
   return (
@@ -207,18 +216,28 @@ export function WorkbookSessionContextbar({
               size="small"
               className="workbook-session__toolbar-icon"
               disabled={!canGoPrev}
-              onClick={() => onSelectBoardPage(safeCurrentBoardPage - 1)}
+              onClick={() => {
+                if (typeof prevPageId !== "number") return;
+                onSelectBoardPage(prevPageId);
+              }}
             >
               <NavigateBeforeRoundedIcon />
             </IconButton>
           </span>
         </Tooltip>
         <Tooltip
-          title={`Текущая страница: ${safeCurrentBoardPage}. Всего страниц: ${safeTotalBoardPages}. Страниц с контентом: ${pagesWithContent}.`}
+          title={`Текущая страница: ${currentPagePosition}. Всего страниц: ${safeTotalBoardPages}. Страниц с контентом: ${pagesWithContent}.`}
           placement="bottom"
           arrow
         >
-          <span className="workbook-session__page-badge">Стр. {safeCurrentBoardPage}</span>
+          <button
+            type="button"
+            className="workbook-session__page-badge workbook-session__page-badge--button"
+            onClick={onOpenPageManager}
+            disabled={!canManageBoardPages}
+          >
+            Стр. {currentPagePosition}
+          </button>
         </Tooltip>
         <Tooltip title="Следующая страница" placement="bottom" arrow>
           <span>
@@ -226,7 +245,10 @@ export function WorkbookSessionContextbar({
               size="small"
               className="workbook-session__toolbar-icon"
               disabled={!canGoNext}
-              onClick={() => onSelectBoardPage(safeCurrentBoardPage + 1)}
+              onClick={() => {
+                if (typeof nextPageId !== "number") return;
+                onSelectBoardPage(nextPageId);
+              }}
             >
               <NavigateNextRoundedIcon />
             </IconButton>

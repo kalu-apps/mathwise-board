@@ -97,6 +97,7 @@ import { useWorkbookSessionRealtimeLifecycle } from "./useWorkbookSessionRealtim
 import { useWorkbookToolRuntimeHandlers } from "./useWorkbookToolRuntimeHandlers";
 import { WorkbookSessionWorkspace } from "./WorkbookSessionWorkspace";
 import { WorkbookSessionSidebar } from "./WorkbookSessionSidebar";
+import { WorkbookSessionPageManagerFullscreen } from "./WorkbookSessionPageManagerFullscreen";
 import { useWorkbookSessionSelectionViewportState } from "./useWorkbookSessionSelectionViewportState";
 import { buildWorkbookSessionSelectionViewportParams } from "./buildWorkbookSessionSelectionViewportParams";
 import { useWorkbookSessionDerivedState } from "./useWorkbookSessionDerivedState";
@@ -436,6 +437,7 @@ export default function WorkbookSessionPage() {
   const [overlayContainer, setOverlayContainer] = useState<HTMLElement | undefined>(() =>
     typeof document !== "undefined" ? document.body : undefined
   );
+  const [isPageManagerOpen, setIsPageManagerOpen] = useState(false);
   const [presenceTabIdSnapshot, setPresenceTabIdSnapshot] = useState("");
   const handleSessionRootRef = useCallback(
     (node: HTMLElement | null) => {
@@ -1056,6 +1058,8 @@ export default function WorkbookSessionPage() {
   const {
     handleSharedBoardSettingsChange,
     handleSelectBoardPage,
+    handleRenameBoardPage,
+    handleReorderBoardPages,
     handleAddBoardPage,
     handleDeleteBoardPage,
   } = useWorkbookBoardSettingsPages({
@@ -2207,6 +2211,13 @@ export default function WorkbookSessionPage() {
     onMarkSessionChatReadToLatest: markSessionChatReadToLatest,
     onSendSessionChatMessage: handleSendSessionChatMessage,
   };
+  const handleOpenPageManager = useCallback(() => {
+    if (!canManageSharedBoardSettings) return;
+    setIsPageManagerOpen(true);
+  }, [canManageSharedBoardSettings]);
+  const handleClosePageManager = useCallback(() => {
+    setIsPageManagerOpen(false);
+  }, []);
 
   const contextbarProps = {
     overlayContainer,
@@ -2224,6 +2235,7 @@ export default function WorkbookSessionPage() {
     boardPageOptions: selectionViewportState.boardPageOptions,
     currentBoardPage: safeCurrentBoardPage,
     totalBoardPages: safeTotalBoardPages,
+    onOpenPageManager: handleOpenPageManager,
     canManageBoardPages: canManageSharedBoardSettings,
     isBoardPageMutationPending,
     onSelectBoardPage: handleSelectBoardPage,
@@ -2452,6 +2464,19 @@ export default function WorkbookSessionPage() {
         container={overlayContainer}
         onClose={handleImportModalClose}
         onImportFile={handleImportModalFile}
+      />
+
+      <WorkbookSessionPageManagerFullscreen
+        open={isPageManagerOpen}
+        overlayContainer={overlayContainer}
+        pageOptions={selectionViewportState.boardPageOptions}
+        currentPage={safeCurrentBoardPage}
+        canManageBoardPages={canManageSharedBoardSettings}
+        isBoardPageMutationPending={isBoardPageMutationPending}
+        onClose={handleClosePageManager}
+        onSelectPage={handleSelectBoardPage}
+        onRenamePage={handleRenameBoardPage}
+        onReorderPages={handleReorderBoardPages}
       />
 
       {confirmDialogContent ? (

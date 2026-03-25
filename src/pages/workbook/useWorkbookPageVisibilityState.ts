@@ -7,7 +7,12 @@ import type {
 } from "@/features/workbook/model/types";
 import type { WorkbookIncomingEraserPreviewEntry } from "@/features/workbook/model/useWorkbookIncomingRuntimeController";
 import type { WorkbookAreaSelection } from "@/features/workbook/model/workbookSessionUiTypes";
-import { resolveMaxKnownWorkbookPage, toSafeWorkbookPage } from "./WorkbookSessionPage.core";
+import {
+  normalizeWorkbookPageOrder,
+  normalizeWorkbookPageTitles,
+  resolveMaxKnownWorkbookPage,
+  toSafeWorkbookPage,
+} from "./WorkbookSessionPage.core";
 import { useWorkbookVisibleScene } from "./useWorkbookVisibleScene";
 import {
   resolveBoardObjectImageAssetId,
@@ -26,7 +31,10 @@ type UseWorkbookPageVisibilityStateParams = {
   boardStrokes: WorkbookStroke[];
   annotationStrokes: WorkbookStroke[];
   incomingEraserPreviews: Record<string, WorkbookIncomingEraserPreviewEntry>;
-  boardSettings: Pick<WorkbookBoardSettings, "pagesCount" | "currentPage" | "activeFrameId">;
+  boardSettings: Pick<
+    WorkbookBoardSettings,
+    "pagesCount" | "currentPage" | "activeFrameId" | "pageOrder" | "pageTitles"
+  >;
   frameFocusMode: "all" | "active";
   selectedObjectId: string | null;
   setSelectedObjectId: SetSelectedObjectId;
@@ -108,14 +116,43 @@ export const useWorkbookPageVisibilityState = ({
 
   const boardPageOptions = useMemo(() => {
     const contentPages = new Set<number>();
+    const objectCountByPage = new Map<number, number>();
+    const strokeCountByPage = new Map<number, number>();
+    const annotationCountByPage = new Map<number, number>();
+    const imageByPage = new Map<number, string>();
     boardObjects.forEach((object) => {
-      contentPages.add(toSafeWorkbookPage(object.page));
+      const page = toSafeWorkbookPage(object.page);
+      contentPages.add(page);
+      objectCountByPage.set(page, (objectCountByPage.get(page) ?? 0) + 1);
+      if (imageByPage.has(page)) return;
+      if (object.type !== "image") return;
+      const objectImageUrl =
+        typeof object.imageUrl === "string" && object.imageUrl.trim().length > 0
+          ? normalizeWorkbookAssetContentUrl(object.imageUrl)
+          : "";
+      if (objectImageUrl) {
+        imageByPage.set(page, objectImageUrl);
+        return;
+      }
+      const assetId = resolveBoardObjectImageAssetId(object);
+      if (!assetId) return;
+      const assetImageUrl =
+        typeof imageAssetUrls[assetId] === "string"
+          ? normalizeWorkbookAssetContentUrl(imageAssetUrls[assetId] ?? "")
+          : "";
+      if (assetImageUrl) {
+        imageByPage.set(page, assetImageUrl);
+      }
     });
     boardStrokes.forEach((stroke) => {
-      contentPages.add(toSafeWorkbookPage(stroke.page));
+      const page = toSafeWorkbookPage(stroke.page);
+      contentPages.add(page);
+      strokeCountByPage.set(page, (strokeCountByPage.get(page) ?? 0) + 1);
     });
     annotationStrokes.forEach((stroke) => {
-      contentPages.add(toSafeWorkbookPage(stroke.page));
+      const page = toSafeWorkbookPage(stroke.page);
+      contentPages.add(page);
+      annotationCountByPage.set(page, (annotationCountByPage.get(page) ?? 0) + 1);
     });
 
     const maxKnownPage = resolveMaxKnownWorkbookPage({
@@ -125,16 +162,42 @@ export const useWorkbookPageVisibilityState = ({
       annotationStrokes,
     });
 
-    return Array.from({ length: maxKnownPage }, (_, index) => {
-      const page = index + 1;
+    const orderedPages = normalizeWorkbookPageOrder(boardSettings.pageOrder, maxKnownPage);
+
+    const normalizedTitles = normalizeWorkbookPageTitles(
+      boardSettings.pageTitles,
+      maxKnownPage
+    );
+    return orderedPages.map((page, index) => {
       const hasContent = contentPages.has(page);
+      const objectCount = objectCountByPage.get(page) ?? 0;
+      const strokeCount = strokeCountByPage.get(page) ?? 0;
+      const annotationCount = annotationCountByPage.get(page) ?? 0;
+      const resolvedTitle = (normalizedTitles[String(page)] ?? "").trim();
+      const position = index + 1;
       return {
         page,
+        position,
         hasContent,
-        label: hasContent ? `Страница ${page} • контент` : `Страница ${page}`,
+        title: resolvedTitle.length > 0 ? resolvedTitle : `Страница ${position}`,
+        label: hasContent ? `Страница ${position} • контент` : `Страница ${position}`,
+        preview: {
+          objectCount,
+          strokeCount,
+          annotationCount,
+          imageUrl: imageByPage.get(page) ?? null,
+        },
       };
     });
-  }, [annotationStrokes, boardObjects, boardSettings.pagesCount, boardStrokes]);
+  }, [
+    annotationStrokes,
+    boardObjects,
+    boardSettings.pageOrder,
+    boardSettings.pageTitles,
+    boardSettings.pagesCount,
+    boardStrokes,
+    imageAssetUrls,
+  ]);
 
   const {
     visibleIncomingEraserPreviews,
