@@ -119,11 +119,16 @@ export const applyWorkbookIncomingEventsBatch = ({
       }
       const isVolatileEvent = isVolatileWorkbookEventType(event.type);
       const isLiveReplayableEvent = isLiveReplayableWorkbookEventType(event.type);
+      const canApplyLatePageSettingsEvent =
+        isPageSettingsUpdate &&
+        eventSeq !== null &&
+        eventSeq > lastAppliedBoardSettingsSeqRef.current;
       if (
         eventSeq !== null &&
         !isVolatileEvent &&
         !isLiveReplayableEvent &&
-        eventSeq <= lastAppliedSeqRef.current
+        eventSeq <= lastAppliedSeqRef.current &&
+        !canApplyLatePageSettingsEvent
       ) {
         staleEventsSkipped += 1;
         if (isPageSettingsUpdate) {

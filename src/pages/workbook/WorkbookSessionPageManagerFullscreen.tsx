@@ -271,7 +271,7 @@ export function WorkbookSessionPageManagerFullscreen({
     const initialRect = event.active.rect.current.initial;
     setActiveDragPageId(activePage);
     setOverDragPageId(activePage);
-    lastOverDragPageIdRef.current = activePage;
+    lastOverDragPageIdRef.current = null;
     if (initialRect) {
       setDragOverlaySize({
         width: Math.max(1, Math.round(initialRect.width)),
@@ -290,8 +290,8 @@ export function WorkbookSessionPageManagerFullscreen({
       return;
     }
     setOverDragPageId(overPage);
-    lastOverDragPageIdRef.current = overPage;
     if (activePage === overPage) return;
+    lastOverDragPageIdRef.current = overPage;
     const currentOrder = displayOrderPageIdsRef.current;
     const oldIndex = currentOrder.indexOf(activePage);
     const newIndex = currentOrder.indexOf(overPage);
@@ -316,7 +316,11 @@ export function WorkbookSessionPageManagerFullscreen({
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const activePage = toSafePageId(event.active.id);
-      const overPage = toSafePageId(event.over?.id) ?? lastOverDragPageIdRef.current;
+      const overEventPage = toSafePageId(event.over?.id);
+      const overPage =
+        overEventPage !== null && overEventPage !== activePage
+          ? overEventPage
+          : lastOverDragPageIdRef.current;
       let nextOrder = displayOrderPageIdsRef.current;
 
       if (
@@ -332,18 +336,6 @@ export function WorkbookSessionPageManagerFullscreen({
         }
       }
 
-      if (activePage !== null && overPage !== null && activePage !== overPage) {
-        const activeIndex = nextOrder.indexOf(activePage);
-        const overIndex = nextOrder.indexOf(overPage);
-        if (activeIndex >= 0 && overIndex >= 0 && activeIndex !== overIndex) {
-          nextOrder = arrayMove(nextOrder, activeIndex, overIndex);
-          if (!areSameOrder(nextOrder, displayOrderPageIdsRef.current)) {
-            displayOrderPageIdsRef.current = nextOrder;
-            setDisplayOrderPageIds(nextOrder);
-          }
-        }
-      }
-
       const didReorder = !areSameOrder(nextOrder, orderedPageIds);
       const canPersistReorder =
         didReorder &&
@@ -351,9 +343,14 @@ export function WorkbookSessionPageManagerFullscreen({
         nextOrder.every((pageId) => orderedPageIds.includes(pageId));
 
       if (canPersistReorder) {
+        if (!areSameOrder(nextOrder, displayOrderPageIdsRef.current)) {
+          displayOrderPageIdsRef.current = nextOrder;
+          setDisplayOrderPageIds(nextOrder);
+        }
         suppressCardClickUntilTsRef.current = Date.now() + 320;
         onReorderPages([...nextOrder]);
       } else {
+        displayOrderPageIdsRef.current = orderedPageIds;
         setDisplayOrderPageIds(orderedPageIds);
       }
 
