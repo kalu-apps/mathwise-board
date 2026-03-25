@@ -2006,6 +2006,13 @@ export default function WorkbookSessionPage() {
       }),
     [graphDraftFunctions]
   );
+  const handleOpenPageManager = useCallback(() => {
+    if (!canManageSharedBoardSettings) return;
+    setIsPageManagerOpen(true);
+  }, [canManageSharedBoardSettings]);
+  const handleClosePageManager = useCallback(() => {
+    setIsPageManagerOpen(false);
+  }, []);
 
   if (loading) {
     return <PageLoader />;
@@ -2211,14 +2218,6 @@ export default function WorkbookSessionPage() {
     onMarkSessionChatReadToLatest: markSessionChatReadToLatest,
     onSendSessionChatMessage: handleSendSessionChatMessage,
   };
-  const handleOpenPageManager = useCallback(() => {
-    if (!canManageSharedBoardSettings) return;
-    setIsPageManagerOpen(true);
-  }, [canManageSharedBoardSettings]);
-  const handleClosePageManager = useCallback(() => {
-    setIsPageManagerOpen(false);
-  }, []);
-
   const contextbarProps = {
     overlayContainer,
     menuAnchor,
