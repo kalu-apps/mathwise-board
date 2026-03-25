@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -6,13 +6,21 @@ import {
   IconButton,
 } from "@mui/material";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
-import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import type { WorkbookBoardPageOption } from "./WorkbookSessionBoardSettingsPanel";
+import type {
+  WorkbookBoardObject,
+  WorkbookStroke,
+} from "@/features/workbook/model/types";
+import { WorkbookSessionPagePreview, useWorkbookPagePreviewMap } from "./WorkbookSessionPagePreview";
 
 type WorkbookSessionPageManagerFullscreenProps = {
   open: boolean;
   overlayContainer?: Element | null;
   pageOptions: WorkbookBoardPageOption[];
+  boardObjects: WorkbookBoardObject[];
+  boardStrokes: WorkbookStroke[];
+  annotationStrokes: WorkbookStroke[];
+  imageAssetUrls: Record<string, string>;
   currentPage: number;
   canManageBoardPages: boolean;
   isBoardPageMutationPending: boolean;
@@ -39,6 +47,10 @@ export function WorkbookSessionPageManagerFullscreen({
   open,
   overlayContainer,
   pageOptions,
+  boardObjects,
+  boardStrokes,
+  annotationStrokes,
+  imageAssetUrls,
   currentPage,
   canManageBoardPages,
   isBoardPageMutationPending,
@@ -49,10 +61,33 @@ export function WorkbookSessionPageManagerFullscreen({
 }: WorkbookSessionPageManagerFullscreenProps) {
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const suppressCardClickUntilTsRef = useRef(0);
+  const renameAutosaveTimersRef = useRef<Map<number, number>>(new Map());
+  const pointerDragStateRef = useRef<{
+    pointerId: number;
+    sourcePage: number;
+    startX: number;
+    startY: number;
+    active: boolean;
+    targetPage: number | null;
+  } | null>(null);
   const [dragPageId, setDragPageId] = useState<number | null>(null);
+  const [dragTargetPageId, setDragTargetPageId] = useState<number | null>(null);
   const [titleDraftByPage, setTitleDraftByPage] = useState<Record<number, string>>({});
 
   const orderedPageIds = useMemo(() => pageOptions.map((option) => option.page), [pageOptions]);
+  const pagePreviewMap = useWorkbookPagePreviewMap({
+    pageOptions,
+    boardObjects,
+    boardStrokes,
+    annotationStrokes,
+  });
+
+  const clearRenameAutosaveTimer = useCallback((page: number) => {
+    const currentTimerId = renameAutosaveTimersRef.current.get(page);
+    if (!currentTimerId) return;
+    window.clearTimeout(currentTimerId);
+    renameAutosaveTimersRef.current.delete(page);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -60,6 +95,16 @@ export function WorkbookSessionPageManagerFullscreen({
       Object.fromEntries(pageOptions.map((option) => [option.page, option.title])) as Record<number, string>
     );
   }, [open, pageOptions]);
+
+  useEffect(
+    () => () => {
+      renameAutosaveTimersRef.current.forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      renameAutosaveTimersRef.current.clear();
+    },
+    []
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -75,8 +120,8 @@ export function WorkbookSessionPageManagerFullscreen({
     return () => window.cancelAnimationFrame(rafId);
   }, [currentPage, open, pageOptions]);
 
-  const commitTitle = (page: number) => {
-    const nextTitle = sanitizePageTitle(titleDraftByPage[page] ?? "");
+  const commitTitle = useCallback((page: number, draftOverride?: string) => {
+    const nextTitle = sanitizePageTitle(draftOverride ?? titleDraftByPage[page] ?? "");
     const currentOption = pageOptions.find((option) => option.page === page);
     const currentTitle = sanitizePageTitle(currentOption?.title ?? "");
     if (nextTitle.length === 0) {
@@ -89,7 +134,87 @@ export function WorkbookSessionPageManagerFullscreen({
     }
     if (nextTitle === currentTitle) return;
     onRenamePage(page, nextTitle);
-  };
+  }, [onRenamePage, pageOptions, titleDraftByPage]);
+
+  const queueRenameAutosave = useCallback((page: number, draft: string) => {
+    clearRenameAutosaveTimer(page);
+    const timerId = window.setTimeout(() => {
+      renameAutosaveTimersRef.current.delete(page);
+      commitTitle(page, draft);
+    }, 360);
+    renameAutosaveTimersRef.current.set(page, timerId);
+  }, [clearRenameAutosaveTimer, commitTitle]);
+
+  const clearPointerDragState = useCallback(() => {
+    pointerDragStateRef.current = null;
+    setDragPageId(null);
+    setDragTargetPageId(null);
+  }, []);
+
+  const resolveDropTargetPage = useCallback((x: number, y: number) => {
+    if (typeof document === "undefined") return null;
+    const targetElement = document.elementFromPoint(x, y) as HTMLElement | null;
+    const cardElement = targetElement?.closest<HTMLElement>(".workbook-session__page-card[data-page-id]");
+    if (!cardElement) return null;
+    const pageId = Number.parseInt(cardElement.dataset.pageId ?? "", 10);
+    return Number.isFinite(pageId) ? pageId : null;
+  }, []);
+
+  const handleCardPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>, sourcePage: number) => {
+      if (!canManageBoardPages || isBoardPageMutationPending) return;
+      if (event.button !== 0) return;
+      pointerDragStateRef.current = {
+        pointerId: event.pointerId,
+        sourcePage,
+        startX: event.clientX,
+        startY: event.clientY,
+        active: false,
+        targetPage: null,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [canManageBoardPages, isBoardPageMutationPending]
+  );
+
+  const handleCardPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const dragState = pointerDragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+      const distance = Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY);
+      if (!dragState.active && distance < 6) return;
+      if (!dragState.active) {
+        dragState.active = true;
+        setDragPageId(dragState.sourcePage);
+      }
+      const dropTargetPage = resolveDropTargetPage(event.clientX, event.clientY);
+      dragState.targetPage = dropTargetPage;
+      setDragTargetPageId(dropTargetPage);
+      event.preventDefault();
+    },
+    [resolveDropTargetPage]
+  );
+
+  const handleCardPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const dragState = pointerDragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      const sourcePage = dragState.sourcePage;
+      const targetPage =
+        dragState.targetPage ?? resolveDropTargetPage(event.clientX, event.clientY);
+      const wasActiveDrag = dragState.active;
+      clearPointerDragState();
+      if (!wasActiveDrag) return;
+      suppressCardClickUntilTsRef.current = Date.now() + 320;
+      if (!Number.isFinite(targetPage) || targetPage === sourcePage) return;
+      const nextOrder = reorderPages(orderedPageIds, sourcePage, targetPage as number);
+      onReorderPages(nextOrder);
+    },
+    [clearPointerDragState, onReorderPages, orderedPageIds, resolveDropTargetPage]
+  );
 
   return (
     <Dialog
@@ -116,14 +241,10 @@ export function WorkbookSessionPageManagerFullscreen({
           {pageOptions.map((option) => {
             const isCurrent = option.page === currentPage;
             const titleDraft = titleDraftByPage[option.page] ?? option.title;
-            const previewIntensity = Math.max(
-              1,
-              option.preview.objectCount + option.preview.strokeCount + option.preview.annotationCount
-            );
-            const previewRows = Math.min(4, Math.max(1, Math.round(Math.log2(previewIntensity + 1))));
             return (
               <div
                 key={option.page}
+                data-page-id={option.page}
                 role="listitem"
                 tabIndex={0}
                 ref={(node) => {
@@ -135,6 +256,8 @@ export function WorkbookSessionPageManagerFullscreen({
                 }}
                 className={`workbook-session__page-card${isCurrent ? " is-current" : ""}${
                   dragPageId === option.page ? " is-dragging" : ""
+                }${
+                  dragTargetPageId === option.page && dragPageId !== option.page ? " is-drop-target" : ""
                 }`}
                 onClick={() => {
                   if (Date.now() < suppressCardClickUntilTsRef.current) return;
@@ -147,56 +270,19 @@ export function WorkbookSessionPageManagerFullscreen({
                   onSelectPage(option.page);
                   onClose();
                 }}
-                draggable={canManageBoardPages && !isBoardPageMutationPending}
-                onDragStart={(event) => {
-                  if (!canManageBoardPages || isBoardPageMutationPending) return;
-                  setDragPageId(option.page);
-                  event.dataTransfer.effectAllowed = "move";
-                  event.dataTransfer.setData("text/plain", String(option.page));
-                }}
-                onDragEnd={() => {
-                  setDragPageId(null);
-                  suppressCardClickUntilTsRef.current = Date.now() + 220;
-                }}
-                onDragOver={(event) => {
-                  if (!canManageBoardPages || isBoardPageMutationPending) return;
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = "move";
-                }}
-                onDrop={(event) => {
-                  if (!canManageBoardPages || isBoardPageMutationPending) return;
-                  event.preventDefault();
-                  const rawSourcePage =
-                    event.dataTransfer.getData("text/plain") ||
-                    (typeof dragPageId === "number" ? String(dragPageId) : "");
-                  const sourcePage = Number.parseInt(rawSourcePage, 10);
-                  if (!Number.isFinite(sourcePage)) {
-                    setDragPageId(null);
-                    return;
-                  }
-                  const nextOrder = reorderPages(orderedPageIds, sourcePage, option.page);
-                  setDragPageId(null);
-                  suppressCardClickUntilTsRef.current = Date.now() + 260;
-                  onReorderPages(nextOrder);
-                }}
+                onPointerDown={(event) => handleCardPointerDown(event, option.page)}
+                onPointerMove={handleCardPointerMove}
+                onPointerUp={handleCardPointerUp}
+                onPointerCancel={clearPointerDragState}
               >
                 <div className="workbook-session__page-card-preview" aria-hidden="true">
-                  {option.preview.imageUrl ? (
-                    <img src={option.preview.imageUrl} alt="" loading="lazy" />
-                  ) : (
-                    <div className="workbook-session__page-card-preview-fallback">
-                      {Array.from({ length: previewRows }, (_, index) => (
-                        <span
-                          key={`${option.page}-preview-${index}`}
-                          style={{ width: `${62 + ((index + option.page) % 4) * 9}%` }}
-                        />
-                      ))}
-                    </div>
-                  )}
+                  <WorkbookSessionPagePreview
+                    previewData={pagePreviewMap.get(option.page) ?? null}
+                    imageAssetUrls={imageAssetUrls}
+                  />
                   <span className="workbook-session__page-card-number">#{option.position}</span>
                   {isCurrent ? (
                     <span className="workbook-session__page-card-current">
-                      <CheckCircleRoundedIcon fontSize="inherit" />
                       Текущая
                     </span>
                   ) : null}
@@ -205,6 +291,7 @@ export function WorkbookSessionPageManagerFullscreen({
                   className="workbook-session__page-card-meta"
                   onClick={(event) => event.stopPropagation()}
                   onMouseDown={(event) => event.stopPropagation()}
+                  onPointerDown={(event) => event.stopPropagation()}
                   onKeyDown={(event) => event.stopPropagation()}
                 >
                   <input
@@ -217,8 +304,12 @@ export function WorkbookSessionPageManagerFullscreen({
                         ...current,
                         [option.page]: nextTitle,
                       }));
+                      queueRenameAutosave(option.page, nextTitle);
                     }}
-                    onBlur={() => commitTitle(option.page)}
+                    onBlur={() => {
+                      clearRenameAutosaveTimer(option.page);
+                      commitTitle(option.page);
+                    }}
                     onKeyDown={(event) => {
                       event.stopPropagation();
                       if (event.key === "Enter") {
@@ -226,6 +317,7 @@ export function WorkbookSessionPageManagerFullscreen({
                       }
                       if (event.key === "Escape") {
                         event.preventDefault();
+                        clearRenameAutosaveTimer(option.page);
                         setTitleDraftByPage((current) => ({
                           ...current,
                           [option.page]: option.title,

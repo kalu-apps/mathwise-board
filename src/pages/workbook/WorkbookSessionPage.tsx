@@ -2469,6 +2469,10 @@ export default function WorkbookSessionPage() {
         open={isPageManagerOpen}
         overlayContainer={overlayContainer}
         pageOptions={selectionViewportState.boardPageOptions}
+        boardObjects={boardObjects}
+        boardStrokes={boardStrokes}
+        annotationStrokes={annotationStrokes}
+        imageAssetUrls={selectionViewportState.imageAssetUrls}
         currentPage={safeCurrentBoardPage}
         canManageBoardPages={canManageSharedBoardSettings}
         isBoardPageMutationPending={isBoardPageMutationPending}

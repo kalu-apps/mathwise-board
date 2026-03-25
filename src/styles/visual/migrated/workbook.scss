@@ -4465,19 +4465,29 @@
   flex-direction: column;
   padding: 16px 24px 24px !important;
   overflow: hidden;
+  --workbook-page-manager-gap: 14px;
+  --workbook-page-manager-row-height: 238px;
 }
 
 .workbook-session__page-manager-grid {
   flex: 1 1 auto;
   min-height: 0;
   height: auto;
-  overflow: auto;
-  padding: 6px 8px 16px;
+  max-height: min(
+    100%,
+    calc((var(--workbook-page-manager-row-height) * 3) + (var(--workbook-page-manager-gap) * 2) + 12px)
+  );
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px 14px 20px;
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: var(--workbook-page-manager-row-height);
+  gap: var(--workbook-page-manager-gap);
   align-content: start;
+  justify-items: stretch;
+  scrollbar-gutter: stable;
 }
 
 .workbook-session__page-manager-grid::-webkit-scrollbar {
@@ -4490,7 +4500,7 @@
   background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
   box-shadow: var(--shadow-sm);
   display: grid;
-  grid-template-rows: 140px auto;
+  grid-template-rows: minmax(0, 160px) auto;
   overflow: hidden;
   cursor: grab;
   transition:
@@ -4521,6 +4531,13 @@
   cursor: grabbing;
 }
 
+.workbook-session__page-card.is-drop-target {
+  border-color: color-mix(in srgb, var(--brand-solid) 68%, var(--border-strong));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--brand-solid) 34%, transparent),
+    var(--shadow-md);
+}
+
 .workbook-session__page-card-preview {
   position: relative;
   display: flex;
@@ -4538,6 +4555,18 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.workbook-session__page-card-svg-preview {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background:
+    linear-gradient(
+      140deg,
+      color-mix(in srgb, var(--surface-soft) 82%, #ffffff 18%) 0%,
+      color-mix(in srgb, var(--surface-page) 94%, transparent) 100%
+    );
 }
 
 .workbook-session__page-card-preview-fallback {
@@ -4622,14 +4651,16 @@
   }
   .workbook-session__page-manager-content {
     padding: 12px 16px 16px !important;
+    --workbook-page-manager-gap: 12px;
+    --workbook-page-manager-row-height: 214px;
   }
   .workbook-session__page-manager-grid {
-    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-    gap: 12px;
-    padding: 4px 4px 14px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--workbook-page-manager-gap);
+    padding: 8px 10px 16px;
   }
   .workbook-session__page-card {
-    grid-template-rows: 126px auto;
+    grid-template-rows: minmax(0, 146px) auto;
   }
 }
 
@@ -4637,14 +4668,18 @@
   .workbook-session__page-manager-title-wrap p {
     display: none;
   }
+  .workbook-session__page-manager-content {
+    --workbook-page-manager-gap: 10px;
+    --workbook-page-manager-row-height: 196px;
+  }
   .workbook-session__page-manager-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-    padding: 4px 2px 12px;
+    gap: var(--workbook-page-manager-gap);
+    padding: 6px 8px 14px;
   }
   .workbook-session__page-card {
     border-radius: 12px;
-    grid-template-rows: 112px auto;
+    grid-template-rows: minmax(0, 124px) auto;
   }
   .workbook-session__page-card-meta {
     padding: 8px 9px 10px;
