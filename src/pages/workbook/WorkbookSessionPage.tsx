@@ -338,6 +338,7 @@ export default function WorkbookSessionPage() {
     incomingStrokePreviews,
     isSessionChatAtBottom,
     sessionChatDraft,
+    isSessionChatEmojiOpen,
     sessionChatReadAt,
     areaSelection,
   } = workbookSessionPage;
