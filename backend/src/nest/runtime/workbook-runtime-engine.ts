@@ -2406,6 +2406,19 @@ const setAuthSession = (db: MockDb, res: ServerResponse, user: UserRecord) => {
   return session;
 };
 
+const clearAuthSessionsForUser = (db: MockDb, userId: string) => {
+  const staleTokens = db.authSessions
+    .filter((session) => session.userId === userId)
+    .map((session) => session.token);
+  if (staleTokens.length === 0) return 0;
+  const staleTokenSet = new Set(staleTokens);
+  db.authSessions = db.authSessions.filter((session) => !staleTokenSet.has(session.token));
+  staleTokens.forEach((token) => {
+    authSessionPersistAtByToken.delete(token);
+  });
+  return staleTokens.length;
+};
+
 const workbookLiveSocketRuntime = {
   parsePath,
   getWorkbookPersistenceReadiness,
@@ -3419,10 +3432,17 @@ export const handleWorkbookApiRequestByDomains = async (
           typeof body?.guestName === "string" ? body.guestName.trim() : "";
         if (!actor) {
           actor = createGuestUser(db, requestedGuestName || "Ученик");
-          setAuthSession(db, res, actor);
         }
         if (requestedGuestName) {
           applyStudentDisplayName(actor, requestedGuestName);
+        }
+
+        let replacedSessionCount = 0;
+        let kickedPresenceAcrossSessions = false;
+        if (actor.role !== "teacher") {
+          kickedPresenceAcrossSessions = closeUserPresenceAcrossSessions(db, actor.id);
+          replacedSessionCount = clearAuthSessionsForUser(db, actor.id);
+          setAuthSession(db, res, actor);
         }
 
         ensureParticipant(db, {
@@ -3450,6 +3470,8 @@ export const handleWorkbookApiRequestByDomains = async (
             kind: session.kind,
             role: actor.role,
             inviteUseCount: invite.useCount,
+            replacedSessionCount,
+            kickedPresenceAcrossSessions,
           },
         });
 

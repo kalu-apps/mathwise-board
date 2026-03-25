@@ -104,7 +104,7 @@ export function WorkbookSessionToolSettingsPopover({
                   </div>
                   <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
                     <div className="workbook-session__tool-settings-field-main">
-                      <strong>Толщина</strong>
+                      <strong>Радиус</strong>
                     </div>
                     <div className="workbook-session__tool-settings-range">
                       <input
@@ -148,7 +148,7 @@ export function WorkbookSessionToolSettingsPopover({
                 </div>
                 <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
                   <div className="workbook-session__tool-settings-field-main">
-                    <strong>Толщина</strong>
+                    <strong>Радиус</strong>
                   </div>
                   <div className="workbook-session__tool-settings-range">
                     <input

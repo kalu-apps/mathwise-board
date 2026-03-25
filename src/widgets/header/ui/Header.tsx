@@ -15,10 +15,6 @@ export function Header() {
   const { mode, toggleMode } = useThemeMode();
   const navigate = useNavigate();
 
-  const handleLogoClick = () => {
-    navigate("/workbook");
-  };
-
   const handleLogout = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     logout();
@@ -31,7 +27,6 @@ export function Header() {
         <div className="header__left">
           <IconButton
             className="header__logo"
-            onClick={handleLogoClick}
             size="large"
             aria-label={t("header.openNavigation")}
           >
