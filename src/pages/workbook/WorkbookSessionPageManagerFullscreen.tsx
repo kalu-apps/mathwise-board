@@ -187,6 +187,7 @@ export function WorkbookSessionPageManagerFullscreen({
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const suppressCardClickUntilTsRef = useRef(0);
   const displayOrderPageIdsRef = useRef<number[]>([]);
+  const pendingCommittedOrderRef = useRef<number[] | null>(null);
   const lastOverDragPageIdRef = useRef<number | null>(null);
   const [displayOrderPageIds, setDisplayOrderPageIds] = useState<number[]>([]);
   const [activeDragPageId, setActiveDragPageId] = useState<number | null>(null);
@@ -223,7 +224,24 @@ export function WorkbookSessionPageManagerFullscreen({
 
   useEffect(() => {
     if (activeDragPageId !== null) return;
-    setDisplayOrderPageIds(orderedPageIds);
+
+    const pendingCommittedOrder = pendingCommittedOrderRef.current;
+    if (pendingCommittedOrder) {
+      if (areSameOrder(orderedPageIds, pendingCommittedOrder)) {
+        pendingCommittedOrderRef.current = null;
+      } else {
+        if (!areSameOrder(displayOrderPageIdsRef.current, pendingCommittedOrder)) {
+          displayOrderPageIdsRef.current = pendingCommittedOrder;
+          setDisplayOrderPageIds(pendingCommittedOrder);
+        }
+        return;
+      }
+    }
+
+    if (!areSameOrder(displayOrderPageIdsRef.current, orderedPageIds)) {
+      displayOrderPageIdsRef.current = orderedPageIds;
+      setDisplayOrderPageIds(orderedPageIds);
+    }
   }, [activeDragPageId, orderedPageIds]);
 
   useEffect(() => {
@@ -308,7 +326,13 @@ export function WorkbookSessionPageManagerFullscreen({
       setOverDragPageId(null);
       lastOverDragPageIdRef.current = null;
       setDragOverlaySize(null);
-      setDisplayOrderPageIds(orderedPageIds);
+      const pendingCommittedOrder = pendingCommittedOrderRef.current;
+      const fallbackOrder =
+        pendingCommittedOrder && !areSameOrder(pendingCommittedOrder, orderedPageIds)
+          ? pendingCommittedOrder
+          : orderedPageIds;
+      displayOrderPageIdsRef.current = fallbackOrder;
+      setDisplayOrderPageIds(fallbackOrder);
     },
     [orderedPageIds]
   );
@@ -347,11 +371,17 @@ export function WorkbookSessionPageManagerFullscreen({
           displayOrderPageIdsRef.current = nextOrder;
           setDisplayOrderPageIds(nextOrder);
         }
+        pendingCommittedOrderRef.current = [...nextOrder];
         suppressCardClickUntilTsRef.current = Date.now() + 320;
         onReorderPages([...nextOrder]);
       } else {
-        displayOrderPageIdsRef.current = orderedPageIds;
-        setDisplayOrderPageIds(orderedPageIds);
+        const pendingCommittedOrder = pendingCommittedOrderRef.current;
+        const fallbackOrder =
+          pendingCommittedOrder && !areSameOrder(pendingCommittedOrder, orderedPageIds)
+            ? pendingCommittedOrder
+            : orderedPageIds;
+        displayOrderPageIdsRef.current = fallbackOrder;
+        setDisplayOrderPageIds(fallbackOrder);
       }
 
       setActiveDragPageId(null);
