@@ -499,7 +499,6 @@ export const useWorkbookCanvasInteractions = (
         });
         api.onObjectCreate(created);
         api.onSelectedObjectChange(created.id);
-        api.onRequestSelectTool?.();
         return;
       }
 

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Button,
   Dialog,
@@ -186,6 +186,8 @@ export function WorkbookSessionOverlays({
   shapeCatalog,
   activateTool,
 }: WorkbookSessionOverlaysProps) {
+  const [pointRenameTargetId, setPointRenameTargetId] = useState<string | null>(null);
+
   return (
     <>
           <Dialog
@@ -570,50 +572,6 @@ export function WorkbookSessionOverlays({
                 : undefined
             }
           >
-            {contextMenuObject?.type === "point" ? (
-              <div className="workbook-session__solid-menu">
-                <TextField
-                  size="small"
-                  placeholder="Название точки"
-                  inputProps={{ "aria-label": "Название точки" }}
-                  value={pointLabelDraft}
-                  onChange={(event) => setPointLabelDraft(event.target.value.slice(0, 12))}
-                  onKeyDown={(event) => {
-                    event.stopPropagation();
-                    if (event.key === "Enter") {
-                      void renamePointObject(contextMenuObject.id, pointLabelDraft);
-                      setObjectContextMenu(null);
-                    }
-                  }}
-                  autoFocus
-                />
-                <div className="workbook-session__solid-menu-actions workbook-session__solid-menu-actions--icons">
-                  <IconButton
-                    size="small"
-                    color="error"
-                    aria-label="Удалить точку"
-                    onClick={() => {
-                      if (!canDelete) return;
-                      void commitObjectDelete(contextMenuObject.id);
-                      setObjectContextMenu(null);
-                    }}
-                  >
-                    <DeleteOutlineRoundedIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    color="primary"
-                    aria-label="Сохранить название точки"
-                    onClick={() => {
-                      void renamePointObject(contextMenuObject.id, pointLabelDraft);
-                      setObjectContextMenu(null);
-                    }}
-                  >
-                    <SaveRoundedIcon fontSize="small" />
-                  </IconButton>
-                </div>
-              </div>
-            ) : null}
             {contextMenuObject &&
             (supportsGraphUtilityPanel(contextMenuObject) ||
               supportsTransformUtilityPanel(contextMenuObject)) ? (
@@ -626,6 +584,16 @@ export function WorkbookSessionOverlays({
                 {supportsGraphUtilityPanel(contextMenuObject)
                   ? "Редактировать график функции"
                   : "Редактировать объект"}
+              </MenuItem>
+            ) : null}
+            {contextMenuObject?.type === "point" ? (
+              <MenuItem
+                onClick={() => {
+                  setPointRenameTargetId(contextMenuObject.id);
+                  setObjectContextMenu(null);
+                }}
+              >
+                Переименовать
               </MenuItem>
             ) : null}
             {contextMenuObject && contextMenuObject.type !== "point" ? (
@@ -689,7 +657,6 @@ export function WorkbookSessionOverlays({
               </>
             ) : null}
             {contextMenuObject &&
-            contextMenuObject.type !== "point" &&
             canDelete &&
             !contextMenuObject.pinned ? (
               <MenuItem
@@ -702,6 +669,46 @@ export function WorkbookSessionOverlays({
               </MenuItem>
             ) : null}
           </Menu>
+          <Dialog
+            container={overlayContainer}
+            open={Boolean(pointRenameTargetId)}
+            onClose={() => setPointRenameTargetId(null)}
+            fullWidth
+            maxWidth="xs"
+            className="workbook-session__confirm-dialog"
+          >
+            <DialogTitle>Переименовать точку</DialogTitle>
+            <DialogContent>
+              <TextField
+                size="small"
+                fullWidth
+                autoFocus
+                placeholder="Название точки"
+                inputProps={{ "aria-label": "Название точки" }}
+                value={pointLabelDraft}
+                onChange={(event) => setPointLabelDraft(event.target.value.slice(0, 12))}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" || !pointRenameTargetId) return;
+                  event.preventDefault();
+                  void renamePointObject(pointRenameTargetId, pointLabelDraft);
+                  setPointRenameTargetId(null);
+                }}
+              />
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setPointRenameTargetId(null)}>Отмена</Button>
+              <Button
+                variant="contained"
+                onClick={() => {
+                  if (!pointRenameTargetId) return;
+                  void renamePointObject(pointRenameTargetId, pointLabelDraft);
+                  setPointRenameTargetId(null);
+                }}
+              >
+                Сохранить
+              </Button>
+            </DialogActions>
+          </Dialog>
           <Menu
             container={overlayContainer}
             open={Boolean(areaSelectionContextMenu && areaSelectionHasContent)}
