@@ -2473,6 +2473,9 @@ export default function WorkbookSessionPage() {
         boardStrokes={boardStrokes}
         annotationStrokes={annotationStrokes}
         imageAssetUrls={selectionViewportState.imageAssetUrls}
+        boardBackgroundColor={boardSettings.backgroundColor}
+        boardGridColor={boardSettings.gridColor}
+        boardGridSize={boardSettings.gridSize}
         currentPage={safeCurrentBoardPage}
         canManageBoardPages={canManageSharedBoardSettings}
         isBoardPageMutationPending={isBoardPageMutationPending}

@@ -22,12 +22,22 @@ type UseWorkbookPagePreviewMapParams = {
 type WorkbookSessionPagePreviewProps = {
   previewData: WorkbookPagePreviewData | null;
   imageAssetUrls: Record<string, string>;
+  backgroundColor?: string;
+  gridColor?: string;
+  gridSize?: number;
 };
 
 const MAX_OBJECTS_PER_PAGE_PREVIEW = 180;
 const MAX_STROKES_PER_PAGE_PREVIEW = 200;
 const STROKE_POINT_SAMPLE_LIMIT = 120;
 const PAGE_FRAME_BOUNDS = resolveWorkbookPageFrameBounds();
+const GRID_STROKE_BASE_OPACITY = 0.22;
+
+const normalizeColorString = (value: unknown, fallback: string) => {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : fallback;
+};
 
 const clampNumber = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
@@ -338,12 +348,27 @@ export const useWorkbookPagePreviewMap = ({
 export function WorkbookSessionPagePreview({
   previewData,
   imageAssetUrls,
+  backgroundColor,
+  gridColor,
+  gridSize,
 }: WorkbookSessionPagePreviewProps) {
   const hasContent = Boolean(
     previewData &&
       (previewData.objects.length > 0 ||
         previewData.strokes.length > 0 ||
         previewData.annotationStrokes.length > 0)
+  );
+
+  const safeBackgroundColor = normalizeColorString(backgroundColor, "#ffffff");
+  const safeGridColor = normalizeColorString(gridColor, "rgba(110, 129, 156, 0.36)");
+  const safeGridSize = clampNumber(Number.isFinite(gridSize) ? Number(gridSize) : 26, 8, 96);
+  const verticalGridLines = Math.max(
+    2,
+    Math.floor(PAGE_FRAME_BOUNDS.width / (safeGridSize * 42))
+  );
+  const horizontalGridLines = Math.max(
+    3,
+    Math.floor(PAGE_FRAME_BOUNDS.height / (safeGridSize * 42))
   );
 
   return (
@@ -359,12 +384,46 @@ export function WorkbookSessionPagePreview({
         y={PAGE_FRAME_BOUNDS.minY}
         width={PAGE_FRAME_BOUNDS.width}
         height={PAGE_FRAME_BOUNDS.height}
-        fill="rgba(255, 255, 255, 0.98)"
+        fill={safeBackgroundColor}
         stroke="rgba(35, 49, 66, 0.2)"
         strokeWidth={34}
         rx={56}
         ry={56}
       />
+      {Array.from({ length: verticalGridLines }, (_, index) => {
+        const x =
+          PAGE_FRAME_BOUNDS.minX +
+          (index * PAGE_FRAME_BOUNDS.width) / Math.max(1, verticalGridLines - 1);
+        return (
+          <line
+            key={`grid-v-${index}`}
+            x1={x}
+            y1={PAGE_FRAME_BOUNDS.minY}
+            x2={x}
+            y2={PAGE_FRAME_BOUNDS.maxY}
+            stroke={safeGridColor}
+            strokeWidth={6}
+            opacity={GRID_STROKE_BASE_OPACITY}
+          />
+        );
+      })}
+      {Array.from({ length: horizontalGridLines }, (_, index) => {
+        const y =
+          PAGE_FRAME_BOUNDS.minY +
+          (index * PAGE_FRAME_BOUNDS.height) / Math.max(1, horizontalGridLines - 1);
+        return (
+          <line
+            key={`grid-h-${index}`}
+            x1={PAGE_FRAME_BOUNDS.minX}
+            y1={y}
+            x2={PAGE_FRAME_BOUNDS.maxX}
+            y2={y}
+            stroke={safeGridColor}
+            strokeWidth={6}
+            opacity={GRID_STROKE_BASE_OPACITY}
+          />
+        );
+      })}
       {hasContent && previewData ? (
         <>
           {previewData.strokes.map((stroke, index) =>

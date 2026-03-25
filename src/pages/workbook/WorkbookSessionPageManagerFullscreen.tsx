@@ -21,6 +21,9 @@ type WorkbookSessionPageManagerFullscreenProps = {
   boardStrokes: WorkbookStroke[];
   annotationStrokes: WorkbookStroke[];
   imageAssetUrls: Record<string, string>;
+  boardBackgroundColor?: string;
+  boardGridColor?: string;
+  boardGridSize?: number;
   currentPage: number;
   canManageBoardPages: boolean;
   isBoardPageMutationPending: boolean;
@@ -51,6 +54,9 @@ export function WorkbookSessionPageManagerFullscreen({
   boardStrokes,
   annotationStrokes,
   imageAssetUrls,
+  boardBackgroundColor,
+  boardGridColor,
+  boardGridSize,
   currentPage,
   canManageBoardPages,
   isBoardPageMutationPending,
@@ -62,6 +68,7 @@ export function WorkbookSessionPageManagerFullscreen({
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const suppressCardClickUntilTsRef = useRef(0);
   const renameAutosaveTimersRef = useRef<Map<number, number>>(new Map());
+  const displayOrderPageIdsRef = useRef<number[]>([]);
   const pointerDragStateRef = useRef<{
     pointerId: number;
     sourcePage: number;
@@ -73,8 +80,13 @@ export function WorkbookSessionPageManagerFullscreen({
   const [dragPageId, setDragPageId] = useState<number | null>(null);
   const [dragTargetPageId, setDragTargetPageId] = useState<number | null>(null);
   const [titleDraftByPage, setTitleDraftByPage] = useState<Record<number, string>>({});
+  const [displayOrderPageIds, setDisplayOrderPageIds] = useState<number[]>([]);
 
   const orderedPageIds = useMemo(() => pageOptions.map((option) => option.page), [pageOptions]);
+  const pageOptionByPage = useMemo(
+    () => new Map(pageOptions.map((option) => [option.page, option])),
+    [pageOptions]
+  );
   const pagePreviewMap = useWorkbookPagePreviewMap({
     pageOptions,
     boardObjects,
@@ -95,6 +107,15 @@ export function WorkbookSessionPageManagerFullscreen({
       Object.fromEntries(pageOptions.map((option) => [option.page, option.title])) as Record<number, string>
     );
   }, [open, pageOptions]);
+
+  useEffect(() => {
+    if (dragPageId !== null) return;
+    setDisplayOrderPageIds(orderedPageIds);
+  }, [dragPageId, orderedPageIds]);
+
+  useEffect(() => {
+    displayOrderPageIdsRef.current = displayOrderPageIds;
+  }, [displayOrderPageIds]);
 
   useEffect(
     () => () => {
@@ -135,6 +156,24 @@ export function WorkbookSessionPageManagerFullscreen({
     if (nextTitle === currentTitle) return;
     onRenamePage(page, nextTitle);
   }, [onRenamePage, pageOptions, titleDraftByPage]);
+
+  const flushPendingTitleDrafts = useCallback(() => {
+    renameAutosaveTimersRef.current.forEach((timerId) => {
+      window.clearTimeout(timerId);
+    });
+    renameAutosaveTimersRef.current.clear();
+    pageOptions.forEach((option) => {
+      const nextTitle = sanitizePageTitle(titleDraftByPage[option.page] ?? option.title);
+      const currentTitle = sanitizePageTitle(option.title);
+      if (nextTitle === currentTitle) return;
+      onRenamePage(option.page, nextTitle);
+    });
+  }, [onRenamePage, pageOptions, titleDraftByPage]);
+
+  const handleCloseWithPersist = useCallback(() => {
+    flushPendingTitleDrafts();
+    onClose();
+  }, [flushPendingTitleDrafts, onClose]);
 
   const queueRenameAutosave = useCallback((page: number, draft: string) => {
     clearRenameAutosaveTimer(page);
@@ -190,6 +229,22 @@ export function WorkbookSessionPageManagerFullscreen({
       const dropTargetPage = resolveDropTargetPage(event.clientX, event.clientY);
       dragState.targetPage = dropTargetPage;
       setDragTargetPageId(dropTargetPage);
+      if (
+        Number.isFinite(dropTargetPage) &&
+        typeof dropTargetPage === "number" &&
+        dropTargetPage !== dragState.sourcePage
+      ) {
+        setDisplayOrderPageIds((current) => {
+          const next = reorderPages(current, dragState.sourcePage, dropTargetPage);
+          if (
+            current.length === next.length &&
+            current.every((pageId, index) => pageId === next[index])
+          ) {
+            return current;
+          }
+          return next;
+        });
+      }
       event.preventDefault();
     },
     [resolveDropTargetPage]
@@ -209,8 +264,17 @@ export function WorkbookSessionPageManagerFullscreen({
       clearPointerDragState();
       if (!wasActiveDrag) return;
       suppressCardClickUntilTsRef.current = Date.now() + 320;
-      if (!Number.isFinite(targetPage) || targetPage === sourcePage) return;
-      const nextOrder = reorderPages(orderedPageIds, sourcePage, targetPage as number);
+      const currentDisplayOrder = displayOrderPageIdsRef.current;
+      const nextOrder =
+        Number.isFinite(targetPage) && targetPage !== sourcePage
+          ? reorderPages(currentDisplayOrder, sourcePage, targetPage as number)
+          : currentDisplayOrder;
+      if (
+        orderedPageIds.length === nextOrder.length &&
+        orderedPageIds.every((pageId, index) => pageId === nextOrder[index])
+      ) {
+        return;
+      }
       onReorderPages(nextOrder);
     },
     [clearPointerDragState, onReorderPages, orderedPageIds, resolveDropTargetPage]
@@ -222,14 +286,14 @@ export function WorkbookSessionPageManagerFullscreen({
       fullScreen
       container={overlayContainer}
       className="workbook-session__page-manager"
-      onClose={onClose}
+      onClose={handleCloseWithPersist}
     >
       <DialogTitle className="workbook-session__page-manager-head">
         <div className="workbook-session__page-manager-title-wrap">
           <h2>Менеджер страниц</h2>
         </div>
         <IconButton
-          onClick={onClose}
+          onClick={handleCloseWithPersist}
           className="workbook-session__page-manager-close"
           aria-label="Закрыть менеджер страниц"
         >
@@ -238,9 +302,12 @@ export function WorkbookSessionPageManagerFullscreen({
       </DialogTitle>
       <DialogContent className="workbook-session__page-manager-content">
         <div className="workbook-session__page-manager-grid" role="list" aria-label="Страницы сессии">
-          {pageOptions.map((option) => {
+          {displayOrderPageIds.map((pageId, orderIndex) => {
+            const option = pageOptionByPage.get(pageId);
+            if (!option) return null;
             const isCurrent = option.page === currentPage;
             const titleDraft = titleDraftByPage[option.page] ?? option.title;
+            const currentPosition = orderIndex + 1;
             return (
               <div
                 key={option.page}
@@ -261,12 +328,14 @@ export function WorkbookSessionPageManagerFullscreen({
                 }`}
                 onClick={() => {
                   if (Date.now() < suppressCardClickUntilTsRef.current) return;
+                  flushPendingTitleDrafts();
                   onSelectPage(option.page);
                   onClose();
                 }}
                 onKeyDown={(event) => {
                   if (event.key !== "Enter" && event.key !== " ") return;
                   event.preventDefault();
+                  flushPendingTitleDrafts();
                   onSelectPage(option.page);
                   onClose();
                 }}
@@ -279,8 +348,11 @@ export function WorkbookSessionPageManagerFullscreen({
                   <WorkbookSessionPagePreview
                     previewData={pagePreviewMap.get(option.page) ?? null}
                     imageAssetUrls={imageAssetUrls}
+                    backgroundColor={boardBackgroundColor}
+                    gridColor={boardGridColor}
+                    gridSize={boardGridSize}
                   />
-                  <span className="workbook-session__page-card-number">#{option.position}</span>
+                  <span className="workbook-session__page-card-number">#{currentPosition}</span>
                   {isCurrent ? (
                     <span className="workbook-session__page-card-current">
                       Текущая
@@ -325,8 +397,8 @@ export function WorkbookSessionPageManagerFullscreen({
                         event.currentTarget.blur();
                       }
                     }}
-                    placeholder={`Страница ${option.position}`}
-                    aria-label={`Название страницы ${option.position}`}
+                    placeholder={`Страница ${currentPosition}`}
+                    aria-label={`Название страницы ${currentPosition}`}
                     disabled={!canManageBoardPages || isBoardPageMutationPending}
                   />
                 </div>
