@@ -4461,14 +4461,19 @@
 }
 
 .workbook-session__page-manager-content {
+  display: flex;
+  flex-direction: column;
   padding: 16px 24px 24px !important;
   overflow: hidden;
 }
 
 .workbook-session__page-manager-grid {
-  height: calc(100vh - 136px);
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
   overflow: auto;
-  padding-right: 4px;
+  padding: 6px 8px 16px;
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 14px;
@@ -4487,7 +4492,7 @@
   display: grid;
   grid-template-rows: 140px auto;
   overflow: hidden;
-  cursor: pointer;
+  cursor: grab;
   transition:
     transform 0.18s ease,
     border-color 0.18s ease,
@@ -4513,6 +4518,7 @@
 .workbook-session__page-card.is-dragging {
   opacity: 0.66;
   transform: scale(0.985);
+  cursor: grabbing;
 }
 
 .workbook-session__page-card-preview {
@@ -4565,8 +4571,8 @@
 
 .workbook-session__page-card-current {
   position: absolute;
+  top: 8px;
   right: 8px;
-  bottom: 8px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -4585,32 +4591,6 @@
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px 12px;
-}
-
-.workbook-session__page-card-drag-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.workbook-session__page-card-drag-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  color: color-mix(in srgb, var(--text-secondary) 90%, transparent);
-  background: color-mix(in srgb, var(--surface-soft) 80%, transparent);
-  font-size: 16px;
-  line-height: 1;
-}
-
-.workbook-session__page-card-content-hint {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
 }
 
 .workbook-session__page-card-title-input {
@@ -4646,6 +4626,7 @@
   .workbook-session__page-manager-grid {
     grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
     gap: 12px;
+    padding: 4px 4px 14px;
   }
   .workbook-session__page-card {
     grid-template-rows: 126px auto;
@@ -4657,9 +4638,9 @@
     display: none;
   }
   .workbook-session__page-manager-grid {
-    height: calc(100vh - 110px);
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+    padding: 4px 2px 12px;
   }
   .workbook-session__page-card {
     border-radius: 12px;

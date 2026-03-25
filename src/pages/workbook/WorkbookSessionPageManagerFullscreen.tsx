@@ -4,10 +4,8 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
-  Tooltip,
 } from "@mui/material";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
-import DragIndicatorRoundedIcon from "@mui/icons-material/DragIndicatorRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import type { WorkbookBoardPageOption } from "./WorkbookSessionBoardSettingsPanel";
 
@@ -50,6 +48,7 @@ export function WorkbookSessionPageManagerFullscreen({
   onReorderPages,
 }: WorkbookSessionPageManagerFullscreenProps) {
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const suppressCardClickUntilTsRef = useRef(0);
   const [dragPageId, setDragPageId] = useState<number | null>(null);
   const [titleDraftByPage, setTitleDraftByPage] = useState<Record<number, string>>({});
 
@@ -103,7 +102,6 @@ export function WorkbookSessionPageManagerFullscreen({
       <DialogTitle className="workbook-session__page-manager-head">
         <div className="workbook-session__page-manager-title-wrap">
           <h2>Менеджер страниц</h2>
-          <p>Быстрый переход, rename и reorder страниц сессии.</p>
         </div>
         <IconButton
           onClick={onClose}
@@ -139,6 +137,7 @@ export function WorkbookSessionPageManagerFullscreen({
                   dragPageId === option.page ? " is-dragging" : ""
                 }`}
                 onClick={() => {
+                  if (Date.now() < suppressCardClickUntilTsRef.current) return;
                   onSelectPage(option.page);
                   onClose();
                 }}
@@ -155,7 +154,10 @@ export function WorkbookSessionPageManagerFullscreen({
                   event.dataTransfer.effectAllowed = "move";
                   event.dataTransfer.setData("text/plain", String(option.page));
                 }}
-                onDragEnd={() => setDragPageId(null)}
+                onDragEnd={() => {
+                  setDragPageId(null);
+                  suppressCardClickUntilTsRef.current = Date.now() + 220;
+                }}
                 onDragOver={(event) => {
                   if (!canManageBoardPages || isBoardPageMutationPending) return;
                   event.preventDefault();
@@ -174,6 +176,7 @@ export function WorkbookSessionPageManagerFullscreen({
                   }
                   const nextOrder = reorderPages(orderedPageIds, sourcePage, option.page);
                   setDragPageId(null);
+                  suppressCardClickUntilTsRef.current = Date.now() + 260;
                   onReorderPages(nextOrder);
                 }}
               >
@@ -204,16 +207,6 @@ export function WorkbookSessionPageManagerFullscreen({
                   onMouseDown={(event) => event.stopPropagation()}
                   onKeyDown={(event) => event.stopPropagation()}
                 >
-                  <div className="workbook-session__page-card-drag-row">
-                    <Tooltip title="Перетащите для изменения порядка" placement="top" arrow>
-                      <span className="workbook-session__page-card-drag-icon" aria-hidden="true">
-                        <DragIndicatorRoundedIcon fontSize="inherit" />
-                      </span>
-                    </Tooltip>
-                    <span className="workbook-session__page-card-content-hint">
-                      {option.hasContent ? "Есть контент" : "Пустая"}
-                    </span>
-                  </div>
                   <input
                     type="text"
                     className="workbook-session__page-card-title-input"
