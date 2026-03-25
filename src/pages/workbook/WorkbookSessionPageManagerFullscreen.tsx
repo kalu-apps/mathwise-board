@@ -311,7 +311,22 @@ export function WorkbookSessionPageManagerFullscreen({
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      const nextOrder = displayOrderPageIdsRef.current;
+      const activePage = toSafePageId(event.active.id);
+      const overPage = toSafePageId(event.over?.id);
+      let nextOrder = displayOrderPageIdsRef.current;
+
+      if (activePage !== null && overPage !== null && activePage !== overPage) {
+        const activeIndex = nextOrder.indexOf(activePage);
+        const overIndex = nextOrder.indexOf(overPage);
+        if (activeIndex >= 0 && overIndex >= 0 && activeIndex !== overIndex) {
+          nextOrder = arrayMove(nextOrder, activeIndex, overIndex);
+          if (!areSameOrder(nextOrder, displayOrderPageIdsRef.current)) {
+            displayOrderPageIdsRef.current = nextOrder;
+            setDisplayOrderPageIds(nextOrder);
+          }
+        }
+      }
+
       const didReorder = !areSameOrder(nextOrder, orderedPageIds);
       const canPersistReorder =
         didReorder &&
