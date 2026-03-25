@@ -1,5 +1,6 @@
 import { useMemo, type RefObject } from "react";
 import { prepareWorkbookRenderObject, buildFunctionGraphRenderStateMap } from "@/features/workbook/model/sceneRender";
+import { getObjectRect } from "@/features/workbook/model/sceneGeometry";
 import { toPath } from "@/features/workbook/model/stroke";
 import {
   resolveWorkbookStrokeOpacity,
@@ -33,6 +34,9 @@ const GRID_STROKE_BASE_OPACITY = 0.22;
 const PAGE_FRAME_BOUNDS = WORKBOOK_PAGE_FRAME_BOUNDS;
 const PREVIEW_ARROW_MARKER_ID = "workbook-arrow";
 const PREVIEW_TEXT_INPUT_REF = { current: null } as RefObject<HTMLTextAreaElement | null>;
+const PREVIEW_VIEWPORT_ASPECT = 1.6;
+const PREVIEW_VIEWPORT_MIN_WIDTH = 1240;
+const PREVIEW_VIEWPORT_MAX_WIDTH_RATIO = 0.72;
 
 const clampNumber = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
@@ -46,6 +50,137 @@ const normalizeColorString = (value: unknown, fallback: string) => {
 const normalizeStrokeWidth = (value: number | undefined) => {
   if (!Number.isFinite(value)) return 2;
   return clampNumber(Number(value), 1, 28);
+};
+
+type ViewBounds = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  width: number;
+  height: number;
+};
+
+const resolveContentBounds = (params: {
+  objects: WorkbookPagePreviewData["objects"];
+  strokes: WorkbookPagePreviewData["strokes"];
+  annotationStrokes: WorkbookPagePreviewData["annotationStrokes"];
+}) => {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  const includePoint = (x: number, y: number) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  };
+
+  params.objects.forEach((object) => {
+    const rect = getObjectRect(object);
+    includePoint(rect.x, rect.y);
+    includePoint(rect.x + rect.width, rect.y + rect.height);
+  });
+
+  const includeStroke = (stroke: WorkbookPagePreviewData["strokes"][number]) => {
+    const halfWidth = normalizeStrokeWidth(stroke.width) / 2;
+    stroke.points.forEach((point) => {
+      includePoint(point.x - halfWidth, point.y - halfWidth);
+      includePoint(point.x + halfWidth, point.y + halfWidth);
+    });
+  };
+
+  params.strokes.forEach(includeStroke);
+  params.annotationStrokes.forEach(includeStroke);
+
+  if (
+    !Number.isFinite(minX) ||
+    !Number.isFinite(minY) ||
+    !Number.isFinite(maxX) ||
+    !Number.isFinite(maxY)
+  ) {
+    return null;
+  }
+
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+};
+
+const resolvePreviewViewBounds = (params: {
+  objects: WorkbookPagePreviewData["objects"];
+  strokes: WorkbookPagePreviewData["strokes"];
+  annotationStrokes: WorkbookPagePreviewData["annotationStrokes"];
+}) => {
+  const maxWidth = PAGE_FRAME_BOUNDS.width * PREVIEW_VIEWPORT_MAX_WIDTH_RATIO;
+  const minWidth = Math.min(PREVIEW_VIEWPORT_MIN_WIDTH, maxWidth);
+  const minHeight = minWidth / PREVIEW_VIEWPORT_ASPECT;
+  const maxHeight = PAGE_FRAME_BOUNDS.height * PREVIEW_VIEWPORT_MAX_WIDTH_RATIO;
+  const contentBounds = resolveContentBounds(params);
+
+  let targetWidth = minWidth;
+  let targetHeight = minHeight;
+  let centerX = PAGE_FRAME_BOUNDS.minX + PAGE_FRAME_BOUNDS.width / 2;
+  let centerY = PAGE_FRAME_BOUNDS.minY + PAGE_FRAME_BOUNDS.height / 2;
+
+  if (contentBounds) {
+    centerX = contentBounds.minX + contentBounds.width / 2;
+    centerY = contentBounds.minY + contentBounds.height / 2;
+    const contentWidthWithPadding = contentBounds.width * 1.28;
+    const contentHeightWithPadding = contentBounds.height * 1.28;
+    targetWidth = clampNumber(
+      Math.max(minWidth, contentWidthWithPadding),
+      minWidth,
+      maxWidth
+    );
+    targetHeight = targetWidth / PREVIEW_VIEWPORT_ASPECT;
+    if (targetHeight < contentHeightWithPadding) {
+      targetHeight = clampNumber(
+        Math.max(minHeight, contentHeightWithPadding),
+        minHeight,
+        maxHeight
+      );
+      targetWidth = clampNumber(
+        targetHeight * PREVIEW_VIEWPORT_ASPECT,
+        minWidth,
+        maxWidth
+      );
+    }
+  }
+
+  targetHeight = clampNumber(targetHeight, minHeight, maxHeight);
+  targetWidth = clampNumber(targetWidth, minWidth, maxWidth);
+
+  const minX = clampNumber(
+    centerX - targetWidth / 2,
+    PAGE_FRAME_BOUNDS.minX,
+    PAGE_FRAME_BOUNDS.maxX - targetWidth
+  );
+  const minY = clampNumber(
+    centerY - targetHeight / 2,
+    PAGE_FRAME_BOUNDS.minY,
+    PAGE_FRAME_BOUNDS.maxY - targetHeight
+  );
+
+  const maxX = minX + targetWidth;
+  const maxY = minY + targetHeight;
+
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: targetWidth,
+    height: targetHeight,
+  } satisfies ViewBounds;
 };
 
 export function WorkbookSessionPagePreview({
@@ -66,19 +201,31 @@ export function WorkbookSessionPagePreview({
     8,
     96
   );
-
-  const verticalGridLines = Math.max(
-    2,
-    Math.floor(PAGE_FRAME_BOUNDS.width / safeGridSize)
-  );
-  const horizontalGridLines = Math.max(
-    3,
-    Math.floor(PAGE_FRAME_BOUNDS.height / safeGridSize)
-  );
+  const boardStrokes = previewData?.strokes ?? [];
+  const annotationStrokes = previewData?.annotationStrokes ?? [];
 
   const visibleObjects = useMemo(
     () => previewData?.objects ?? [],
     [previewData?.objects]
+  );
+  const viewBounds = useMemo(
+    () =>
+      resolvePreviewViewBounds({
+        objects: visibleObjects,
+        strokes: boardStrokes,
+        annotationStrokes,
+      }),
+    [annotationStrokes, boardStrokes, visibleObjects]
+  );
+  const gridStartX = Math.floor(viewBounds.minX / safeGridSize) * safeGridSize;
+  const gridStartY = Math.floor(viewBounds.minY / safeGridSize) * safeGridSize;
+  const verticalGridLines = Math.max(
+    2,
+    Math.ceil((viewBounds.maxX - gridStartX) / safeGridSize) + 1
+  );
+  const horizontalGridLines = Math.max(
+    3,
+    Math.ceil((viewBounds.maxY - gridStartY) / safeGridSize) + 1
   );
 
   const functionGraphRenderStateById = useMemo(() => {
@@ -159,13 +306,10 @@ export function WorkbookSessionPagePreview({
     [functionGraphRenderStateById, imageAssetUrls, visibleObjects]
   );
 
-  const boardStrokes = previewData?.strokes ?? [];
-  const annotationStrokes = previewData?.annotationStrokes ?? [];
-
   return (
     <svg
       className="workbook-session__page-card-svg-preview"
-      viewBox={`${PAGE_FRAME_BOUNDS.minX} ${PAGE_FRAME_BOUNDS.minY} ${PAGE_FRAME_BOUNDS.width} ${PAGE_FRAME_BOUNDS.height}`}
+      viewBox={`${viewBounds.minX} ${viewBounds.minY} ${viewBounds.width} ${viewBounds.height}`}
       role="img"
       aria-label={`Превью страницы ${pageId}`}
       preserveAspectRatio="xMidYMid meet"
@@ -173,10 +317,10 @@ export function WorkbookSessionPagePreview({
       <defs>
         <clipPath id={`workbook-page-preview-clip-${pageId}`}>
           <rect
-            x={PAGE_FRAME_BOUNDS.minX}
-            y={PAGE_FRAME_BOUNDS.minY}
-            width={PAGE_FRAME_BOUNDS.width}
-            height={PAGE_FRAME_BOUNDS.height}
+            x={viewBounds.minX}
+            y={viewBounds.minY}
+            width={viewBounds.width}
+            height={viewBounds.height}
           />
         </clipPath>
         <marker
@@ -194,22 +338,22 @@ export function WorkbookSessionPagePreview({
       </defs>
       <g clipPath={`url(#workbook-page-preview-clip-${pageId})`}>
         <rect
-          x={PAGE_FRAME_BOUNDS.minX}
-          y={PAGE_FRAME_BOUNDS.minY}
-          width={PAGE_FRAME_BOUNDS.width}
-          height={PAGE_FRAME_BOUNDS.height}
+          x={viewBounds.minX}
+          y={viewBounds.minY}
+          width={viewBounds.width}
+          height={viewBounds.height}
           fill={safeBackgroundColor}
         />
         {Array.from({ length: verticalGridLines + 1 }, (_, index) => {
-          const x = PAGE_FRAME_BOUNDS.minX + index * safeGridSize;
-          if (x > PAGE_FRAME_BOUNDS.maxX) return null;
+          const x = gridStartX + index * safeGridSize;
+          if (x > viewBounds.maxX) return null;
           return (
             <line
               key={`grid-v-${pageId}-${index}`}
               x1={x}
-              y1={PAGE_FRAME_BOUNDS.minY}
+              y1={viewBounds.minY}
               x2={x}
-              y2={PAGE_FRAME_BOUNDS.maxY}
+              y2={viewBounds.maxY}
               stroke={safeGridColor}
               strokeWidth={1}
               opacity={GRID_STROKE_BASE_OPACITY}
@@ -217,14 +361,14 @@ export function WorkbookSessionPagePreview({
           );
         })}
         {Array.from({ length: horizontalGridLines + 1 }, (_, index) => {
-          const y = PAGE_FRAME_BOUNDS.minY + index * safeGridSize;
-          if (y > PAGE_FRAME_BOUNDS.maxY) return null;
+          const y = gridStartY + index * safeGridSize;
+          if (y > viewBounds.maxY) return null;
           return (
             <line
               key={`grid-h-${pageId}-${index}`}
-              x1={PAGE_FRAME_BOUNDS.minX}
+              x1={viewBounds.minX}
               y1={y}
-              x2={PAGE_FRAME_BOUNDS.maxX}
+              x2={viewBounds.maxX}
               y2={y}
               stroke={safeGridColor}
               strokeWidth={1}
