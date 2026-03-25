@@ -289,12 +289,14 @@ export function WorkbookSessionPageManagerFullscreen({
     }
     setOverDragPageId(overPage);
     if (activePage === overPage) return;
-    setDisplayOrderPageIds((current) => {
-      const oldIndex = current.indexOf(activePage);
-      const newIndex = current.indexOf(overPage);
-      if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return current;
-      return arrayMove(current, oldIndex, newIndex);
-    });
+    const currentOrder = displayOrderPageIdsRef.current;
+    const oldIndex = currentOrder.indexOf(activePage);
+    const newIndex = currentOrder.indexOf(overPage);
+    if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
+    const nextOrder = arrayMove(currentOrder, oldIndex, newIndex);
+    if (areSameOrder(nextOrder, currentOrder)) return;
+    displayOrderPageIdsRef.current = nextOrder;
+    setDisplayOrderPageIds(nextOrder);
   }, []);
 
   const handleDragCancel = useCallback(
