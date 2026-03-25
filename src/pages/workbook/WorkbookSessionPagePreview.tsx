@@ -1,25 +1,27 @@
-import { useMemo } from "react";
-import { resolveWorkbookPageFrameBounds } from "@/features/workbook/model/pageFrame";
-import { resolveBoardObjectImageAssetId } from "@/features/workbook/model/scene";
-import type { WorkbookBoardObject, WorkbookStroke } from "@/features/workbook/model/types";
-import { normalizeWorkbookAssetContentUrl } from "@/features/workbook/model/workbookAssetUrl";
-import type { WorkbookBoardPageOption } from "./WorkbookSessionBoardSettingsPanel";
-import { toSafeWorkbookPage } from "./WorkbookSessionPage.core";
-
-export type WorkbookPagePreviewData = {
-  objects: WorkbookBoardObject[];
-  strokes: WorkbookStroke[];
-  annotationStrokes: WorkbookStroke[];
-};
-
-type UseWorkbookPagePreviewMapParams = {
-  pageOptions: WorkbookBoardPageOption[];
-  boardObjects: WorkbookBoardObject[];
-  boardStrokes: WorkbookStroke[];
-  annotationStrokes: WorkbookStroke[];
-};
+import { useMemo, type RefObject } from "react";
+import { prepareWorkbookRenderObject, buildFunctionGraphRenderStateMap } from "@/features/workbook/model/sceneRender";
+import { toPath } from "@/features/workbook/model/stroke";
+import {
+  resolveWorkbookStrokeOpacity,
+  resolveWorkbookStrokeSvgBlendMode,
+} from "@/features/workbook/model/strokeRenderStyle";
+import {
+  WORKBOOK_BOARD_BACKGROUND_COLOR,
+  WORKBOOK_BOARD_GRID_COLOR,
+  WORKBOOK_BOARD_PRIMARY_COLOR,
+} from "@/features/workbook/model/workbookVisualColors";
+import { renderWorkbookCanvasPrimaryObject } from "@/features/workbook/ui/WorkbookCanvasPrimaryObjectRenderer";
+import { renderWorkbookCanvasSecondaryObject } from "@/features/workbook/ui/WorkbookCanvasSecondaryObjectRenderer";
+import { renderWorkbookCanvasSolid3dObject } from "@/features/workbook/ui/WorkbookCanvasSolid3dRenderer";
+import {
+  ROUND_SOLID_PRESETS,
+  summarizeProjectedVertices,
+} from "@/features/workbook/ui/WorkbookCanvas.types";
+import { getSectionVertexLabel, WORKBOOK_PAGE_FRAME_BOUNDS } from "./WorkbookSessionPage.core";
+import type { WorkbookPagePreviewData } from "./useWorkbookPagePreviewMap";
 
 type WorkbookSessionPagePreviewProps = {
+  pageId: number;
   previewData: WorkbookPagePreviewData | null;
   imageAssetUrls: Record<string, string>;
   backgroundColor?: string;
@@ -27,11 +29,13 @@ type WorkbookSessionPagePreviewProps = {
   gridSize?: number;
 };
 
-const MAX_OBJECTS_PER_PAGE_PREVIEW = 180;
-const MAX_STROKES_PER_PAGE_PREVIEW = 200;
-const STROKE_POINT_SAMPLE_LIMIT = 120;
-const PAGE_FRAME_BOUNDS = resolveWorkbookPageFrameBounds();
 const GRID_STROKE_BASE_OPACITY = 0.22;
+const PAGE_FRAME_BOUNDS = WORKBOOK_PAGE_FRAME_BOUNDS;
+const PREVIEW_ARROW_MARKER_ID = "workbook-arrow";
+const PREVIEW_TEXT_INPUT_REF = { current: null } as RefObject<HTMLTextAreaElement | null>;
+
+const clampNumber = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, value));
 
 const normalizeColorString = (value: unknown, fallback: string) => {
   if (typeof value !== "string") return fallback;
@@ -39,404 +43,231 @@ const normalizeColorString = (value: unknown, fallback: string) => {
   return trimmed.length > 0 ? trimmed : fallback;
 };
 
-const clampNumber = (value: number, min: number, max: number) =>
-  Math.max(min, Math.min(max, value));
-
-const normalizeDimension = (value: number, fallback: number) => {
-  if (!Number.isFinite(value)) return fallback;
-  return Math.max(1, value);
+const normalizeStrokeWidth = (value: number | undefined) => {
+  if (!Number.isFinite(value)) return 2;
+  return clampNumber(Number(value), 1, 28);
 };
-
-const normalizeObjectOpacity = (value?: number) => {
-  if (!Number.isFinite(value)) return 1;
-  return clampNumber(value ?? 1, 0.12, 1);
-};
-
-const resolveObjectStroke = (object: WorkbookBoardObject) =>
-  typeof object.color === "string" && object.color.trim().length > 0
-    ? object.color.trim()
-    : "rgba(33, 44, 59, 0.86)";
-
-const resolveObjectFill = (object: WorkbookBoardObject) => {
-  if (typeof object.fill === "string" && object.fill.trim().length > 0) {
-    return object.fill.trim();
-  }
-  if (object.type === "text" || object.type === "formula" || object.type === "line" || object.type === "arrow") {
-    return "transparent";
-  }
-  return "rgba(89, 129, 186, 0.16)";
-};
-
-const resolveStrokeWidth = (value: number | undefined) =>
-  clampNumber(Number.isFinite(value) ? Number(value) : 2, 1, 28);
-
-const sampleStrokePoints = (points: WorkbookStroke["points"]) => {
-  if (!Array.isArray(points) || points.length === 0) return [];
-  if (points.length <= STROKE_POINT_SAMPLE_LIMIT) return points;
-  const sampled: WorkbookStroke["points"] = [];
-  const step = Math.max(1, Math.floor(points.length / STROKE_POINT_SAMPLE_LIMIT));
-  for (let index = 0; index < points.length; index += step) {
-    sampled.push(points[index]);
-  }
-  const tail = points[points.length - 1];
-  if (sampled[sampled.length - 1] !== tail) {
-    sampled.push(tail);
-  }
-  return sampled;
-};
-
-const resolveObjectImageUrl = (
-  object: WorkbookBoardObject,
-  imageAssetUrls: Record<string, string>
-) => {
-  const directImageUrl =
-    typeof object.imageUrl === "string" && object.imageUrl.trim().length > 0
-      ? normalizeWorkbookAssetContentUrl(object.imageUrl)
-      : "";
-  if (directImageUrl) return directImageUrl;
-  const assetId = resolveBoardObjectImageAssetId(object);
-  if (!assetId) return "";
-  const fromAssetMap =
-    typeof imageAssetUrls[assetId] === "string"
-      ? normalizeWorkbookAssetContentUrl(imageAssetUrls[assetId] ?? "")
-      : "";
-  return fromAssetMap;
-};
-
-const renderStrokePreview = (
-  stroke: WorkbookStroke,
-  key: string
-) => {
-  const sampledPoints = sampleStrokePoints(stroke.points);
-  if (sampledPoints.length < 2) return null;
-  return (
-    <polyline
-      key={key}
-      points={sampledPoints.map((point) => `${point.x},${point.y}`).join(" ")}
-      fill="none"
-      stroke={stroke.color || "rgba(37, 52, 69, 0.82)"}
-      strokeWidth={resolveStrokeWidth(stroke.width)}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      opacity={0.94}
-    />
-  );
-};
-
-const renderObjectPreview = (
-  object: WorkbookBoardObject,
-  index: number,
-  imageAssetUrls: Record<string, string>
-) => {
-  const x = Number.isFinite(object.x) ? object.x : 0;
-  const y = Number.isFinite(object.y) ? object.y : 0;
-  const width = normalizeDimension(object.width, 96);
-  const height = normalizeDimension(object.height, 72);
-  const stroke = resolveObjectStroke(object);
-  const fill = resolveObjectFill(object);
-  const strokeWidth = resolveStrokeWidth(object.strokeWidth);
-  const opacity = normalizeObjectOpacity(object.opacity);
-  const key = `${object.id}-${index}`;
-
-  if (object.type === "point") {
-    return (
-      <circle
-        key={key}
-        cx={x}
-        cy={y}
-        r={Math.max(4, strokeWidth * 1.6)}
-        fill={stroke}
-        opacity={opacity}
-      />
-    );
-  }
-
-  if (object.type === "line" || object.type === "arrow" || object.type === "measurement_length") {
-    const start = object.points?.[0] ?? { x, y };
-    const end = object.points?.[1] ?? { x: x + width, y: y + height };
-    return (
-      <line
-        key={key}
-        x1={start.x}
-        y1={start.y}
-        x2={end.x}
-        y2={end.y}
-        stroke={stroke}
-        strokeWidth={strokeWidth}
-        strokeLinecap="round"
-        opacity={opacity}
-      />
-    );
-  }
-
-  if ((object.type === "polygon" || object.type === "triangle") && Array.isArray(object.points) && object.points.length >= 3) {
-    return (
-      <polygon
-        key={key}
-        points={object.points.map((point) => `${point.x},${point.y}`).join(" ")}
-        fill={fill}
-        stroke={stroke}
-        strokeWidth={strokeWidth}
-        strokeLinejoin="round"
-        opacity={opacity}
-      />
-    );
-  }
-
-  if (object.type === "ellipse" || object.type === "measurement_angle") {
-    return (
-      <ellipse
-        key={key}
-        cx={x + width / 2}
-        cy={y + height / 2}
-        rx={Math.max(2, width / 2)}
-        ry={Math.max(2, height / 2)}
-        fill={fill}
-        stroke={stroke}
-        strokeWidth={strokeWidth}
-        opacity={opacity}
-      />
-    );
-  }
-
-  if (object.type === "image") {
-    const imageUrl = resolveObjectImageUrl(object, imageAssetUrls);
-    if (imageUrl.length > 0) {
-      return (
-        <image
-          key={key}
-          href={imageUrl}
-          x={x}
-          y={y}
-          width={width}
-          height={height}
-          preserveAspectRatio="xMidYMid slice"
-          opacity={opacity}
-        />
-      );
-    }
-  }
-
-  if (object.type === "section_divider") {
-    const dividerY = y + height / 2;
-    return (
-      <line
-        key={key}
-        x1={x}
-        y1={dividerY}
-        x2={x + Math.max(width, PAGE_FRAME_BOUNDS.width * 0.2)}
-        y2={dividerY}
-        stroke={stroke}
-        strokeWidth={strokeWidth}
-        strokeLinecap="round"
-        opacity={opacity}
-      />
-    );
-  }
-
-  const labelText = (object.text ?? "").trim();
-  const shouldRenderLabel =
-    labelText.length > 0 &&
-    (object.type === "text" ||
-      object.type === "formula" ||
-      object.type === "sticker" ||
-      object.type === "comment");
-
-  return (
-    <g key={key} opacity={opacity}>
-      <rect
-        x={x}
-        y={y}
-        width={width}
-        height={height}
-        rx={Math.max(2, Math.min(12, width * 0.08))}
-        ry={Math.max(2, Math.min(12, height * 0.08))}
-        fill={fill}
-        stroke={stroke}
-        strokeWidth={strokeWidth}
-      />
-      {shouldRenderLabel ? (
-        <text
-          x={x + 8}
-          y={y + Math.max(14, Math.min(22, (object.fontSize ?? 16) + 2))}
-          fill="rgba(32, 43, 58, 0.92)"
-          fontSize={Math.max(11, Math.min(18, object.fontSize ?? 14))}
-          fontWeight={object.type === "formula" ? 700 : 600}
-          fontFamily="'Fira Sans','Segoe UI',sans-serif"
-          textAnchor="start"
-        >
-          {labelText.slice(0, 36)}
-        </text>
-      ) : null}
-    </g>
-  );
-};
-
-export const useWorkbookPagePreviewMap = ({
-  pageOptions,
-  boardObjects,
-  boardStrokes,
-  annotationStrokes,
-}: UseWorkbookPagePreviewMapParams) =>
-  useMemo(() => {
-    const pageSet = new Set(pageOptions.map((option) => option.page));
-    const map = new Map<number, WorkbookPagePreviewData>();
-
-    pageOptions.forEach((option) => {
-      map.set(option.page, {
-        objects: [],
-        strokes: [],
-        annotationStrokes: [],
-      });
-    });
-
-    boardObjects.forEach((object) => {
-      const page = toSafeWorkbookPage(object.page);
-      if (!pageSet.has(page)) return;
-      const bucket = map.get(page);
-      if (!bucket) return;
-      bucket.objects.push(object);
-    });
-
-    boardStrokes.forEach((stroke) => {
-      const page = toSafeWorkbookPage(stroke.page);
-      if (!pageSet.has(page)) return;
-      const bucket = map.get(page);
-      if (!bucket) return;
-      bucket.strokes.push(stroke);
-    });
-
-    annotationStrokes.forEach((stroke) => {
-      const page = toSafeWorkbookPage(stroke.page);
-      if (!pageSet.has(page)) return;
-      const bucket = map.get(page);
-      if (!bucket) return;
-      bucket.annotationStrokes.push(stroke);
-    });
-
-    map.forEach((bucket, page) => {
-      const sortedObjects = [...bucket.objects].sort((left, right) => {
-        const leftOrder = Number.isFinite(left.zOrder) ? Number(left.zOrder) : 0;
-        const rightOrder = Number.isFinite(right.zOrder) ? Number(right.zOrder) : 0;
-        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-        return left.id.localeCompare(right.id);
-      });
-      const nextObjects =
-        sortedObjects.length > MAX_OBJECTS_PER_PAGE_PREVIEW
-          ? sortedObjects.slice(sortedObjects.length - MAX_OBJECTS_PER_PAGE_PREVIEW)
-          : sortedObjects;
-      const nextStrokes =
-        bucket.strokes.length > MAX_STROKES_PER_PAGE_PREVIEW
-          ? bucket.strokes.slice(bucket.strokes.length - MAX_STROKES_PER_PAGE_PREVIEW)
-          : bucket.strokes;
-      const nextAnnotationStrokes =
-        bucket.annotationStrokes.length > MAX_STROKES_PER_PAGE_PREVIEW
-          ? bucket.annotationStrokes.slice(
-              bucket.annotationStrokes.length - MAX_STROKES_PER_PAGE_PREVIEW
-            )
-          : bucket.annotationStrokes;
-      map.set(page, {
-        objects: nextObjects,
-        strokes: nextStrokes,
-        annotationStrokes: nextAnnotationStrokes,
-      });
-    });
-
-    return map;
-  }, [annotationStrokes, boardObjects, boardStrokes, pageOptions]);
 
 export function WorkbookSessionPagePreview({
+  pageId,
   previewData,
   imageAssetUrls,
   backgroundColor,
   gridColor,
   gridSize,
 }: WorkbookSessionPagePreviewProps) {
-  const hasContent = Boolean(
-    previewData &&
-      (previewData.objects.length > 0 ||
-        previewData.strokes.length > 0 ||
-        previewData.annotationStrokes.length > 0)
+  const safeBackgroundColor = normalizeColorString(
+    backgroundColor,
+    WORKBOOK_BOARD_BACKGROUND_COLOR
+  );
+  const safeGridColor = normalizeColorString(gridColor, WORKBOOK_BOARD_GRID_COLOR);
+  const safeGridSize = clampNumber(
+    Number.isFinite(gridSize) ? Number(gridSize) : 22,
+    8,
+    96
   );
 
-  const safeBackgroundColor = normalizeColorString(backgroundColor, "#ffffff");
-  const safeGridColor = normalizeColorString(gridColor, "rgba(110, 129, 156, 0.36)");
-  const safeGridSize = clampNumber(Number.isFinite(gridSize) ? Number(gridSize) : 26, 8, 96);
   const verticalGridLines = Math.max(
     2,
-    Math.floor(PAGE_FRAME_BOUNDS.width / (safeGridSize * 42))
+    Math.floor(PAGE_FRAME_BOUNDS.width / safeGridSize)
   );
   const horizontalGridLines = Math.max(
     3,
-    Math.floor(PAGE_FRAME_BOUNDS.height / (safeGridSize * 42))
+    Math.floor(PAGE_FRAME_BOUNDS.height / safeGridSize)
   );
+
+  const visibleObjects = useMemo(
+    () => previewData?.objects ?? [],
+    [previewData?.objects]
+  );
+
+  const functionGraphRenderStateById = useMemo(() => {
+    const { map } = buildFunctionGraphRenderStateMap({
+      visibleBoardObjects: visibleObjects,
+      selectedPreviewObject: null,
+      graphPan: null,
+      gridSize: safeGridSize,
+    });
+    return map;
+  }, [safeGridSize, visibleObjects]);
+
+  const renderedObjects = useMemo(
+    () =>
+      visibleObjects.map((object) => {
+        const prepared = prepareWorkbookRenderObject({
+          objectSource: object,
+          moving: null,
+          activeMoveRect: null,
+          solid3dPreviewMetaById: {},
+        });
+
+        const commonProps = {
+          stroke: object.color ?? WORKBOOK_BOARD_PRIMARY_COLOR,
+          strokeWidth: object.strokeWidth ?? 2,
+          fill: object.fill ?? "transparent",
+          opacity: object.opacity ?? 1,
+          "data-object-id": object.id,
+        } as const;
+
+        const renderedPrimary = renderWorkbookCanvasPrimaryObject({
+          object: prepared.object,
+          normalized: prepared.normalized,
+          transform: prepared.transform,
+          commonProps,
+          imageAssetUrls,
+          inlineTextEdit: null,
+          setInlineTextEdit: () => {
+            /* preview-only noop */
+          },
+          cancelInlineTextEdit: () => {
+            /* preview-only noop */
+          },
+          inlineTextEditInputRef: PREVIEW_TEXT_INPUT_REF,
+          commitInlineTextEdit: () => {
+            /* preview-only noop */
+          },
+          functionGraphRenderStateById,
+        });
+
+        if (renderedPrimary) {
+          return <g key={`preview-object-${object.id}`}>{renderedPrimary}</g>;
+        }
+
+        const renderedSolid3d = renderWorkbookCanvasSolid3dObject({
+          object: prepared.object,
+          normalized: prepared.normalized,
+          transform: prepared.transform,
+          isRoundSolidPreset: (presetId) => ROUND_SOLID_PRESETS.has(presetId),
+          summarizeProjectedVertices,
+          getSectionVertexLabel,
+        });
+
+        if (renderedSolid3d) {
+          return <g key={`preview-object-${object.id}`}>{renderedSolid3d}</g>;
+        }
+
+        const renderedSecondary = renderWorkbookCanvasSecondaryObject({
+          object: prepared.object,
+          normalized: prepared.normalized,
+          transform: prepared.transform,
+        });
+
+        return renderedSecondary ? (
+          <g key={`preview-object-${object.id}`}>{renderedSecondary}</g>
+        ) : null;
+      }),
+    [functionGraphRenderStateById, imageAssetUrls, visibleObjects]
+  );
+
+  const boardStrokes = previewData?.strokes ?? [];
+  const annotationStrokes = previewData?.annotationStrokes ?? [];
 
   return (
     <svg
       className="workbook-session__page-card-svg-preview"
       viewBox={`${PAGE_FRAME_BOUNDS.minX} ${PAGE_FRAME_BOUNDS.minY} ${PAGE_FRAME_BOUNDS.width} ${PAGE_FRAME_BOUNDS.height}`}
       role="img"
-      aria-hidden="true"
+      aria-label={`Превью страницы ${pageId}`}
       preserveAspectRatio="xMidYMid meet"
     >
-      <rect
-        x={PAGE_FRAME_BOUNDS.minX}
-        y={PAGE_FRAME_BOUNDS.minY}
-        width={PAGE_FRAME_BOUNDS.width}
-        height={PAGE_FRAME_BOUNDS.height}
-        fill={safeBackgroundColor}
-        stroke="rgba(35, 49, 66, 0.2)"
-        strokeWidth={34}
-        rx={56}
-        ry={56}
-      />
-      {Array.from({ length: verticalGridLines }, (_, index) => {
-        const x =
-          PAGE_FRAME_BOUNDS.minX +
-          (index * PAGE_FRAME_BOUNDS.width) / Math.max(1, verticalGridLines - 1);
-        return (
-          <line
-            key={`grid-v-${index}`}
-            x1={x}
-            y1={PAGE_FRAME_BOUNDS.minY}
-            x2={x}
-            y2={PAGE_FRAME_BOUNDS.maxY}
-            stroke={safeGridColor}
-            strokeWidth={6}
-            opacity={GRID_STROKE_BASE_OPACITY}
+      <defs>
+        <clipPath id={`workbook-page-preview-clip-${pageId}`}>
+          <rect
+            x={PAGE_FRAME_BOUNDS.minX}
+            y={PAGE_FRAME_BOUNDS.minY}
+            width={PAGE_FRAME_BOUNDS.width}
+            height={PAGE_FRAME_BOUNDS.height}
           />
-        );
-      })}
-      {Array.from({ length: horizontalGridLines }, (_, index) => {
-        const y =
-          PAGE_FRAME_BOUNDS.minY +
-          (index * PAGE_FRAME_BOUNDS.height) / Math.max(1, horizontalGridLines - 1);
-        return (
-          <line
-            key={`grid-h-${index}`}
-            x1={PAGE_FRAME_BOUNDS.minX}
-            y1={y}
-            x2={PAGE_FRAME_BOUNDS.maxX}
-            y2={y}
-            stroke={safeGridColor}
-            strokeWidth={6}
-            opacity={GRID_STROKE_BASE_OPACITY}
+        </clipPath>
+        <marker
+          id={PREVIEW_ARROW_MARKER_ID}
+          viewBox="0 0 10 10"
+          refX="8"
+          refY="5"
+          markerWidth="6"
+          markerHeight="6"
+          orient="auto"
+          markerUnits="strokeWidth"
+        >
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
+        </marker>
+      </defs>
+      <g clipPath={`url(#workbook-page-preview-clip-${pageId})`}>
+        <rect
+          x={PAGE_FRAME_BOUNDS.minX}
+          y={PAGE_FRAME_BOUNDS.minY}
+          width={PAGE_FRAME_BOUNDS.width}
+          height={PAGE_FRAME_BOUNDS.height}
+          fill={safeBackgroundColor}
+        />
+        {Array.from({ length: verticalGridLines + 1 }, (_, index) => {
+          const x = PAGE_FRAME_BOUNDS.minX + index * safeGridSize;
+          if (x > PAGE_FRAME_BOUNDS.maxX) return null;
+          return (
+            <line
+              key={`grid-v-${pageId}-${index}`}
+              x1={x}
+              y1={PAGE_FRAME_BOUNDS.minY}
+              x2={x}
+              y2={PAGE_FRAME_BOUNDS.maxY}
+              stroke={safeGridColor}
+              strokeWidth={1}
+              opacity={GRID_STROKE_BASE_OPACITY}
+            />
+          );
+        })}
+        {Array.from({ length: horizontalGridLines + 1 }, (_, index) => {
+          const y = PAGE_FRAME_BOUNDS.minY + index * safeGridSize;
+          if (y > PAGE_FRAME_BOUNDS.maxY) return null;
+          return (
+            <line
+              key={`grid-h-${pageId}-${index}`}
+              x1={PAGE_FRAME_BOUNDS.minX}
+              y1={y}
+              x2={PAGE_FRAME_BOUNDS.maxX}
+              y2={y}
+              stroke={safeGridColor}
+              strokeWidth={1}
+              opacity={GRID_STROKE_BASE_OPACITY}
+            />
+          );
+        })}
+        {boardStrokes.map((stroke) => (
+          <path
+            key={`preview-board-stroke-${stroke.id}`}
+            d={toPath(stroke.points)}
+            stroke={stroke.color}
+            strokeWidth={normalizeStrokeWidth(stroke.width)}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+            opacity={
+              stroke.tool === "highlighter"
+                ? resolveWorkbookStrokeOpacity(stroke.tool)
+                : 1
+            }
+            style={{ mixBlendMode: resolveWorkbookStrokeSvgBlendMode(stroke.tool) }}
           />
-        );
-      })}
-      {hasContent && previewData ? (
-        <>
-          {previewData.strokes.map((stroke, index) =>
-            renderStrokePreview(stroke, `stroke-${stroke.id}-${index}`)
-          )}
-          {previewData.annotationStrokes.map((stroke, index) =>
-            renderStrokePreview(stroke, `annotation-${stroke.id}-${index}`)
-          )}
-          {previewData.objects.map((object, index) =>
-            renderObjectPreview(object, index, imageAssetUrls)
-          )}
-        </>
-      ) : null}
+        ))}
+        {annotationStrokes.map((stroke) => (
+          <path
+            key={`preview-annotation-stroke-${stroke.id}`}
+            d={toPath(stroke.points)}
+            stroke={stroke.color}
+            strokeWidth={normalizeStrokeWidth(stroke.width)}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+            opacity={
+              stroke.tool === "highlighter"
+                ? resolveWorkbookStrokeOpacity(stroke.tool)
+                : 1
+            }
+            style={{ mixBlendMode: resolveWorkbookStrokeSvgBlendMode(stroke.tool) }}
+          />
+        ))}
+        {renderedObjects}
+      </g>
     </svg>
   );
 }

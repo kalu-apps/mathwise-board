@@ -11,7 +11,8 @@ import type {
   WorkbookBoardObject,
   WorkbookStroke,
 } from "@/features/workbook/model/types";
-import { WorkbookSessionPagePreview, useWorkbookPagePreviewMap } from "./WorkbookSessionPagePreview";
+import { WorkbookSessionPagePreview } from "./WorkbookSessionPagePreview";
+import { useWorkbookPagePreviewMap } from "./useWorkbookPagePreviewMap";
 
 type WorkbookSessionPageManagerFullscreenProps = {
   open: boolean;
@@ -346,6 +347,7 @@ export function WorkbookSessionPageManagerFullscreen({
               >
                 <div className="workbook-session__page-card-preview" aria-hidden="true">
                   <WorkbookSessionPagePreview
+                    pageId={option.page}
                     previewData={pagePreviewMap.get(option.page) ?? null}
                     imageAssetUrls={imageAssetUrls}
                     backgroundColor={boardBackgroundColor}
