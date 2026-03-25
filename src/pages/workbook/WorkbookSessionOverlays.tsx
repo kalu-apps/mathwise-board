@@ -15,6 +15,10 @@ import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import { SOLID3D_PRESETS } from "@/features/workbook/model/solid3d";
 import type { WorkbookBoardObject, WorkbookTool } from "@/features/workbook/model/types";
+import {
+  supportsGraphUtilityPanel,
+  supportsTransformUtilityPanel,
+} from "./WorkbookSessionPage.geometry";
 import type {
   WorkbookAreaSelection,
   WorkbookLineEndpointContextMenu,
@@ -81,6 +85,7 @@ type WorkbookSessionOverlaysProps = {
   objectContextMenu: WorkbookObjectContextMenu | null;
   setObjectContextMenu: (value: Updater<WorkbookObjectContextMenu | null>) => void;
   contextMenuObject: WorkbookBoardObject | null;
+  onRequestEditObject: (objectId: string) => void;
   pointLabelDraft: string;
   setPointLabelDraft: (value: string) => void;
   renamePointObject: (objectId: string, label: string) => void | Promise<void>;
@@ -149,6 +154,7 @@ export function WorkbookSessionOverlays({
   objectContextMenu,
   setObjectContextMenu,
   contextMenuObject,
+  onRequestEditObject,
   pointLabelDraft,
   setPointLabelDraft,
   renamePointObject,
@@ -607,6 +613,20 @@ export function WorkbookSessionOverlays({
                   </IconButton>
                 </div>
               </div>
+            ) : null}
+            {contextMenuObject &&
+            (supportsGraphUtilityPanel(contextMenuObject) ||
+              supportsTransformUtilityPanel(contextMenuObject)) ? (
+              <MenuItem
+                onClick={() => {
+                  onRequestEditObject(contextMenuObject.id);
+                  setObjectContextMenu(null);
+                }}
+              >
+                {supportsGraphUtilityPanel(contextMenuObject)
+                  ? "Редактировать график функции"
+                  : "Редактировать объект"}
+              </MenuItem>
             ) : null}
             {contextMenuObject && contextMenuObject.type !== "point" ? (
               <>

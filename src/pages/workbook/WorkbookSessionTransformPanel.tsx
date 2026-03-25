@@ -9,7 +9,6 @@ import FormatColorFillRoundedIcon from "@mui/icons-material/FormatColorFillRound
 import FormatColorTextRoundedIcon from "@mui/icons-material/FormatColorTextRounded";
 import FormatItalicRoundedIcon from "@mui/icons-material/FormatItalicRounded";
 import FormatUnderlinedRoundedIcon from "@mui/icons-material/FormatUnderlinedRounded";
-import ShowChartRoundedIcon from "@mui/icons-material/ShowChartRounded";
 import {
   WORKBOOK_BOARD_PRIMARY_COLOR,
   WORKBOOK_SYSTEM_COLORS,
@@ -36,7 +35,6 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
   onMirrorSelectedObject,
   onUpdateSelectedObjectMeta,
   onDissolveCompositionLayer,
-  onOpenGraphPanel,
   selectedLineObject,
   selectedFunctionGraphObject,
   selectedDividerObject,
@@ -270,16 +268,9 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
         ) : selectedFunctionGraphObject || tool === "function_graph" ? (
           <div className="workbook-session__settings">
             <p className="workbook-session__hint">
-              Настройки графиков перенесены во вкладку «График функции».
+              Чтобы открыть блок настроек графика, нажмите правой кнопкой мыши по объекту и
+              выберите «Редактировать график функции».
             </p>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<ShowChartRoundedIcon />}
-              onClick={onOpenGraphPanel}
-            >
-              Открыть вкладку
-            </Button>
           </div>
         ) : selectedTextObject || tool === "text" ? (
           <div className="workbook-session__settings">

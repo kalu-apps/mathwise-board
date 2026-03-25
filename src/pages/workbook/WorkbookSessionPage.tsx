@@ -1308,24 +1308,8 @@ export default function WorkbookSessionPage() {
         suppressAutoPanelSelectionRef.current = null;
         return;
       }
-      const targetObject = boardObjects.find((item) => item.id === nextObjectId) ?? null;
-      if (supportsGraphUtilityPanel(targetObject)) {
-        openUtilityPanel("graph", {
-          toggle: false,
-          anchorObject: targetObject,
-        });
-        return;
-      }
-      if (supportsTransformUtilityPanel(targetObject)) {
-        openUtilityPanel("transform", {
-          toggle: false,
-          anchorObject: targetObject,
-        });
-      }
     },
     [
-      boardObjects,
-      openUtilityPanel,
       setSelectedConstraintId,
       setSelectedObjectId,
       suppressAutoPanelSelectionRef,
@@ -1673,6 +1657,29 @@ export default function WorkbookSessionPage() {
   const handleTransformOpenGraphPanel = useCallback(() => {
     openUtilityPanel("graph", { toggle: false });
   }, [openUtilityPanel]);
+
+  const handleOpenObjectEditorFromContextMenu = useCallback(
+    (objectId: string) => {
+      const targetObject = boardObjects.find((item) => item.id === objectId) ?? null;
+      if (!targetObject) return;
+      setSelectedConstraintId(null);
+      setSelectedObjectId(objectId);
+      if (supportsGraphUtilityPanel(targetObject)) {
+        openUtilityPanel("graph", {
+          toggle: false,
+          anchorObject: targetObject,
+        });
+        return;
+      }
+      if (supportsTransformUtilityPanel(targetObject)) {
+        openUtilityPanel("transform", {
+          toggle: false,
+          anchorObject: targetObject,
+        });
+      }
+    },
+    [boardObjects, openUtilityPanel, setSelectedConstraintId, setSelectedObjectId]
+  );
 
   const transformPanelProps: WorkbookSessionTransformPanelProps =
     buildWorkbookSessionTransformPanelRuntimeProps({
@@ -2362,6 +2369,7 @@ export default function WorkbookSessionPage() {
     objectContextMenu,
     setObjectContextMenu: workbookSessionActions.setObjectContextMenu,
     contextMenuObject: selectionViewportState.contextMenuObject,
+    onRequestEditObject: handleOpenObjectEditorFromContextMenu,
     pointLabelDraft,
     setPointLabelDraft: workbookSessionActions.setPointLabelDraft,
     renamePointObject: selectedStructureActions.renamePointObject,
