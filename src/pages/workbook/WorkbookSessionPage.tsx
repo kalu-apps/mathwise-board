@@ -1058,7 +1058,6 @@ export default function WorkbookSessionPage() {
   const {
     handleSharedBoardSettingsChange,
     handleSelectBoardPage,
-    handleRenameBoardPage,
     handleReorderBoardPages,
     handleAddBoardPage,
     handleDeleteBoardPage,
@@ -2481,7 +2480,6 @@ export default function WorkbookSessionPage() {
         isBoardPageMutationPending={isBoardPageMutationPending}
         onClose={handleClosePageManager}
         onSelectPage={handleSelectBoardPage}
-        onRenamePage={handleRenameBoardPage}
         onReorderPages={handleReorderBoardPages}
       />
 
