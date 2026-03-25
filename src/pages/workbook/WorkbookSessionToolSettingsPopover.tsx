@@ -175,30 +175,20 @@ export function WorkbookSessionToolSettingsPopover({
               <div className="workbook-session__tool-settings-cluster-title">
                 Размер ластика
               </div>
-              <div className="workbook-session__tool-settings-split">
-                <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
-                  <div className="workbook-session__tool-settings-field-main">
-                    <strong>Радиус</strong>
-                  </div>
-                  <div className="workbook-session__tool-settings-range">
-                    <input
-                      type="range"
-                      name="eraser-radius"
-                      min={eraserRadiusMin}
-                      max={eraserRadiusMax}
-                      value={eraserRadius}
-                      onChange={(event) => onEraserRadiusChange(Number(event.target.value))}
-                    />
-                    <span>{eraserRadius} px</span>
-                  </div>
+              <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
+                <div className="workbook-session__tool-settings-field-main">
+                  <strong>Радиус</strong>
                 </div>
-                <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
-                  <div className="workbook-session__tool-settings-field-main">
-                    <strong>Диаметр</strong>
-                  </div>
-                  <div className="workbook-session__tool-settings-value">
-                    {Math.round(eraserRadius * 2)} px
-                  </div>
+                <div className="workbook-session__tool-settings-range">
+                  <input
+                    type="range"
+                    name="eraser-radius"
+                    min={eraserRadiusMin}
+                    max={eraserRadiusMax}
+                    value={eraserRadius}
+                    onChange={(event) => onEraserRadiusChange(Number(event.target.value))}
+                  />
+                  <span>{eraserRadius} px</span>
                 </div>
               </div>
             </div>
