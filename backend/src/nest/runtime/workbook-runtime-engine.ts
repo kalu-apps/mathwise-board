@@ -120,6 +120,7 @@ const AUTH_SESSION_TTL_MS = (() => {
 })();
 const AUTH_SESSION_PERSIST_INTERVAL_MS = 60_000;
 const ONLINE_TIMEOUT_MS = 20_000;
+const HUB_ACTIVITY_ONLINE_TIMEOUT_MS = 8_000;
 const RECENT_ACTIVITY_WINDOW_MS = 30 * 60 * 1000;
 const PRESENCE_PERSIST_INTERVAL_MS = 15_000;
 const PRESENCE_ACTIVITY_TOUCH_INTERVAL_MS = 20_000;
@@ -1385,6 +1386,15 @@ const isParticipantOnline = (participant: WorkbookSessionParticipantRecord) => {
   return nowTs() - seenAt <= ONLINE_TIMEOUT_MS;
 };
 
+const isParticipantOnlineForHubActivity = (participant: WorkbookSessionParticipantRecord) => {
+  if (!participant.isActive || !participant.lastSeenAt) return false;
+  const seenAt = new Date(participant.lastSeenAt).getTime();
+  if (!Number.isFinite(seenAt)) return false;
+  // Keep session/realtime presence semantics unchanged.
+  // Hub cards should drop "Идет сессия" quickly when mobile tab close leave is not delivered.
+  return nowTs() - seenAt <= HUB_ACTIVITY_ONLINE_TIMEOUT_MS;
+};
+
 const touchSessionActivity = (session: WorkbookSessionRecord, timestamp = nowIso()) => {
   session.lastActivityAt = timestamp;
   if (!session.startedAt) session.startedAt = timestamp;
@@ -1651,7 +1661,7 @@ const resolveDraftActivityMeta = (
 ): DraftActivityMeta => {
   if (
     session.status !== "ended" &&
-    participants.some((participant) => participant.isActive && isParticipantOnline(participant))
+    participants.some((participant) => isParticipantOnlineForHubActivity(participant))
   ) {
     return {
       activityLabel: "Идет сессия",
