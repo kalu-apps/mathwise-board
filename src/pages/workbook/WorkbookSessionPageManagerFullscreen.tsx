@@ -309,15 +309,17 @@ export function WorkbookSessionPageManagerFullscreen({
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      const activePage = toSafePageId(event.active.id);
-      const overPage = toSafePageId(event.over?.id);
       const nextOrder = displayOrderPageIdsRef.current;
       const didReorder = !areSameOrder(nextOrder, orderedPageIds);
+      const canPersistReorder =
+        didReorder &&
+        nextOrder.length === orderedPageIds.length &&
+        nextOrder.every((pageId) => orderedPageIds.includes(pageId));
 
-      if (activePage !== null && overPage !== null && didReorder) {
+      if (canPersistReorder) {
         suppressCardClickUntilTsRef.current = Date.now() + 320;
-        onReorderPages(nextOrder);
-      } else if (!didReorder) {
+        onReorderPages([...nextOrder]);
+      } else {
         setDisplayOrderPageIds(orderedPageIds);
       }
 

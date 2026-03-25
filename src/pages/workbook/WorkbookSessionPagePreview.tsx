@@ -312,7 +312,7 @@ export function WorkbookSessionPagePreview({
       viewBox={`${viewBounds.minX} ${viewBounds.minY} ${viewBounds.width} ${viewBounds.height}`}
       role="img"
       aria-label={`Превью страницы ${pageId}`}
-      preserveAspectRatio="xMidYMid meet"
+      preserveAspectRatio="xMidYMid slice"
     >
       <defs>
         <clipPath id={`workbook-page-preview-clip-${pageId}`}>
