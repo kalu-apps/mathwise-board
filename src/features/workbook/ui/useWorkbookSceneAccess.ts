@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { reportWorkbookPerfPhaseMetric } from "../model/workbookPerformance";
 import type { WorkbookBoardObject, WorkbookPoint, WorkbookStroke } from "../model/types";
 import {
   buildWorkbookSceneAccessFromIndex,
@@ -26,45 +25,18 @@ export const useWorkbookSceneAccess = (
   params: UseWorkbookSceneAccessParams
 ): WorkbookSceneAccess => {
   const sceneIndex = useMemo(
-    () => {
-      const startedAtMs =
-        typeof performance !== "undefined" && typeof performance.now === "function"
-          ? performance.now()
-          : Date.now();
-      const index = buildWorkbookSceneIndex({
+    () =>
+      buildWorkbookSceneIndex({
         boardObjects: params.boardObjects,
         strokes: params.strokes,
         getObjectRect: params.getObjectRect,
-      });
-      const finishedAtMs =
-        typeof performance !== "undefined" && typeof performance.now === "function"
-          ? performance.now()
-          : Date.now();
-      reportWorkbookPerfPhaseMetric({
-        name: "scene_index_rebuild_ms",
-        durationMs: finishedAtMs - startedAtMs,
-        counters: {
-          objectCount: index.metrics.objectCount,
-          strokeCount: index.metrics.strokeCount,
-          totalStrokePoints: index.metrics.totalStrokePoints,
-          objectRectCacheHits: index.metrics.objectRectCacheHits,
-          objectRectCacheMisses: index.metrics.objectRectCacheMisses,
-          strokeRectCacheHits: index.metrics.strokeRectCacheHits,
-          strokeRectCacheMisses: index.metrics.strokeRectCacheMisses,
-        },
-      });
-      return index;
-    },
+      }),
     [params.boardObjects, params.getObjectRect, params.strokes]
   );
 
   return useMemo(
-    () => {
-      const startedAtMs =
-        typeof performance !== "undefined" && typeof performance.now === "function"
-          ? performance.now()
-          : Date.now();
-      const access = buildWorkbookSceneAccessFromIndex({
+    () =>
+      buildWorkbookSceneAccessFromIndex({
         sceneIndex,
         viewportOffset: params.viewportOffset,
         width: params.width,
@@ -74,25 +46,7 @@ export const useWorkbookSceneAccess = (
         renderPadding: params.renderPadding,
         hitPadding: params.hitPadding,
         forcedVisibleObjectIds: params.forcedVisibleObjectIds,
-      });
-      const finishedAtMs =
-        typeof performance !== "undefined" && typeof performance.now === "function"
-          ? performance.now()
-          : Date.now();
-      reportWorkbookPerfPhaseMetric({
-        name: "scene_access_rebuild_ms",
-        durationMs: finishedAtMs - startedAtMs,
-        counters: {
-          visibleObjects: access.visibleBoardObjects.length,
-          visibleHitObjects: access.visibleHitObjects.length,
-          visibleStrokes: access.visibleStrokes.length,
-          visibleHitStrokes: access.visibleHitStrokes.length,
-          viewportWidth: Math.round(access.viewportRect.width),
-          viewportHeight: Math.round(access.viewportRect.height),
-        },
-      });
-      return access;
-    },
+      }),
     [
       params.forcedVisibleObjectIds,
       params.height,

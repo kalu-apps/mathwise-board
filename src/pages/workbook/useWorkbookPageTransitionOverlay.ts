@@ -79,7 +79,14 @@ export const useWorkbookPageTransitionOverlay = ({
   useEffect(() => {
     if (loading || !bootstrapReady) {
       previousPageRef.current = safeCurrentPage;
-      setIsPageTransitionActive(false);
+      if (isPageTransitionActive && typeof window !== "undefined") {
+        const resetToken = window.requestAnimationFrame(() => {
+          setIsPageTransitionActive(false);
+        });
+        return () => {
+          window.cancelAnimationFrame(resetToken);
+        };
+      }
       return;
     }
     if (previousPageRef.current === null) {
@@ -142,6 +149,7 @@ export const useWorkbookPageTransitionOverlay = ({
       }
     };
   }, [
+    isPageTransitionActive,
     loading,
     bootstrapReady,
     safeCurrentPage,

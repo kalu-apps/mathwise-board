@@ -26,6 +26,7 @@ import type {
   WorkbookEvent,
   WorkbookLayer,
 } from "@/features/workbook/model/types";
+import { sanitizeFunctionGraphDrafts } from "@/features/workbook/model/functionGraph";
 import { PageLoader } from "@/shared/ui/loading";
 import { PlatformConfirmDialog } from "@/shared/ui/PlatformConfirmDialog";
 import { useWorkbookSessionContextbar } from "./useWorkbookSessionContextbar";
@@ -97,10 +98,7 @@ import { useWorkbookToolRuntimeHandlers } from "./useWorkbookToolRuntimeHandlers
 import { WorkbookSessionWorkspace } from "./WorkbookSessionWorkspace";
 import { WorkbookSessionSidebar } from "./WorkbookSessionSidebar";
 import { useWorkbookSessionSelectionViewportState } from "./useWorkbookSessionSelectionViewportState";
-import { buildWorkbookCanvasProps } from "./useWorkbookCanvasProps";
-import { buildWorkbookSessionRealtimeLifecycleParams } from "./buildWorkbookSessionRealtimeLifecycleParams";
 import { buildWorkbookSessionSelectionViewportParams } from "./buildWorkbookSessionSelectionViewportParams";
-import { buildWorkbookSessionLayoutRuntimeProps } from "./buildWorkbookSessionLayoutRuntimeProps";
 import { useWorkbookSessionDerivedState } from "./useWorkbookSessionDerivedState";
 import { applyWorkbookIncomingEventsBatch } from "./applyWorkbookIncomingEventsBatch";
 import { buildWorkbookSessionTransformPanelRuntimeProps } from "./buildWorkbookSessionTransformPanelRuntimeProps";
@@ -414,6 +412,30 @@ export default function WorkbookSessionPage() {
     viewportSyncLastSentAtRef,
     viewportSyncQueuedOffsetRef,
   } = refs;
+  const [overlayContainer, setOverlayContainer] = useState<HTMLElement | undefined>(() =>
+    typeof document !== "undefined" ? document.body : undefined
+  );
+  const [presenceTabIdSnapshot, setPresenceTabIdSnapshot] = useState("");
+  const handleSessionRootRef = useCallback(
+    (node: HTMLElement | null) => {
+      sessionRootRef.current = node;
+      if (typeof document === "undefined") return;
+      const nextContainer = node ?? document.body;
+      setOverlayContainer((current) => (current === nextContainer ? current : nextContainer));
+    },
+    [sessionRootRef]
+  );
+
+  useEffect(() => {
+    const nextPresenceTabId = refs.presenceTabIdRef.current;
+    if (!nextPresenceTabId || typeof window === "undefined") return;
+    const raf = window.requestAnimationFrame(() => {
+      setPresenceTabIdSnapshot((current) =>
+        current === nextPresenceTabId ? current : nextPresenceTabId
+      );
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [refs.presenceTabIdRef]);
 
   const fallbackBackPath = "/workbook";
   const fromPath = searchParams.get("from") || fallbackBackPath;
@@ -596,7 +618,6 @@ export default function WorkbookSessionPage() {
     setSessionChatReadAt,
     setIsSessionChatAtBottom,
     sessionChatListRef,
-    latestSeqRef,
     lastAppliedSeqRef: refs.lastAppliedSeqRef,
     processedEventIdsRef,
   });
@@ -706,8 +727,6 @@ export default function WorkbookSessionPage() {
     [
       user?.id,
       sessionId,
-      refs.lastAppliedSeqRef,
-      refs.lastAppliedBoardSettingsSeqRef,
       refs,
       workbookSessionActions,
       areParticipantsEqual,
@@ -728,56 +747,177 @@ export default function WorkbookSessionPage() {
     handleRealtimeAuthRequired,
     handleRealtimeConflict,
     enqueueIncomingRealtimeApply,
-  } = useWorkbookSessionRealtimeLifecycle(
-    buildWorkbookSessionRealtimeLifecycleParams({
+  } = useWorkbookSessionRealtimeLifecycle({
+    realtimeApplyQueueParams: {
       sessionId,
-      userId: user?.id,
-      isWorkbookSessionAuthLost,
-      bootstrapReady,
-      isLivekitConnected,
-      isTeacherActor,
-      canUseSessionChat,
-      isSessionChatOpen,
-      isSessionChatMinimized,
-      isSessionChatMaximized,
-      isSessionChatAtBottom,
-      isCompactViewport,
-      adaptivePollingEnabled,
-      clampedEraserRadius,
-      collab: workbookSessionCollab,
-      page: workbookSessionPage,
-      data: workbookSessionData,
-      tooling: workbookSessionTooling,
-      actions: workbookSessionActions,
-      refs,
       applyIncomingEvents,
+    },
+    loadAndAuthParams: {
+      sessionId,
+      isWorkbookSessionAuthLost,
       clearLocalPreviewPatchRuntime,
       clearObjectSyncRuntime,
       clearStrokePreviewRuntime,
       clearIncomingEraserPreviewRuntime,
-      filterUnseenWorkbookEvents,
       recoverChatMessagesFromEvents,
-      markSessionChatReadToLatest,
-      scrollSessionChatToLatest,
-      scrollSessionChatToMessage,
-      sessionChatReadStorageKey,
-      sessionTabLockStorageKey,
-      sessionTabLockChannelName,
-      personalBoardSettingsStorageKey,
-      firstUnreadSessionChatMessageId,
-      areParticipantsEqual,
+      setSaveState: workbookSessionActions.setSaveState,
+      setError: workbookSessionActions.setError,
+      setSaveSyncWarning: workbookSessionActions.setSaveSyncWarning,
+      setBootstrapReady: workbookSessionActions.setBootstrapReady,
+      setLoading: workbookSessionActions.setLoading,
+      setSession: workbookSessionActions.setSession,
+      setBoardStrokes: workbookSessionActions.setBoardStrokes,
+      setBoardObjects: workbookSessionActions.setBoardObjects,
+      setConstraints: workbookSessionActions.setConstraints,
+      setBoardSettings: workbookSessionActions.setBoardSettings,
+      setAnnotationStrokes: workbookSessionActions.setAnnotationStrokes,
+      setLatestSeq: workbookSessionActions.setLatestSeq,
+      setUndoDepth: workbookSessionActions.setUndoDepth,
+      setRedoDepth: workbookSessionActions.setRedoDepth,
+      setFocusPoint: workbookSessionActions.setFocusPoint,
+      setPointerPoint: workbookSessionActions.setPointerPoint,
+      setFocusPointsByUser: workbookSessionActions.setFocusPointsByUser,
+      setPointerPointsByUser: workbookSessionActions.setPointerPointsByUser,
+      setChatMessages: workbookSessionActions.setChatMessages,
+      setComments: workbookSessionActions.setComments,
+      setTimerState: workbookSessionActions.setTimerState,
+      setLibraryState: workbookSessionActions.setLibraryState,
+      setDocumentState: workbookSessionActions.setDocumentState,
+      setRealtimeSyncWarning: workbookSessionActions.setRealtimeSyncWarning,
+      authRequiredRef: refs.authRequiredRef,
+      loadSessionRequestIdRef: refs.loadSessionRequestIdRef,
+      firstInteractiveMetricReportedRef: refs.firstInteractiveMetricReportedRef,
+      queuedBoardSettingsCommitRef: refs.queuedBoardSettingsCommitRef,
+      queuedBoardSettingsHistoryBeforeRef: refs.queuedBoardSettingsHistoryBeforeRef,
+      boardSettingsCommitTimerRef: refs.boardSettingsCommitTimerRef,
+      latestSeqRef: refs.latestSeqRef,
+      lastAppliedSeqRef: refs.lastAppliedSeqRef,
+      lastAppliedBoardSettingsSeqRef: refs.lastAppliedBoardSettingsSeqRef,
+      recoveryModeRef: refs.recoveryModeRef,
+      processedEventIdsRef: refs.processedEventIdsRef,
+      applyIncomingEvents,
+      filterUnseenWorkbookEvents,
+      dirtyRef: refs.dirtyRef,
+      undoStackRef: refs.undoStackRef,
+      redoStackRef: refs.redoStackRef,
+      focusResetTimersByUserRef: refs.focusResetTimersByUserRef,
+      boardObjectsRef: refs.boardObjectsRef,
+      boardObjectIndexByIdRef: refs.boardObjectIndexByIdRef,
+      sessionResyncInFlightRef: refs.sessionResyncInFlightRef,
+      lastForcedResyncAtRef: refs.lastForcedResyncAtRef,
+    },
+    clearLocalPreviewPatchRuntime,
+    clearObjectSyncRuntime,
+    clearStrokePreviewRuntime,
+    clearIncomingEraserPreviewRuntime,
+    realtimeTransportParams: {
+      enabled: Boolean(user?.id) && !isWorkbookSessionAuthLost,
+      bootstrapReady,
+      filterUnseenWorkbookEvents,
+      latestSeqRef: refs.latestSeqRef,
+      sessionResyncInFlightRef: refs.sessionResyncInFlightRef,
+      realtimeDisconnectSinceRef: refs.realtimeDisconnectSinceRef,
+      lastForcedResyncAtRef: refs.lastForcedResyncAtRef,
+      workbookLiveSendRef: refs.workbookLiveSendRef,
+      setLatestSeq: workbookSessionActions.setLatestSeq,
+      setRealtimeSyncWarning: workbookSessionActions.setRealtimeSyncWarning,
+      isWorkbookStreamConnected: workbookSessionCollab.isWorkbookStreamConnected,
+      isWorkbookLiveConnected: workbookSessionCollab.isWorkbookLiveConnected,
+      setIsWorkbookStreamConnected: workbookSessionActions.setIsWorkbookStreamConnected,
+      setIsWorkbookLiveConnected: workbookSessionActions.setIsWorkbookLiveConnected,
       pollIntervalMs: POLL_INTERVAL_MS,
       pollIntervalStreamConnectedMs: POLL_INTERVAL_STREAM_CONNECTED_MS,
       resyncMinIntervalMs: RESYNC_MIN_INTERVAL_MS,
+      adaptivePollingEnabled,
       adaptivePollingMinMs: ADAPTIVE_POLLING_MIN_MS,
       adaptivePollingMaxMs: ADAPTIVE_POLLING_MAX_MS,
-      tabLockHeartbeatMs: TAB_LOCK_HEARTBEAT_MS,
+      isMediaAudioConnected: isLivekitConnected,
+    },
+    sessionTabLockParams: {
+      sessionTabLockStorageKey,
+      sessionTabLockChannelName,
+      tabIdRef: refs.presenceTabIdRef,
+      setActiveSessionTabId: workbookSessionActions.setActiveSessionTabId,
+      setIsSessionTabPassive: workbookSessionActions.setIsSessionTabPassive,
+      heartbeatMs: TAB_LOCK_HEARTBEAT_MS,
+    },
+    personalBoardSettingsParams: {
+      personalBoardSettingsStorageKey,
+      personalBoardSettingsReadyRef: refs.personalBoardSettingsReadyRef,
+      skipNextPersonalBoardSettingsPersistRef: refs.skipNextPersonalBoardSettingsPersistRef,
+      setPenToolSettings: workbookSessionActions.setPenToolSettings,
+      setHighlighterToolSettings: workbookSessionActions.setHighlighterToolSettings,
+      setEraserRadius: workbookSessionActions.setEraserRadius,
+      penToolSettings: workbookSessionTooling.penToolSettings,
+      highlighterToolSettings: workbookSessionTooling.highlighterToolSettings,
+      clampedEraserRadius,
+    },
+    presenceLifecycleParams: {
+      sessionId,
+      userId: user?.id,
+      isTeacherActor,
+      presenceTabIdRef: refs.presenceTabIdRef,
+      presenceLeaveSentRef: refs.presenceLeaveSentRef,
       presenceIntervalMs: PRESENCE_INTERVAL_MS,
-      autosaveIntervalMs: AUTOSAVE_INTERVAL_MS,
+    },
+    areParticipantsEqual,
+    sessionChatUiEffectsParams: {
+      sessionChatReadStorageKey,
+      setSessionChatReadAt: workbookSessionActions.setSessionChatReadAt,
+      canUseSessionChat,
+      isSessionChatOpen,
+      setIsSessionChatOpen: workbookSessionActions.setIsSessionChatOpen,
+      setIsSessionChatEmojiOpen: workbookSessionActions.setIsSessionChatEmojiOpen,
+      setSessionChatDraft: workbookSessionActions.setSessionChatDraft,
+      isSessionChatMinimized,
+      isSessionChatMaximized,
+      isSessionChatAtBottom,
+      firstUnreadSessionChatMessageId,
+      sessionChatUnreadCount: workbookSessionPage.sessionChatUnreadCount,
+      chatMessages: workbookSessionData.chatMessages,
+      sessionChatShouldScrollToUnreadRef: refs.sessionChatShouldScrollToUnreadRef,
+      sessionChatListRef: refs.sessionChatListRef,
+      sessionChatRef: refs.sessionChatRef,
+      sessionChatDragStateRef: refs.sessionChatDragStateRef,
+      isCompactViewport,
+      setIsSessionChatAtBottom: workbookSessionActions.setIsSessionChatAtBottom,
+      markSessionChatReadToLatest,
+      scrollSessionChatToLatest,
+      scrollSessionChatToMessage,
+      setSessionChatPosition: workbookSessionActions.setSessionChatPosition,
       sessionChatScrollBottomThresholdPx: SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX,
+    },
+    persistSnapshotsParams: {
+      sessionId,
+      boardStrokes: workbookSessionData.boardStrokes,
+      boardObjects: workbookSessionData.boardObjects,
+      constraints: workbookSessionData.constraints,
+      chatMessages: workbookSessionData.chatMessages,
+      comments: workbookSessionData.comments,
+      timerState: workbookSessionData.timerState,
+      boardSettings: workbookSessionData.boardSettings,
+      libraryState: workbookSessionData.libraryState,
+      documentState: workbookSessionData.documentState,
+      annotationStrokes: workbookSessionData.annotationStrokes,
+      latestSeq: workbookSessionCollab.latestSeq,
+      lastAppliedSeqRef: refs.lastAppliedSeqRef,
+      authRequiredRef: refs.authRequiredRef,
+      dirtyRef: refs.dirtyRef,
+      dirtyRevisionRef: refs.dirtyRevisionRef,
+      isSavingRef: refs.isSavingRef,
+      pendingAutosaveAfterSaveRef: refs.pendingAutosaveAfterSaveRef,
+      setSaveState: workbookSessionActions.setSaveState,
+      setSaveSyncWarning: workbookSessionActions.setSaveSyncWarning,
       scheduleAutosave,
-    })
-  );
+    },
+    persistenceLifecycleParams: {
+      sessionId,
+      sessionReady: Boolean(workbookSessionData.session && !isWorkbookSessionAuthLost),
+      persistSnapshotsRef,
+      dirtyRef: refs.dirtyRef,
+      autosaveIntervalMs: AUTOSAVE_INTERVAL_MS,
+    },
+  });
 
   useWorkbookSessionCleanupEffects({
     focusResetTimersByUserRef,
@@ -1834,6 +1974,13 @@ export default function WorkbookSessionPage() {
     visibleImagesReady: selectionViewportState.visibleImagesReady,
     pendingVisibleImageCount: selectionViewportState.pendingVisibleImageCount,
   });
+  const sanitizedGraphDraftFunctions = useMemo(
+    () =>
+      sanitizeFunctionGraphDrafts(graphDraftFunctions, {
+        ensureNonEmpty: false,
+      }),
+    [graphDraftFunctions]
+  );
 
   if (loading) {
     return <PageLoader />;
@@ -1859,49 +2006,57 @@ export default function WorkbookSessionPage() {
     );
   }
 
-  const overlayContainer =
-    sessionRootRef.current ??
-    (typeof document !== "undefined" ? document.body : undefined);
-  // react-hooks/refs false-positive: refs are forwarded into runtime props and not dereferenced here.
-  // eslint-disable-next-line react-hooks/refs
-  const canvasProps = buildWorkbookCanvasProps({
-    visibleBoardStrokes: selectionViewportState.visibleBoardStrokes,
-    visibleAnnotationStrokes: selectionViewportState.visibleAnnotationStrokes,
+  const canvasProps = {
+    boardStrokes: selectionViewportState.visibleBoardStrokes,
+    annotationStrokes: selectionViewportState.visibleAnnotationStrokes,
     previewStrokes,
-    visibleBoardObjects: selectionViewportState.visibleBoardObjects,
+    boardObjects: selectionViewportState.visibleBoardObjects,
     constraints,
     layer,
     tool,
-    strokeColor,
-    strokeWidth,
-    userId: user?.id,
+    color: strokeColor,
+    width: strokeWidth,
+    authorUserId: user?.id ?? "unknown",
     polygonSides,
     polygonMode,
     polygonPreset,
     textPreset,
-    graphDraftFunctions,
+    graphFunctions: sanitizedGraphDraftFunctions,
     lineStyle,
-    boardSettings,
+    snapToGrid: boardSettings.snapToGrid,
+    gridSize: boardSettings.gridSize,
     viewportZoom,
-    canvasVisibilityMode,
+    visibilityMode: canvasVisibilityMode,
+    showGrid: boardSettings.showGrid,
+    gridColor: boardSettings.gridColor,
+    backgroundColor: boardSettings.backgroundColor,
     imageAssetUrls: selectionViewportState.imageAssetUrls,
-    visibleIncomingEraserPreviews: selectionViewportState.visibleIncomingEraserPreviews,
-    canEdit,
-    boardLocked,
+    incomingEraserPreviews: selectionViewportState.visibleIncomingEraserPreviews,
+    showPageNumbers: boardSettings.showPageNumbers,
+    currentPage: boardSettings.currentPage,
+    disabled: !canEdit || boardLocked,
     selectedObjectId,
     selectedConstraintId,
     focusPoint,
     pointerPoint,
     focusPoints,
     pointerPoints,
-    canvasViewport,
+    viewportOffset: canvasViewport,
     onViewportOffsetChange: handleCanvasViewportOffsetChange,
     onEraserRadiusChange: handleEraserRadiusChange,
     forcePanMode: spacePanActive,
+    autoDividersEnabled: boardSettings.autoSectionDividers,
+    autoDividerStep: boardSettings.dividerStep,
     areaSelection,
-    solid3dSectionPointCollecting,
-    isSolid3dPointCollectionActive: selectionViewportState.isSolid3dPointCollectionActive,
-    solid3dDraftPoints,
+    solid3dDraftPointCollectionObjectId: solid3dSectionPointCollecting,
+    solid3dSectionMarkers:
+      selectionViewportState.isSolid3dPointCollectionActive && solid3dDraftPoints
+        ? {
+            objectId: solid3dDraftPoints.objectId,
+            sectionId: "draft",
+            selectedPoints: solid3dDraftPoints.points,
+          }
+        : null,
     onSelectedObjectChange: handleCanvasSelectedObjectChange,
     onSelectedConstraintChange: setSelectedConstraintId,
     onStrokeCommit: canvasHandlers.handleCanvasStrokeCommit,
@@ -1929,145 +2084,289 @@ export default function WorkbookSessionPage() {
     onLaserClear: canvasHandlers.handleCanvasLaserClear,
     solid3dInsertPreset: pendingSolid3dInsertPreset,
     onSolid3dInsertConsumed: mathPresetCreationHandlers.clearPendingSolid3dInsertPreset,
-  });
-  const layoutRuntimeInput = {
-    user,
-    ui: workbookSessionUi,
-    page: workbookSessionPage,
-    scene: workbookSessionScene,
-    data: workbookSessionData,
-    refs,
-    permissions: {
-      canUseSessionChat,
-      canManageSession,
-      canSendSessionChat,
-      canUseMedia,
-      isEnded,
-      showCollaborationPanels,
-      canClear,
-      canAccessBoardSettingsPanel,
-      canManageSharedBoardSettings,
-      canUseUndo,
-      canInsertImage,
-      canDelete,
-      canSelect,
-      canDraw,
-    },
-    derived: {
-      participantCards,
-      sessionChatUnreadCount,
-      firstUnreadSessionChatMessageId,
-      chatEmojis: WORKBOOK_CHAT_EMOJIS,
-      micEnabled,
-      canvasProps,
-      beforeCatalogToolButtons,
-      afterCatalogToolButtons,
-      activeDocument: selectionViewportState.activeDocument,
-      activeDocumentPageCount: selectionViewportState.activeDocumentPageCount,
-      isContextualUtilityPanel: selectionViewportState.isContextualUtilityPanel,
-      selectedObjectSupportsGraphPanel:
-        selectionViewportState.selectedObjectSupportsGraphPanel,
-      selectedObjectSupportsTransformPanel:
-        selectionViewportState.selectedObjectSupportsTransformPanel,
-      settingsPanelProps,
-      graphPanelProps,
-      boardPageOptions: selectionViewportState.boardPageOptions,
-      transformPanelProps,
-      isCompactDialogViewport,
-      contextMenuSection: selectionViewportState.contextMenuSection,
-      contextMenuShapeVertexObject: selectionViewportState.contextMenuShapeVertexObject,
-      contextMenuLineEndpointObject: selectionViewportState.contextMenuLineEndpointObject,
-      contextMenuObject: selectionViewportState.contextMenuObject,
-      canBringContextMenuImageToFront:
-        selectionViewportState.canBringContextMenuImageToFront,
-      canSendContextMenuImageToBack: selectionViewportState.canSendContextMenuImageToBack,
-      canRestoreContextMenuImage: selectionViewportState.canRestoreContextMenuImage,
-      canCropAreaSelectionImage: selectionViewportState.canCropAreaSelectionImage,
-      areaSelectionHasContent,
-      shapeCatalog,
-    },
-    handlers: {
-      handleToggleSessionChat: canvasHandlers.handleToggleSessionChat,
-      handleCollapseParticipants: canvasHandlers.handleCollapseParticipants,
-      handleToggleOwnMic: canvasHandlers.handleToggleOwnMic,
-      isParticipantBoardToolsEnabled,
-      handleToggleParticipantBoardTools,
-      handleToggleParticipantChat,
-      handleToggleParticipantMic,
-      handleSessionChatDragStart,
-      scrollSessionChatToLatest,
-      markSessionChatReadToLatest,
-      handleSendSessionChatMessage,
-      exportBoardAsPdf: handleRequestExportPdf,
-      handleMenuClearBoard: handleRequestClearBoard,
-      openUtilityPanel,
-      handleSelectBoardPage,
-      handleAddBoardPage,
-      handleDeleteBoardPage: handleRequestDeleteBoardPage,
-      handleUndo,
-      handleRedo,
-      zoomOut,
-      zoomIn,
-      resetZoom,
-      requestDocsUpload: () => openImportModal(),
-      toggleFullscreen,
-      handleCopyInviteLink,
-      handleDocsWindowTogglePinned: panelHandlers.handleDocsWindowTogglePinned,
-      handleDocsWindowToggleMaximized: panelHandlers.handleDocsWindowToggleMaximized,
-      handleDocsWindowClose: panelHandlers.handleDocsWindowClose,
-      handleDocsWindowRequestUpload: panelHandlers.handleDocsWindowRequestUpload,
-      handleDocsWindowSnapshotToBoard: panelHandlers.handleDocsWindowSnapshotToBoard,
-      handleDocsWindowAddAnnotation: panelHandlers.handleDocsWindowAddAnnotation,
-      handleDocsWindowClearAnnotations: panelHandlers.handleDocsWindowClearAnnotations,
-      handleDocsWindowSelectAsset: panelHandlers.handleDocsWindowSelectAsset,
-      handleDocsWindowPageChange: panelHandlers.handleDocsWindowPageChange,
-      handleDocsWindowZoomChange: panelHandlers.handleDocsWindowZoomChange,
-      handleUtilityPanelDragStart,
-      utilityPanelTitle,
-      handleClearSessionChat,
-      renameSolid3dVertex: selectedSolid3dActions.renameSolid3dVertex,
-      getSolidVertexLabel,
-      renameSolid3dSectionVertex: selectedSolid3dActions.renameSolid3dSectionVertex,
-      getSectionVertexLabel,
-      updateSolid3dSection: selectedSolid3dActions.updateSolid3dSection,
-      deleteSolid3dSection: selectedSolid3dActions.deleteSolid3dSection,
-      renameShape2dVertexByObjectId: selectedStructureActions.renameShape2dVertexByObjectId,
-      renameLineEndpointByObjectId: selectedStructureActions.renameLineEndpointByObjectId,
-      renamePointObject: selectedStructureActions.renamePointObject,
-      commitObjectDelete,
-      commitObjectPin,
-      scaleObject,
-      commitObjectReorder,
-      restoreImageOriginalView,
-      copyAreaSelectionObjects,
-      cutAreaSelectionObjects,
-      cropImageByAreaSelection,
-      createCompositionFromAreaSelection,
-      deleteAreaSelectionObjects,
-      createMathPresetObject: mathPresetCreationHandlers.createMathPresetObject,
-      activateTool,
-    },
-    actions: workbookSessionActions,
-    overlayContainer,
   };
-  // react-hooks/refs false-positive: refs are forwarded as props and not dereferenced here.
-  // eslint-disable-next-line react-hooks/refs
-  const layoutRuntimeProps = buildWorkbookSessionLayoutRuntimeProps(layoutRuntimeInput);
-  const {
-    participantsPanelProps,
-    sessionChatPanelProps,
-    contextbarProps,
-    boardShellProps,
-    docsWindowProps,
-    utilityPanelChromeProps,
-    utilityPanelTabsProps,
-    overlaysProps,
-  } = layoutRuntimeProps;
+  const normalizePoint = (
+    point: { x?: number; y?: number } | null | undefined,
+    fallback: { x: number; y: number }
+  ) => {
+    if (
+      point
+      && typeof point.x === "number"
+      && Number.isFinite(point.x)
+      && typeof point.y === "number"
+      && Number.isFinite(point.y)
+    ) {
+      return { x: point.x, y: point.y };
+    }
+    return fallback;
+  };
+  const safeCurrentBoardPage = Math.max(1, Math.round(boardSettings.currentPage || 1));
+  const safeTotalBoardPages = Math.max(
+    safeCurrentBoardPage,
+    Math.round(boardSettings.pagesCount || 1),
+    selectionViewportState.boardPageOptions[
+      selectionViewportState.boardPageOptions.length - 1
+    ]?.page ?? 1
+  );
+  const sessionChatPosition = normalizePoint(workbookSessionUi.sessionChatPosition, {
+    x: 24,
+    y: 96,
+  });
+  const normalizedFloatingPanelsTop =
+    typeof workbookSessionUi.floatingPanelsTop === "number"
+    && Number.isFinite(workbookSessionUi.floatingPanelsTop)
+      ? workbookSessionUi.floatingPanelsTop
+      : 86;
+  const hotkeysTooltipContent = (
+    <div className="workbook-session__hotkeys-tooltip">
+      <strong>Горячие клавиши</strong>
+      <ul>
+        <li>`Ctrl/Cmd + Z` — отмена действия</li>
+        <li>`Ctrl/Cmd + Shift + Z` — повтор действия</li>
+        <li>`Del / Backspace` — удалить выбранный объект</li>
+        <li>`Shift + Click` — мультивыбор</li>
+        <li>`Ctrl/Cmd + C` — копировать выделенную область (Ножницы)</li>
+        <li>`Ctrl/Cmd + V` — вставить выделенную область (Ножницы)</li>
+        <li>`Ctrl/Cmd + X` — вырезать выделенную область (Ножницы)</li>
+        <li>`Space` — временная рука (pan)</li>
+        <li>`Esc` — убрать указку (в режиме указки)</li>
+      </ul>
+    </div>
+  );
+
+  const participantsPanelProps = {
+    participantCards,
+    currentUserId: user?.id,
+    currentUserRole: user?.role,
+    canUseSessionChat,
+    canManageSession,
+    isSessionChatOpen,
+    sessionChatUnreadCount,
+    onToggleSessionChat: canvasHandlers.handleToggleSessionChat,
+    onCollapseParticipants: canvasHandlers.handleCollapseParticipants,
+    micEnabled,
+    onToggleMic: canvasHandlers.handleToggleOwnMic,
+    canUseMedia,
+    isEnded,
+    isParticipantBoardToolsEnabled,
+    onToggleParticipantBoardTools: handleToggleParticipantBoardTools,
+    onToggleParticipantChat: handleToggleParticipantChat,
+    onToggleParticipantMic: handleToggleParticipantMic,
+  };
+
+  const sessionChatPanelProps = {
+    showCollaborationPanels,
+    isSessionChatOpen,
+    sessionChatRef,
+    sessionChatListRef,
+    sessionChatDragStateRef,
+    isSessionChatMinimized,
+    isSessionChatMaximized,
+    isCompactViewport,
+    sessionChatPosition,
+    participantCards,
+    chatMessages,
+    firstUnreadSessionChatMessageId,
+    currentUserId: user?.id,
+    canManageSession,
+    canSendSessionChat,
+    sessionChatUnreadCount,
+    isSessionChatAtBottom,
+    sessionChatDraft,
+    isSessionChatEmojiOpen,
+    chatEmojis: WORKBOOK_CHAT_EMOJIS,
+    setIsSessionChatMinimized: workbookSessionActions.setIsSessionChatMinimized,
+    setIsSessionChatMaximized: workbookSessionActions.setIsSessionChatMaximized,
+    setIsSessionChatOpen: workbookSessionActions.setIsSessionChatOpen,
+    setIsSessionChatEmojiOpen: workbookSessionActions.setIsSessionChatEmojiOpen,
+    setSessionChatDraft: workbookSessionActions.setSessionChatDraft,
+    setIsClearSessionChatDialogOpen: workbookSessionActions.setIsClearSessionChatDialogOpen,
+    onSessionChatDragStart: handleSessionChatDragStart,
+    onScrollSessionChatToLatest: scrollSessionChatToLatest,
+    onMarkSessionChatReadToLatest: markSessionChatReadToLatest,
+    onSendSessionChatMessage: handleSendSessionChatMessage,
+  };
+
+  const contextbarProps = {
+    overlayContainer,
+    menuAnchor,
+    setMenuAnchor: workbookSessionActions.setMenuAnchor,
+    exportBoardAsPdf: handleRequestExportPdf,
+    exportingSections,
+    onMenuClearBoard: handleRequestClearBoard,
+    canClear,
+    isEnded,
+    canAccessBoardSettingsPanel,
+    isUtilityPanelOpen,
+    utilityTab,
+    openUtilityPanel,
+    boardPageOptions: selectionViewportState.boardPageOptions,
+    currentBoardPage: safeCurrentBoardPage,
+    totalBoardPages: safeTotalBoardPages,
+    canManageBoardPages: canManageSharedBoardSettings,
+    isBoardPageMutationPending,
+    onSelectBoardPage: handleSelectBoardPage,
+    onAddBoardPage: handleAddBoardPage,
+    onDeleteBoardPage: handleRequestDeleteBoardPage,
+    canUseUndo,
+    undoDepth,
+    redoDepth,
+    onUndo: handleUndo,
+    onRedo: handleRedo,
+    onZoomOut: zoomOut,
+    onZoomIn: zoomIn,
+    onResetZoom: resetZoom,
+    viewportZoom,
+    canInsertImage,
+    onRequestDocsUpload: () => openImportModal(),
+    hotkeysTooltipContent,
+    isFullscreen,
+    onToggleFullscreen: toggleFullscreen,
+    showCollaborationPanels,
+    isParticipantsCollapsed,
+    onToggleParticipantsCollapsed: () =>
+      workbookSessionActions.setIsParticipantsCollapsed((current: boolean) => !current),
+    showInviteLinkButton: canManageSession && session?.kind === "CLASS",
+    copyingInviteLink,
+    onCopyInviteLink: handleCopyInviteLink,
+    contextbarRef,
+    isDockedContextbarViewport,
+    isCompactViewport,
+  };
+
+  const boardShellProps = {
+    canvasProps,
+    isSessionTabPassive,
+    activeSessionTabId,
+    presenceTabId: presenceTabIdSnapshot || activeSessionTabId || "",
+    beforeCatalogToolButtons,
+    afterCatalogToolButtons,
+    canDraw,
+    onOpenShapesDialog: () => workbookSessionActions.setIsShapesDialogOpen(true),
+    onOpenStereoDialog: () => workbookSessionActions.setIsStereoDialogOpen(true),
+  };
+
+  const docsWindowProps = {
+    pinned: docsWindow.pinned,
+    maximized: docsWindow.maximized,
+    canInsertImage,
+    uploadingDoc,
+    uploadProgress,
+    assets: documentState.assets,
+    activeAssetId: documentState.activeAssetId,
+    activeDocument: selectionViewportState.activeDocument,
+    page: documentState.page,
+    zoom: documentState.zoom,
+    activeDocumentPageCount: selectionViewportState.activeDocumentPageCount,
+    annotationsCount: documentState.annotations.length,
+    onTogglePinned: panelHandlers.handleDocsWindowTogglePinned,
+    onToggleMaximized: panelHandlers.handleDocsWindowToggleMaximized,
+    onClose: panelHandlers.handleDocsWindowClose,
+    onRequestUpload: panelHandlers.handleDocsWindowRequestUpload,
+    onSnapshotToBoard: panelHandlers.handleDocsWindowSnapshotToBoard,
+    onAddAnnotation: panelHandlers.handleDocsWindowAddAnnotation,
+    onClearAnnotations: panelHandlers.handleDocsWindowClearAnnotations,
+    onSelectAsset: panelHandlers.handleDocsWindowSelectAsset,
+    onChangePage: panelHandlers.handleDocsWindowPageChange,
+    onChangeZoom: panelHandlers.handleDocsWindowZoomChange,
+  };
+
+  const utilityPanelChromeProps = {
+    isOpen: isUtilityPanelOpen,
+    utilityPanelRef,
+    isUtilityPanelCollapsed,
+    isContextualUtilityPanel: selectionViewportState.isContextualUtilityPanel,
+    utilityTab,
+    isCompactViewport,
+    utilityPanelPosition,
+    floatingPanelsTop: normalizedFloatingPanelsTop,
+    onDragStart: handleUtilityPanelDragStart,
+    title: utilityPanelTitle,
+    setIsUtilityPanelCollapsed: workbookSessionActions.setIsUtilityPanelCollapsed,
+    setIsUtilityPanelOpen: workbookSessionActions.setIsUtilityPanelOpen,
+  };
+
+  const utilityPanelTabsProps = {
+    utilityTab,
+    selectedObjectSupportsGraphPanel: selectionViewportState.selectedObjectSupportsGraphPanel,
+    selectedObjectSupportsTransformPanel:
+      selectionViewportState.selectedObjectSupportsTransformPanel,
+    settingsPanelProps,
+    graphPanelProps,
+    transformPanelProps,
+  };
+
+  const overlaysProps = {
+    overlayContainer,
+    isClearSessionChatDialogOpen,
+    setIsClearSessionChatDialogOpen: workbookSessionActions.setIsClearSessionChatDialogOpen,
+    isCompactDialogViewport,
+    handleClearSessionChat,
+    solid3dVertexContextMenu,
+    setSolid3dVertexContextMenu: workbookSessionActions.setSolid3dVertexContextMenu,
+    renameSolid3dVertex: selectedSolid3dActions.renameSolid3dVertex,
+    getSolidVertexLabel,
+    solid3dSectionVertexContextMenu,
+    setSolid3dSectionVertexContextMenu:
+      workbookSessionActions.setSolid3dSectionVertexContextMenu,
+    renameSolid3dSectionVertex: selectedSolid3dActions.renameSolid3dSectionVertex,
+    getSectionVertexLabel,
+    solid3dSectionContextMenu,
+    setSolid3dSectionContextMenu: workbookSessionActions.setSolid3dSectionContextMenu,
+    contextMenuSection: selectionViewportState.contextMenuSection,
+    updateSolid3dSection: selectedSolid3dActions.updateSolid3dSection,
+    deleteSolid3dSection: selectedSolid3dActions.deleteSolid3dSection,
+    shapeVertexContextMenu,
+    contextMenuShapeVertexObject: selectionViewportState.contextMenuShapeVertexObject,
+    setShapeVertexContextMenu: workbookSessionActions.setShapeVertexContextMenu,
+    shapeVertexLabelDraft,
+    setShapeVertexLabelDraft: workbookSessionActions.setShapeVertexLabelDraft,
+    renameShape2dVertexByObjectId: selectedStructureActions.renameShape2dVertexByObjectId,
+    lineEndpointContextMenu,
+    contextMenuLineEndpointObject: selectionViewportState.contextMenuLineEndpointObject,
+    setLineEndpointContextMenu: workbookSessionActions.setLineEndpointContextMenu,
+    lineEndpointLabelDraft,
+    setLineEndpointLabelDraft: workbookSessionActions.setLineEndpointLabelDraft,
+    renameLineEndpointByObjectId: selectedStructureActions.renameLineEndpointByObjectId,
+    objectContextMenu,
+    setObjectContextMenu: workbookSessionActions.setObjectContextMenu,
+    contextMenuObject: selectionViewportState.contextMenuObject,
+    pointLabelDraft,
+    setPointLabelDraft: workbookSessionActions.setPointLabelDraft,
+    renamePointObject: selectedStructureActions.renamePointObject,
+    canDelete,
+    commitObjectDelete,
+    commitObjectPin,
+    scaleObject,
+    commitObjectReorder,
+    canBringContextMenuImageToFront: selectionViewportState.canBringContextMenuImageToFront,
+    canSendContextMenuImageToBack: selectionViewportState.canSendContextMenuImageToBack,
+    canRestoreContextMenuImage: selectionViewportState.canRestoreContextMenuImage,
+    restoreImageOriginalView,
+    areaSelectionContextMenu,
+    areaSelectionHasContent,
+    setAreaSelectionContextMenu: workbookSessionActions.setAreaSelectionContextMenu,
+    copyAreaSelectionObjects,
+    cutAreaSelectionObjects,
+    cropImageByAreaSelection,
+    canCropAreaSelectionImage: selectionViewportState.canCropAreaSelectionImage,
+    createCompositionFromAreaSelection,
+    areaSelection,
+    deleteAreaSelectionObjects,
+    canSelect,
+    isStereoDialogOpen,
+    setIsStereoDialogOpen: workbookSessionActions.setIsStereoDialogOpen,
+    createMathPresetObject: mathPresetCreationHandlers.createMathPresetObject,
+    isShapesDialogOpen,
+    setIsShapesDialogOpen: workbookSessionActions.setIsShapesDialogOpen,
+    shapeCatalog,
+    activateTool,
+  };
 
   return (
     <section
       className={`workbook-session ${isFullscreen ? "is-fullscreen" : ""}`}
-      ref={sessionRootRef}
+      ref={handleSessionRootRef}
     >
       <WorkbookSessionTopScaffold
         boardFileInputRef={boardFileInputRef}

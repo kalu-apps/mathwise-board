@@ -150,8 +150,7 @@ export const useWorkbookBoardSettingsPages = ({
       }
     } finally {
       boardSettingsCommitInFlightRef.current = false;
-      if (queuedBoardSettingsCommitRef.current) {
-        if (deferNavigationRetry) return;
+      if (queuedBoardSettingsCommitRef.current && !deferNavigationRetry) {
         void flushQueuedBoardSettingsCommit();
       }
     }

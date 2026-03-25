@@ -107,6 +107,7 @@ export const useWorkbookStrokeCommitHandlers = ({
       try {
         await persistStroke();
       } catch (error) {
+        let effectiveError: unknown = error;
         if (error instanceof ApiError && error.code === "conflict") {
           try {
             await new Promise<void>((resolve) => {
@@ -115,10 +116,10 @@ export const useWorkbookStrokeCommitHandlers = ({
             await persistStroke();
             return;
           } catch (retryError) {
-            error = retryError;
+            effectiveError = retryError;
           }
         }
-        if (isRecoverableApiError(error)) {
+        if (isRecoverableApiError(effectiveError)) {
           markDirty();
           setSaveSyncWarning(
             "Связь нестабильна. Продолжаем синхронизацию изменений доски."

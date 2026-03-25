@@ -19,7 +19,6 @@ interface UseWorkbookSessionChatEventHandlersParams {
   setSessionChatReadAt: SetStringState;
   setIsSessionChatAtBottom: SetBooleanState;
   sessionChatListRef: RefObject<HTMLDivElement | null>;
-  latestSeqRef: MutableRefObject<number>;
   lastAppliedSeqRef: MutableRefObject<number>;
   processedEventIdsRef: MutableRefObject<Set<string>>;
 }
@@ -38,7 +37,6 @@ export function useWorkbookSessionChatEventHandlers({
   setSessionChatReadAt,
   setIsSessionChatAtBottom,
   sessionChatListRef,
-  latestSeqRef,
   lastAppliedSeqRef,
   processedEventIdsRef,
 }: UseWorkbookSessionChatEventHandlersParams) {
