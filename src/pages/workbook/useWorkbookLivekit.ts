@@ -190,6 +190,7 @@ export const useWorkbookLivekit = ({
   const livekitConnectAttemptRef = useRef(0);
   const livekitDisconnectAttemptRef = useRef(0);
   const livekitShouldBeConnectedRef = useRef(false);
+  const remoteAudioGestureUnlockedRef = useRef(false);
   const remoteAudioBindingsRef = useRef<Map<string, RemoteAudioBinding>>(new Map());
 
   const clearLivekitRetryTimeout = useCallback(() => {
@@ -247,7 +248,7 @@ export const useWorkbookLivekit = ({
       const bindingKey = `${participantIdentity}:${trackSid}`;
       if (remoteAudioBindingsRef.current.has(bindingKey)) return;
       const element = audioTrack.attach() as HTMLAudioElement;
-      element.autoplay = true;
+      element.autoplay = false;
       element.setAttribute("playsinline", "true");
       element.muted = false;
       element.volume = 1;
@@ -257,7 +258,19 @@ export const useWorkbookLivekit = ({
         track: audioTrack,
         element,
       });
-      void element.play().catch(() => undefined);
+      const canResumeImmediately = (() => {
+        if (remoteAudioGestureUnlockedRef.current) return true;
+        if (typeof document === "undefined") return false;
+        const activation = (
+          document as Document & {
+            userActivation?: { hasBeenActive?: boolean; isActive?: boolean };
+          }
+        ).userActivation;
+        return Boolean(activation?.hasBeenActive || activation?.isActive);
+      })();
+      if (canResumeImmediately) {
+        void element.play().catch(() => undefined);
+      }
     },
     []
   );
@@ -682,6 +695,7 @@ export const useWorkbookLivekit = ({
   useEffect(() => {
     if (sessionKind !== "CLASS" || isEnded) return;
     const resumeRemoteAudio = () => {
+      remoteAudioGestureUnlockedRef.current = true;
       Array.from(remoteAudioBindingsRef.current.values()).forEach((binding) => {
         void binding.element.play().catch(() => undefined);
       });

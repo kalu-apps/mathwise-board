@@ -66,6 +66,7 @@ export const useWorkbookPageTransitionOverlay = ({
   const [transitionLabel, setTransitionLabel] = useState("Загружаем страницу...");
   const previousPageRef = useRef<number | null>(null);
   const transitionTokenRef = useRef(0);
+  const isPageTransitionActiveRef = useRef(false);
   const visibleImagesReadyRef = useRef(visibleImagesReady);
   const pendingVisibleImageCountRef = useRef(pendingVisibleImageCount);
 
@@ -77,9 +78,13 @@ export const useWorkbookPageTransitionOverlay = ({
   }, [pendingVisibleImageCount, visibleImagesReady]);
 
   useEffect(() => {
+    isPageTransitionActiveRef.current = isPageTransitionActive;
+  }, [isPageTransitionActive]);
+
+  useEffect(() => {
     if (loading || !bootstrapReady) {
       previousPageRef.current = safeCurrentPage;
-      if (isPageTransitionActive && typeof window !== "undefined") {
+      if (isPageTransitionActiveRef.current && typeof window !== "undefined") {
         const resetToken = window.requestAnimationFrame(() => {
           setIsPageTransitionActive(false);
         });
@@ -149,7 +154,6 @@ export const useWorkbookPageTransitionOverlay = ({
       }
     };
   }, [
-    isPageTransitionActive,
     loading,
     bootstrapReady,
     safeCurrentPage,
