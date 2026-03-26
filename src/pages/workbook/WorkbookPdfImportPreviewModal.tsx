@@ -81,6 +81,14 @@ export function WorkbookPdfImportPreviewModal({
   const [pageFrom, setPageFrom] = useState(() => String(initialFrom));
   const [pageTo, setPageTo] = useState(() => String(initialTo));
 
+  useEffect(() => {
+    if (!open) return;
+    const nextFrom = String(initialFrom);
+    const nextTo = String(initialTo);
+    setPageFrom((current) => (current === nextFrom ? current : nextFrom));
+    setPageTo((current) => (current === nextTo ? current : nextTo));
+  }, [initialFrom, initialTo, open]);
+
   const previewUrl = useMemo(() => {
     if (!open || !file) return null;
     return URL.createObjectURL(file);

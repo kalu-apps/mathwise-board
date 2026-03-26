@@ -110,6 +110,7 @@ import {
   type WorkbookToolSettingsPopoverTool,
 } from "./WorkbookSessionToolSettingsPopover";
 import { WorkbookImportModal } from "./WorkbookImportModal";
+import { WorkbookImportModalBoundary } from "./WorkbookImportModalBoundary";
 import { captureWorkbookSessionPreviewDataUrl } from "./workbookHubPreviewCapture";
 import { useWorkbookPageTransitionOverlay } from "./useWorkbookPageTransitionOverlay";
 import {
@@ -2466,14 +2467,19 @@ export default function WorkbookSessionPage() {
         />
       </div>
 
-      <WorkbookImportModal
-        open={isImportModalOpen}
-        sessionId={sessionId}
-        initialFiles={pendingImportFiles}
-        container={overlayContainer}
-        onClose={handleImportModalClose}
-        onImportFile={handleImportModalFile}
-      />
+      <WorkbookImportModalBoundary
+        active={isImportModalOpen}
+        onReset={handleImportModalClose}
+      >
+        <WorkbookImportModal
+          open={isImportModalOpen}
+          sessionId={sessionId}
+          initialFiles={pendingImportFiles}
+          container={overlayContainer}
+          onClose={handleImportModalClose}
+          onImportFile={handleImportModalFile}
+        />
+      </WorkbookImportModalBoundary>
 
       <WorkbookSessionPageManagerFullscreen
         open={isPageManagerOpen}

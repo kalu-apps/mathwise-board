@@ -145,9 +145,7 @@ export function WorkbookImportModal({
   const [isBusy, setIsBusy] = useState(false);
   const dialogContainer =
     container ??
-    (typeof document !== "undefined"
-      ? document.fullscreenElement ?? document.body
-      : undefined);
+    (typeof document !== "undefined" ? document.body : undefined);
 
   const readyCount = useMemo(
     () => items.filter((item) => item.status === "ready").length,
@@ -897,11 +895,6 @@ export function WorkbookImportModal({
       </DialogActions>
       </Dialog>
       <WorkbookPdfImportPreviewModal
-        key={
-          open && pdfPreviewItem
-            ? `pdf-preview-${pdfPreviewItem.id}-${pdfPreviewItem.pdfPageRange?.from ?? 1}-${pdfPreviewItem.pdfPageRange?.to ?? 1}`
-            : "pdf-preview-closed"
-        }
         open={open && Boolean(pdfPreviewItem)}
         file={pdfPreviewItem?.file ?? null}
         fileSizeBytes={pdfPreviewItem?.size ?? null}
@@ -916,11 +909,7 @@ export function WorkbookImportModal({
             ? "Определяем количество страниц…"
             : "Подготавливаем PDF-источник…"
         }
-        container={
-          typeof document !== "undefined"
-            ? document.fullscreenElement ?? document.body
-            : dialogContainer
-        }
+        container={dialogContainer}
         onCancel={handleCancelPdfPreview}
         onConfirm={handleConfirmPdfPreview}
       />
