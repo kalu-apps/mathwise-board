@@ -1263,6 +1263,7 @@ export default function WorkbookSessionPage() {
     pasteAreaSelectionObjects,
     cutAreaSelectionObjects,
     cropImageByAreaSelection,
+    fillAreaSelection,
     restoreImageOriginalView,
   } = useWorkbookAreaSelectionClipboardHandlers({
     canDelete,
@@ -1270,6 +1271,7 @@ export default function WorkbookSessionPage() {
     areaSelection,
     areaSelectionHasContent,
     boardSettings,
+    areaFillColor: strokeColor,
     selectedObjectId,
     userId: user?.id,
     sceneLayers: normalizedSceneLayers.sceneLayers,
@@ -2394,6 +2396,7 @@ export default function WorkbookSessionPage() {
     copyAreaSelectionObjects,
     cutAreaSelectionObjects,
     cropImageByAreaSelection,
+    fillAreaSelection,
     canCropAreaSelectionImage: selectionViewportState.canCropAreaSelectionImage,
     createCompositionFromAreaSelection,
     areaSelection,

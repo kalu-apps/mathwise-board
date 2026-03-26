@@ -104,6 +104,7 @@ type WorkbookSessionOverlaysProps = {
   copyAreaSelectionObjects: () => void | Promise<void>;
   cutAreaSelectionObjects: () => void | Promise<void>;
   cropImageByAreaSelection: () => void;
+  fillAreaSelection: () => void | Promise<void>;
   canCropAreaSelectionImage: boolean;
   createCompositionFromAreaSelection: () => void | Promise<void>;
   areaSelection: WorkbookAreaSelection | null;
@@ -173,6 +174,7 @@ export function WorkbookSessionOverlays({
   copyAreaSelectionObjects,
   cutAreaSelectionObjects,
   cropImageByAreaSelection,
+  fillAreaSelection,
   canCropAreaSelectionImage,
   createCompositionFromAreaSelection,
   areaSelection,
@@ -737,6 +739,12 @@ export function WorkbookSessionOverlays({
               disabled={!canCropAreaSelectionImage}
             >
               Обрезать изображение по выделению
+            </MenuItem>
+            <MenuItem
+              onClick={() => void fillAreaSelection()}
+              disabled={!canSelect || !areaSelectionHasContent}
+            >
+              Залить выделение
             </MenuItem>
             <MenuItem
               onClick={() => void createCompositionFromAreaSelection()}

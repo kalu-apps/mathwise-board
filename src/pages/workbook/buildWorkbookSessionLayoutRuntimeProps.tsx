@@ -136,6 +136,7 @@ type BuildWorkbookSessionLayoutRuntimePropsInput = {
     copyAreaSelectionObjects: OverlaysProps["copyAreaSelectionObjects"];
     cutAreaSelectionObjects: OverlaysProps["cutAreaSelectionObjects"];
     cropImageByAreaSelection: OverlaysProps["cropImageByAreaSelection"];
+    fillAreaSelection: OverlaysProps["fillAreaSelection"];
     createCompositionFromAreaSelection: OverlaysProps["createCompositionFromAreaSelection"];
     deleteAreaSelectionObjects: OverlaysProps["deleteAreaSelectionObjects"];
     createMathPresetObject: OverlaysProps["createMathPresetObject"];
@@ -432,6 +433,7 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
     copyAreaSelectionObjects: handlers.copyAreaSelectionObjects,
     cutAreaSelectionObjects: handlers.cutAreaSelectionObjects,
     cropImageByAreaSelection: handlers.cropImageByAreaSelection,
+    fillAreaSelection: handlers.fillAreaSelection,
     canCropAreaSelectionImage: derived.canCropAreaSelectionImage,
     createCompositionFromAreaSelection: handlers.createCompositionFromAreaSelection,
     areaSelection: page.areaSelection,

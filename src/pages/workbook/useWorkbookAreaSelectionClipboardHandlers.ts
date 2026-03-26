@@ -40,6 +40,7 @@ type UseWorkbookAreaSelectionClipboardHandlersParams = {
   areaSelection: WorkbookAreaSelection | null;
   areaSelectionHasContent: boolean;
   boardSettings: WorkbookBoardSettings;
+  areaFillColor: string;
   selectedObjectId: string | null;
   userId?: string;
   sceneLayers: WorkbookBoardSettings["sceneLayers"];
@@ -69,6 +70,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
   areaSelection,
   areaSelectionHasContent,
   boardSettings,
+  areaFillColor,
   selectedObjectId,
   userId,
   sceneLayers,
@@ -334,6 +336,74 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
     setSelectedObjectId,
   ]);
 
+  const fillAreaSelection = useCallback(async () => {
+    if (!canSelect || !areaSelection || !areaSelectionHasContent) return;
+    const safeRect = resolveWorkbookObjectAxisAlignedRect({
+      x: areaSelection.rect.x,
+      y: areaSelection.rect.y,
+      width: areaSelection.rect.width,
+      height: areaSelection.rect.height,
+    });
+    if (!Number.isFinite(safeRect.width) || !Number.isFinite(safeRect.height)) {
+      setError("Не удалось залить выделение.");
+      return;
+    }
+    if (safeRect.width < 1 || safeRect.height < 1) {
+      setError("Выделенная область слишком мала для заливки.");
+      return;
+    }
+    const normalizedColor =
+      typeof areaFillColor === "string" && areaFillColor.trim().length > 0
+        ? areaFillColor
+        : "#2f4f7f";
+    const now = new Date().toISOString();
+    const baseObject: WorkbookBoardObject = {
+      id: generateId(),
+      type: "rectangle",
+      layer: "board",
+      x: safeRect.x,
+      y: safeRect.y,
+      width: safeRect.width,
+      height: safeRect.height,
+      color: normalizedColor,
+      fill: normalizedColor,
+      strokeWidth: 1,
+      opacity: 0.24,
+      page: boardSettings.currentPage,
+      meta: {
+        sceneLayerId: boardSettings.activeSceneLayerId,
+      },
+      authorUserId: userId ?? "unknown",
+      createdAt: now,
+    };
+    const nextObject = ensureWorkbookObjectZOrder(baseObject, boardObjectsRef.current);
+    try {
+      await appendEventsAndApply([
+        {
+          type: "board.object.create",
+          payload: {
+            object: nextObject,
+          },
+        },
+      ]);
+      setAreaSelectionContextMenu(null);
+    } catch {
+      setError("Не удалось залить выделенную область.");
+    }
+  }, [
+    appendEventsAndApply,
+    areaFillColor,
+    areaSelection,
+    areaSelectionHasContent,
+    boardObjectsRef,
+    boardSettings.activeSceneLayerId,
+    boardSettings.currentPage,
+    canSelect,
+    setAreaSelectionContextMenu,
+    setError,
+    userId,
+  ]);
+
   const restoreImageOriginalView = useCallback(
     (objectId: string) => {
       if (!canSelect) return;
@@ -362,6 +432,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
     pasteAreaSelectionObjects,
     cutAreaSelectionObjects,
     cropImageByAreaSelection,
+    fillAreaSelection,
     restoreImageOriginalView,
   };
 };
