@@ -2397,6 +2397,7 @@ export default function WorkbookSessionPage() {
     cutAreaSelectionObjects,
     cropImageByAreaSelection,
     fillAreaSelection,
+    areaFillDefaultColor: strokeColor,
     canCropAreaSelectionImage: selectionViewportState.canCropAreaSelectionImage,
     createCompositionFromAreaSelection,
     areaSelection,

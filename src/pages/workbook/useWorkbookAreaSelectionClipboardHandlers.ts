@@ -336,7 +336,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
     setSelectedObjectId,
   ]);
 
-  const fillAreaSelection = useCallback(async () => {
+  const fillAreaSelection = useCallback(async (fillColor?: string) => {
     if (!canSelect || !areaSelection || !areaSelectionHasContent) return;
     const safeRect = resolveWorkbookObjectAxisAlignedRect({
       x: areaSelection.rect.x,
@@ -353,8 +353,10 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
       return;
     }
     const normalizedColor =
-      typeof areaFillColor === "string" && areaFillColor.trim().length > 0
-        ? areaFillColor
+      typeof fillColor === "string" && fillColor.trim().length > 0
+        ? fillColor
+        : typeof areaFillColor === "string" && areaFillColor.trim().length > 0
+          ? areaFillColor
         : "#2f4f7f";
     const now = new Date().toISOString();
     const baseObject: WorkbookBoardObject = {
@@ -367,7 +369,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
       height: safeRect.height,
       color: normalizedColor,
       fill: normalizedColor,
-      strokeWidth: 1,
+      strokeWidth: 0,
       opacity: 0.24,
       page: boardSettings.currentPage,
       meta: {

@@ -104,7 +104,8 @@ type WorkbookSessionOverlaysProps = {
   copyAreaSelectionObjects: () => void | Promise<void>;
   cutAreaSelectionObjects: () => void | Promise<void>;
   cropImageByAreaSelection: () => void;
-  fillAreaSelection: () => void | Promise<void>;
+  fillAreaSelection: (fillColor?: string) => void | Promise<void>;
+  areaFillDefaultColor: string;
   canCropAreaSelectionImage: boolean;
   createCompositionFromAreaSelection: () => void | Promise<void>;
   areaSelection: WorkbookAreaSelection | null;
@@ -175,6 +176,7 @@ export function WorkbookSessionOverlays({
   cutAreaSelectionObjects,
   cropImageByAreaSelection,
   fillAreaSelection,
+  areaFillDefaultColor,
   canCropAreaSelectionImage,
   createCompositionFromAreaSelection,
   areaSelection,
@@ -189,6 +191,8 @@ export function WorkbookSessionOverlays({
   activateTool,
 }: WorkbookSessionOverlaysProps) {
   const [pointRenameTargetId, setPointRenameTargetId] = useState<string | null>(null);
+  const [isAreaFillDialogOpen, setIsAreaFillDialogOpen] = useState(false);
+  const [areaFillColorDraft, setAreaFillColorDraft] = useState("#2f4f7f");
 
   return (
     <>
@@ -741,10 +745,19 @@ export function WorkbookSessionOverlays({
               Обрезать изображение по выделению
             </MenuItem>
             <MenuItem
-              onClick={() => void fillAreaSelection()}
+              onClick={() => {
+                setAreaSelectionContextMenu(null);
+                setAreaFillColorDraft(
+                  typeof areaFillDefaultColor === "string" &&
+                    areaFillDefaultColor.trim().length > 0
+                    ? areaFillDefaultColor
+                    : "#2f4f7f"
+                );
+                setIsAreaFillDialogOpen(true);
+              }}
               disabled={!canSelect || !areaSelectionHasContent}
             >
-              Залить выделение
+              Залить выделенное
             </MenuItem>
             <MenuItem
               onClick={() => void createCompositionFromAreaSelection()}
@@ -759,6 +772,40 @@ export function WorkbookSessionOverlays({
               Удалить выделенное
             </MenuItem>
           </Menu>
+          <Dialog
+            container={overlayContainer}
+            open={isAreaFillDialogOpen}
+            onClose={() => setIsAreaFillDialogOpen(false)}
+            fullWidth
+            maxWidth="xs"
+            className="workbook-session__confirm-dialog"
+          >
+            <DialogTitle>Залить выделенное</DialogTitle>
+            <DialogContent>
+              <label className="workbook-session__board-settings-color-inline-item">
+                <span>Цвет заливки</span>
+                <input
+                  type="color"
+                  value={areaFillColorDraft}
+                  onChange={(event) =>
+                    setAreaFillColorDraft(event.target.value || "#2f4f7f")
+                  }
+                />
+              </label>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setIsAreaFillDialogOpen(false)}>Отмена</Button>
+              <Button
+                variant="contained"
+                onClick={() => {
+                  void fillAreaSelection(areaFillColorDraft);
+                  setIsAreaFillDialogOpen(false);
+                }}
+              >
+                Применить
+              </Button>
+            </DialogActions>
+          </Dialog>
           <Dialog
             container={overlayContainer}
             open={isStereoDialogOpen}

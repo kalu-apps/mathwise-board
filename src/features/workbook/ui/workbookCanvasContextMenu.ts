@@ -93,20 +93,24 @@ export const handleWorkbookCanvasContextMenu = ({
   const svg = event.currentTarget ?? null;
   if (!svg) return;
   const point = mapPointer(svg, event.clientX, event.clientY);
+  const canOpenAreaSelectionMenu =
+    (tool === "area_select" || tool === "select") &&
+    areaSelection &&
+    (areaSelection.objectIds.length > 0 || areaSelection.strokeIds.length > 0) &&
+    isInsideRect(point, areaSelection.rect);
+
+  if (canOpenAreaSelectionMenu) {
+    event.preventDefault();
+    onAreaSelectionContextMenu?.({
+      objectIds: areaSelection.objectIds,
+      strokeIds: areaSelection.strokeIds,
+      rect: areaSelection.rect,
+      anchor: { x: event.clientX, y: event.clientY },
+    });
+    return;
+  }
+
   if (tool === "area_select") {
-    if (
-      areaSelection &&
-      (areaSelection.objectIds.length > 0 || areaSelection.strokeIds.length > 0) &&
-      isInsideRect(point, areaSelection.rect)
-    ) {
-      event.preventDefault();
-      onAreaSelectionContextMenu?.({
-        objectIds: areaSelection.objectIds,
-        strokeIds: areaSelection.strokeIds,
-        rect: areaSelection.rect,
-        anchor: { x: event.clientX, y: event.clientY },
-      });
-    }
     return;
   }
 
