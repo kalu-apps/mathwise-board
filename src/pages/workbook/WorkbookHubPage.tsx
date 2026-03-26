@@ -135,7 +135,7 @@ const resolveInviteUrl = (invite: WorkbookInviteInfo) => {
 
 export default function WorkbookHubPage() {
   const navigate = useNavigate();
-  const { user, isAuthReady, openAuthModal } = useAuth();
+  const { user, isAuthReady, openAuthModal, logout } = useAuth();
   const [scope, setScope] = useState<HubScope>("class");
   const [drafts, setDrafts] = useState<WorkbookDraftCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -190,8 +190,10 @@ export default function WorkbookHubPage() {
   }, [drafts]);
 
   useEffect(() => {
-    if (!isAuthReady || user) return;
-    openAuthModal();
+    if (!isAuthReady) return;
+    if (!user || user.role !== "teacher") {
+      openAuthModal();
+    }
   }, [isAuthReady, openAuthModal, user]);
 
   const loadDraftCards = useCallback(async () => {
@@ -765,6 +767,17 @@ export default function WorkbookHubPage() {
               <span className="workbook-launch__student-alert-text">
                 {t("whiteboardLaunch.waitingStudent")}
               </span>
+              <Button
+                variant="outlined"
+                size="small"
+                className="workbook-launch__student-alert-button"
+                onClick={() => {
+                  setError(null);
+                  logout();
+                }}
+              >
+                {t("whiteboardLaunch.loginAsTeacher")}
+              </Button>
             </div>
           </Alert>
         </article>
