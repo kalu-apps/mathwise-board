@@ -463,6 +463,8 @@ export default function WorkbookSessionPage() {
   const fallbackBackPath = "/workbook";
   const fromPath = searchParams.get("from") || fallbackBackPath;
   const isWorkbookSessionAuthLost = isAuthReady && !user;
+  const isSessionAccessBlocked = refs.authRequiredRef.current && saveState === "error";
+  const isWorkspaceInteractionBlocked = isSessionTabPassive || isSessionAccessBlocked;
 
   useEffect(() => {
     if (!isWorkbookSessionAuthLost) return;
@@ -522,7 +524,7 @@ export default function WorkbookSessionPage() {
     user,
     session,
     setError,
-    isSessionTabPassive,
+    isSessionTabPassive: isWorkspaceInteractionBlocked,
     awaitingClearRequest,
     isParticipantsCollapsed,
     focusPointsByUser,
@@ -2275,6 +2277,7 @@ export default function WorkbookSessionPage() {
   const boardShellProps = {
     canvasProps,
     isSessionTabPassive,
+    isSessionAccessBlocked,
     activeSessionTabId,
     presenceTabId: presenceTabIdSnapshot || activeSessionTabId || "",
     beforeCatalogToolButtons,

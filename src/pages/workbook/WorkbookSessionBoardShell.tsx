@@ -12,6 +12,7 @@ type WorkbookSessionBoardShellProps = {
     label?: string;
   };
   isSessionTabPassive: boolean;
+  isSessionAccessBlocked?: boolean;
   activeSessionTabId: string | null;
   presenceTabId: string;
   beforeCatalogToolButtons: ReactNode[];
@@ -25,6 +26,7 @@ export function WorkbookSessionBoardShell({
   canvasProps,
   pageTransitionOverlay,
   isSessionTabPassive,
+  isSessionAccessBlocked = false,
   activeSessionTabId,
   presenceTabId,
   beforeCatalogToolButtons,
@@ -33,6 +35,14 @@ export function WorkbookSessionBoardShell({
   onOpenShapesDialog,
   onOpenStereoDialog,
 }: WorkbookSessionBoardShellProps) {
+  const shouldRenderWorkspaceBlockOverlay = isSessionTabPassive || isSessionAccessBlocked;
+  const overlayTitle = isSessionAccessBlocked
+    ? "Сессия заблокирована в другом браузере"
+    : "Сессия уже открыта в другой вкладке";
+  const overlayMessage = isSessionAccessBlocked
+    ? "Рабочая область недоступна в этом окне. Продолжайте работу только в последнем открытом браузере/вкладке."
+    : "Эта вкладка работает в режиме просмотра, чтобы избежать расхождения данных.";
+
   return (
     <div className="workbook-session__board-shell">
       <WorkbookCanvas {...canvasProps} />
@@ -46,12 +56,12 @@ export function WorkbookSessionBoardShell({
           </div>
         </div>
       ) : null}
-      {isSessionTabPassive ? (
+      {shouldRenderWorkspaceBlockOverlay ? (
         <div className="workbook-session__tab-passive-overlay" role="status" aria-live="polite">
           <div className="workbook-session__tab-passive-overlay-card">
-            <h4>Сессия уже открыта в другой вкладке</h4>
-            <p>Эта вкладка работает в режиме просмотра, чтобы избежать расхождения данных.</p>
-            {activeSessionTabId && activeSessionTabId !== presenceTabId ? (
+            <h4>{overlayTitle}</h4>
+            <p>{overlayMessage}</p>
+            {!isSessionAccessBlocked && activeSessionTabId && activeSessionTabId !== presenceTabId ? (
               <p className="workbook-session__tab-passive-overlay-meta">
                 Вернитесь в активную вкладку или закройте ее, чтобы продолжить работу здесь.
               </p>
