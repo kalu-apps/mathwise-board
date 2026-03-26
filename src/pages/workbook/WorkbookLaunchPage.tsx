@@ -23,11 +23,10 @@ export default function WorkbookLaunchPage() {
 
   useEffect(() => {
     if (!isAuthReady) return;
-    if (!user) {
+    if (!user || user.role !== "teacher") {
       openAuthModal();
       return;
     }
-    if (user.role !== "teacher") return;
     void prefetchWorkbookSessionRuntime();
 
     let active = true;
