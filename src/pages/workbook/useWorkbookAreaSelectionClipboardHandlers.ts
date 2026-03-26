@@ -374,6 +374,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
       page: boardSettings.currentPage,
       meta: {
         sceneLayerId: boardSettings.activeSceneLayerId,
+        showLabels: false,
       },
       authorUserId: userId ?? "unknown",
       createdAt: now,

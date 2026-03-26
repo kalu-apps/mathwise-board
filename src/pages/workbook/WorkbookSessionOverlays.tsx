@@ -191,8 +191,12 @@ export function WorkbookSessionOverlays({
   activateTool,
 }: WorkbookSessionOverlaysProps) {
   const [pointRenameTargetId, setPointRenameTargetId] = useState<string | null>(null);
-  const [isAreaFillDialogOpen, setIsAreaFillDialogOpen] = useState(false);
+  const [areaFillMenuAnchor, setAreaFillMenuAnchor] = useState<ContextMenuPoint | null>(
+    null
+  );
   const [areaFillColorDraft, setAreaFillColorDraft] = useState("#2f4f7f");
+  const contextMenuContainer =
+    typeof document !== "undefined" ? document.body : overlayContainer;
 
   return (
     <>
@@ -228,7 +232,7 @@ export function WorkbookSessionOverlays({
             </DialogActions>
           </Dialog>
           <Menu
-            container={overlayContainer}
+            container={contextMenuContainer}
             open={Boolean(solid3dVertexContextMenu)}
             onClose={() => setSolid3dVertexContextMenu(null)}
             anchorReference="anchorPosition"
@@ -284,7 +288,7 @@ export function WorkbookSessionOverlays({
             </div>
           </Menu>
           <Menu
-            container={overlayContainer}
+            container={contextMenuContainer}
             open={Boolean(solid3dSectionVertexContextMenu)}
             onClose={() => setSolid3dSectionVertexContextMenu(null)}
             anchorReference="anchorPosition"
@@ -345,7 +349,7 @@ export function WorkbookSessionOverlays({
             </div>
           </Menu>
           <Menu
-            container={overlayContainer}
+            container={contextMenuContainer}
             open={Boolean(solid3dSectionContextMenu && contextMenuSection)}
             onClose={() => setSolid3dSectionContextMenu(null)}
             anchorReference="anchorPosition"
@@ -425,7 +429,7 @@ export function WorkbookSessionOverlays({
             ) : null}
           </Menu>
           <Menu
-            container={overlayContainer}
+            container={contextMenuContainer}
             open={Boolean(shapeVertexContextMenu && contextMenuShapeVertexObject)}
             onClose={() => setShapeVertexContextMenu(null)}
             anchorReference="anchorPosition"
@@ -492,7 +496,7 @@ export function WorkbookSessionOverlays({
             ) : null}
           </Menu>
           <Menu
-            container={overlayContainer}
+            container={contextMenuContainer}
             open={Boolean(lineEndpointContextMenu && contextMenuLineEndpointObject)}
             onClose={() => setLineEndpointContextMenu(null)}
             anchorReference="anchorPosition"
@@ -568,7 +572,7 @@ export function WorkbookSessionOverlays({
             ) : null}
           </Menu>
           <Menu
-            container={overlayContainer}
+            container={contextMenuContainer}
             open={Boolean(objectContextMenu)}
             onClose={() => setObjectContextMenu(null)}
             anchorReference="anchorPosition"
@@ -716,7 +720,7 @@ export function WorkbookSessionOverlays({
             </DialogActions>
           </Dialog>
           <Menu
-            container={overlayContainer}
+            container={contextMenuContainer}
             open={Boolean(areaSelectionContextMenu && areaSelectionHasContent)}
             onClose={() => setAreaSelectionContextMenu(null)}
             anchorReference="anchorPosition"
@@ -746,6 +750,9 @@ export function WorkbookSessionOverlays({
             </MenuItem>
             <MenuItem
               onClick={() => {
+                const nextAnchor = areaSelectionContextMenu
+                  ? { x: areaSelectionContextMenu.x, y: areaSelectionContextMenu.y }
+                  : null;
                 setAreaSelectionContextMenu(null);
                 setAreaFillColorDraft(
                   typeof areaFillDefaultColor === "string" &&
@@ -753,7 +760,7 @@ export function WorkbookSessionOverlays({
                     ? areaFillDefaultColor
                     : "#2f4f7f"
                 );
-                setIsAreaFillDialogOpen(true);
+                setAreaFillMenuAnchor(nextAnchor);
               }}
               disabled={!canSelect || !areaSelectionHasContent}
             >
@@ -772,40 +779,33 @@ export function WorkbookSessionOverlays({
               Удалить выделенное
             </MenuItem>
           </Menu>
-          <Dialog
-            container={overlayContainer}
-            open={isAreaFillDialogOpen}
-            onClose={() => setIsAreaFillDialogOpen(false)}
-            fullWidth
-            maxWidth="xs"
-            className="workbook-session__confirm-dialog"
+          <Menu
+            container={contextMenuContainer}
+            open={Boolean(areaFillMenuAnchor)}
+            onClose={() => setAreaFillMenuAnchor(null)}
+            anchorReference="anchorPosition"
+            anchorPosition={
+              areaFillMenuAnchor
+                ? { top: areaFillMenuAnchor.y, left: areaFillMenuAnchor.x }
+                : undefined
+            }
           >
-            <DialogTitle>Залить выделенное</DialogTitle>
-            <DialogContent>
+            <div className="workbook-session__solid-menu">
               <label className="workbook-session__board-settings-color-inline-item">
                 <span>Цвет заливки</span>
                 <input
                   type="color"
                   value={areaFillColorDraft}
-                  onChange={(event) =>
-                    setAreaFillColorDraft(event.target.value || "#2f4f7f")
-                  }
+                  onChange={(event) => {
+                    const nextColor = event.target.value || "#2f4f7f";
+                    setAreaFillColorDraft(nextColor);
+                    void fillAreaSelection(nextColor);
+                    setAreaFillMenuAnchor(null);
+                  }}
                 />
               </label>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setIsAreaFillDialogOpen(false)}>Отмена</Button>
-              <Button
-                variant="contained"
-                onClick={() => {
-                  void fillAreaSelection(areaFillColorDraft);
-                  setIsAreaFillDialogOpen(false);
-                }}
-              >
-                Применить
-              </Button>
-            </DialogActions>
-          </Dialog>
+            </div>
+          </Menu>
           <Dialog
             container={overlayContainer}
             open={isStereoDialogOpen}
