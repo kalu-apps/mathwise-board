@@ -956,7 +956,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
               y={projection.y}
               width={projection.width}
               height={projection.height}
-              preserveAspectRatio="none"
+              preserveAspectRatio="xMidYMid meet"
               clipPath={`url(#${clipPathId})`}
               opacity={object.opacity ?? 1}
             />
