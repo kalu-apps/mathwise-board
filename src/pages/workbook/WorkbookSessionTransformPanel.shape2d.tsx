@@ -4,7 +4,10 @@ import {
   SHAPE_ANGLE_MARK_STYLE_OPTIONS,
   type WorkbookShapeAngleMarkStyle,
 } from "@/features/workbook/model/shapeAngleMarks";
-import { WORKBOOK_BOARD_PRIMARY_COLOR } from "@/features/workbook/model/workbookVisualColors";
+import {
+  WORKBOOK_BOARD_PRIMARY_COLOR,
+  WORKBOOK_SYSTEM_COLORS,
+} from "@/features/workbook/model/workbookVisualColors";
 import type { WorkbookSessionTransformPanelProps } from "./WorkbookSessionTransformPanel.types";
 
 type WorkbookSessionTransformPanelShape2dProps = Pick<
@@ -110,6 +113,18 @@ export function WorkbookSessionTransformPanelShape2d({
 
   const activeShapeAngleItem =
     shapeAngleItems.find((item) => item.key === activeShapeAngleKey) ?? shapeAngleItems[0] ?? null;
+  const shape2dFillPickerValue = useMemo(() => {
+    const rawFill =
+      typeof selectedShape2dObject?.fill === "string"
+        ? selectedShape2dObject.fill.trim()
+        : "";
+    if (/^#[0-9a-fA-F]{6}$/.test(rawFill)) return rawFill;
+    if (/^#[0-9a-fA-F]{3}$/.test(rawFill)) {
+      const [r, g, b] = rawFill.slice(1).split("");
+      return `#${r}${r}${g}${g}${b}${b}`;
+    }
+    return WORKBOOK_SYSTEM_COLORS.white;
+  }, [selectedShape2dObject?.fill]);
 
   if (!selectedShape2dObject) {
     return null;
@@ -175,6 +190,19 @@ export function WorkbookSessionTransformPanelShape2d({
                   onBlur={() => void onCommitSelectedShape2dStrokeWidth()}
                 />
               </div>
+            </div>
+            <div className="workbook-session__settings-row">
+              <span>Заливка фигуры</span>
+              <input
+                type="color"
+                className="workbook-session__solid-color"
+                value={shape2dFillPickerValue}
+                onChange={(event) =>
+                  void onUpdateSelectedShape2dObject({
+                    fill: event.target.value || WORKBOOK_SYSTEM_COLORS.white,
+                  })
+                }
+              />
             </div>
             <p className="workbook-session__hint">
               Геометрические значения и обозначения вынесены в профильные вкладки.
