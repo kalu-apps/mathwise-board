@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Typography } from "@mui/material";
+import { Alert, Button, Typography } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import "./workbookRouteStyles";
 import { useAuth } from "@/features/auth/model/AuthContext";
@@ -17,7 +17,7 @@ const toSessionPath = (sessionId: string) =>
 
 export default function WorkbookLaunchPage() {
   const navigate = useNavigate();
-  const { user, isAuthReady, openAuthModal } = useAuth();
+  const { user, isAuthReady, openAuthModal, logout } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,6 +123,17 @@ export default function WorkbookLaunchPage() {
               <span className="workbook-launch__student-alert-text">
                 {t("whiteboardLaunch.waitingStudent")}
               </span>
+              <Button
+                variant="outlined"
+                size="small"
+                className="workbook-launch__student-alert-button"
+                onClick={() => {
+                  setError(null);
+                  logout();
+                }}
+              >
+                {t("whiteboardLaunch.loginAsTeacher")}
+              </Button>
             </div>
           </Alert>
         ) : null}
