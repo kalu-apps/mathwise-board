@@ -178,6 +178,10 @@ export function WorkbookImportModal({
     () => items.find((item) => item.id === pdfPreviewItemId && item.isPdf) ?? null,
     [items, pdfPreviewItemId]
   );
+  const pdfPreviewContainer = useMemo(() => {
+    if (!open || !pdfPreviewItemId || typeof document === "undefined") return undefined;
+    return document.fullscreenElement ?? document.body;
+  }, [open, pdfPreviewItemId]);
 
   const setItemPatch = useCallback((itemId: string, patch: Partial<WorkbookImportItem>) => {
     setItems((current) =>
@@ -909,7 +913,7 @@ export function WorkbookImportModal({
             ? "Определяем количество страниц…"
             : "Подготавливаем PDF-источник…"
         }
-        container={dialogContainer}
+        container={pdfPreviewContainer}
         onCancel={handleCancelPdfPreview}
         onConfirm={handleConfirmPdfPreview}
       />
