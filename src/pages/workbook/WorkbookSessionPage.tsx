@@ -1931,6 +1931,8 @@ export default function WorkbookSessionPage() {
   const handleBack = useCallback(async () => {
     if (isBackNavigationPending) return;
     setIsBackNavigationPending(true);
+    const showStudentExitNoticeState =
+      session?.roleInSession === "student" ? { showStudentExitNotice: true } : undefined;
     try {
       if (dirtyRef.current) {
         const saved = await persistSnapshots({ force: true });
@@ -1961,7 +1963,7 @@ export default function WorkbookSessionPage() {
         }
         window.close();
         if (!window.closed) {
-          navigate(fromPath, { replace: true });
+          navigate(fromPath, { replace: true, state: showStudentExitNoticeState });
         }
         return;
       }
@@ -1970,7 +1972,7 @@ export default function WorkbookSessionPage() {
         queueWorkbookHubPreviewRefreshHint(session.id);
       }
       void persistSessionExitPreview();
-      navigate(fromPath, { replace: true });
+      navigate(fromPath, { replace: true, state: showStudentExitNoticeState });
     } catch {
       setError("Не удалось завершить выход из тетради. Повторите попытку.");
       setIsBackNavigationPending(false);

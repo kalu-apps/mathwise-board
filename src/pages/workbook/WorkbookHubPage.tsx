@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Alert,
   Avatar,
@@ -135,7 +135,11 @@ const resolveInviteUrl = (invite: WorkbookInviteInfo) => {
 
 export default function WorkbookHubPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, isAuthReady, openAuthModal, logout } = useAuth();
+  const showStudentExitNotice = Boolean(
+    (location.state as { showStudentExitNotice?: boolean } | null)?.showStudentExitNotice
+  );
   const [scope, setScope] = useState<HubScope>("class");
   const [drafts, setDrafts] = useState<WorkbookDraftCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -191,10 +195,14 @@ export default function WorkbookHubPage() {
 
   useEffect(() => {
     if (!isAuthReady) return;
-    if (!user || user.role !== "teacher") {
+    if (!user) {
+      openAuthModal();
+      return;
+    }
+    if (user.role !== "teacher" && !showStudentExitNotice) {
       openAuthModal();
     }
-  }, [isAuthReady, openAuthModal, user]);
+  }, [isAuthReady, openAuthModal, showStudentExitNotice, user]);
 
   const loadDraftCards = useCallback(async () => {
     if (!isAuthReady || !user || user.role !== "teacher") {
@@ -757,6 +765,13 @@ export default function WorkbookHubPage() {
   }
 
   if (user.role !== "teacher") {
+    if (!showStudentExitNotice) {
+      return (
+        <section className="workbook-launch workbook-entry-shell workbook-entry-shell--launch workbook-launch--auth-only">
+          <AuthAmbientScene variant="launch" />
+        </section>
+      );
+    }
     return (
       <section className="workbook-launch workbook-entry-shell workbook-entry-shell--launch">
         <AuthAmbientScene variant="launch" />
