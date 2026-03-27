@@ -1075,6 +1075,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     polygonMode,
     setPolygonHoverPoint,
     setEraserCursorPoint,
+    viewportOffset: resolvedViewportOffset,
+    safeZoom,
+    onViewportOffsetChange,
   });
 
   const { panModeEnabled, graphModeEnabled, eraserModeEnabled } =

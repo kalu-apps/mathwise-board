@@ -24,6 +24,9 @@ interface UseWorkbookCanvasDomHandlersParams {
   ) => WorkbookPoint;
   resolveTopObject: (point: WorkbookPoint) => WorkbookBoardObject | null;
   tool: WorkbookTool;
+  viewportOffset: WorkbookPoint;
+  safeZoom: number;
+  onViewportOffsetChange?: (offset: WorkbookPoint) => void;
   onObjectUpdate: (
     objectId: string,
     patch: Partial<WorkbookBoardObject>,
@@ -90,6 +93,9 @@ export const useWorkbookCanvasDomHandlers = ({
   mapPointer,
   resolveTopObject,
   tool,
+  viewportOffset,
+  safeZoom,
+  onViewportOffsetChange,
   onObjectUpdate,
   onSelectedObjectChange,
   onSelectedConstraintChange,
@@ -134,7 +140,24 @@ export const useWorkbookCanvasDomHandlers = ({
   const handleWheel = useCallback(
     (event: WheelEvent<SVGSVGElement>) => {
       if (disabled) return;
-      if (!event.ctrlKey && !event.metaKey) return;
+      if (!event.ctrlKey && !event.metaKey) {
+        if (!onViewportOffsetChange) return;
+        if (!Number.isFinite(event.deltaY) || Math.abs(event.deltaY) <= 0.0001) return;
+        event.preventDefault();
+        const deltaModeScale =
+          event.deltaMode === 1
+            ? 16
+            : event.deltaMode === 2
+              ? (typeof window !== "undefined" ? Math.max(480, window.innerHeight) : 800)
+              : 1;
+        const deltaY = event.deltaY * deltaModeScale;
+        const nextOffset: WorkbookPoint = {
+          x: viewportOffset.x,
+          y: Math.max(0, viewportOffset.y + deltaY / Math.max(0.08, safeZoom)),
+        };
+        onViewportOffsetChange(nextOffset);
+        return;
+      }
       if (!selectedObjectId) return;
       const selectedObject = objectById.get(selectedObjectId);
       if (!selectedObject || selectedObject.type !== "solid3d") return;
@@ -159,7 +182,17 @@ export const useWorkbookCanvasDomHandlers = ({
         ),
       });
     },
-    [disabled, mapPointer, objectById, onObjectUpdate, selectedObjectId]
+    [
+      disabled,
+      mapPointer,
+      objectById,
+      onObjectUpdate,
+      onViewportOffsetChange,
+      safeZoom,
+      selectedObjectId,
+      viewportOffset.x,
+      viewportOffset.y,
+    ]
   );
 
   const handleDoubleClick = useCallback(

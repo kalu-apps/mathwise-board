@@ -78,10 +78,9 @@ export const buildPanningOffset = (
   clientY: number,
   safeZoom: number
 ): WorkbookPoint => {
-  const dx = clientX - pan.start.x;
   const dy = clientY - pan.start.y;
   return {
-    x: Math.max(0, pan.baseOffset.x - dx / safeZoom),
+    x: pan.baseOffset.x,
     y: Math.max(0, pan.baseOffset.y - dy / safeZoom),
   };
 };

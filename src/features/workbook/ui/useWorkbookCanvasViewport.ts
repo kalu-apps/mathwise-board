@@ -62,13 +62,18 @@ export const useWorkbookCanvasViewport = ({
   const visibleViewportWidth = Math.max(1, size.width / safeZoom);
   const visibleViewportHeight = Math.max(1, size.height / safeZoom);
   const resolvedViewportOffset = useMemo(
-    () =>
-      clampWorkbookViewportOffsetToPageFrame({
+    () => {
+      const clamped = clampWorkbookViewportOffsetToPageFrame({
         offset: viewportOffset,
         bounds: pageFrameBounds,
         viewportWidth: visibleViewportWidth,
         viewportHeight: visibleViewportHeight,
-      }),
+      });
+      return {
+        x: pageFrameBounds.minX,
+        y: clamped.y,
+      };
+    },
     [pageFrameBounds, viewportOffset, visibleViewportHeight, visibleViewportWidth]
   );
 
