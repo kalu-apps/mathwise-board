@@ -142,8 +142,10 @@ export const useWorkbookCanvasDomHandlers = ({
       if (disabled) return;
       if (!event.ctrlKey && !event.metaKey) {
         if (!onViewportOffsetChange) return;
-        if (!Number.isFinite(event.deltaY) || Math.abs(event.deltaY) <= 0.0001) return;
+        // Intercept all regular wheel/trackpad gestures on canvas to keep
+        // viewport navigation strictly vertical and avoid native horizontal scroll.
         event.preventDefault();
+        if (!Number.isFinite(event.deltaY) || Math.abs(event.deltaY) <= 0.0001) return;
         const deltaModeScale =
           event.deltaMode === 1
             ? 16
