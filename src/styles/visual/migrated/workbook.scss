@@ -1522,8 +1522,8 @@
 .workbook-session__utility-float {
   position: fixed;
   z-index: 80;
-  width: min(392px, calc(100vw - 20px));
-  max-height: min(76vh, 720px);
+  width: min(436px, calc(100vw - 20px));
+  max-height: min(var(--workbook-utility-max-height, 76vh), 760px);
   max-width: calc(100vw - 20px);
   overflow: hidden;
   overflow-x: hidden;
@@ -1548,6 +1548,10 @@
 
 .workbook-session__utility-float.is-settings {
   width: min(486px, calc(100vw - 20px));
+}
+
+.workbook-session__utility-float.is-transform {
+  width: min(448px, calc(100vw - 24px));
 }
 
 .workbook-session__utility-float.is-collapsed {
@@ -3068,14 +3072,19 @@
 .workbook-session__solid-inspector {
   display: grid;
   gap: 8px;
-  max-height: none;
-  overflow: visible;
+  min-height: 0;
+  overflow: hidden;
   padding-right: 0;
 }
 
 .workbook-session__solid-tabs {
   display: flex;
   gap: 6px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding-bottom: 2px;
+  background: color-mix(in srgb, var(--surface-elevated) 98%, transparent);
 }
 
 .workbook-session__solid-subtabs {
@@ -3126,6 +3135,7 @@
 .workbook-session__solid-card-list {
   display: grid;
   gap: 8px;
+  min-height: 0;
 }
 
 .workbook-session__solid-card {
@@ -3166,6 +3176,10 @@
   white-space: nowrap;
 }
 
+.workbook-session__solid-card-title--segment {
+  min-width: 0;
+}
+
 .workbook-session__solid-card-controls {
   display: inline-flex;
   align-items: center;
@@ -3176,7 +3190,7 @@
 
 .workbook-session__solid-card-controls--segment-top {
   display: grid;
-  grid-template-columns: auto minmax(100px, 132px) auto;
+  grid-template-columns: auto minmax(120px, 1fr) auto;
   align-items: center;
   gap: 6px;
   max-width: 100%;
@@ -3326,9 +3340,9 @@
 }
 
 .workbook-session__solid-mirror-btn.MuiButton-root {
-  min-height: 28px;
-  padding: 0 8px;
-  font-size: 11px;
+  min-height: 26px;
+  padding: 0 7px;
+  font-size: 10.5px;
 }
 
 .workbook-session__solid-input .MuiInputBase-root {

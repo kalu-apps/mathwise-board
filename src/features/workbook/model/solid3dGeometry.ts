@@ -50,6 +50,8 @@ export type SolidSurfacePick = {
   classification: Solid3dHostedPointClassification;
   vertexIndex?: number;
   edgeKey?: string;
+  hostSegmentId?: string;
+  segmentT?: number;
 };
 
 export type ProjectedSolidVertex = {
@@ -457,6 +459,20 @@ export const resolveSectionPointForMesh = (
   point: Solid3dSectionPoint,
   mesh: Solid3dMesh
 ): Vec3 => {
+  if (point.classification === "point_on_segment") {
+    if (
+      Array.isArray(point.local3d) &&
+      point.local3d.length === 3 &&
+      point.local3d.every((value) => Number.isFinite(value))
+    ) {
+      return vec(
+        Number(point.local3d[0]) || 0,
+        Number(point.local3d[1]) || 0,
+        Number(point.local3d[2]) || 0
+      );
+    }
+    return vec(point.x, point.y, point.z);
+  }
   if (
     point.classification === "vertex" &&
     Number.isInteger(point.vertexIndex) &&

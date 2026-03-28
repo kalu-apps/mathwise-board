@@ -5,6 +5,7 @@ import {
   getSolid3dMesh,
 } from "@/features/workbook/model/solid3dGeometry";
 import {
+  isSolid3dHostedSegmentSupport,
   readSolid3dState,
   type Solid3dSectionPoint,
   type Solid3dSectionState,
@@ -97,9 +98,30 @@ export const useWorkbookSolid3dSectionDraftHandlers = ({
         triangleIndices.length === 3 &&
         new Set(triangleIndices).size >= 1 &&
         hasEdgeOrVertexBarycentric;
-      if (!isSurfacePoint) {
-        setError("Точка должна лежать на ребре или вершине фигуры.");
+      const pointHostSegmentId =
+        typeof payload.point.hostSegmentId === "string" &&
+        payload.point.hostSegmentId.trim().length > 0
+          ? payload.point.hostSegmentId.trim()
+          : null;
+      const isPointOnHostedSegment =
+        payload.point.classification === "point_on_segment" && pointHostSegmentId !== null;
+      if (!isSurfacePoint && !isPointOnHostedSegment) {
+        setError("Точка должна лежать на ребре/вершине фигуры или на hosted-отрезке.");
         return;
+      }
+      if (isPointOnHostedSegment && pointHostSegmentId) {
+        const solidState = readSolid3dState(targetObject.meta);
+        const hostSegment = solidState.hostedSegments.find(
+          (segment) => segment.id === pointHostSegmentId
+        );
+        if (!hostSegment || !isSolid3dHostedSegmentSupport(hostSegment)) {
+          setError("Опорный hosted-отрезок недоступен для построения.");
+          return;
+        }
+        if (!Number.isFinite(Number(payload.point.segmentT))) {
+          setError("Не удалось определить позицию точки на hosted-отрезке.");
+          return;
+        }
       }
       const maxPoints = getPointLimitForSolidObject(targetObject);
       setSelectedObjectId(targetObject.id);

@@ -1728,9 +1728,13 @@ export default function WorkbookSessionPage() {
 
   const resolveHostedPointClassification = useCallback(
     (point: Solid3dSectionPoint): Solid3dHostedPointClassification => {
+      if (point.classification === "point_on_segment") return "point_on_segment";
       if (point.classification === "vertex") return "vertex";
       if (point.classification === "edge") return "edge";
       if (point.classification === "interior") return "interior";
+      if (typeof point.hostSegmentId === "string" && point.hostSegmentId.trim().length > 0) {
+        return "point_on_segment";
+      }
       if (Number.isInteger(point.vertexIndex) && Number(point.vertexIndex) >= 0) {
         return "vertex";
       }
@@ -1778,6 +1782,14 @@ export default function WorkbookSessionPage() {
           ? Number(basePoint.faceIndex)
           : undefined;
       const classification = resolveHostedPointClassification(basePoint);
+      const hostSegmentId =
+        typeof basePoint.hostSegmentId === "string" && basePoint.hostSegmentId.trim().length > 0
+          ? basePoint.hostSegmentId.trim()
+          : undefined;
+      const rawSegmentT = Number(basePoint.segmentT);
+      const segmentT = Number.isFinite(rawSegmentT)
+        ? Math.max(0, Math.min(1, rawSegmentT))
+        : undefined;
       return {
         id,
         kind: "hosted_point",
@@ -1793,6 +1805,8 @@ export default function WorkbookSessionPage() {
           typeof basePoint.edgeKey === "string" && basePoint.edgeKey.trim().length > 0
             ? basePoint.edgeKey.trim()
             : undefined,
+        hostSegmentId,
+        segmentT,
         local3d:
           Array.isArray(basePoint.local3d) && basePoint.local3d.length === 3
             ? [basePoint.local3d[0], basePoint.local3d[1], basePoint.local3d[2]]
@@ -1877,8 +1891,11 @@ export default function WorkbookSessionPage() {
         triangleIndices.length === 3 &&
         barycentric.length === 3;
       const hasLocalPoint = Array.isArray(payload.point.local3d) && payload.point.local3d.length === 3;
-      if (!hasSurfaceTuple && !hasLocalPoint) {
-        setError("Точка должна быть выбрана на поверхности 3D-объекта.");
+      const hasHostedSegmentReference =
+        typeof payload.point.hostSegmentId === "string" &&
+        payload.point.hostSegmentId.trim().length > 0;
+      if (!hasSurfaceTuple && !hasLocalPoint && !hasHostedSegmentReference) {
+        setError("Точка должна быть выбрана на фигуре или на уже построенном отрезке.");
         return;
       }
       const currentState = readSolid3dState(targetObject.meta);

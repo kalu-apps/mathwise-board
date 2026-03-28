@@ -104,6 +104,142 @@ export const resolveSolid3dPointAtPointer = (
     };
   }
 
+  const hostedPoints = solidState.hostedPoints.filter(
+    (entry) => entry.hostObjectId === object.id && entry.visible !== false
+  );
+  if (hostedPoints.length > 0) {
+    const hostedPointPick = hostedPoints
+      .map((entry) => {
+        const worldPoint = resolveSectionPointForMesh(entry, mesh);
+        const projected = projectSolidPointForObject({
+          point: worldPoint,
+          view: solidState.view,
+          objectRect: rect,
+        });
+        const distance = Math.hypot(projected.x - localPoint.x, projected.y - localPoint.y);
+        return {
+          entry,
+          worldPoint,
+          projected,
+          distance,
+        };
+      })
+      .filter((candidate) => candidate.distance <= 12)
+      .sort((left, right) => left.distance - right.distance)[0];
+    if (hostedPointPick) {
+      const entry = hostedPointPick.entry;
+      const fallbackFaceIndex =
+        Number.isInteger(entry.faceIndex) && Number(entry.faceIndex) >= 0
+          ? Number(entry.faceIndex)
+          : 0;
+      return {
+        point: hostedPointPick.worldPoint,
+        faceIndex: fallbackFaceIndex,
+        depth: hostedPointPick.projected.depth,
+        triangleVertexIndices:
+          Array.isArray(entry.triangleVertexIndices) &&
+          entry.triangleVertexIndices.length === 3
+            ? [
+                entry.triangleVertexIndices[0],
+                entry.triangleVertexIndices[1],
+                entry.triangleVertexIndices[2],
+              ]
+            : [0, 0, 0],
+        barycentric:
+          Array.isArray(entry.barycentric) && entry.barycentric.length === 3
+            ? [entry.barycentric[0], entry.barycentric[1], entry.barycentric[2]]
+            : [1, 0, 0],
+        classification: entry.classification,
+        vertexIndex: entry.vertexIndex,
+        edgeKey: entry.edgeKey,
+        hostSegmentId: entry.hostSegmentId,
+        segmentT: entry.segmentT,
+      };
+    }
+  }
+
+  const hostedPointById = new Map(hostedPoints.map((entry) => [entry.id, entry] as const));
+  const hostedSegments = solidState.hostedSegments.filter(
+    (entry) => entry.hostObjectId === object.id && entry.visible !== false
+  );
+  if (hostedSegments.length > 0) {
+    const hostedSegmentPick = hostedSegments
+      .map((segment) => {
+        const start = hostedPointById.get(segment.startPointId);
+        const end = hostedPointById.get(segment.endPointId);
+        if (!start || !end) return null;
+        const startWorld = resolveSectionPointForMesh(start, mesh);
+        const endWorld = resolveSectionPointForMesh(end, mesh);
+        const startProjected = projectSolidPointForObject({
+          point: startWorld,
+          view: solidState.view,
+          objectRect: rect,
+        });
+        const endProjected = projectSolidPointForObject({
+          point: endWorld,
+          view: solidState.view,
+          objectRect: rect,
+        });
+        const vx = endProjected.x - startProjected.x;
+        const vy = endProjected.y - startProjected.y;
+        const edgeLengthSq = vx * vx + vy * vy;
+        if (edgeLengthSq < 1e-8) return null;
+        const px = localPoint.x - startProjected.x;
+        const py = localPoint.y - startProjected.y;
+        const rawT = (px * vx + py * vy) / edgeLengthSq;
+        const t = Math.max(0, Math.min(1, rawT));
+        const closestX = startProjected.x + vx * t;
+        const closestY = startProjected.y + vy * t;
+        const distance = Math.hypot(localPoint.x - closestX, localPoint.y - closestY);
+        if (distance > 10) return null;
+        const worldPoint = {
+          x: startWorld.x * (1 - t) + endWorld.x * t,
+          y: startWorld.y * (1 - t) + endWorld.y * t,
+          z: startWorld.z * (1 - t) + endWorld.z * t,
+        };
+        const fallbackFaceIndex =
+          Number.isInteger(start.faceIndex) && Number(start.faceIndex) >= 0
+            ? Number(start.faceIndex)
+            : Number.isInteger(end.faceIndex) && Number(end.faceIndex) >= 0
+              ? Number(end.faceIndex)
+              : 0;
+        const depth = startProjected.depth * (1 - t) + endProjected.depth * t;
+        return {
+          segment,
+          worldPoint,
+          distance,
+          t,
+          depth,
+          fallbackFaceIndex,
+        };
+      })
+      .filter(
+        (
+          candidate
+        ): candidate is {
+          segment: (typeof hostedSegments)[number];
+          worldPoint: { x: number; y: number; z: number };
+          distance: number;
+          t: number;
+          depth: number;
+          fallbackFaceIndex: number;
+        } => Boolean(candidate)
+      )
+      .sort((left, right) => left.distance - right.distance)[0];
+    if (hostedSegmentPick) {
+      return {
+        point: hostedSegmentPick.worldPoint,
+        faceIndex: hostedSegmentPick.fallbackFaceIndex,
+        depth: hostedSegmentPick.depth,
+        triangleVertexIndices: [0, 0, 0],
+        barycentric: [1 - hostedSegmentPick.t, hostedSegmentPick.t, 0],
+        classification: "point_on_segment",
+        hostSegmentId: hostedSegmentPick.segment.id,
+        segmentT: hostedSegmentPick.t,
+      };
+    }
+  }
+
   return pickSolidPointOnSurface({
     mesh,
     view: solidState.view,

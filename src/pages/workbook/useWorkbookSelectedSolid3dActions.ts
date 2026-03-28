@@ -499,9 +499,29 @@ export const useWorkbookSelectedSolid3dActions = ({
           segmentToDelete.startPointId,
           segmentToDelete.endPointId,
         ]);
-        const nextPoints = (state.hostedPoints ?? []).filter((point) => {
-          if (!removablePointIds.has(point.id)) return true;
-          return usedPointIds.has(point.id);
+        (state.hostedPoints ?? []).forEach((point) => {
+          if (point.hostSegmentId === segmentId) {
+            removablePointIds.add(point.id);
+          }
+        });
+        const nextPoints = (state.hostedPoints ?? []).flatMap((point) => {
+          if (!removablePointIds.has(point.id)) {
+            return [point];
+          }
+          if (!usedPointIds.has(point.id)) {
+            return [];
+          }
+          if (point.hostSegmentId === segmentId) {
+            return [
+              {
+                ...point,
+                classification: "interior",
+                hostSegmentId: undefined,
+                segmentT: undefined,
+              },
+            ];
+          }
+          return [point];
         });
         return {
           ...state,

@@ -152,10 +152,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
   selectedHostedEntityType,
   selectedHostedEntityId,
   onSelectHostedEntity,
-  onClearHostedEntitySelection,
   onStartSolid3dHostedSegmentMode,
-  onCancelSolid3dHostedDraft,
-  onUpdateSolid3dHostedPoint,
   onUpdateSolid3dHostedSegment,
   onDeleteSolid3dHostedSegment,
   getSolidVertexLabel,
@@ -260,10 +257,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
             selectedHostedEntityType={selectedHostedEntityType}
             selectedHostedEntityId={selectedHostedEntityId}
             onSelectHostedEntity={onSelectHostedEntity}
-            onClearHostedEntitySelection={onClearHostedEntitySelection}
             onStartSolid3dHostedSegmentMode={onStartSolid3dHostedSegmentMode}
-            onCancelSolid3dHostedDraft={onCancelSolid3dHostedDraft}
-            onUpdateSolid3dHostedPoint={onUpdateSolid3dHostedPoint}
             onUpdateSolid3dHostedSegment={onUpdateSolid3dHostedSegment}
             onDeleteSolid3dHostedSegment={onDeleteSolid3dHostedSegment}
             getSolidVertexLabel={getSolidVertexLabel}

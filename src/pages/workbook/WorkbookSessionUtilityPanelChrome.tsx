@@ -54,6 +54,7 @@ export function WorkbookSessionUtilityPanelChrome({
         isUtilityPanelCollapsed ? " is-collapsed" : ""
       }${isContextualUtilityPanel ? " is-contextual" : ""}${
         utilityTab === "settings" ? " is-settings" : ""
+      }${utilityTab === "transform" ? " is-transform" : ""
       }`}
       style={
         isCompactViewport

@@ -8,7 +8,8 @@ export type Solid3dHostedPointClassification =
   | "vertex"
   | "edge"
   | "face"
-  | "interior";
+  | "interior"
+  | "point_on_segment";
 
 export type Solid3dHostedSegmentSemanticRole =
   | "construction"
@@ -24,6 +25,8 @@ export type Solid3dSectionPoint = {
   vertexIndex?: number;
   edgeKey?: string;
   local3d?: [number, number, number];
+  hostSegmentId?: string;
+  segmentT?: number;
   faceIndex?: number;
   triangleVertexIndices?: [number, number, number];
   barycentric?: [number, number, number];
@@ -39,6 +42,8 @@ export type Solid3dHostedPoint = {
   vertexIndex?: number;
   edgeKey?: string;
   local3d?: [number, number, number];
+  hostSegmentId?: string;
+  segmentT?: number;
   x: number;
   y: number;
   z: number;
@@ -170,7 +175,8 @@ const isHostedPointClassification = (
   value === "vertex" ||
   value === "edge" ||
   value === "face" ||
-  value === "interior";
+  value === "interior" ||
+  value === "point_on_segment";
 
 const isHostedSegmentSemanticRole = (
   value: unknown
@@ -253,6 +259,15 @@ const readSection = (value: unknown): Solid3dSectionState | null => {
                 .filter((value) => Number.isFinite(value))
                 .slice(0, 3)
             : [];
+          const hostSegmentId =
+            typeof (raw as { hostSegmentId?: unknown }).hostSegmentId === "string" &&
+            ((raw as { hostSegmentId?: string }).hostSegmentId ?? "").trim().length > 0
+              ? ((raw as { hostSegmentId?: string }).hostSegmentId ?? "").trim()
+              : undefined;
+          const rawSegmentT = Number((raw as { segmentT?: unknown }).segmentT);
+          const segmentT = Number.isFinite(rawSegmentT)
+            ? clamp(rawSegmentT, 0, 1)
+            : undefined;
           const nextPoint: Solid3dSectionPoint = {
             label: toString((raw as { label?: unknown }).label, "").trim() || undefined,
             x: toFinite(raw.x, 0),
@@ -283,6 +298,12 @@ const readSection = (value: unknown): Solid3dSectionState | null => {
           }
           if (local3dRaw.length === 3) {
             nextPoint.local3d = [local3dRaw[0], local3dRaw[1], local3dRaw[2]];
+          }
+          if (hostSegmentId) {
+            nextPoint.hostSegmentId = hostSegmentId;
+          }
+          if (segmentT !== undefined) {
+            nextPoint.segmentT = segmentT;
           }
           return nextPoint;
         })
@@ -394,6 +415,13 @@ const readHostedPoint = (value: unknown): Solid3dHostedPoint | null => {
     local3dRaw.length === 3
       ? ([local3dRaw[0], local3dRaw[1], local3dRaw[2]] as [number, number, number])
       : undefined;
+  const hostSegmentId =
+    typeof (source as { hostSegmentId?: unknown }).hostSegmentId === "string" &&
+    ((source as { hostSegmentId?: string }).hostSegmentId ?? "").trim().length > 0
+      ? ((source as { hostSegmentId?: string }).hostSegmentId ?? "").trim()
+      : undefined;
+  const rawSegmentT = Number((source as { segmentT?: unknown }).segmentT);
+  const segmentT = Number.isFinite(rawSegmentT) ? clamp(rawSegmentT, 0, 1) : undefined;
   const vertexIndex =
     Number.isInteger(source.vertexIndex) && Number(source.vertexIndex) >= 0
       ? Number(source.vertexIndex)
@@ -404,6 +432,7 @@ const readHostedPoint = (value: unknown): Solid3dHostedPoint | null => {
       : undefined;
   const classification: Solid3dHostedPointClassification = (() => {
     if (isHostedPointClassification(source.classification)) return source.classification;
+    if (hostSegmentId) return "point_on_segment";
     if (vertexIndex !== undefined) return "vertex";
     if (edgeKey) return "edge";
     if (
@@ -428,6 +457,8 @@ const readHostedPoint = (value: unknown): Solid3dHostedPoint | null => {
     vertexIndex,
     edgeKey,
     local3d,
+    hostSegmentId,
+    segmentT,
     x: toFinite(source.x, 0),
     y: toFinite(source.y, 0),
     z: toFinite(source.z, 0),
@@ -696,6 +727,14 @@ export const writeSolid3dState = (
                       Number(point.local3d[2]) || 0,
                     ] as [number, number, number])
                   : undefined,
+              hostSegmentId:
+                typeof point.hostSegmentId === "string" && point.hostSegmentId.trim().length > 0
+                  ? point.hostSegmentId.trim()
+                  : undefined,
+              segmentT:
+                Number.isFinite(Number(point.segmentT))
+                  ? clamp(Number(point.segmentT), 0, 1)
+                  : undefined,
             }))
             .slice(0, 32)
         : [],
@@ -746,6 +785,14 @@ export const writeSolid3dState = (
                     Number(point.local3d[1]) || 0,
                     Number(point.local3d[2]) || 0,
                   ] as [number, number, number])
+                : undefined,
+            hostSegmentId:
+              typeof point.hostSegmentId === "string" && point.hostSegmentId.trim().length > 0
+                ? point.hostSegmentId.trim()
+                : undefined,
+            segmentT:
+              Number.isFinite(Number(point.segmentT))
+                ? clamp(Number(point.segmentT), 0, 1)
                 : undefined,
             x: toFinite(point.x, 0),
             y: toFinite(point.y, 0),

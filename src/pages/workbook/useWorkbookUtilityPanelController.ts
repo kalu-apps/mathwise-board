@@ -394,6 +394,27 @@ export const useWorkbookUtilityPanelController = ({
     workspaceRef,
   ]);
 
+  useEffect(() => {
+    if (isCompactViewport || !isUtilityPanelOpen) {
+      utilityPanelRef.current?.style.removeProperty("--workbook-utility-max-height");
+      return;
+    }
+    const updatePanelMaxHeight = () => {
+      const panelNode = utilityPanelRef.current;
+      const workspaceNode = workspaceRef.current;
+      if (!panelNode || !workspaceNode) return;
+      const workspaceRect = workspaceNode.getBoundingClientRect();
+      const maxHeight = Math.max(280, Math.floor(workspaceRect.height - 16));
+      panelNode.style.setProperty("--workbook-utility-max-height", `${maxHeight}px`);
+    };
+    updatePanelMaxHeight();
+    window.addEventListener("resize", updatePanelMaxHeight);
+    return () => {
+      window.removeEventListener("resize", updatePanelMaxHeight);
+      utilityPanelRef.current?.style.removeProperty("--workbook-utility-max-height");
+    };
+  }, [isCompactViewport, isUtilityPanelOpen, utilityPanelRef, workspaceRef]);
+
   const utilityPanelTitle = useMemo(() => {
     if (utilityTab === "settings") return "Настройки доски";
     if (utilityTab === "graph") return "График функции";

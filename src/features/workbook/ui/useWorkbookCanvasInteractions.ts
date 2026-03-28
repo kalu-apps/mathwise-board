@@ -177,6 +177,8 @@ type InteractionCallbacks = {
     classification?: Solid3dHostedPointClassification;
     vertexIndex?: number;
     edgeKey?: string;
+    hostSegmentId?: string;
+    segmentT?: number;
   } | null;
   resolveSolid3dResizeHandleHit: (
     selected: WorkbookBoardObject,
@@ -533,6 +535,8 @@ export const useWorkbookCanvasInteractions = (
                 classification: picked.classification,
                 vertexIndex: picked.vertexIndex,
                 edgeKey: picked.edgeKey,
+                hostSegmentId: picked.hostSegmentId,
+                segmentT: picked.segmentT,
                 local3d: [picked.point.x, picked.point.y, picked.point.z],
               },
             });
