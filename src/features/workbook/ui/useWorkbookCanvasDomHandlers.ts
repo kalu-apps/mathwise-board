@@ -137,6 +137,19 @@ export const useWorkbookCanvasDomHandlers = ({
     [backgroundColor, gridColor, gridSize, showGrid]
   );
 
+  const preventDefaultIfCancelable = (
+    event: WheelEvent<SVGSVGElement> | MouseEvent<SVGSVGElement>
+  ) => {
+    const nativeCancelable =
+      (event.nativeEvent as Event | undefined)?.cancelable;
+    const syntheticCancelable = event.cancelable;
+    if (nativeCancelable === false || syntheticCancelable === false) {
+      return false;
+    }
+    event.preventDefault();
+    return true;
+  };
+
   const handleWheel = useCallback(
     (event: WheelEvent<SVGSVGElement>) => {
       if (disabled) return;
@@ -144,7 +157,7 @@ export const useWorkbookCanvasDomHandlers = ({
         if (!onViewportOffsetChange) return;
         // Intercept all regular wheel/trackpad gestures on canvas to keep
         // viewport navigation strictly vertical and avoid native horizontal scroll.
-        event.preventDefault();
+        preventDefaultIfCancelable(event);
         if (!Number.isFinite(event.deltaY) || Math.abs(event.deltaY) <= 0.0001) return;
         const deltaModeScale =
           event.deltaMode === 1
@@ -167,7 +180,7 @@ export const useWorkbookCanvasDomHandlers = ({
       if (!svg) return;
       const point = mapPointer(svg, event.clientX, event.clientY);
       if (!isInsideRect(point, getObjectRect(selectedObject))) return;
-      event.preventDefault();
+      preventDefaultIfCancelable(event);
       const state = readSolid3dState(selectedObject.meta);
       const step = event.deltaY < 0 ? 0.08 : -0.08;
       const nextZoom = Math.max(0.4, Math.min(2.4, state.view.zoom + step));
