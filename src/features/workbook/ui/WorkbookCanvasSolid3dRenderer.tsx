@@ -1,13 +1,14 @@
 import type { ReactNode } from "react";
 import type { WorkbookBoardObject } from "../model/types";
 import { resolveSolid3dPresetId } from "../model/solid3d";
-import { readSolid3dState } from "../model/solid3dState";
+import { readSolid3dState, type Solid3dHostedPoint } from "../model/solid3dState";
 import type { ProjectedSolidVertex } from "../model/solid3dGeometry";
 import {
   computeSectionPolygon,
   getSolid3dMesh,
   projectSolidPointForObject,
   projectSolidVerticesForObject,
+  resolveSectionPointForMesh,
 } from "../model/solid3dGeometry";
 import {
   buildAngleArcPath,
@@ -300,6 +301,53 @@ export const renderWorkbookCanvasSolid3dObject = ({
           }));
         })
       : [];
+
+    const hostedPointsById = new Map(
+      solidState.hostedPoints
+        .filter((point) => point.hostObjectId === object.id && point.visible !== false)
+        .map((point) => [point.id, point] as const)
+    );
+
+    const hostedSegmentsToRender = solidState.hostedSegments
+      .filter((segment) => segment.hostObjectId === object.id && segment.visible !== false)
+      .map((segment) => {
+        const start = hostedPointsById.get(segment.startPointId);
+        const end = hostedPointsById.get(segment.endPointId);
+        if (!start || !end) return null;
+        const startPoint = mesh ? resolveSectionPointForMesh(start, mesh) : start;
+        const endPoint = mesh ? resolveSectionPointForMesh(end, mesh) : end;
+        const projectedStart = projectSolidPointForObject({
+          point: startPoint,
+          view,
+          objectRect: normalized,
+        });
+        const projectedEnd = projectSolidPointForObject({
+          point: endPoint,
+          view,
+          objectRect: normalized,
+        });
+        const faceVisible = visibleFaceIds.has(segment.faceIndex);
+        return {
+          segment,
+          start,
+          end,
+          projectedStart,
+          projectedEnd,
+          faceVisible,
+        };
+      })
+      .filter(
+        (
+          entry
+        ): entry is {
+          segment: (typeof solidState.hostedSegments)[number];
+          start: Solid3dHostedPoint;
+          end: Solid3dHostedPoint;
+          projectedStart: { x: number; y: number; depth: number };
+          projectedEnd: { x: number; y: number; depth: number };
+          faceVisible: boolean;
+        } => Boolean(entry)
+      );
 
     const sectionLines = solidState.sections
       .filter((section) => section.visible)
@@ -1208,6 +1256,46 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 strokeDasharray="7 5"
                 strokeLinecap="round"
               />
+            );
+          })}
+          {hostedSegmentsToRender.map((entry) => {
+            const strokeColor = entry.segment.color || entry.start.color || "#c4872f";
+            const thickness = Math.max(1, entry.segment.thickness || 2);
+            const shouldHide = hideHiddenEdges && !entry.faceVisible;
+            if (shouldHide) return null;
+            const dashed = entry.segment.dashed || !entry.faceVisible;
+            return (
+              <g key={`${object.id}-hosted-segment-${entry.segment.id}`}>
+                <line
+                  x1={entry.projectedStart.x}
+                  y1={entry.projectedStart.y}
+                  x2={entry.projectedEnd.x}
+                  y2={entry.projectedEnd.y}
+                  stroke={strokeColor}
+                  strokeWidth={thickness}
+                  strokeDasharray={dashed ? "6 4" : undefined}
+                  strokeLinecap="round"
+                  opacity={entry.faceVisible ? 0.94 : 0.58}
+                />
+                <circle
+                  cx={entry.projectedStart.x}
+                  cy={entry.projectedStart.y}
+                  r={Math.max(1.4, entry.start.radius)}
+                  fill="#ffffff"
+                  stroke={strokeColor}
+                  strokeWidth={1}
+                  opacity={entry.faceVisible ? 0.96 : 0.64}
+                />
+                <circle
+                  cx={entry.projectedEnd.x}
+                  cy={entry.projectedEnd.y}
+                  r={Math.max(1.4, entry.end.radius)}
+                  fill="#ffffff"
+                  stroke={strokeColor}
+                  strokeWidth={1}
+                  opacity={entry.faceVisible ? 0.96 : 0.64}
+                />
+              </g>
             );
           })}
           {measurementLabels.length > 0 ? (

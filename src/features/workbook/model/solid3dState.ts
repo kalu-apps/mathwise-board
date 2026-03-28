@@ -14,6 +14,36 @@ export type Solid3dSectionPoint = {
   barycentric?: [number, number, number];
 };
 
+export type Solid3dHostedPoint = {
+  id: string;
+  kind: "hosted_point";
+  hostObjectId: string;
+  hostFaceId: string;
+  faceIndex: number;
+  x: number;
+  y: number;
+  z: number;
+  triangleVertexIndices?: [number, number, number];
+  barycentric?: [number, number, number];
+  color: string;
+  radius: number;
+  visible: boolean;
+};
+
+export type Solid3dHostedSegment = {
+  id: string;
+  kind: "hosted_segment";
+  hostObjectId: string;
+  hostFaceId: string;
+  faceIndex: number;
+  startPointId: string;
+  endPointId: string;
+  color: string;
+  thickness: number;
+  dashed: boolean;
+  visible: boolean;
+};
+
 export type Solid3dSectionState = {
   id: string;
   name: string;
@@ -77,6 +107,8 @@ export type Solid3dState = {
   view: Solid3dViewState;
   vertexLabels: string[];
   sections: Solid3dSectionState[];
+  hostedPoints: Solid3dHostedPoint[];
+  hostedSegments: Solid3dHostedSegment[];
   clippingPreset: Solid3dClippingPreset;
   hiddenFaceIds: string[];
   faceColors: Record<string, string>;
@@ -131,6 +163,8 @@ export const DEFAULT_SOLID3D_STATE: Solid3dState = {
   view: DEFAULT_VIEW,
   vertexLabels: [],
   sections: [],
+  hostedPoints: [],
+  hostedSegments: [],
   clippingPreset: "none",
   hiddenFaceIds: [],
   faceColors: {},
@@ -263,6 +297,79 @@ const readAngleMark = (value: unknown): Solid3dAngleMark | null => {
   };
 };
 
+const readHostedPoint = (value: unknown): Solid3dHostedPoint | null => {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Partial<Solid3dHostedPoint>;
+  const id = toString(source.id);
+  const hostObjectId = toString(source.hostObjectId);
+  const hostFaceId = toString(source.hostFaceId);
+  const faceIndex = Number(source.faceIndex);
+  if (!id || !hostObjectId || !hostFaceId) return null;
+  if (!Number.isInteger(faceIndex) || faceIndex < 0) return null;
+  const triangleVertexIndices = Array.isArray(source.triangleVertexIndices)
+    ? source.triangleVertexIndices
+        .map((entry) => Number(entry))
+        .filter((entry) => Number.isInteger(entry) && entry >= 0)
+        .slice(0, 3)
+    : [];
+  const barycentric = Array.isArray(source.barycentric)
+    ? source.barycentric
+        .map((entry) => Number(entry))
+        .filter((entry) => Number.isFinite(entry))
+        .slice(0, 3)
+    : [];
+  const nextPoint: Solid3dHostedPoint = {
+    id,
+    kind: "hosted_point",
+    hostObjectId,
+    hostFaceId,
+    faceIndex,
+    x: toFinite(source.x, 0),
+    y: toFinite(source.y, 0),
+    z: toFinite(source.z, 0),
+    color: toString(source.color, "#c4872f"),
+    radius: clamp(toFinite(source.radius, 2.4), 1, 12),
+    visible: source.visible !== false,
+  };
+  if (triangleVertexIndices.length === 3) {
+    nextPoint.triangleVertexIndices = [
+      triangleVertexIndices[0],
+      triangleVertexIndices[1],
+      triangleVertexIndices[2],
+    ];
+  }
+  if (barycentric.length === 3) {
+    nextPoint.barycentric = [barycentric[0], barycentric[1], barycentric[2]];
+  }
+  return nextPoint;
+};
+
+const readHostedSegment = (value: unknown): Solid3dHostedSegment | null => {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Partial<Solid3dHostedSegment>;
+  const id = toString(source.id);
+  const hostObjectId = toString(source.hostObjectId);
+  const hostFaceId = toString(source.hostFaceId);
+  const startPointId = toString(source.startPointId);
+  const endPointId = toString(source.endPointId);
+  const faceIndex = Number(source.faceIndex);
+  if (!id || !hostObjectId || !hostFaceId || !startPointId || !endPointId) return null;
+  if (!Number.isInteger(faceIndex) || faceIndex < 0) return null;
+  return {
+    id,
+    kind: "hosted_segment",
+    hostObjectId,
+    hostFaceId,
+    faceIndex,
+    startPointId,
+    endPointId,
+    color: toString(source.color, "#c4872f"),
+    thickness: clamp(toFinite(source.thickness, 2), 1, 12),
+    dashed: Boolean(source.dashed),
+    visible: source.visible !== false,
+  };
+};
+
 export const readSolid3dState = (
   meta: Record<string, unknown> | undefined
 ): Solid3dState => {
@@ -338,6 +445,26 @@ export const readSolid3dState = (
         .slice(0, 128)
     : [];
 
+  const hostedPoints = Array.isArray(meta?.hostedPoints)
+    ? meta.hostedPoints
+        .map(readHostedPoint)
+        .filter((point): point is Solid3dHostedPoint => Boolean(point))
+        .slice(0, 512)
+    : [];
+
+  const hostedPointIds = new Set(hostedPoints.map((point) => point.id));
+  const hostedSegments = Array.isArray(meta?.hostedSegments)
+    ? meta.hostedSegments
+        .map(readHostedSegment)
+        .filter((segment): segment is Solid3dHostedSegment => Boolean(segment))
+        .filter(
+          (segment) =>
+            hostedPointIds.has(segment.startPointId) &&
+            hostedPointIds.has(segment.endPointId)
+        )
+        .slice(0, 512)
+    : [];
+
   const vertexLabels = Array.isArray(meta?.vertexLabels)
     ? meta.vertexLabels
         .map((item) => (typeof item === "string" ? item.trim() : ""))
@@ -348,6 +475,8 @@ export const readSolid3dState = (
     view,
     vertexLabels,
     sections,
+    hostedPoints,
+    hostedSegments,
     clippingPreset: isClippingPreset(meta?.clippingPreset)
       ? meta.clippingPreset
       : "none",
@@ -438,6 +567,81 @@ export const writeSolid3dState = (
       fillOpacity: clamp(toFinite(section.fillOpacity, 0.18), 0.05, 0.9),
       showMetrics: Boolean(section.showMetrics),
     })),
+    hostedPoints: Array.isArray(state.hostedPoints)
+      ? state.hostedPoints
+          .map((point) => ({
+            id: toString(point.id),
+            kind: "hosted_point" as const,
+            hostObjectId: toString(point.hostObjectId),
+            hostFaceId: toString(point.hostFaceId),
+            faceIndex:
+              Number.isInteger(point.faceIndex) && Number(point.faceIndex) >= 0
+                ? Number(point.faceIndex)
+                : undefined,
+            x: toFinite(point.x, 0),
+            y: toFinite(point.y, 0),
+            z: toFinite(point.z, 0),
+            triangleVertexIndices:
+              Array.isArray(point.triangleVertexIndices) &&
+              point.triangleVertexIndices.length === 3
+                ? ([
+                    Number(point.triangleVertexIndices[0]) || 0,
+                    Number(point.triangleVertexIndices[1]) || 0,
+                    Number(point.triangleVertexIndices[2]) || 0,
+                  ] as [number, number, number])
+                : undefined,
+            barycentric:
+              Array.isArray(point.barycentric) && point.barycentric.length === 3
+                ? ([
+                    Number(point.barycentric[0]) || 0,
+                    Number(point.barycentric[1]) || 0,
+                    Number(point.barycentric[2]) || 0,
+                  ] as [number, number, number])
+                : undefined,
+            color: toString(point.color, "#c4872f"),
+            radius: clamp(toFinite(point.radius, 2.4), 1, 12),
+            visible: Boolean(point.visible),
+          }))
+          .filter(
+            (point) =>
+              Boolean(point.id) &&
+              Boolean(point.hostObjectId) &&
+              Boolean(point.hostFaceId) &&
+              Number.isInteger(point.faceIndex) &&
+              Number(point.faceIndex) >= 0
+          )
+          .slice(0, 512)
+      : [],
+    hostedSegments: Array.isArray(state.hostedSegments)
+      ? state.hostedSegments
+          .map((segment) => ({
+            id: toString(segment.id),
+            kind: "hosted_segment" as const,
+            hostObjectId: toString(segment.hostObjectId),
+            hostFaceId: toString(segment.hostFaceId),
+            faceIndex:
+              Number.isInteger(segment.faceIndex) && Number(segment.faceIndex) >= 0
+                ? Number(segment.faceIndex)
+                : undefined,
+            startPointId: toString(segment.startPointId),
+            endPointId: toString(segment.endPointId),
+            color: toString(segment.color, "#c4872f"),
+            thickness: clamp(toFinite(segment.thickness, 2), 1, 12),
+            dashed: Boolean(segment.dashed),
+            visible: Boolean(segment.visible),
+          }))
+          .filter(
+            (segment) =>
+              Boolean(segment.id) &&
+              Boolean(segment.hostObjectId) &&
+              Boolean(segment.hostFaceId) &&
+              Number.isInteger(segment.faceIndex) &&
+              Number(segment.faceIndex) >= 0 &&
+              Boolean(segment.startPointId) &&
+              Boolean(segment.endPointId)
+          )
+          .slice(0, 512)
+      : [],
     clippingPreset: state.clippingPreset,
     hiddenFaceIds: state.hiddenFaceIds,
     faceColors:
