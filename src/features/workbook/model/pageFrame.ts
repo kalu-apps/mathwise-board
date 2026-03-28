@@ -11,7 +11,7 @@ export type WorkbookPageFrameBounds = {
 };
 
 export const WORKBOOK_PAGE_FRAME_PORTRAIT_RATIO = 210 / 297;
-export const WORKBOOK_PAGE_FRAME_WIDTH = 4096;
+export const WORKBOOK_PAGE_FRAME_WIDTH = 1200;
 
 const clampNumber = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
