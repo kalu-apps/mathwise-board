@@ -117,7 +117,8 @@ export const handleWorkbookCanvasContextMenu = ({
   const target = resolveTopObject(point);
   if (!target) return;
 
-  if (target.type === "solid3d") {
+  const openSolid3dDetailContextMenu = event.altKey || event.shiftKey;
+  if (target.type === "solid3d" && openSolid3dDetailContextMenu) {
     const vertexIndex = resolveSolid3dVertexAtPointer(target, point, solid3dPreviewMetaById);
     if (vertexIndex !== null && onSolid3dVertexContextMenu) {
       event.preventDefault();

@@ -1081,8 +1081,8 @@ export const renderWorkbookCanvasSolid3dObject = ({
                     d={`${toPath(face.points)} Z`}
                     fill={fillColor}
                     fillOpacity={isRoundPreset ? roundOpacity : face.isFront ? 0.82 : 0.3}
-                    stroke={isRoundPreset ? "none" : color}
-                    strokeWidth={isRoundPreset ? 0 : strokeWidth * 0.78}
+                    stroke="none"
+                    strokeWidth={0}
                   />
                 );
               })}
