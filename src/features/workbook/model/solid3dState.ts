@@ -13,6 +13,7 @@ export type Solid3dHostedPointClassification =
 export type Solid3dHostedSegmentSemanticRole =
   | "construction"
   | "section_support";
+export type Solid3dHostedSegmentSupportMode = "full_segment" | "endpoints_only";
 
 export type Solid3dSectionPoint = {
   label?: string;
@@ -59,11 +60,15 @@ export type Solid3dHostedSegment = {
   startPointId: string;
   endPointId: string;
   semanticRole: Solid3dHostedSegmentSemanticRole;
+  supportMode: Solid3dHostedSegmentSupportMode;
   color: string;
   thickness: number;
   dashed: boolean;
   visible: boolean;
 };
+
+export const isSolid3dHostedSegmentSupport = (segment: Solid3dHostedSegment) =>
+  segment.semanticRole === "section_support" || segment.semanticRole === "construction";
 
 export type Solid3dSectionState = {
   id: string;
@@ -171,6 +176,11 @@ const isHostedSegmentSemanticRole = (
   value: unknown
 ): value is Solid3dHostedSegmentSemanticRole =>
   value === "construction" || value === "section_support";
+
+const isHostedSegmentSupportMode = (
+  value: unknown
+): value is Solid3dHostedSegmentSupportMode =>
+  value === "full_segment" || value === "endpoints_only";
 
 const isClippingPreset = (value: unknown): value is Solid3dClippingPreset =>
   value === "none" || value === "small" || value === "medium" || value === "large";
@@ -466,7 +476,10 @@ const readHostedSegment = (value: unknown): Solid3dHostedSegment | null => {
     endPointId,
     semanticRole: isHostedSegmentSemanticRole(source.semanticRole)
       ? source.semanticRole
-      : "construction",
+      : "section_support",
+    supportMode: isHostedSegmentSupportMode((source as { supportMode?: unknown }).supportMode)
+      ? (source as { supportMode: Solid3dHostedSegmentSupportMode }).supportMode
+      : "full_segment",
     color: toString(source.color, "#c4872f"),
     thickness: clamp(toFinite(source.thickness, 2), 1, 12),
     dashed: Boolean(source.dashed),
@@ -788,7 +801,12 @@ export const writeSolid3dState = (
             endPointId: toString(segment.endPointId),
             semanticRole: isHostedSegmentSemanticRole(segment.semanticRole)
               ? segment.semanticRole
-              : "construction",
+              : "section_support",
+            supportMode: isHostedSegmentSupportMode(
+              (segment as { supportMode?: unknown }).supportMode
+            )
+              ? (segment as { supportMode: Solid3dHostedSegmentSupportMode }).supportMode
+              : "full_segment",
             color: toString(segment.color, "#c4872f"),
             thickness: clamp(toFinite(segment.thickness, 2), 1, 12),
             dashed: Boolean(segment.dashed),

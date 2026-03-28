@@ -482,6 +482,37 @@ export const useWorkbookSelectedSolid3dActions = ({
     [updateSelectedSolid3dState]
   );
 
+  const deleteSolid3dHostedSegment = useCallback(
+    async (segmentId: string) => {
+      if (!segmentId.trim()) return;
+      await updateSelectedSolid3dState((state) => {
+        const currentSegments = state.hostedSegments ?? [];
+        const segmentToDelete = currentSegments.find((segment) => segment.id === segmentId);
+        if (!segmentToDelete) return state;
+        const nextSegments = currentSegments.filter((segment) => segment.id !== segmentId);
+        const usedPointIds = new Set<string>();
+        nextSegments.forEach((segment) => {
+          usedPointIds.add(segment.startPointId);
+          usedPointIds.add(segment.endPointId);
+        });
+        const removablePointIds = new Set<string>([
+          segmentToDelete.startPointId,
+          segmentToDelete.endPointId,
+        ]);
+        const nextPoints = (state.hostedPoints ?? []).filter((point) => {
+          if (!removablePointIds.has(point.id)) return true;
+          return usedPointIds.has(point.id);
+        });
+        return {
+          ...state,
+          hostedSegments: nextSegments,
+          hostedPoints: nextPoints,
+        };
+      });
+    },
+    [updateSelectedSolid3dState]
+  );
+
   return {
     setSolid3dHiddenEdges,
     setSolid3dFaceColor,
@@ -501,5 +532,6 @@ export const useWorkbookSelectedSolid3dActions = ({
     renameSolid3dVertex,
     updateSolid3dHostedPoint,
     updateSolid3dHostedSegment,
+    deleteSolid3dHostedSegment,
   };
 };

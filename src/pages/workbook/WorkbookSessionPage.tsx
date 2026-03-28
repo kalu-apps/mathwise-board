@@ -451,8 +451,9 @@ export default function WorkbookSessionPage() {
   const [presenceTabIdSnapshot, setPresenceTabIdSnapshot] = useState("");
   const [solid3dHostedDraft, setSolid3dHostedDraft] = useState<{
     objectId: string;
-    mode: "point" | "segment";
+    mode: "segment";
     points: Solid3dSectionPoint[];
+    pointIds: Array<string | null>;
   } | null>(null);
   const [selectedHostedEntity, setSelectedHostedEntity] = useState<{
     objectId: string;
@@ -1811,8 +1812,8 @@ export default function WorkbookSessionPage() {
     [resolveHostedPointClassification]
   );
 
-  const handleStartSolid3dHostedDraft = useCallback(
-    (objectId: string, mode: "point" | "segment") => {
+  const handleStartSolid3dHostedSegmentMode = useCallback(
+    (objectId: string) => {
       const targetObject = boardObjects.find((item) => item.id === objectId);
       if (!targetObject || targetObject.type !== "solid3d") {
         setError("Сначала выберите 3D-объект.");
@@ -1826,8 +1827,9 @@ export default function WorkbookSessionPage() {
       setSelectedHostedEntity(null);
       setSolid3dHostedDraft({
         objectId,
-        mode,
+        mode: "segment",
         points: [],
+        pointIds: [],
       });
       setError(null);
     },
@@ -1840,20 +1842,6 @@ export default function WorkbookSessionPage() {
       setSolid3dInspectorTab,
       setSolid3dSectionPointCollecting,
     ]
-  );
-
-  const handleStartSolid3dHostedPointMode = useCallback(
-    (objectId: string) => {
-      handleStartSolid3dHostedDraft(objectId, "point");
-    },
-    [handleStartSolid3dHostedDraft]
-  );
-
-  const handleStartSolid3dHostedSegmentMode = useCallback(
-    (objectId: string) => {
-      handleStartSolid3dHostedDraft(objectId, "segment");
-    },
-    [handleStartSolid3dHostedDraft]
   );
 
   const handleCancelSolid3dHostedDraft = useCallback((objectId?: string) => {
@@ -1895,100 +1883,119 @@ export default function WorkbookSessionPage() {
       }
       const currentState = readSolid3dState(targetObject.meta);
       const objectColor = targetObject.color ?? "#c4872f";
-      if (solid3dHostedDraft.mode === "point") {
-        const pointId = generateId();
-        const pointName = getNextHostedPointName(currentState.hostedPoints);
-        const nextPoint = toHostedPoint(
-          targetObject.id,
-          objectColor,
-          payload.point,
-          pointId,
-          pointName
-        );
-        const nextState = {
-          ...currentState,
-          hostedPoints: [...currentState.hostedPoints, nextPoint],
-        };
-        commitObjectUpdate(targetObject.id, {
-          meta: writeSolid3dState(nextState, targetObject.meta),
-        });
-        setSelectedObjectId(targetObject.id);
-        setSelectedHostedEntity({
-          objectId: targetObject.id,
-          entityType: "point",
-          entityId: pointId,
-        });
-        setError(null);
-        return;
-      }
-
       const currentPoints = solid3dHostedDraft.points;
+      const currentPointIds = solid3dHostedDraft.pointIds;
       const isDuplicate = currentPoints.some(
         (entry) =>
           Math.hypot(entry.x - payload.point.x, entry.y - payload.point.y, entry.z - payload.point.z) <
           1e-4
       );
       if (isDuplicate) return;
+      const reusablePoint = currentState.hostedPoints.find(
+        (point) =>
+          point.hostObjectId === targetObject.id &&
+          Math.hypot(point.x - payload.point.x, point.y - payload.point.y, point.z - payload.point.z) <
+            1e-4
+      );
       if (currentPoints.length === 0) {
         setSelectedObjectId(targetObject.id);
         setSolid3dHostedDraft({
           objectId: targetObject.id,
           mode: "segment",
           points: [{ ...payload.point, label: "H1" }],
+          pointIds: [reusablePoint?.id ?? null],
         });
         return;
       }
       const firstPoint = currentPoints[0];
+      const firstPointId = currentPointIds[0] ?? null;
       const secondPoint: Solid3dSectionPoint = {
         ...payload.point,
         label: "H2",
       };
-      const startPointId = generateId();
-      const endPointId = generateId();
-      const startPointName = getNextHostedPointName(currentState.hostedPoints);
-      const endPointName = getNextHostedPointName([
-        ...currentState.hostedPoints,
-        { id: startPointId, name: startPointName } as Solid3dHostedPoint,
-      ]);
-      const startPoint = toHostedPoint(
-        targetObject.id,
-        objectColor,
-        firstPoint,
-        startPointId,
-        startPointName
-      );
-      const endPoint = toHostedPoint(
-        targetObject.id,
-        objectColor,
-        secondPoint,
-        endPointId,
-        endPointName
-      );
+      const secondPointId = reusablePoint?.id ?? null;
+      const startPointId = firstPointId ?? generateId();
+      const endPointId = secondPointId ?? generateId();
+      if (startPointId === endPointId) {
+        setError("Выберите вторую точку отрезка в другом месте.");
+        return;
+      }
+      const hostedPointsForNaming = [...currentState.hostedPoints];
+      const startPointName = firstPointId
+        ? (currentState.hostedPoints.find((point) => point.id === firstPointId)?.name ??
+          getNextHostedPointName(hostedPointsForNaming))
+        : getNextHostedPointName(hostedPointsForNaming);
+      if (!firstPointId) {
+        hostedPointsForNaming.push({ id: startPointId, name: startPointName } as Solid3dHostedPoint);
+      }
+      const endPointName = secondPointId
+        ? (currentState.hostedPoints.find((point) => point.id === secondPointId)?.name ??
+          getNextHostedPointName(hostedPointsForNaming))
+        : getNextHostedPointName(hostedPointsForNaming);
+      const startPoint =
+        firstPointId === null
+          ? toHostedPoint(
+              targetObject.id,
+              objectColor,
+              firstPoint,
+              startPointId,
+              startPointName
+            )
+          : null;
+      const endPoint =
+        secondPointId === null
+          ? toHostedPoint(
+              targetObject.id,
+              objectColor,
+              secondPoint,
+              endPointId,
+              endPointName
+            )
+          : null;
+      const resolvedStartPoint =
+        startPoint ?? currentState.hostedPoints.find((point) => point.id === startPointId);
+      const resolvedEndPoint =
+        endPoint ?? currentState.hostedPoints.find((point) => point.id === endPointId);
       const nextSegment: Solid3dHostedSegment = {
         id: generateId(),
         kind: "hosted_segment",
         hostObjectId: targetObject.id,
         hostFaceId:
-          startPoint.hostFaceId && startPoint.hostFaceId === endPoint.hostFaceId
-            ? startPoint.hostFaceId
+          resolvedStartPoint?.hostFaceId &&
+          resolvedStartPoint.hostFaceId === resolvedEndPoint?.hostFaceId
+            ? resolvedStartPoint.hostFaceId
             : undefined,
         faceIndex:
-          Number.isInteger(startPoint.faceIndex) &&
-          Number.isInteger(endPoint.faceIndex) &&
-          startPoint.faceIndex === endPoint.faceIndex
-            ? startPoint.faceIndex
+          Number.isInteger(resolvedStartPoint?.faceIndex) &&
+          Number.isInteger(resolvedEndPoint?.faceIndex) &&
+          resolvedStartPoint.faceIndex === resolvedEndPoint.faceIndex
+            ? resolvedStartPoint.faceIndex
             : undefined,
         startPointId,
         endPointId,
-        semanticRole: "construction",
+        semanticRole: "section_support",
+        supportMode: "full_segment",
         color: objectColor,
         thickness: Math.max(1, targetObject.strokeWidth ?? 2),
         dashed: false,
         visible: true,
       };
+      const hasDuplicateSegment = currentState.hostedSegments.some(
+        (segment) =>
+          (segment.startPointId === startPointId && segment.endPointId === endPointId) ||
+          (segment.startPointId === endPointId && segment.endPointId === startPointId)
+      );
+      if (hasDuplicateSegment) {
+        setError("Такой hosted-отрезок уже существует.");
+        return;
+      }
       const nextState = {
         ...currentState,
-        hostedPoints: [...currentState.hostedPoints, startPoint, endPoint],
+        hostedPoints: [
+          ...currentState.hostedPoints,
+          ...(startPoint ? [startPoint] : []),
+          ...(endPoint ? [endPoint] : []),
+        ],
         hostedSegments: [...currentState.hostedSegments, nextSegment],
       };
       commitObjectUpdate(targetObject.id, {
@@ -2075,7 +2082,6 @@ export default function WorkbookSessionPage() {
     ...transformPanelBaseProps,
     hostedGeometryDraftMode: solid3dHostedDraft?.mode ?? null,
     hostedGeometryDraftPoints: solid3dHostedDraft?.points ?? [],
-    onStartSolid3dHostedPointMode: handleStartSolid3dHostedPointMode,
     onStartSolid3dHostedSegmentMode: handleStartSolid3dHostedSegmentMode,
     onCancelSolid3dHostedDraft: () => handleCancelSolid3dHostedDraft(selectedObjectId ?? undefined),
     selectedHostedEntityType: selectedHostedEntity?.entityType ?? null,
@@ -2093,6 +2099,7 @@ export default function WorkbookSessionPage() {
     },
     onUpdateSolid3dHostedPoint: selectedSolid3dActions.updateSolid3dHostedPoint,
     onUpdateSolid3dHostedSegment: selectedSolid3dActions.updateSolid3dHostedSegment,
+    onDeleteSolid3dHostedSegment: selectedSolid3dActions.deleteSolid3dHostedSegment,
   };
 
 

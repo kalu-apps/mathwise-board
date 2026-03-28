@@ -153,11 +153,11 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
   selectedHostedEntityId,
   onSelectHostedEntity,
   onClearHostedEntitySelection,
-  onStartSolid3dHostedPointMode,
   onStartSolid3dHostedSegmentMode,
   onCancelSolid3dHostedDraft,
   onUpdateSolid3dHostedPoint,
   onUpdateSolid3dHostedSegment,
+  onDeleteSolid3dHostedSegment,
   getSolidVertexLabel,
 }: WorkbookSessionTransformPanelProps) {
   return (
@@ -168,7 +168,8 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
         ) : null}
         {selectedObject &&
         selectedObject.type !== "function_graph" &&
-        selectedObject.type !== "text" ? (
+        selectedObject.type !== "text" &&
+        selectedObject.type !== "solid3d" ? (
           <div className="workbook-session__geometry-actions">
             <Button
               size="small"
@@ -253,17 +254,18 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
             onClearSolid3dDraftPoints={onClearSolid3dDraftPoints}
             onUpdateSolid3dSection={onUpdateSolid3dSection}
             onDeleteSolid3dSection={onDeleteSolid3dSection}
+            onMirrorSelectedObject={onMirrorSelectedObject}
             hostedGeometryDraftMode={hostedGeometryDraftMode}
             hostedGeometryDraftPoints={hostedGeometryDraftPoints}
             selectedHostedEntityType={selectedHostedEntityType}
             selectedHostedEntityId={selectedHostedEntityId}
             onSelectHostedEntity={onSelectHostedEntity}
             onClearHostedEntitySelection={onClearHostedEntitySelection}
-            onStartSolid3dHostedPointMode={onStartSolid3dHostedPointMode}
             onStartSolid3dHostedSegmentMode={onStartSolid3dHostedSegmentMode}
             onCancelSolid3dHostedDraft={onCancelSolid3dHostedDraft}
             onUpdateSolid3dHostedPoint={onUpdateSolid3dHostedPoint}
             onUpdateSolid3dHostedSegment={onUpdateSolid3dHostedSegment}
+            onDeleteSolid3dHostedSegment={onDeleteSolid3dHostedSegment}
             getSolidVertexLabel={getSolidVertexLabel}
             canToggleSelectedObjectLabels={canToggleSelectedObjectLabels}
             selectedObjectShowLabels={selectedObjectShowLabels}

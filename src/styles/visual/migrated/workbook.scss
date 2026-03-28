@@ -1547,7 +1547,7 @@
 }
 
 .workbook-session__utility-float.is-settings {
-  width: min(432px, calc(100vw - 20px));
+  width: min(486px, calc(100vw - 20px));
 }
 
 .workbook-session__utility-float.is-collapsed {
@@ -3150,10 +3150,20 @@
   gap: 8px;
 }
 
+.workbook-session__solid-card-head--segment {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
 .workbook-session__solid-card-title {
   font-size: 12px;
   font-weight: 700;
   color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workbook-session__solid-card-controls {
@@ -3161,6 +3171,15 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 4px;
+  min-width: 0;
+}
+
+.workbook-session__solid-card-controls--segment-top {
+  display: grid;
+  grid-template-columns: auto minmax(100px, 132px) auto;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
 }
 
 .workbook-session__solid-section-summary {
@@ -3271,6 +3290,45 @@
 
 .workbook-session__solid-card-row--toggle > :last-child {
   justify-self: end;
+}
+
+.workbook-session__solid-hosted-segment-toggles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.workbook-session__solid-hosted-segment-toggles .workbook-session__solid-card-row--toggle {
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 84%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+  padding: 4px 8px;
+}
+
+.workbook-session__solid-hosted-point-fields {
+  display: grid;
+  gap: 6px;
+}
+
+.workbook-session__solid-segment-thickness {
+  min-width: 0;
+}
+
+.workbook-session__solid-segment-thickness input[type="range"] {
+  width: 100%;
+  min-width: 0;
+}
+
+.workbook-session__solid-mirror-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.workbook-session__solid-mirror-btn.MuiButton-root {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
 }
 
 .workbook-session__solid-input .MuiInputBase-root {
@@ -3636,6 +3694,19 @@
   .workbook-session__line-rotate-controls {
     flex-wrap: wrap;
     justify-content: flex-end;
+  }
+
+  .workbook-session__solid-card-head--segment {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbook-session__solid-card-controls--segment-top {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    width: 100%;
+  }
+
+  .workbook-session__solid-hosted-segment-toggles {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

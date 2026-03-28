@@ -56,17 +56,18 @@ type WorkbookSessionTransformPanelSolid3dProps = Pick<
   | "onClearSolid3dDraftPoints"
   | "onUpdateSolid3dSection"
   | "onDeleteSolid3dSection"
+  | "onMirrorSelectedObject"
   | "hostedGeometryDraftMode"
   | "hostedGeometryDraftPoints"
   | "selectedHostedEntityType"
   | "selectedHostedEntityId"
   | "onSelectHostedEntity"
   | "onClearHostedEntitySelection"
-  | "onStartSolid3dHostedPointMode"
   | "onStartSolid3dHostedSegmentMode"
   | "onCancelSolid3dHostedDraft"
   | "onUpdateSolid3dHostedPoint"
   | "onUpdateSolid3dHostedSegment"
+  | "onDeleteSolid3dHostedSegment"
   | "getSolidVertexLabel"
   | "canToggleSelectedObjectLabels"
   | "selectedObjectShowLabels"
@@ -113,17 +114,18 @@ export function WorkbookSessionTransformPanelSolid3d({
   onClearSolid3dDraftPoints,
   onUpdateSolid3dSection,
   onDeleteSolid3dSection,
+  onMirrorSelectedObject,
   hostedGeometryDraftMode,
   hostedGeometryDraftPoints = [],
   selectedHostedEntityType = null,
   selectedHostedEntityId = null,
   onSelectHostedEntity,
   onClearHostedEntitySelection,
-  onStartSolid3dHostedPointMode,
   onStartSolid3dHostedSegmentMode,
   onCancelSolid3dHostedDraft,
   onUpdateSolid3dHostedPoint,
   onUpdateSolid3dHostedSegment,
+  onDeleteSolid3dHostedSegment,
   getSolidVertexLabel,
   canToggleSelectedObjectLabels,
   selectedObjectShowLabels,
@@ -278,6 +280,24 @@ export function WorkbookSessionTransformPanelSolid3d({
                       />
                     </div>
                   ) : null}
+                </div>
+                <div className="workbook-session__solid-mirror-actions">
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    className="workbook-session__solid-mirror-btn"
+                    onClick={() => void onMirrorSelectedObject("horizontal")}
+                  >
+                    Отразить по X
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    className="workbook-session__solid-mirror-btn"
+                    onClick={() => void onMirrorSelectedObject("vertical")}
+                  >
+                    Отразить по Y
+                  </Button>
                 </div>
                 {selectedSolidIsCurved ? (
                   <p className="workbook-session__hint">
@@ -566,19 +586,7 @@ export function WorkbookSessionTransformPanelSolid3d({
           <div className="workbook-session__solid-section-actions">
             <Button
               size="small"
-              variant={hostedGeometryDraftMode === "point" ? "contained" : "outlined"}
-              onClick={() =>
-                selectedSolidObjectId
-                  ? onStartSolid3dHostedPointMode?.(selectedSolidObjectId)
-                  : undefined
-              }
-              disabled={!canSelect || !selectedSolidObjectId}
-            >
-              Добавить hosted-точку
-            </Button>
-            <Button
-              size="small"
-              variant={hostedGeometryDraftMode === "segment" ? "contained" : "outlined"}
+              variant={hostedGeometryDraftMode ? "contained" : "outlined"}
               onClick={() =>
                 selectedSolidObjectId
                   ? onStartSolid3dHostedSegmentMode?.(selectedSolidObjectId)
@@ -586,7 +594,7 @@ export function WorkbookSessionTransformPanelSolid3d({
               }
               disabled={!canSelect || !selectedSolidObjectId}
             >
-              Построить hosted-отрезок
+              Построить отрезок
             </Button>
             {hostedGeometryDraftMode ? (
               <Button
@@ -600,12 +608,8 @@ export function WorkbookSessionTransformPanelSolid3d({
           </div>
           {hostedGeometryDraftMode ? (
             <Alert severity="info" className="workbook-session__hint-alert--compact">
-              {hostedGeometryDraftMode === "point"
-                ? "Кликните по поверхности фигуры, чтобы добавить hosted-точку."
-                : "Кликните две точки на фигуре, чтобы построить hosted-отрезок."}
-              {hostedGeometryDraftMode === "segment"
-                ? ` Выбрано точек: ${hostedGeometryDraftPoints.length}/2.`
-                : null}
+              Кликните две точки на фигуре, чтобы построить отрезок в фигуре.
+              {` Выбрано точек: ${hostedGeometryDraftPoints.length}/2.`}
             </Alert>
           ) : null}
 
@@ -647,7 +651,7 @@ export function WorkbookSessionTransformPanelSolid3d({
                         />
                       </div>
                     </div>
-                    <div className="workbook-session__solid-angle-grid">
+                    <div className="workbook-session__solid-hosted-point-fields">
                       <TextField
                         size="small"
                         className="workbook-session__solid-input"
@@ -694,11 +698,11 @@ export function WorkbookSessionTransformPanelSolid3d({
                     className={`workbook-session__solid-card ${isSelected ? "is-selected" : ""}`}
                     onClick={() => onSelectHostedEntity?.("segment", segment.id)}
                   >
-                    <div className="workbook-session__solid-card-head">
+                    <div className="workbook-session__solid-card-head workbook-session__solid-card-head--segment">
                       <span className="workbook-session__solid-card-title">
                         {`Отрезок ${start?.name || "?"}-${end?.name || "?"}`}
                       </span>
-                      <div className="workbook-session__solid-card-controls">
+                      <div className="workbook-session__solid-card-controls workbook-session__solid-card-controls--segment-top">
                         <input
                           type="color"
                           className="workbook-session__solid-color"
@@ -710,35 +714,7 @@ export function WorkbookSessionTransformPanelSolid3d({
                             })
                           }
                         />
-                        <Switch
-                          size="small"
-                          checked={segment.visible !== false}
-                          onClick={(event) => event.stopPropagation()}
-                          onChange={(event) =>
-                            void onUpdateSolid3dHostedSegment?.(segment.id, {
-                              visible: event.target.checked,
-                            })
-                          }
-                        />
-                      </div>
-                    </div>
-                    <div className="workbook-session__solid-angle-grid">
-                      <div className="workbook-session__solid-card-row workbook-session__solid-card-row--toggle">
-                        <span>Пунктир</span>
-                        <Switch
-                          size="small"
-                          checked={Boolean(segment.dashed)}
-                          onClick={(event) => event.stopPropagation()}
-                          onChange={(event) =>
-                            void onUpdateSolid3dHostedSegment?.(segment.id, {
-                              dashed: event.target.checked,
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="workbook-session__settings-row">
-                        <span>Толщина</span>
-                        <div className="workbook-session__line-range">
+                        <div className="workbook-session__solid-segment-thickness">
                           <input
                             type="range"
                             min={1}
@@ -753,26 +729,45 @@ export function WorkbookSessionTransformPanelSolid3d({
                             }
                           />
                         </div>
+                        <IconButton
+                          size="small"
+                          className="workbook-session__solid-section-delete"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void onDeleteSolid3dHostedSegment?.(segment.id);
+                          }}
+                        >
+                          <CloseRoundedIcon />
+                        </IconButton>
                       </div>
-                      <TextField
-                        select
-                        size="small"
-                        className="workbook-session__solid-input"
-                        label="Роль"
-                        value={segment.semanticRole}
-                        onClick={(event) => event.stopPropagation()}
-                        onChange={(event) =>
-                          void onUpdateSolid3dHostedSegment?.(segment.id, {
-                            semanticRole:
-                              event.target.value === "section_support"
-                                ? "section_support"
-                                : "construction",
-                          })
-                        }
-                      >
-                        <MenuItem value="construction">Построение</MenuItem>
-                        <MenuItem value="section_support">Опора для сечений</MenuItem>
-                      </TextField>
+                    </div>
+                    <div className="workbook-session__solid-hosted-segment-toggles">
+                      <div className="workbook-session__solid-card-row workbook-session__solid-card-row--toggle">
+                        <span>Пунктирность</span>
+                        <Switch
+                          size="small"
+                          checked={Boolean(segment.dashed)}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) =>
+                            void onUpdateSolid3dHostedSegment?.(segment.id, {
+                              dashed: event.target.checked,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="workbook-session__solid-card-row workbook-session__solid-card-row--toggle">
+                        <span>Скрыть отрезок</span>
+                        <Switch
+                          size="small"
+                          checked={segment.visible === false}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) =>
+                            void onUpdateSolid3dHostedSegment?.(segment.id, {
+                              visible: !event.target.checked,
+                            })
+                          }
+                        />
+                      </div>
                     </div>
                   </article>
                 );
@@ -780,7 +775,7 @@ export function WorkbookSessionTransformPanelSolid3d({
             </div>
           ) : (
             <p className="workbook-session__hint">
-              Добавьте hosted-точки и hosted-отрезки через этот модуль.
+              Постройте отрезок, выбрав две точки на фигуре.
             </p>
           )}
           {(selectedHostedEntityId || selectedHostedEntityType) && onClearHostedEntitySelection ? (

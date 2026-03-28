@@ -181,7 +181,7 @@ export type WorkbookSessionTransformPanelProps = {
     patch: Partial<Solid3dSectionState>
   ) => void | Promise<void>;
   onDeleteSolid3dSection: (sectionId: string) => void | Promise<void>;
-  hostedGeometryDraftMode?: "point" | "segment" | null;
+  hostedGeometryDraftMode?: "segment" | null;
   hostedGeometryDraftPoints?: Solid3dSectionPoint[];
   selectedHostedEntityType?: "point" | "segment" | null;
   selectedHostedEntityId?: string | null;
@@ -190,7 +190,6 @@ export type WorkbookSessionTransformPanelProps = {
     entityId: string
   ) => void | Promise<void>;
   onClearHostedEntitySelection?: () => void;
-  onStartSolid3dHostedPointMode?: (objectId: string) => void;
   onStartSolid3dHostedSegmentMode?: (objectId: string) => void;
   onCancelSolid3dHostedDraft?: () => void;
   onUpdateSolid3dHostedPoint?: (
@@ -201,6 +200,7 @@ export type WorkbookSessionTransformPanelProps = {
     segmentId: string,
     patch: Partial<Solid3dHostedSegment>
   ) => void | Promise<void>;
+  onDeleteSolid3dHostedSegment?: (segmentId: string) => void | Promise<void>;
   getSolidVertexLabel: (index: number) => string;
   getSectionVertexLabel: (index: number) => string;
 };
