@@ -196,7 +196,8 @@ export function WorkbookSessionOverlays({
   );
   const [areaFillColorDraft, setAreaFillColorDraft] = useState("#2f4f7f");
   const contextMenuContainer =
-    typeof document !== "undefined" ? document.body : overlayContainer;
+    overlayContainer ??
+    (typeof document !== "undefined" ? document.fullscreenElement ?? document.body : null);
 
   return (
     <>
