@@ -63,17 +63,13 @@ const resolvePageExportBounds = (): WorkbookExportBounds => ({
 
 const EXPORT_MAX_CANVAS_PIXELS = 8_500_000;
 const EXPORT_MIN_SCALE = 0.35;
-const EXPORT_PDF_FOOTER_HEIGHT_PT = 58;
+const EXPORT_PDF_FOOTER_HEIGHT_PT = 28;
 const EXPORT_PDF_FOOTER_SIDE_PADDING_PT = 24;
 const EXPORT_PDF_FOOTER_LINE_Y_OFFSET_PT = 12;
 const EXPORT_PDF_FOOTER_PRIMARY_FONT_SIZE_PT = 8;
-const EXPORT_PDF_FOOTER_SECONDARY_FONT_SIZE_PT = 6.3;
 const EXPORT_PDF_FOOTER_PRIMARY_TEXT_RGB = 56;
-const EXPORT_PDF_FOOTER_SECONDARY_TEXT_RGB = 86;
 const inlinedExportImageUrls = new Map<string, Promise<string | null>>();
 const WORKBOOK_ASSET_PATH_RE = /^\/api\/workbook\/sessions\/[^/]+\/assets\/[^/]+(?:\/content)?$/i;
-const WORKBOOK_PDF_COPYRIGHT_NOTICE =
-  "Материалы охраняются авторским правом. Копирование, распространение, передача третьим лицам и размещение в сети Интернет полностью или частично без письменного разрешения правообладателя запрещены. Ст. 1229, 1255, 1259, 1270 ГК РФ.";
 
 const resolveSvgImageHref = (node: SVGImageElement) => {
   const href = node.getAttribute("href");
@@ -214,31 +210,6 @@ const savePdfSafely = (pdf: { save: (fileName: string) => void; output: (type: "
   }
 };
 
-const wrapCanvasText = (params: {
-  ctx: CanvasRenderingContext2D;
-  text: string;
-  maxWidth: number;
-}): string[] => {
-  const normalized = params.text.replace(/\s+/g, " ").trim();
-  if (normalized.length === 0) return [];
-  const words = normalized.split(" ");
-  const lines: string[] = [];
-  let current = "";
-  words.forEach((word) => {
-    const candidate = current.length > 0 ? `${current} ${word}` : word;
-    if (params.ctx.measureText(candidate).width <= params.maxWidth || current.length === 0) {
-      current = candidate;
-      return;
-    }
-    lines.push(current);
-    current = word;
-  });
-  if (current.length > 0) {
-    lines.push(current);
-  }
-  return lines;
-};
-
 const drawWorkbookPdfFooter = (params: {
   pdf: jsPDF;
   pageWidth: number;
@@ -257,7 +228,6 @@ const drawWorkbookPdfFooter = (params: {
   ctx.clearRect(0, 0, pageWidth, EXPORT_PDF_FOOTER_HEIGHT_PT);
 
   const lineY = Math.min(EXPORT_PDF_FOOTER_HEIGHT_PT - 2, EXPORT_PDF_FOOTER_LINE_Y_OFFSET_PT);
-  const textMaxWidth = Math.max(40, pageWidth - EXPORT_PDF_FOOTER_SIDE_PADDING_PT * 2);
   const currentYear = new Date().getFullYear();
   const primaryText = `© ${currentYear} · Автор: Калугина Анна Викторовна`;
 
@@ -273,20 +243,6 @@ const drawWorkbookPdfFooter = (params: {
   ctx.font = `italic ${EXPORT_PDF_FOOTER_PRIMARY_FONT_SIZE_PT}px "Arial", "Segoe UI", sans-serif`;
   ctx.textBaseline = "top";
   ctx.fillText(primaryText, EXPORT_PDF_FOOTER_SIDE_PADDING_PT, primaryY);
-
-  const secondaryY = primaryY + 9;
-  ctx.fillStyle = `rgb(${EXPORT_PDF_FOOTER_SECONDARY_TEXT_RGB}, ${EXPORT_PDF_FOOTER_SECONDARY_TEXT_RGB}, ${EXPORT_PDF_FOOTER_SECONDARY_TEXT_RGB})`;
-  ctx.font = `${EXPORT_PDF_FOOTER_SECONDARY_FONT_SIZE_PT}px "Arial", "Segoe UI", sans-serif`;
-  const secondaryLines = wrapCanvasText({
-    ctx,
-    text: WORKBOOK_PDF_COPYRIGHT_NOTICE,
-    maxWidth: textMaxWidth,
-  });
-  let cursorY = secondaryY;
-  secondaryLines.forEach((line) => {
-    ctx.fillText(line, EXPORT_PDF_FOOTER_SIDE_PADDING_PT, cursorY);
-    cursorY += EXPORT_PDF_FOOTER_SECONDARY_FONT_SIZE_PT * 1.24;
-  });
 
   const footerDataUrl = canvas.toDataURL("image/png");
   pdf.addImage(
