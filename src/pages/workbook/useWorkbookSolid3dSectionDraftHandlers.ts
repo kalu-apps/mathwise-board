@@ -192,7 +192,7 @@ export const useWorkbookSolid3dSectionDraftHandlers = ({
       id: generateId(),
       name: `Сечение ${Math.max(1, currentState.sections.length + 1)}`,
       visible: true,
-      showVertexLabels: true,
+      showVertexLabels: false,
       mode: "through_points",
       pointIndices: [],
       points: ensureUniqueSectionPointLabels(solid3dDraftPoints.points.slice(0, maxPoints)),

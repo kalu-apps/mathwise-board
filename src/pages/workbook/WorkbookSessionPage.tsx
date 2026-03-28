@@ -2017,6 +2017,7 @@ export default function WorkbookSessionPage() {
         color: objectColor,
         thickness: Math.max(1, targetObject.strokeWidth ?? 2),
         dashed: false,
+        showEndpointLabels: false,
         visible: true,
       };
       const hasDuplicateSegment = currentState.hostedSegments.some(

@@ -333,8 +333,11 @@ export const renderWorkbookCanvasSolid3dObject = ({
       hostedPointRenderEntries.map((entry) => [entry.point.id, entry] as const)
     );
 
-    const hostedSegmentsToRender = solidState.hostedSegments
-      .filter((segment) => segment.hostObjectId === object.id && segment.visible !== false)
+    const visibleHostedSegments = solidState.hostedSegments.filter(
+      (segment) => segment.hostObjectId === object.id && segment.visible !== false
+    );
+
+    const hostedSegmentsToRender = visibleHostedSegments
       .map((segment) => {
         const startEntry = hostedProjectedPointById.get(segment.startPointId);
         const endEntry = hostedProjectedPointById.get(segment.endPointId);
@@ -357,7 +360,7 @@ export const renderWorkbookCanvasSolid3dObject = ({
         (
           entry
         ): entry is {
-          segment: (typeof solidState.hostedSegments)[number];
+          segment: (typeof visibleHostedSegments)[number];
           start: Solid3dHostedPoint;
           end: Solid3dHostedPoint;
           projectedStart: { x: number; y: number; depth: number };
@@ -365,6 +368,24 @@ export const renderWorkbookCanvasSolid3dObject = ({
           faceVisible: boolean;
         } => Boolean(entry)
       );
+
+    const hostedVisibleSegmentsByPointId = visibleHostedSegments.reduce<
+      Map<string, Array<(typeof visibleHostedSegments)[number]>>
+    >((acc, segment) => {
+      const startSegments = acc.get(segment.startPointId);
+      if (startSegments) {
+        startSegments.push(segment);
+      } else {
+        acc.set(segment.startPointId, [segment]);
+      }
+      const endSegments = acc.get(segment.endPointId);
+      if (endSegments) {
+        endSegments.push(segment);
+      } else {
+        acc.set(segment.endPointId, [segment]);
+      }
+      return acc;
+    }, new Map());
 
     const sectionLines = solidState.sections
       .filter((section) => section.visible)
@@ -1314,6 +1335,10 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 />
                 {object.meta?.showLabels !== false &&
                 entry.point.labelVisible !== false &&
+                (hostedVisibleSegmentsByPointId.get(entry.point.id)?.some(
+                  (segment) => segment.showEndpointLabels !== false
+                ) ??
+                  true) &&
                 entry.point.name.trim().length > 0 ? (
                   <text
                     x={entry.projected.x + 5}

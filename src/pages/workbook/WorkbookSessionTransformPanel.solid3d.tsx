@@ -661,7 +661,7 @@ export function WorkbookSessionTransformPanelSolid3d({
                     </div>
                     <div className="workbook-session__solid-hosted-segment-toggles">
                       <div className="workbook-session__solid-card-row workbook-session__solid-card-row--toggle">
-                        <span>Пунктирность</span>
+                        <span>Пунктир</span>
                         <Switch
                           size="small"
                           checked={Boolean(segment.dashed)}
@@ -669,6 +669,19 @@ export function WorkbookSessionTransformPanelSolid3d({
                           onChange={(event) =>
                             void onUpdateSolid3dHostedSegment?.(segment.id, {
                               dashed: event.target.checked,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="workbook-session__solid-card-row workbook-session__solid-card-row--toggle">
+                        <span>Скрыть названия концов</span>
+                        <Switch
+                          size="small"
+                          checked={segment.showEndpointLabels === false}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) =>
+                            void onUpdateSolid3dHostedSegment?.(segment.id, {
+                              showEndpointLabels: !event.target.checked,
                             })
                           }
                         />
@@ -785,14 +798,11 @@ export function WorkbookSessionTransformPanelSolid3d({
                         <p className="workbook-session__hint">
                           Для тел с круговым основанием вершины сечения не используются.
                         </p>
-                      ) : summary?.isPolygonal ? (
-                        <p className="workbook-session__hint">
-                          Переименовывайте вершины сечения правым кликом прямо на доске.
-                        </p>
                       ) : (
                         <p className="workbook-session__hint">
-                          Сечение сохранено как плоскость пересечения. Контур появится, когда
-                          фигура корректно пересечётся этой плоскостью.
+                          {summary?.isPolygonal
+                            ? "Сечение построено по опорным точкам."
+                            : "Сечение сохранено как плоскость пересечения. Контур появится, когда фигура корректно пересечётся этой плоскостью."}
                         </p>
                       )}
                       {!selectedSolidIsCurved ? (

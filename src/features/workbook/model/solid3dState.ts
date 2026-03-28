@@ -69,6 +69,7 @@ export type Solid3dHostedSegment = {
   color: string;
   thickness: number;
   dashed: boolean;
+  showEndpointLabels: boolean;
   visible: boolean;
 };
 
@@ -323,7 +324,7 @@ const readSection = (value: unknown): Solid3dSectionState | null => {
     showVertexLabels:
       typeof (source as { showVertexLabels?: unknown }).showVertexLabels === "boolean"
         ? Boolean((source as { showVertexLabels?: unknown }).showVertexLabels)
-        : true,
+        : false,
     mode,
     pointIndices,
     points,
@@ -519,6 +520,10 @@ const readHostedSegment = (value: unknown): Solid3dHostedSegment | null => {
     color: toString(source.color, "#c4872f"),
     thickness: clamp(toFinite(source.thickness, 2), 1, 12),
     dashed: Boolean(source.dashed),
+    showEndpointLabels:
+      typeof (source as { showEndpointLabels?: unknown }).showEndpointLabels === "boolean"
+        ? Boolean((source as { showEndpointLabels?: unknown }).showEndpointLabels)
+        : false,
     visible: source.visible !== false,
   };
 };
@@ -678,7 +683,7 @@ export const writeSolid3dState = (
       id: section.id,
       name: section.name,
       visible: Boolean(section.visible),
-      showVertexLabels: section.showVertexLabels !== false,
+      showVertexLabels: Boolean(section.showVertexLabels),
       mode: isSectionMode(section.mode) ? section.mode : "free",
       pointIndices: Array.isArray(section.pointIndices)
         ? section.pointIndices
@@ -863,6 +868,10 @@ export const writeSolid3dState = (
             color: toString(segment.color, "#c4872f"),
             thickness: clamp(toFinite(segment.thickness, 2), 1, 12),
             dashed: Boolean(segment.dashed),
+            showEndpointLabels:
+              typeof (segment as { showEndpointLabels?: unknown }).showEndpointLabels === "boolean"
+                ? Boolean((segment as { showEndpointLabels?: unknown }).showEndpointLabels)
+                : false,
             visible: Boolean(segment.visible),
           }))
           .filter(
