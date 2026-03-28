@@ -964,12 +964,22 @@ export default function WorkbookHubPage() {
                   typeof card.previewAlt === "string" && card.previewAlt.trim().length > 0
                     ? card.previewAlt.trim()
                     : `${card.title} preview`;
+                const shouldShowActivityBadge = card.kind === "CLASS";
                 const hasActiveSession =
-                  card.activityTone === "active" ||
-                  (typeof card.activityLabel === "string" &&
-                    card.activityLabel.trim().toLocaleLowerCase("ru-RU") === "идет сессия");
-                const activityLabel = hasActiveSession ? "Идет сессия" : "Пауза";
-                const activityTone = hasActiveSession ? "active" : "idle";
+                  shouldShowActivityBadge &&
+                  (card.activityTone === "active" ||
+                    (typeof card.activityLabel === "string" &&
+                      card.activityLabel.trim().toLocaleLowerCase("ru-RU") === "идет сессия"));
+                const activityLabel = shouldShowActivityBadge
+                  ? hasActiveSession
+                    ? "Идет сессия"
+                    : "Пауза"
+                  : null;
+                const activityTone = shouldShowActivityBadge
+                  ? hasActiveSession
+                    ? "active"
+                    : "idle"
+                  : null;
                 const isPreviewRefreshing = Boolean(previewRefreshPendingBySessionId[card.sessionId]);
                 return (
                   <article

@@ -83,6 +83,28 @@ export const renderWorkbookCanvasSolid3dObject = ({
     const contentWidth = Math.max(1, normalized.width - pad * 2);
     const contentHeight = Math.max(1, normalized.height - pad * 2);
     const view = solidState.view;
+    const rotationX = (view.rotationX * Math.PI) / 180;
+    const rotationY = (view.rotationY * Math.PI) / 180;
+    const rotateDepthForView = (point: { x: number; y: number; z: number }) => {
+      const z1 = -point.x * Math.sin(rotationY) + point.z * Math.cos(rotationY);
+      return point.y * Math.sin(rotationX) + z1 * Math.cos(rotationX);
+    };
+    const subtract3 = (
+      left: { x: number; y: number; z: number },
+      right: { x: number; y: number; z: number }
+    ) => ({
+      x: left.x - right.x,
+      y: left.y - right.y,
+      z: left.z - right.z,
+    });
+    const cross3 = (
+      left: { x: number; y: number; z: number },
+      right: { x: number; y: number; z: number }
+    ) => ({
+      x: left.y * right.z - left.z * right.y,
+      y: left.z * right.x - left.x * right.z,
+      z: left.x * right.y - left.y * right.x,
+    });
     const mesh = getSolid3dMesh(presetId, normalized.width, normalized.height);
     const projectedVertices = mesh
       ? projectSolidVerticesForObject({
@@ -124,8 +146,14 @@ export const renderWorkbookCanvasSolid3dObject = ({
             .map((vertexIndex) => projectedVertices[vertexIndex])
             .filter((vertex): vertex is ProjectedSolidVertex => Boolean(vertex));
           if (points.length < 3) return acc;
+          const sourceA = mesh.vertices[face[0]];
+          const sourceB = mesh.vertices[face[1]];
+          const sourceC = mesh.vertices[face[2]];
+          if (!sourceA || !sourceB || !sourceC) return acc;
           const depth =
             points.reduce((sum, point) => sum + point.depth, 0) / points.length;
+          const faceNormal = cross3(subtract3(sourceB, sourceA), subtract3(sourceC, sourceA));
+          const normalDepth = rotateDepthForView(faceNormal);
           const signedArea = points.reduce((sum, point, pointIndex) => {
             const next = points[(pointIndex + 1) % points.length];
             return sum + point.x * next.y - next.x * point.y;
@@ -134,7 +162,7 @@ export const renderWorkbookCanvasSolid3dObject = ({
             index,
             points,
             depth,
-            isFront: signedArea <= 0,
+            isFront: Math.abs(normalDepth) > 1e-4 ? normalDepth >= 0 : signedArea <= 0,
           });
           return acc;
         }, [])
