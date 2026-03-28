@@ -520,7 +520,10 @@ export const useWorkbookCanvasInteractions = (
           api.onSolid3dDraftPointAdd
         ) {
           const picked = callbacks.resolveSolid3dPointAtPointer(target, point);
-          if (picked && Number.isInteger(picked.faceIndex)) {
+          const hasHostedSegmentReference =
+            typeof picked?.hostSegmentId === "string" &&
+            picked.hostSegmentId.trim().length > 0;
+          if (picked && (Number.isInteger(picked.faceIndex) || hasHostedSegmentReference)) {
             api.onSelectedConstraintChange(null);
             api.onSelectedObjectChange(target.id);
             api.onSolid3dDraftPointAdd({

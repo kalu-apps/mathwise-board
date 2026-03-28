@@ -1908,11 +1908,33 @@ export default function WorkbookSessionPage() {
           1e-4
       );
       if (isDuplicate) return;
+      const payloadHostSegmentId =
+        typeof payload.point.hostSegmentId === "string" &&
+        payload.point.hostSegmentId.trim().length > 0
+          ? payload.point.hostSegmentId.trim()
+          : null;
+      const payloadSegmentT = Number(payload.point.segmentT);
       const reusablePoint = currentState.hostedPoints.find(
-        (point) =>
-          point.hostObjectId === targetObject.id &&
-          Math.hypot(point.x - payload.point.x, point.y - payload.point.y, point.z - payload.point.z) <
+        (point) => {
+          if (point.hostObjectId !== targetObject.id) return false;
+          const pointHostSegmentId =
+            typeof point.hostSegmentId === "string" && point.hostSegmentId.trim().length > 0
+              ? point.hostSegmentId.trim()
+              : null;
+          if (
+            payloadHostSegmentId &&
+            pointHostSegmentId === payloadHostSegmentId &&
+            Number.isFinite(payloadSegmentT) &&
+            Number.isFinite(Number(point.segmentT))
+          ) {
+            const deltaT = Math.abs(Number(point.segmentT) - payloadSegmentT);
+            if (deltaT <= 0.015) return true;
+          }
+          return (
+            Math.hypot(point.x - payload.point.x, point.y - payload.point.y, point.z - payload.point.z) <
             1e-4
+          );
+        }
       );
       if (currentPoints.length === 0) {
         setSelectedObjectId(targetObject.id);

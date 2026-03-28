@@ -278,6 +278,9 @@ export const renderWorkbookCanvasSolid3dObject = ({
     const sectionPolygonsById = new Map(
       sectionPolygons.map((polygon) => [polygon.section.id, polygon])
     );
+    const sectionShowVertexLabelsById = new Map(
+      solidState.sections.map((section) => [section.id, section.showVertexLabels !== false] as const)
+    );
 
     const visibleSectionMarkers = !isRoundPreset
       ? sectionPolygons.flatMap((polygon) => {
@@ -1398,7 +1401,8 @@ export const renderWorkbookCanvasSolid3dObject = ({
               stroke={marker.color}
               strokeWidth={1}
             />
-            {object.meta?.showLabels !== false ? (
+            {object.meta?.showLabels !== false &&
+            sectionShowVertexLabelsById.get(marker.sectionId) !== false ? (
               <text
                 x={marker.placement.x}
                 y={marker.placement.y}

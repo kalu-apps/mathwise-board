@@ -732,7 +732,8 @@ export function WorkbookSessionTransformPanelSolid3d({
 
           {isSolid3dPointCollectionActive ? (
             <Alert severity="info" className="workbook-session__hint-alert--compact">
-              Кликните по ребру или вершине 3D-фигуры, чтобы добавить точку сечения.
+              Кликните по ребру/вершине 3D-фигуры или по hosted-отрезку, чтобы добавить точку
+              сечения.
               {solid3dDraftPoints
                 ? ` Точки: ${solid3dDraftPoints.points.length}/${solid3dDraftPointLimit}.`
                 : null}
@@ -816,6 +817,21 @@ export function WorkbookSessionTransformPanelSolid3d({
                           фигура корректно пересечётся этой плоскостью.
                         </p>
                       )}
+                      {!selectedSolidIsCurved ? (
+                        <div className="workbook-session__solid-card-row workbook-session__solid-card-row--toggle">
+                          <span>Скрыть названия вершин</span>
+                          <Switch
+                            size="small"
+                            checked={section.showVertexLabels === false}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={(event) => {
+                              void onUpdateSolid3dSection(section.id, {
+                                showVertexLabels: !event.target.checked,
+                              });
+                            }}
+                          />
+                        </div>
+                      ) : null}
                     </div>
                   </article>
                 );
@@ -823,7 +839,8 @@ export function WorkbookSessionTransformPanelSolid3d({
             </div>
           ) : (
             <p className="workbook-session__hint">
-              Добавьте сечение, затем укажите точки на ребрах или вершинах фигуры.
+              Добавьте сечение, затем укажите точки на ребрах/вершинах фигуры или на
+              hosted-отрезках.
             </p>
           )}
         </>

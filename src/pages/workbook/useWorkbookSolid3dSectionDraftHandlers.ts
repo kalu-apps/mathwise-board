@@ -103,8 +103,7 @@ export const useWorkbookSolid3dSectionDraftHandlers = ({
         payload.point.hostSegmentId.trim().length > 0
           ? payload.point.hostSegmentId.trim()
           : null;
-      const isPointOnHostedSegment =
-        payload.point.classification === "point_on_segment" && pointHostSegmentId !== null;
+      const isPointOnHostedSegment = pointHostSegmentId !== null;
       if (!isSurfacePoint && !isPointOnHostedSegment) {
         setError("Точка должна лежать на ребре/вершине фигуры или на hosted-отрезке.");
         return;
@@ -116,10 +115,6 @@ export const useWorkbookSolid3dSectionDraftHandlers = ({
         );
         if (!hostSegment || !isSolid3dHostedSegmentSupport(hostSegment)) {
           setError("Опорный hosted-отрезок недоступен для построения.");
-          return;
-        }
-        if (!Number.isFinite(Number(payload.point.segmentT))) {
-          setError("Не удалось определить позицию точки на hosted-отрезке.");
           return;
         }
       }
@@ -197,6 +192,7 @@ export const useWorkbookSolid3dSectionDraftHandlers = ({
       id: generateId(),
       name: `Сечение ${Math.max(1, currentState.sections.length + 1)}`,
       visible: true,
+      showVertexLabels: true,
       mode: "through_points",
       pointIndices: [],
       points: ensureUniqueSectionPointLabels(solid3dDraftPoints.points.slice(0, maxPoints)),

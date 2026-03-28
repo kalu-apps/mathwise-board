@@ -79,6 +79,7 @@ export type Solid3dSectionState = {
   id: string;
   name: string;
   visible: boolean;
+  showVertexLabels: boolean;
   mode: Solid3dSectionMode;
   pointIndices: number[];
   points: Solid3dSectionPoint[];
@@ -319,6 +320,10 @@ const readSection = (value: unknown): Solid3dSectionState | null => {
     id,
     name: toString(source.name, "Сечение"),
     visible: source.visible !== false,
+    showVertexLabels:
+      typeof (source as { showVertexLabels?: unknown }).showVertexLabels === "boolean"
+        ? Boolean((source as { showVertexLabels?: unknown }).showVertexLabels)
+        : true,
     mode,
     pointIndices,
     points,
@@ -673,6 +678,7 @@ export const writeSolid3dState = (
       id: section.id,
       name: section.name,
       visible: Boolean(section.visible),
+      showVertexLabels: section.showVertexLabels !== false,
       mode: isSectionMode(section.mode) ? section.mode : "free",
       pointIndices: Array.isArray(section.pointIndices)
         ? section.pointIndices
