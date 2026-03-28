@@ -768,16 +768,6 @@ export function WorkbookSessionTransformPanelSolid3d({
                             })
                           }
                         />
-                        <Switch
-                          size="small"
-                          checked={section.visible}
-                          onClick={(event) => event.stopPropagation()}
-                          onChange={(event) => {
-                            void onUpdateSolid3dSection(section.id, {
-                              visible: event.target.checked,
-                            });
-                          }}
-                        />
                         <IconButton
                           size="small"
                           className="workbook-session__solid-section-delete"
@@ -791,18 +781,6 @@ export function WorkbookSessionTransformPanelSolid3d({
                       </div>
                     </div>
                     <div className="workbook-session__solid-section-summary">
-                      <div className="workbook-session__solid-section-badges">
-                        <span className="workbook-session__solid-section-badge">
-                          {selectedSolidIsCurved
-                            ? "Криволинейное сечение"
-                            : summary?.vertexCount && summary.vertexCount >= 3
-                              ? `Многоугольник, ${summary.vertexCount} вершин`
-                              : "Контур вычисляется автоматически"}
-                        </span>
-                        <span className="workbook-session__solid-section-badge is-muted">
-                          Опорных точек: {summary?.supportPointCount ?? section.points.length}
-                        </span>
-                      </div>
                       {selectedSolidIsCurved ? (
                         <p className="workbook-session__hint">
                           Для тел с круговым основанием вершины сечения не используются.
@@ -832,6 +810,19 @@ export function WorkbookSessionTransformPanelSolid3d({
                           />
                         </div>
                       ) : null}
+                      <div className="workbook-session__solid-card-row workbook-session__solid-card-row--toggle">
+                        <span>Скрыть сечение</span>
+                        <Switch
+                          size="small"
+                          checked={section.visible === false}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) => {
+                            void onUpdateSolid3dSection(section.id, {
+                              visible: !event.target.checked,
+                            });
+                          }}
+                        />
+                      </div>
                     </div>
                   </article>
                 );

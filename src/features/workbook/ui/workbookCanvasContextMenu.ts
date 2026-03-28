@@ -117,21 +117,7 @@ export const handleWorkbookCanvasContextMenu = ({
   const target = resolveTopObject(point);
   if (!target) return;
 
-  const openSolid3dDetailContextMenu = event.altKey || event.shiftKey;
-  if (target.type === "solid3d" && openSolid3dDetailContextMenu) {
-    const vertexIndex = resolveSolid3dVertexAtPointer(target, point, solid3dPreviewMetaById);
-    if (vertexIndex !== null && onSolid3dVertexContextMenu) {
-      event.preventDefault();
-      onSelectedConstraintChange(null);
-      onSelectedObjectChange(target.id);
-      onSolid3dVertexContextMenu({
-        objectId: target.id,
-        vertexIndex,
-        anchor: { x: event.clientX, y: event.clientY },
-      });
-      return;
-    }
-
+  if (target.type === "solid3d") {
     const sectionVertex = resolveSolid3dSectionVertexAtPointer(
       target,
       point,
@@ -146,6 +132,19 @@ export const handleWorkbookCanvasContextMenu = ({
         objectId: target.id,
         sectionId: sectionVertex.sectionId,
         vertexIndex: sectionVertex.vertexIndex,
+        anchor: { x: event.clientX, y: event.clientY },
+      });
+      return;
+    }
+
+    const vertexIndex = resolveSolid3dVertexAtPointer(target, point, solid3dPreviewMetaById);
+    if (vertexIndex !== null && onSolid3dVertexContextMenu) {
+      event.preventDefault();
+      onSelectedConstraintChange(null);
+      onSelectedObjectChange(target.id);
+      onSolid3dVertexContextMenu({
+        objectId: target.id,
+        vertexIndex,
         anchor: { x: event.clientX, y: event.clientY },
       });
       return;
