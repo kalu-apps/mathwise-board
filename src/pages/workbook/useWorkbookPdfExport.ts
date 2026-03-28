@@ -1,10 +1,6 @@
 import { useCallback, useMemo, type MutableRefObject } from "react";
 import { jsPDF } from "jspdf";
 import {
-  getObjectExportBounds,
-  getStrokeExportBounds,
-  mergeExportBounds,
-  padExportBounds,
   type WorkbookExportBounds,
 } from "@/features/workbook/model/export";
 import { normalizeWorkbookAssetContentUrl } from "@/features/workbook/model/workbookAssetUrl";
@@ -64,8 +60,6 @@ const resolvePageExportBounds = (): WorkbookExportBounds => ({
   height: WORKBOOK_PAGE_FRAME_BOUNDS.height,
 });
 
-const EXPORT_A4_PORTRAIT_RATIO = 210 / 297;
-const EXPORT_CONTENT_BOUNDS_PADDING_PX = 56;
 const EXPORT_MAX_CANVAS_PIXELS = 8_500_000;
 const EXPORT_MIN_SCALE = 0.35;
 const inlinedExportImageUrls = new Map<string, Promise<string | null>>();
@@ -295,64 +289,6 @@ const waitForSvgImageResources = async (svg: SVGSVGElement) => {
   );
 };
 
-const fitBoundsToA4PortraitRatio = (bounds: WorkbookExportBounds): WorkbookExportBounds => {
-  const width = Math.max(1, bounds.width);
-  const height = Math.max(1, bounds.height);
-  const currentRatio = width / height;
-  if (Math.abs(currentRatio - EXPORT_A4_PORTRAIT_RATIO) <= 0.0001) {
-    return {
-      minX: bounds.minX,
-      minY: bounds.minY,
-      maxX: bounds.maxX,
-      maxY: bounds.maxY,
-      width,
-      height,
-    };
-  }
-  if (currentRatio > EXPORT_A4_PORTRAIT_RATIO) {
-    const targetHeight = width / EXPORT_A4_PORTRAIT_RATIO;
-    const delta = targetHeight - height;
-    const minY = bounds.minY - delta / 2;
-    return {
-      minX: bounds.minX,
-      minY,
-      maxX: bounds.maxX,
-      maxY: minY + targetHeight,
-      width,
-      height: targetHeight,
-    };
-  }
-  const targetWidth = height * EXPORT_A4_PORTRAIT_RATIO;
-  const delta = targetWidth - width;
-  const minX = bounds.minX - delta / 2;
-  return {
-    minX,
-    minY: bounds.minY,
-    maxX: minX + targetWidth,
-    maxY: bounds.maxY,
-    width: targetWidth,
-    height,
-  };
-};
-
-const clampBoundsToPageFrame = (bounds: WorkbookExportBounds): WorkbookExportBounds => {
-  const minX = Math.max(WORKBOOK_PAGE_FRAME_BOUNDS.minX, bounds.minX);
-  const minY = Math.max(WORKBOOK_PAGE_FRAME_BOUNDS.minY, bounds.minY);
-  const maxX = Math.min(WORKBOOK_PAGE_FRAME_BOUNDS.maxX, bounds.maxX);
-  const maxY = Math.min(WORKBOOK_PAGE_FRAME_BOUNDS.maxY, bounds.maxY);
-  if (maxX <= minX || maxY <= minY) {
-    return resolvePageExportBounds();
-  }
-  return {
-    minX,
-    minY,
-    maxX,
-    maxY,
-    width: Math.max(1, maxX - minX),
-    height: Math.max(1, maxY - minY),
-  };
-};
-
 export const useWorkbookPdfExport = ({
   boardSettings,
   boardSettingsRef,
@@ -367,25 +303,8 @@ export const useWorkbookPdfExport = ({
   setError,
 }: UseWorkbookPdfExportParams) => {
   const resolveUniformContentExportBounds = useCallback(
-    (exportPages: number[]): WorkbookExportBounds => {
-      const allBounds = exportPages.map((pageNumber) => {
-        const objectBounds = boardObjects
-          .filter((object) => Math.max(1, object.page ?? 1) === pageNumber)
-          .map((object) => getObjectExportBounds(object));
-        const strokeBounds = boardStrokes
-          .filter((stroke) => Math.max(1, stroke.page ?? 1) === pageNumber)
-          .map((stroke) => getStrokeExportBounds(stroke));
-        return mergeExportBounds([...objectBounds, ...strokeBounds]);
-      });
-      const mergedBounds = mergeExportBounds(allBounds);
-      if (!mergedBounds) {
-        return resolvePageExportBounds();
-      }
-      const padded = padExportBounds(mergedBounds, EXPORT_CONTENT_BOUNDS_PADDING_PX);
-      const clamped = clampBoundsToPageFrame(padded);
-      return fitBoundsToA4PortraitRatio(clamped);
-    },
-    [boardObjects, boardStrokes]
+    (_exportPages: number[]): WorkbookExportBounds => resolvePageExportBounds(),
+    []
   );
 
   const switchBoardPageForExport = useCallback(
