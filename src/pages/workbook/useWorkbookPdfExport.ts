@@ -62,8 +62,17 @@ const resolvePageExportBounds = (): WorkbookExportBounds => ({
 
 const EXPORT_MAX_CANVAS_PIXELS = 8_500_000;
 const EXPORT_MIN_SCALE = 0.35;
+const EXPORT_PDF_FOOTER_HEIGHT_PT = 58;
+const EXPORT_PDF_FOOTER_SIDE_PADDING_PT = 24;
+const EXPORT_PDF_FOOTER_LINE_Y_OFFSET_PT = 12;
+const EXPORT_PDF_FOOTER_PRIMARY_FONT_SIZE_PT = 8;
+const EXPORT_PDF_FOOTER_SECONDARY_FONT_SIZE_PT = 6.3;
+const EXPORT_PDF_FOOTER_PRIMARY_TEXT_RGB = 56;
+const EXPORT_PDF_FOOTER_SECONDARY_TEXT_RGB = 86;
 const inlinedExportImageUrls = new Map<string, Promise<string | null>>();
 const WORKBOOK_ASSET_PATH_RE = /^\/api\/workbook\/sessions\/[^/]+\/assets\/[^/]+(?:\/content)?$/i;
+const WORKBOOK_PDF_COPYRIGHT_NOTICE =
+  "Материалы охраняются авторским правом. Копирование, распространение, передача третьим лицам и размещение в сети Интернет полностью или частично без письменного разрешения правообладателя запрещены. Ст. 1229, 1255, 1259, 1270 ГК РФ.";
 
 const resolveSvgImageHref = (node: SVGImageElement) => {
   const href = node.getAttribute("href");
@@ -202,6 +211,50 @@ const savePdfSafely = (pdf: { save: (fileName: string) => void; output: (type: "
     }
     triggerPdfDownloadFallback(blob, fileName);
   }
+};
+
+const drawWorkbookPdfFooter = (params: {
+  pdf: jsPDF;
+  pageWidth: number;
+  pageHeight: number;
+}) => {
+  const { pdf, pageWidth, pageHeight } = params;
+  const footerTopY = Math.max(0, pageHeight - EXPORT_PDF_FOOTER_HEIGHT_PT);
+  const lineY = Math.min(pageHeight - 2, footerTopY + EXPORT_PDF_FOOTER_LINE_Y_OFFSET_PT);
+  const textMaxWidth = Math.max(40, pageWidth - EXPORT_PDF_FOOTER_SIDE_PADDING_PT * 2);
+  const currentYear = new Date().getFullYear();
+  const primaryText = `© ${currentYear} · Автор: Калугина Анна Викторовна`;
+  const secondaryLinesRaw = pdf.splitTextToSize(WORKBOOK_PDF_COPYRIGHT_NOTICE, textMaxWidth);
+  const secondaryLines = Array.isArray(secondaryLinesRaw)
+    ? secondaryLinesRaw
+    : [secondaryLinesRaw];
+
+  pdf.setDrawColor(210, 214, 224);
+  pdf.setLineWidth(0.4);
+  pdf.line(EXPORT_PDF_FOOTER_SIDE_PADDING_PT, lineY, pageWidth - EXPORT_PDF_FOOTER_SIDE_PADDING_PT, lineY);
+
+  const primaryY = lineY + 11;
+  pdf.setFont("times", "italic");
+  pdf.setFontSize(EXPORT_PDF_FOOTER_PRIMARY_FONT_SIZE_PT);
+  pdf.setTextColor(
+    EXPORT_PDF_FOOTER_PRIMARY_TEXT_RGB,
+    EXPORT_PDF_FOOTER_PRIMARY_TEXT_RGB,
+    EXPORT_PDF_FOOTER_PRIMARY_TEXT_RGB
+  );
+  pdf.text(primaryText, EXPORT_PDF_FOOTER_SIDE_PADDING_PT, primaryY);
+
+  const secondaryY = primaryY + 8;
+  pdf.setFont("times", "normal");
+  pdf.setFontSize(EXPORT_PDF_FOOTER_SECONDARY_FONT_SIZE_PT);
+  pdf.setTextColor(
+    EXPORT_PDF_FOOTER_SECONDARY_TEXT_RGB,
+    EXPORT_PDF_FOOTER_SECONDARY_TEXT_RGB,
+    EXPORT_PDF_FOOTER_SECONDARY_TEXT_RGB
+  );
+  pdf.text(secondaryLines, EXPORT_PDF_FOOTER_SIDE_PADDING_PT, secondaryY, {
+    maxWidth: textMaxWidth,
+    lineHeightFactor: 1.2,
+  });
 };
 
 const resolveSameOriginWorkbookAssetUrl = (source: string) => {
@@ -560,16 +613,18 @@ export const useWorkbookPdfExport = ({
           if (renderedPagesCount > 0) {
             pdf.addPage("a4", "portrait");
           }
+          const contentHeight = Math.max(1, pageHeight - EXPORT_PDF_FOOTER_HEIGHT_PT);
           pdf.addImage(
             rendered.canvas,
             "JPEG",
             0,
             0,
             pageWidth,
-            pageHeight,
+            contentHeight,
             undefined,
             "FAST"
           );
+          drawWorkbookPdfFooter({ pdf, pageWidth, pageHeight });
           renderedPagesCount += 1;
           await yieldToMainThread();
         }
