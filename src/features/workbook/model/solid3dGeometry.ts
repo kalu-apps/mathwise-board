@@ -1,4 +1,5 @@
 import type {
+  Solid3dHostedPointClassification,
   Solid3dSectionPoint,
   Solid3dSectionState,
   Solid3dState,
@@ -46,6 +47,9 @@ export type SolidSurfacePick = {
   depth: number;
   triangleVertexIndices: [number, number, number];
   barycentric: [number, number, number];
+  classification: Solid3dHostedPointClassification;
+  vertexIndex?: number;
+  edgeKey?: string;
 };
 
 export type ProjectedSolidVertex = {
@@ -453,6 +457,47 @@ export const resolveSectionPointForMesh = (
   point: Solid3dSectionPoint,
   mesh: Solid3dMesh
 ): Vec3 => {
+  if (
+    point.classification === "vertex" &&
+    Number.isInteger(point.vertexIndex) &&
+    Number(point.vertexIndex) >= 0 &&
+    Number(point.vertexIndex) < mesh.vertices.length
+  ) {
+    return mesh.vertices[Number(point.vertexIndex)];
+  }
+  if (point.classification === "edge" && typeof point.edgeKey === "string") {
+    const [rawFrom, rawTo] = point.edgeKey.split(":");
+    const fromIndex = Number(rawFrom);
+    const toIndex = Number(rawTo);
+    if (
+      Number.isInteger(fromIndex) &&
+      Number.isInteger(toIndex) &&
+      fromIndex >= 0 &&
+      toIndex >= 0 &&
+      fromIndex < mesh.vertices.length &&
+      toIndex < mesh.vertices.length
+    ) {
+      const t =
+        Array.isArray(point.barycentric) && point.barycentric.length >= 2
+          ? Math.max(0, Math.min(1, Number(point.barycentric[1]) || 0))
+          : 0.5;
+      return add(
+        mul(mesh.vertices[fromIndex], 1 - t),
+        mul(mesh.vertices[toIndex], t)
+      );
+    }
+  }
+  if (
+    point.classification === "interior" &&
+    Array.isArray(point.local3d) &&
+    point.local3d.length === 3
+  ) {
+    return vec(
+      Number(point.local3d[0]) || 0,
+      Number(point.local3d[1]) || 0,
+      Number(point.local3d[2]) || 0
+    );
+  }
   const indices = point.triangleVertexIndices;
   const bary = point.barycentric;
   if (
@@ -766,6 +811,8 @@ export const pickSolidPointOnSurface = (params: {
         nearestVertex.index,
       ],
       barycentric: [1, 0, 0],
+      classification: "vertex",
+      vertexIndex: nearestVertex.index,
     };
   }
 
@@ -798,22 +845,82 @@ export const pickSolidPointOnSurface = (params: {
     }
   }
 
-  if (!bestEdge) return null;
-  const edgePick = bestEdge;
+  if (bestEdge) {
+    const edgePick = bestEdge;
+    const fromVertex = params.mesh.vertices[edgePick.fromIndex];
+    const toVertex = params.mesh.vertices[edgePick.toIndex];
+    const point = add(mul(fromVertex, 1 - edgePick.t), mul(toVertex, edgePick.t));
+    const fromProjected = projected[edgePick.fromIndex];
+    const toProjected = projected[edgePick.toIndex];
+    const depth = fromProjected.depth * (1 - edgePick.t) + toProjected.depth * edgePick.t;
+    return {
+      point,
+      faceIndex: findFaceIndexForEdge(edgePick.fromIndex, edgePick.toIndex),
+      depth,
+      triangleVertexIndices: [edgePick.fromIndex, edgePick.toIndex, edgePick.toIndex],
+      barycentric: [1 - edgePick.t, edgePick.t, 0],
+      classification: "edge",
+      edgeKey: `${edgePick.fromIndex}:${edgePick.toIndex}`,
+    };
+  }
 
-  const fromVertex = params.mesh.vertices[edgePick.fromIndex];
-  const toVertex = params.mesh.vertices[edgePick.toIndex];
-  const point = add(mul(fromVertex, 1 - edgePick.t), mul(toVertex, edgePick.t));
-  const fromProjected = projected[edgePick.fromIndex];
-  const toProjected = projected[edgePick.toIndex];
-  const depth = fromProjected.depth * (1 - edgePick.t) + toProjected.depth * edgePick.t;
-  return {
-    point,
-    faceIndex: findFaceIndexForEdge(edgePick.fromIndex, edgePick.toIndex),
-    depth,
-    triangleVertexIndices: [edgePick.fromIndex, edgePick.toIndex, edgePick.toIndex],
-    barycentric: [1 - edgePick.t, edgePick.t, 0],
+  const barycentric2d = (
+    p: { x: number; y: number },
+    a: { x: number; y: number },
+    b: { x: number; y: number },
+    c: { x: number; y: number }
+  ): [number, number, number] | null => {
+    const v0x = b.x - a.x;
+    const v0y = b.y - a.y;
+    const v1x = c.x - a.x;
+    const v1y = c.y - a.y;
+    const v2x = p.x - a.x;
+    const v2y = p.y - a.y;
+    const denom = v0x * v1y - v1x * v0y;
+    if (Math.abs(denom) < 1e-8) return null;
+    const inv = 1 / denom;
+    const v = (v2x * v1y - v1x * v2y) * inv;
+    const w = (v0x * v2y - v2x * v0y) * inv;
+    const u = 1 - v - w;
+    return [u, v, w];
   };
+
+  let bestFacePick: SolidSurfacePick | null = null;
+  params.mesh.faces.forEach((face, faceIndex) => {
+    if (face.length < 3) return;
+    const root = face[0];
+    for (let index = 1; index < face.length - 1; index += 1) {
+      const aIndex = root;
+      const bIndex = face[index];
+      const cIndex = face[index + 1];
+      const a = projected[aIndex];
+      const b = projected[bIndex];
+      const c = projected[cIndex];
+      if (!a || !b || !c) continue;
+      const bary2d = barycentric2d(params.point, a, b, c);
+      if (!bary2d) continue;
+      const [wA, wB, wC] = bary2d;
+      if (wA < -1e-3 || wB < -1e-3 || wC < -1e-3) continue;
+      const point = add(
+        add(mul(params.mesh.vertices[aIndex], wA), mul(params.mesh.vertices[bIndex], wB)),
+        mul(params.mesh.vertices[cIndex], wC)
+      );
+      const depth = a.depth * wA + b.depth * wB + c.depth * wC;
+      const candidate: SolidSurfacePick = {
+        point,
+        faceIndex,
+        depth,
+        triangleVertexIndices: [aIndex, bIndex, cIndex],
+        barycentric: [wA, wB, wC],
+        classification: "face",
+      };
+      if (!bestFacePick || candidate.depth > bestFacePick.depth) {
+        bestFacePick = candidate;
+      }
+    }
+  });
+
+  return bestFacePick;
 };
 
 const meshVolume = (mesh: Solid3dMesh) => {

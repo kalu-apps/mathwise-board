@@ -99,6 +99,8 @@ export const resolveSolid3dPointAtPointer = (
         nearestVertex.index,
       ],
       barycentric: [1, 0, 0],
+      classification: "vertex",
+      vertexIndex: nearestVertex.index,
     };
   }
 

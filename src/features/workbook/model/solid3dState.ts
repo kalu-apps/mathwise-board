@@ -4,11 +4,25 @@ export type Solid3dProjection = "perspective" | "orthographic";
 
 export type Solid3dSectionKeepSide = "both" | "positive" | "negative";
 export type Solid3dSectionMode = "free" | "through_points";
+export type Solid3dHostedPointClassification =
+  | "vertex"
+  | "edge"
+  | "face"
+  | "interior";
+
+export type Solid3dHostedSegmentSemanticRole =
+  | "construction"
+  | "section_support";
+
 export type Solid3dSectionPoint = {
   label?: string;
   x: number;
   y: number;
   z: number;
+  classification?: Solid3dHostedPointClassification;
+  vertexIndex?: number;
+  edgeKey?: string;
+  local3d?: [number, number, number];
   faceIndex?: number;
   triangleVertexIndices?: [number, number, number];
   barycentric?: [number, number, number];
@@ -18,13 +32,19 @@ export type Solid3dHostedPoint = {
   id: string;
   kind: "hosted_point";
   hostObjectId: string;
-  hostFaceId: string;
-  faceIndex: number;
+  hostFaceId?: string;
+  faceIndex?: number;
+  classification: Solid3dHostedPointClassification;
+  vertexIndex?: number;
+  edgeKey?: string;
+  local3d?: [number, number, number];
   x: number;
   y: number;
   z: number;
   triangleVertexIndices?: [number, number, number];
   barycentric?: [number, number, number];
+  name: string;
+  labelVisible: boolean;
   color: string;
   radius: number;
   visible: boolean;
@@ -34,10 +54,11 @@ export type Solid3dHostedSegment = {
   id: string;
   kind: "hosted_segment";
   hostObjectId: string;
-  hostFaceId: string;
-  faceIndex: number;
+  hostFaceId?: string;
+  faceIndex?: number;
   startPointId: string;
   endPointId: string;
+  semanticRole: Solid3dHostedSegmentSemanticRole;
   color: string;
   thickness: number;
   dashed: boolean;
@@ -107,6 +128,7 @@ export type Solid3dState = {
   view: Solid3dViewState;
   vertexLabels: string[];
   sections: Solid3dSectionState[];
+  hostedGeometryVersion: number;
   hostedPoints: Solid3dHostedPoint[];
   hostedSegments: Solid3dHostedSegment[];
   clippingPreset: Solid3dClippingPreset;
@@ -137,6 +159,19 @@ const isKeepSide = (value: unknown): value is Solid3dSectionKeepSide =>
 const isSectionMode = (value: unknown): value is Solid3dSectionMode =>
   value === "free" || value === "through_points";
 
+const isHostedPointClassification = (
+  value: unknown
+): value is Solid3dHostedPointClassification =>
+  value === "vertex" ||
+  value === "edge" ||
+  value === "face" ||
+  value === "interior";
+
+const isHostedSegmentSemanticRole = (
+  value: unknown
+): value is Solid3dHostedSegmentSemanticRole =>
+  value === "construction" || value === "section_support";
+
 const isClippingPreset = (value: unknown): value is Solid3dClippingPreset =>
   value === "none" || value === "small" || value === "medium" || value === "large";
 
@@ -163,6 +198,7 @@ export const DEFAULT_SOLID3D_STATE: Solid3dState = {
   view: DEFAULT_VIEW,
   vertexLabels: [],
   sections: [],
+  hostedGeometryVersion: 2,
   hostedPoints: [],
   hostedSegments: [],
   clippingPreset: "none",
@@ -201,6 +237,12 @@ const readSection = (value: unknown): Solid3dSectionState | null => {
                 .filter((value) => Number.isFinite(value))
                 .slice(0, 3)
             : [];
+          const local3dRaw = Array.isArray(raw.local3d)
+            ? raw.local3d
+                .map((value) => Number(value))
+                .filter((value) => Number.isFinite(value))
+                .slice(0, 3)
+            : [];
           const nextPoint: Solid3dSectionPoint = {
             label: toString((raw as { label?: unknown }).label, "").trim() || undefined,
             x: toFinite(raw.x, 0),
@@ -219,6 +261,18 @@ const readSection = (value: unknown): Solid3dSectionState | null => {
           }
           if (barycentric.length === 3) {
             nextPoint.barycentric = [barycentric[0], barycentric[1], barycentric[2]];
+          }
+          if (isHostedPointClassification(raw.classification)) {
+            nextPoint.classification = raw.classification;
+          }
+          if (Number.isInteger(raw.vertexIndex) && Number(raw.vertexIndex) >= 0) {
+            nextPoint.vertexIndex = Number(raw.vertexIndex);
+          }
+          if (typeof raw.edgeKey === "string" && raw.edgeKey.trim().length > 0) {
+            nextPoint.edgeKey = raw.edgeKey.trim();
+          }
+          if (local3dRaw.length === 3) {
+            nextPoint.local3d = [local3dRaw[0], local3dRaw[1], local3dRaw[2]];
           }
           return nextPoint;
         })
@@ -302,10 +356,12 @@ const readHostedPoint = (value: unknown): Solid3dHostedPoint | null => {
   const source = value as Partial<Solid3dHostedPoint>;
   const id = toString(source.id);
   const hostObjectId = toString(source.hostObjectId);
-  const hostFaceId = toString(source.hostFaceId);
-  const faceIndex = Number(source.faceIndex);
-  if (!id || !hostObjectId || !hostFaceId) return null;
-  if (!Number.isInteger(faceIndex) || faceIndex < 0) return null;
+  const rawHostFaceId = toString(source.hostFaceId);
+  const faceIndex =
+    Number.isInteger(source.faceIndex) && Number(source.faceIndex) >= 0
+      ? Number(source.faceIndex)
+      : undefined;
+  if (!id || !hostObjectId) return null;
   const triangleVertexIndices = Array.isArray(source.triangleVertexIndices)
     ? source.triangleVertexIndices
         .map((entry) => Number(entry))
@@ -318,15 +374,58 @@ const readHostedPoint = (value: unknown): Solid3dHostedPoint | null => {
         .filter((entry) => Number.isFinite(entry))
         .slice(0, 3)
     : [];
+  const local3dRaw = Array.isArray(source.local3d)
+    ? source.local3d
+        .map((entry) => Number(entry))
+        .filter((entry) => Number.isFinite(entry))
+        .slice(0, 3)
+    : [];
+  const local3d =
+    local3dRaw.length === 3
+      ? ([local3dRaw[0], local3dRaw[1], local3dRaw[2]] as [number, number, number])
+      : undefined;
+  const vertexIndex =
+    Number.isInteger(source.vertexIndex) && Number(source.vertexIndex) >= 0
+      ? Number(source.vertexIndex)
+      : undefined;
+  const edgeKey =
+    typeof source.edgeKey === "string" && source.edgeKey.trim().length > 0
+      ? source.edgeKey.trim()
+      : undefined;
+  const classification: Solid3dHostedPointClassification = (() => {
+    if (isHostedPointClassification(source.classification)) return source.classification;
+    if (vertexIndex !== undefined) return "vertex";
+    if (edgeKey) return "edge";
+    if (
+      barycentric.length === 3 &&
+      barycentric.some((weight) => Math.abs(weight) <= 1e-4)
+    ) {
+      return "edge";
+    }
+    if (faceIndex !== undefined) return "face";
+    return "interior";
+  })();
+  const hostFaceId =
+    rawHostFaceId ||
+    (faceIndex !== undefined ? `face-${faceIndex}` : undefined);
   const nextPoint: Solid3dHostedPoint = {
     id,
     kind: "hosted_point",
     hostObjectId,
     hostFaceId,
     faceIndex,
+    classification,
+    vertexIndex,
+    edgeKey,
+    local3d,
     x: toFinite(source.x, 0),
     y: toFinite(source.y, 0),
     z: toFinite(source.z, 0),
+    name: toString(source.name, "").trim().slice(0, 24),
+    labelVisible:
+      typeof source.labelVisible === "boolean"
+        ? source.labelVisible
+        : source.visible !== false,
     color: toString(source.color, "#c4872f"),
     radius: clamp(toFinite(source.radius, 2.4), 1, 12),
     visible: source.visible !== false,
@@ -352,17 +451,22 @@ const readHostedSegment = (value: unknown): Solid3dHostedSegment | null => {
   const hostFaceId = toString(source.hostFaceId);
   const startPointId = toString(source.startPointId);
   const endPointId = toString(source.endPointId);
-  const faceIndex = Number(source.faceIndex);
-  if (!id || !hostObjectId || !hostFaceId || !startPointId || !endPointId) return null;
-  if (!Number.isInteger(faceIndex) || faceIndex < 0) return null;
+  const faceIndex =
+    Number.isInteger(source.faceIndex) && Number(source.faceIndex) >= 0
+      ? Number(source.faceIndex)
+      : undefined;
+  if (!id || !hostObjectId || !startPointId || !endPointId) return null;
   return {
     id,
     kind: "hosted_segment",
     hostObjectId,
-    hostFaceId,
+    hostFaceId: hostFaceId || undefined,
     faceIndex,
     startPointId,
     endPointId,
+    semanticRole: isHostedSegmentSemanticRole(source.semanticRole)
+      ? source.semanticRole
+      : "construction",
     color: toString(source.color, "#c4872f"),
     thickness: clamp(toFinite(source.thickness, 2), 1, 12),
     dashed: Boolean(source.dashed),
@@ -471,10 +575,17 @@ export const readSolid3dState = (
         .slice(0, 256)
     : [];
 
+  const hostedGeometryVersionRaw = Number(meta?.hostedGeometryVersion);
+  const hostedGeometryVersion =
+    Number.isInteger(hostedGeometryVersionRaw) && hostedGeometryVersionRaw >= 1
+      ? hostedGeometryVersionRaw
+      : 2;
+
   return {
     view,
     vertexLabels,
     sections,
+    hostedGeometryVersion,
     hostedPoints,
     hostedSegments,
     clippingPreset: isClippingPreset(meta?.clippingPreset)
@@ -510,6 +621,10 @@ export const writeSolid3dState = (
           .map((label) => (typeof label === "string" ? label.trim() : ""))
           .slice(0, 256)
       : [],
+    hostedGeometryVersion:
+      Number.isInteger(state.hostedGeometryVersion) && state.hostedGeometryVersion >= 1
+        ? state.hostedGeometryVersion
+        : 2,
     sections: state.sections.map((section) => ({
       id: section.id,
       name: section.name,
@@ -549,6 +664,25 @@ export const writeSolid3dState = (
                       Number(point.barycentric[2]) || 0,
                     ] as [number, number, number])
                   : undefined,
+              classification: isHostedPointClassification(point.classification)
+                ? point.classification
+                : undefined,
+              vertexIndex:
+                Number.isInteger(point.vertexIndex) && Number(point.vertexIndex) >= 0
+                  ? Number(point.vertexIndex)
+                  : undefined,
+              edgeKey:
+                typeof point.edgeKey === "string" && point.edgeKey.trim().length > 0
+                  ? point.edgeKey.trim()
+                  : undefined,
+              local3d:
+                Array.isArray(point.local3d) && point.local3d.length === 3
+                  ? ([
+                      Number(point.local3d[0]) || 0,
+                      Number(point.local3d[1]) || 0,
+                      Number(point.local3d[2]) || 0,
+                    ] as [number, number, number])
+                  : undefined,
             }))
             .slice(0, 32)
         : [],
@@ -573,10 +707,32 @@ export const writeSolid3dState = (
             id: toString(point.id),
             kind: "hosted_point" as const,
             hostObjectId: toString(point.hostObjectId),
-            hostFaceId: toString(point.hostFaceId),
+            hostFaceId:
+              typeof point.hostFaceId === "string" && point.hostFaceId.trim().length > 0
+                ? point.hostFaceId.trim()
+                : undefined,
             faceIndex:
               Number.isInteger(point.faceIndex) && Number(point.faceIndex) >= 0
                 ? Number(point.faceIndex)
+                : undefined,
+            classification: isHostedPointClassification(point.classification)
+              ? point.classification
+              : "face",
+            vertexIndex:
+              Number.isInteger(point.vertexIndex) && Number(point.vertexIndex) >= 0
+                ? Number(point.vertexIndex)
+                : undefined,
+            edgeKey:
+              typeof point.edgeKey === "string" && point.edgeKey.trim().length > 0
+                ? point.edgeKey.trim()
+                : undefined,
+            local3d:
+              Array.isArray(point.local3d) && point.local3d.length === 3
+                ? ([
+                    Number(point.local3d[0]) || 0,
+                    Number(point.local3d[1]) || 0,
+                    Number(point.local3d[2]) || 0,
+                  ] as [number, number, number])
                 : undefined,
             x: toFinite(point.x, 0),
             y: toFinite(point.y, 0),
@@ -598,6 +754,11 @@ export const writeSolid3dState = (
                     Number(point.barycentric[2]) || 0,
                   ] as [number, number, number])
                 : undefined,
+            name: toString(point.name, "").trim().slice(0, 24),
+            labelVisible:
+              typeof point.labelVisible === "boolean"
+                ? point.labelVisible
+                : Boolean(point.visible),
             color: toString(point.color, "#c4872f"),
             radius: clamp(toFinite(point.radius, 2.4), 1, 12),
             visible: Boolean(point.visible),
@@ -605,10 +766,7 @@ export const writeSolid3dState = (
           .filter(
             (point) =>
               Boolean(point.id) &&
-              Boolean(point.hostObjectId) &&
-              Boolean(point.hostFaceId) &&
-              Number.isInteger(point.faceIndex) &&
-              Number(point.faceIndex) >= 0
+              Boolean(point.hostObjectId)
           )
           .slice(0, 512)
       : [],
@@ -618,13 +776,19 @@ export const writeSolid3dState = (
             id: toString(segment.id),
             kind: "hosted_segment" as const,
             hostObjectId: toString(segment.hostObjectId),
-            hostFaceId: toString(segment.hostFaceId),
+            hostFaceId:
+              typeof segment.hostFaceId === "string" && segment.hostFaceId.trim().length > 0
+                ? segment.hostFaceId.trim()
+                : undefined,
             faceIndex:
               Number.isInteger(segment.faceIndex) && Number(segment.faceIndex) >= 0
                 ? Number(segment.faceIndex)
                 : undefined,
             startPointId: toString(segment.startPointId),
             endPointId: toString(segment.endPointId),
+            semanticRole: isHostedSegmentSemanticRole(segment.semanticRole)
+              ? segment.semanticRole
+              : "construction",
             color: toString(segment.color, "#c4872f"),
             thickness: clamp(toFinite(segment.thickness, 2), 1, 12),
             dashed: Boolean(segment.dashed),
@@ -634,9 +798,6 @@ export const writeSolid3dState = (
             (segment) =>
               Boolean(segment.id) &&
               Boolean(segment.hostObjectId) &&
-              Boolean(segment.hostFaceId) &&
-              Number.isInteger(segment.faceIndex) &&
-              Number(segment.faceIndex) >= 0 &&
               Boolean(segment.startPointId) &&
               Boolean(segment.endPointId)
           )

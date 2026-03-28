@@ -304,29 +304,43 @@ export const renderWorkbookCanvasSolid3dObject = ({
 
     const hostedPointsById = new Map(
       solidState.hostedPoints
-        .filter((point) => point.hostObjectId === object.id && point.visible !== false)
+        .filter((point) => point.hostObjectId === object.id)
         .map((point) => [point.id, point] as const)
+    );
+
+    const hostedPointRenderEntries = [...hostedPointsById.values()]
+      .filter((point) => point.visible !== false)
+      .map((point) => {
+        const worldPoint = mesh ? resolveSectionPointForMesh(point, mesh) : point;
+        const projected = projectSolidPointForObject({
+          point: worldPoint,
+          view,
+          objectRect: normalized,
+        });
+        const faceVisible =
+          !Number.isInteger(point.faceIndex) || visibleFaceIds.has(Number(point.faceIndex));
+        return {
+          point,
+          projected,
+          faceVisible,
+        };
+      });
+
+    const hostedProjectedPointById = new Map(
+      hostedPointRenderEntries.map((entry) => [entry.point.id, entry] as const)
     );
 
     const hostedSegmentsToRender = solidState.hostedSegments
       .filter((segment) => segment.hostObjectId === object.id && segment.visible !== false)
       .map((segment) => {
-        const start = hostedPointsById.get(segment.startPointId);
-        const end = hostedPointsById.get(segment.endPointId);
-        if (!start || !end) return null;
-        const startPoint = mesh ? resolveSectionPointForMesh(start, mesh) : start;
-        const endPoint = mesh ? resolveSectionPointForMesh(end, mesh) : end;
-        const projectedStart = projectSolidPointForObject({
-          point: startPoint,
-          view,
-          objectRect: normalized,
-        });
-        const projectedEnd = projectSolidPointForObject({
-          point: endPoint,
-          view,
-          objectRect: normalized,
-        });
-        const faceVisible = visibleFaceIds.has(segment.faceIndex);
+        const startEntry = hostedProjectedPointById.get(segment.startPointId);
+        const endEntry = hostedProjectedPointById.get(segment.endPointId);
+        if (!startEntry || !endEntry) return null;
+        const start = startEntry.point;
+        const end = endEntry.point;
+        const projectedStart = startEntry.projected;
+        const projectedEnd = endEntry.projected;
+        const faceVisible = startEntry.faceVisible || endEntry.faceVisible;
         return {
           segment,
           start,
@@ -1277,24 +1291,42 @@ export const renderWorkbookCanvasSolid3dObject = ({
                   strokeLinecap="round"
                   opacity={entry.faceVisible ? 0.94 : 0.58}
                 />
+              </g>
+            );
+          })}
+          {hostedPointRenderEntries.map((entry) => {
+            const pointColor = entry.point.color || "#c4872f";
+            const shouldHide = hideHiddenEdges && !entry.faceVisible;
+            if (shouldHide) return null;
+            return (
+              <g key={`${object.id}-hosted-point-${entry.point.id}`}>
                 <circle
-                  cx={entry.projectedStart.x}
-                  cy={entry.projectedStart.y}
-                  r={Math.max(1.4, entry.start.radius)}
+                  cx={entry.projected.x}
+                  cy={entry.projected.y}
+                  r={Math.max(1.4, entry.point.radius)}
                   fill="#ffffff"
-                  stroke={strokeColor}
+                  stroke={pointColor}
                   strokeWidth={1}
                   opacity={entry.faceVisible ? 0.96 : 0.64}
                 />
-                <circle
-                  cx={entry.projectedEnd.x}
-                  cy={entry.projectedEnd.y}
-                  r={Math.max(1.4, entry.end.radius)}
-                  fill="#ffffff"
-                  stroke={strokeColor}
-                  strokeWidth={1}
-                  opacity={entry.faceVisible ? 0.96 : 0.64}
-                />
+                {object.meta?.showLabels !== false &&
+                entry.point.labelVisible !== false &&
+                entry.point.name.trim().length > 0 ? (
+                  <text
+                    x={entry.projected.x + 5}
+                    y={entry.projected.y - 5}
+                    fill={pointColor}
+                    fontSize={11}
+                    fontWeight={600}
+                    paintOrder="stroke"
+                    stroke="#ffffff"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    {entry.point.name}
+                  </text>
+                ) : null}
               </g>
             );
           })}

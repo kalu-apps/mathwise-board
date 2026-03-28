@@ -86,9 +86,6 @@ type WorkbookSessionOverlaysProps = {
   setObjectContextMenu: (value: Updater<WorkbookObjectContextMenu | null>) => void;
   contextMenuObject: WorkbookBoardObject | null;
   onRequestEditObject: (objectId: string) => void;
-  onStartSolid3dHostedSegment?: (objectId: string) => void;
-  onCancelSolid3dHostedSegment?: (objectId: string) => void;
-  solid3dHostedSegmentDraftObjectId?: string | null;
   pointLabelDraft: string;
   setPointLabelDraft: (value: string) => void;
   renamePointObject: (objectId: string, label: string) => void | Promise<void>;
@@ -160,9 +157,6 @@ export function WorkbookSessionOverlays({
   setObjectContextMenu,
   contextMenuObject,
   onRequestEditObject,
-  onStartSolid3dHostedSegment,
-  onCancelSolid3dHostedSegment,
-  solid3dHostedSegmentDraftObjectId = null,
   pointLabelDraft,
   setPointLabelDraft,
   renamePointObject,
@@ -612,27 +606,6 @@ export function WorkbookSessionOverlays({
               >
                 Переименовать
               </MenuItem>
-            ) : null}
-            {contextMenuObject?.type === "solid3d" ? (
-              solid3dHostedSegmentDraftObjectId === contextMenuObject.id ? (
-                <MenuItem
-                  onClick={() => {
-                    onCancelSolid3dHostedSegment?.(contextMenuObject.id);
-                    setObjectContextMenu(null);
-                  }}
-                >
-                  Отменить построение отрезка на грани
-                </MenuItem>
-              ) : (
-                <MenuItem
-                  onClick={() => {
-                    onStartSolid3dHostedSegment?.(contextMenuObject.id);
-                    setObjectContextMenu(null);
-                  }}
-                >
-                  Построить отрезок на грани
-                </MenuItem>
-              )
             ) : null}
             {contextMenuObject && contextMenuObject.type !== "point" ? (
               <>

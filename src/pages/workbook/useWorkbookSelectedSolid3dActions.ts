@@ -1,6 +1,8 @@
 import { useCallback } from "react";
 import type { WorkbookBoardObject } from "@/features/workbook/model/types";
 import {
+  type Solid3dHostedPoint,
+  type Solid3dHostedSegment,
   readSolid3dState,
   writeSolid3dState,
   type Solid3dSectionPoint,
@@ -51,7 +53,7 @@ type UseWorkbookSelectedSolid3dActionsParams = {
       | Updater<Solid3dSectionVertexContextMenuState>
       | Solid3dSectionVertexContextMenuState
   ) => void;
-  setSolid3dInspectorTab: (tab: "display" | "section" | "angles") => void;
+  setSolid3dInspectorTab: (tab: "figure" | "section" | "hosted") => void;
   setSolid3dSectionPointCollecting: (value: string | null) => void;
   setSolid3dDraftPoints: (value: Updater<Solid3dDraftPointsState>) => void;
   resetToolRuntimeToSelect: () => void;
@@ -440,6 +442,46 @@ export const useWorkbookSelectedSolid3dActions = ({
     [getSolidVertexLabel, updateSelectedSolid3dState]
   );
 
+  const updateSolid3dHostedPoint = useCallback(
+    async (pointId: string, patch: Partial<Solid3dHostedPoint>) => {
+      if (!pointId.trim()) return;
+      await updateSelectedSolid3dState((state) => ({
+        ...state,
+        hostedPoints: (state.hostedPoints ?? []).map((point) =>
+          point.id === pointId
+            ? {
+                ...point,
+                ...patch,
+                name:
+                  typeof patch.name === "string"
+                    ? patch.name.trim().slice(0, 24)
+                    : point.name,
+              }
+            : point
+        ),
+      }));
+    },
+    [updateSelectedSolid3dState]
+  );
+
+  const updateSolid3dHostedSegment = useCallback(
+    async (segmentId: string, patch: Partial<Solid3dHostedSegment>) => {
+      if (!segmentId.trim()) return;
+      await updateSelectedSolid3dState((state) => ({
+        ...state,
+        hostedSegments: (state.hostedSegments ?? []).map((segment) =>
+          segment.id === segmentId
+            ? {
+                ...segment,
+                ...patch,
+              }
+            : segment
+        ),
+      }));
+    },
+    [updateSelectedSolid3dState]
+  );
+
   return {
     setSolid3dHiddenEdges,
     setSolid3dFaceColor,
@@ -457,5 +499,7 @@ export const useWorkbookSelectedSolid3dActions = ({
     startSolid3dSectionPointCollection,
     renameSolid3dSectionVertex,
     renameSolid3dVertex,
+    updateSolid3dHostedPoint,
+    updateSolid3dHostedSegment,
   };
 };

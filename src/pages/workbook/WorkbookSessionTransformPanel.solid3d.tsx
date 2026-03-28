@@ -31,6 +31,7 @@ type WorkbookSessionTransformPanelSolid3dProps = Pick<
   | "setSolid3dInspectorTab"
   | "solid3dFigureTab"
   | "setSolid3dFigureTab"
+  | "selectedSolidObjectId"
   | "activeSolidSectionId"
   | "setActiveSolidSectionId"
   | "solid3dDraftPoints"
@@ -55,6 +56,17 @@ type WorkbookSessionTransformPanelSolid3dProps = Pick<
   | "onClearSolid3dDraftPoints"
   | "onUpdateSolid3dSection"
   | "onDeleteSolid3dSection"
+  | "hostedGeometryDraftMode"
+  | "hostedGeometryDraftPoints"
+  | "selectedHostedEntityType"
+  | "selectedHostedEntityId"
+  | "onSelectHostedEntity"
+  | "onClearHostedEntitySelection"
+  | "onStartSolid3dHostedPointMode"
+  | "onStartSolid3dHostedSegmentMode"
+  | "onCancelSolid3dHostedDraft"
+  | "onUpdateSolid3dHostedPoint"
+  | "onUpdateSolid3dHostedSegment"
   | "getSolidVertexLabel"
   | "canToggleSelectedObjectLabels"
   | "selectedObjectShowLabels"
@@ -76,6 +88,7 @@ export function WorkbookSessionTransformPanelSolid3d({
   setSolid3dInspectorTab,
   solid3dFigureTab,
   setSolid3dFigureTab,
+  selectedSolidObjectId = null,
   activeSolidSectionId,
   setActiveSolidSectionId,
   solid3dDraftPoints,
@@ -100,6 +113,17 @@ export function WorkbookSessionTransformPanelSolid3d({
   onClearSolid3dDraftPoints,
   onUpdateSolid3dSection,
   onDeleteSolid3dSection,
+  hostedGeometryDraftMode,
+  hostedGeometryDraftPoints = [],
+  selectedHostedEntityType = null,
+  selectedHostedEntityId = null,
+  onSelectHostedEntity,
+  onClearHostedEntitySelection,
+  onStartSolid3dHostedPointMode,
+  onStartSolid3dHostedSegmentMode,
+  onCancelSolid3dHostedDraft,
+  onUpdateSolid3dHostedPoint,
+  onUpdateSolid3dHostedSegment,
   getSolidVertexLabel,
   canToggleSelectedObjectLabels,
   selectedObjectShowLabels,
@@ -148,6 +172,14 @@ export function WorkbookSessionTransformPanelSolid3d({
           onClick={() => setSolid3dInspectorTab("section")}
         >
           Сечения
+        </Button>
+        <Button
+          size="small"
+          className="workbook-session__solid-tab-btn"
+          variant={solid3dInspectorTab === "hosted" ? "contained" : "outlined"}
+          onClick={() => setSolid3dInspectorTab("hosted")}
+        >
+          Построения
         </Button>
       </div>
 
@@ -529,6 +561,236 @@ export function WorkbookSessionTransformPanelSolid3d({
         ) : (
           <p className="workbook-session__hint">Выберите 3D-фигуру для настройки отображения.</p>
         )
+      ) : solid3dInspectorTab === "hosted" ? (
+        <>
+          <div className="workbook-session__solid-section-actions">
+            <Button
+              size="small"
+              variant={hostedGeometryDraftMode === "point" ? "contained" : "outlined"}
+              onClick={() =>
+                selectedSolidObjectId
+                  ? onStartSolid3dHostedPointMode?.(selectedSolidObjectId)
+                  : undefined
+              }
+              disabled={!canSelect || !selectedSolidObjectId}
+            >
+              Добавить hosted-точку
+            </Button>
+            <Button
+              size="small"
+              variant={hostedGeometryDraftMode === "segment" ? "contained" : "outlined"}
+              onClick={() =>
+                selectedSolidObjectId
+                  ? onStartSolid3dHostedSegmentMode?.(selectedSolidObjectId)
+                  : undefined
+              }
+              disabled={!canSelect || !selectedSolidObjectId}
+            >
+              Построить hosted-отрезок
+            </Button>
+            {hostedGeometryDraftMode ? (
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => onCancelSolid3dHostedDraft?.()}
+              >
+                Отменить режим
+              </Button>
+            ) : null}
+          </div>
+          {hostedGeometryDraftMode ? (
+            <Alert severity="info" className="workbook-session__hint-alert--compact">
+              {hostedGeometryDraftMode === "point"
+                ? "Кликните по поверхности фигуры, чтобы добавить hosted-точку."
+                : "Кликните две точки на фигуре, чтобы построить hosted-отрезок."}
+              {hostedGeometryDraftMode === "segment"
+                ? ` Выбрано точек: ${hostedGeometryDraftPoints.length}/2.`
+                : null}
+            </Alert>
+          ) : null}
+
+          {selectedSolid3dState?.hostedPoints.length || selectedSolid3dState?.hostedSegments.length ? (
+            <div className="workbook-session__solid-card-list">
+              {selectedSolid3dState.hostedPoints.map((point) => {
+                const isSelected =
+                  selectedHostedEntityType === "point" &&
+                  selectedHostedEntityId === point.id;
+                return (
+                  <article
+                    key={point.id}
+                    className={`workbook-session__solid-card ${isSelected ? "is-selected" : ""}`}
+                    onClick={() => onSelectHostedEntity?.("point", point.id)}
+                  >
+                    <div className="workbook-session__solid-card-head">
+                      <span className="workbook-session__solid-card-title">Точка {point.name || point.id.slice(0, 4)}</span>
+                      <div className="workbook-session__solid-card-controls">
+                        <input
+                          type="color"
+                          className="workbook-session__solid-color"
+                          value={point.color}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) =>
+                            void onUpdateSolid3dHostedPoint?.(point.id, {
+                              color: event.target.value || point.color,
+                            })
+                          }
+                        />
+                        <Switch
+                          size="small"
+                          checked={point.visible !== false}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) =>
+                            void onUpdateSolid3dHostedPoint?.(point.id, {
+                              visible: event.target.checked,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="workbook-session__solid-angle-grid">
+                      <TextField
+                        size="small"
+                        className="workbook-session__solid-input"
+                        label="Имя"
+                        value={point.name}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) =>
+                          void onUpdateSolid3dHostedPoint?.(point.id, {
+                            name: event.target.value,
+                          })
+                        }
+                      />
+                      <div className="workbook-session__solid-card-row workbook-session__solid-card-row--toggle">
+                        <span>Показывать имя</span>
+                        <Switch
+                          size="small"
+                          checked={point.labelVisible !== false}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) =>
+                            void onUpdateSolid3dHostedPoint?.(point.id, {
+                              labelVisible: event.target.checked,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+
+              {selectedSolid3dState.hostedSegments.map((segment) => {
+                const start = selectedSolid3dState.hostedPoints.find(
+                  (point) => point.id === segment.startPointId
+                );
+                const end = selectedSolid3dState.hostedPoints.find(
+                  (point) => point.id === segment.endPointId
+                );
+                const isSelected =
+                  selectedHostedEntityType === "segment" &&
+                  selectedHostedEntityId === segment.id;
+                return (
+                  <article
+                    key={segment.id}
+                    className={`workbook-session__solid-card ${isSelected ? "is-selected" : ""}`}
+                    onClick={() => onSelectHostedEntity?.("segment", segment.id)}
+                  >
+                    <div className="workbook-session__solid-card-head">
+                      <span className="workbook-session__solid-card-title">
+                        {`Отрезок ${start?.name || "?"}-${end?.name || "?"}`}
+                      </span>
+                      <div className="workbook-session__solid-card-controls">
+                        <input
+                          type="color"
+                          className="workbook-session__solid-color"
+                          value={segment.color}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) =>
+                            void onUpdateSolid3dHostedSegment?.(segment.id, {
+                              color: event.target.value || segment.color,
+                            })
+                          }
+                        />
+                        <Switch
+                          size="small"
+                          checked={segment.visible !== false}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) =>
+                            void onUpdateSolid3dHostedSegment?.(segment.id, {
+                              visible: event.target.checked,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="workbook-session__solid-angle-grid">
+                      <div className="workbook-session__solid-card-row workbook-session__solid-card-row--toggle">
+                        <span>Пунктир</span>
+                        <Switch
+                          size="small"
+                          checked={Boolean(segment.dashed)}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) =>
+                            void onUpdateSolid3dHostedSegment?.(segment.id, {
+                              dashed: event.target.checked,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="workbook-session__settings-row">
+                        <span>Толщина</span>
+                        <div className="workbook-session__line-range">
+                          <input
+                            type="range"
+                            min={1}
+                            max={12}
+                            step={1}
+                            value={segment.thickness}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={(event) =>
+                              void onUpdateSolid3dHostedSegment?.(segment.id, {
+                                thickness: Math.max(1, Math.min(12, Number(event.target.value) || 1)),
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                      <TextField
+                        select
+                        size="small"
+                        className="workbook-session__solid-input"
+                        label="Роль"
+                        value={segment.semanticRole}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) =>
+                          void onUpdateSolid3dHostedSegment?.(segment.id, {
+                            semanticRole:
+                              event.target.value === "section_support"
+                                ? "section_support"
+                                : "construction",
+                          })
+                        }
+                      >
+                        <MenuItem value="construction">Построение</MenuItem>
+                        <MenuItem value="section_support">Опора для сечений</MenuItem>
+                      </TextField>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="workbook-session__hint">
+              Добавьте hosted-точки и hosted-отрезки через этот модуль.
+            </p>
+          )}
+          {(selectedHostedEntityId || selectedHostedEntityType) && onClearHostedEntitySelection ? (
+            <div className="workbook-session__solid-section-actions">
+              <Button size="small" variant="outlined" onClick={onClearHostedEntitySelection}>
+                Снять выбор hosted-элемента
+              </Button>
+            </div>
+          ) : null}
+        </>
       ) : (
         <>
           <div className="workbook-session__solid-section-actions">

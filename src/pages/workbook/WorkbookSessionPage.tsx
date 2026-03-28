@@ -30,7 +30,9 @@ import { sanitizeFunctionGraphDrafts } from "@/features/workbook/model/functionG
 import {
   readSolid3dState,
   writeSolid3dState,
+  type Solid3dHostedPointClassification,
   type Solid3dHostedPoint,
+  type Solid3dHostedSegment,
   type Solid3dSectionPoint,
 } from "@/features/workbook/model/solid3dState";
 import { PageLoader } from "@/shared/ui/loading";
@@ -447,9 +449,15 @@ export default function WorkbookSessionPage() {
   );
   const [isPageManagerOpen, setIsPageManagerOpen] = useState(false);
   const [presenceTabIdSnapshot, setPresenceTabIdSnapshot] = useState("");
-  const [solid3dHostedSegmentDraft, setSolid3dHostedSegmentDraft] = useState<{
+  const [solid3dHostedDraft, setSolid3dHostedDraft] = useState<{
     objectId: string;
+    mode: "point" | "segment";
     points: Solid3dSectionPoint[];
+  } | null>(null);
+  const [selectedHostedEntity, setSelectedHostedEntity] = useState<{
+    objectId: string;
+    entityType: "point" | "segment";
+    entityId: string;
   } | null>(null);
   const handleSessionRootRef = useCallback(
     (node: HTMLElement | null) => {
@@ -473,19 +481,59 @@ export default function WorkbookSessionPage() {
   }, [refs.presenceTabIdRef]);
 
   useEffect(() => {
-    if (!solid3dHostedSegmentDraft) return;
+    if (!solid3dHostedDraft) return;
     const targetExists = boardObjects.some(
-      (item) => item.id === solid3dHostedSegmentDraft.objectId && item.type === "solid3d"
+      (item) => item.id === solid3dHostedDraft.objectId && item.type === "solid3d"
     );
     if (!targetExists) {
-      setSolid3dHostedSegmentDraft(null);
+      setSolid3dHostedDraft(null);
     }
-  }, [boardObjects, solid3dHostedSegmentDraft]);
+  }, [boardObjects, solid3dHostedDraft]);
 
   useEffect(() => {
-    if (!solid3dHostedSegmentDraft || !solid3dSectionPointCollecting) return;
-    setSolid3dHostedSegmentDraft(null);
-  }, [solid3dHostedSegmentDraft, solid3dSectionPointCollecting]);
+    if (!selectedHostedEntity) return;
+    const targetObject = boardObjects.find(
+      (item) => item.id === selectedHostedEntity.objectId && item.type === "solid3d"
+    );
+    if (!targetObject) {
+      setSelectedHostedEntity(null);
+      return;
+    }
+    const solidState = readSolid3dState(targetObject.meta);
+    const exists =
+      selectedHostedEntity.entityType === "point"
+        ? solidState.hostedPoints.some((point) => point.id === selectedHostedEntity.entityId)
+        : solidState.hostedSegments.some(
+            (segment) => segment.id === selectedHostedEntity.entityId
+          );
+    if (!exists) {
+      setSelectedHostedEntity(null);
+    }
+  }, [boardObjects, selectedHostedEntity]);
+
+  useEffect(() => {
+    if (!selectedHostedEntity) return;
+    if (!selectedObjectId || selectedHostedEntity.objectId !== selectedObjectId) {
+      setSelectedHostedEntity(null);
+    }
+  }, [selectedHostedEntity, selectedObjectId]);
+
+  useEffect(() => {
+    if (!solid3dHostedDraft || !solid3dSectionPointCollecting) return;
+    setSolid3dHostedDraft(null);
+  }, [solid3dHostedDraft, solid3dSectionPointCollecting]);
+
+  useEffect(() => {
+    if (!selectedHostedEntity || !solid3dSectionPointCollecting) return;
+    setSelectedHostedEntity(null);
+  }, [selectedHostedEntity, solid3dSectionPointCollecting]);
+
+  useEffect(() => {
+    if (!solid3dHostedDraft) return;
+    if (!selectedObjectId || selectedObjectId !== solid3dHostedDraft.objectId) {
+      setSolid3dHostedDraft(null);
+    }
+  }, [selectedObjectId, solid3dHostedDraft]);
 
   const fallbackBackPath = "/workbook";
   const fromPath = searchParams.get("from") || fallbackBackPath;
@@ -1677,8 +1725,94 @@ export default function WorkbookSessionPage() {
     getSolidVertexLabel,
   });
 
-  const handleStartSolid3dHostedSegment = useCallback(
-    (objectId: string) => {
+  const resolveHostedPointClassification = useCallback(
+    (point: Solid3dSectionPoint): Solid3dHostedPointClassification => {
+      if (point.classification === "vertex") return "vertex";
+      if (point.classification === "edge") return "edge";
+      if (point.classification === "interior") return "interior";
+      if (Number.isInteger(point.vertexIndex) && Number(point.vertexIndex) >= 0) {
+        return "vertex";
+      }
+      if (typeof point.edgeKey === "string" && point.edgeKey.trim().length > 0) {
+        return "edge";
+      }
+      if (
+        Array.isArray(point.barycentric) &&
+        point.barycentric.length === 3 &&
+        point.barycentric.some((weight) => Math.abs(weight) <= 1e-4)
+      ) {
+        return "edge";
+      }
+      if (Number.isInteger(point.faceIndex) && Number(point.faceIndex) >= 0) {
+        return "face";
+      }
+      return "interior";
+    },
+    []
+  );
+
+  const getNextHostedPointName = useCallback((hostedPoints: Solid3dHostedPoint[]) => {
+    const used = new Set(
+      hostedPoints
+        .map((point) => point.name?.trim() ?? "")
+        .filter((value) => value.length > 0)
+    );
+    let index = 1;
+    while (used.has(`H${index}`)) {
+      index += 1;
+    }
+    return `H${index}`;
+  }, []);
+
+  const toHostedPoint = useCallback(
+    (
+      objectId: string,
+      objectColor: string,
+      basePoint: Solid3dSectionPoint,
+      id: string,
+      name: string
+    ): Solid3dHostedPoint => {
+      const faceIndex =
+        Number.isInteger(basePoint.faceIndex) && Number(basePoint.faceIndex) >= 0
+          ? Number(basePoint.faceIndex)
+          : undefined;
+      const classification = resolveHostedPointClassification(basePoint);
+      return {
+        id,
+        kind: "hosted_point",
+        hostObjectId: objectId,
+        hostFaceId: faceIndex !== undefined ? `face-${faceIndex}` : undefined,
+        faceIndex,
+        classification,
+        vertexIndex:
+          Number.isInteger(basePoint.vertexIndex) && Number(basePoint.vertexIndex) >= 0
+            ? Number(basePoint.vertexIndex)
+            : undefined,
+        edgeKey:
+          typeof basePoint.edgeKey === "string" && basePoint.edgeKey.trim().length > 0
+            ? basePoint.edgeKey.trim()
+            : undefined,
+        local3d:
+          Array.isArray(basePoint.local3d) && basePoint.local3d.length === 3
+            ? [basePoint.local3d[0], basePoint.local3d[1], basePoint.local3d[2]]
+            : [basePoint.x, basePoint.y, basePoint.z],
+        x: basePoint.x,
+        y: basePoint.y,
+        z: basePoint.z,
+        triangleVertexIndices: basePoint.triangleVertexIndices,
+        barycentric: basePoint.barycentric,
+        name,
+        labelVisible: true,
+        color: objectColor || "#c4872f",
+        radius: 2.4,
+        visible: true,
+      };
+    },
+    [resolveHostedPointClassification]
+  );
+
+  const handleStartSolid3dHostedDraft = useCallback(
+    (objectId: string, mode: "point" | "segment") => {
       const targetObject = boardObjects.find((item) => item.id === objectId);
       if (!targetObject || targetObject.type !== "solid3d") {
         setError("Сначала выберите 3D-объект.");
@@ -1687,11 +1821,15 @@ export default function WorkbookSessionPage() {
       setSelectedObjectId(objectId);
       setSolid3dSectionPointCollecting(null);
       setSolid3dDraftPoints(null);
+      setSolid3dInspectorTab("hosted");
       resetToolRuntimeToSelect();
-      setSolid3dHostedSegmentDraft({
+      setSelectedHostedEntity(null);
+      setSolid3dHostedDraft({
         objectId,
+        mode,
         points: [],
       });
+      setError(null);
     },
     [
       boardObjects,
@@ -1699,12 +1837,27 @@ export default function WorkbookSessionPage() {
       setError,
       setSelectedObjectId,
       setSolid3dDraftPoints,
+      setSolid3dInspectorTab,
       setSolid3dSectionPointCollecting,
     ]
   );
 
-  const handleCancelSolid3dHostedSegment = useCallback((objectId?: string) => {
-    setSolid3dHostedSegmentDraft((current) => {
+  const handleStartSolid3dHostedPointMode = useCallback(
+    (objectId: string) => {
+      handleStartSolid3dHostedDraft(objectId, "point");
+    },
+    [handleStartSolid3dHostedDraft]
+  );
+
+  const handleStartSolid3dHostedSegmentMode = useCallback(
+    (objectId: string) => {
+      handleStartSolid3dHostedDraft(objectId, "segment");
+    },
+    [handleStartSolid3dHostedDraft]
+  );
+
+  const handleCancelSolid3dHostedDraft = useCallback((objectId?: string) => {
+    setSolid3dHostedDraft((current) => {
       if (!current) return null;
       if (objectId && current.objectId !== objectId) return current;
       return null;
@@ -1716,16 +1869,16 @@ export default function WorkbookSessionPage() {
       objectId: string;
       point: Solid3dSectionPoint;
     }) => {
-      if (!solid3dHostedSegmentDraft) {
+      if (!solid3dHostedDraft) {
         solid3dSectionDraftHandlers.addDraftPointToSolid(payload);
         return;
       }
-      if (payload.objectId !== solid3dHostedSegmentDraft.objectId) {
+      if (payload.objectId !== solid3dHostedDraft.objectId) {
         return;
       }
       const targetObject = boardObjects.find((item) => item.id === payload.objectId);
       if (!targetObject || targetObject.type !== "solid3d") {
-        setSolid3dHostedSegmentDraft(null);
+        setSolid3dHostedDraft(null);
         setError("Не удалось найти выбранную 3D-фигуру.");
         return;
       }
@@ -1735,11 +1888,41 @@ export default function WorkbookSessionPage() {
         Number.isInteger(payload.point.faceIndex) &&
         triangleIndices.length === 3 &&
         barycentric.length === 3;
-      if (!hasSurfaceTuple) {
-        setError("Точка должна быть выбрана на грани 3D-объекта.");
+      const hasLocalPoint = Array.isArray(payload.point.local3d) && payload.point.local3d.length === 3;
+      if (!hasSurfaceTuple && !hasLocalPoint) {
+        setError("Точка должна быть выбрана на поверхности 3D-объекта.");
         return;
       }
-      const currentPoints = solid3dHostedSegmentDraft.points;
+      const currentState = readSolid3dState(targetObject.meta);
+      const objectColor = targetObject.color ?? "#c4872f";
+      if (solid3dHostedDraft.mode === "point") {
+        const pointId = generateId();
+        const pointName = getNextHostedPointName(currentState.hostedPoints);
+        const nextPoint = toHostedPoint(
+          targetObject.id,
+          objectColor,
+          payload.point,
+          pointId,
+          pointName
+        );
+        const nextState = {
+          ...currentState,
+          hostedPoints: [...currentState.hostedPoints, nextPoint],
+        };
+        commitObjectUpdate(targetObject.id, {
+          meta: writeSolid3dState(nextState, targetObject.meta),
+        });
+        setSelectedObjectId(targetObject.id);
+        setSelectedHostedEntity({
+          objectId: targetObject.id,
+          entityType: "point",
+          entityId: pointId,
+        });
+        setError(null);
+        return;
+      }
+
+      const currentPoints = solid3dHostedDraft.points;
       const isDuplicate = currentPoints.some(
         (entry) =>
           Math.hypot(entry.x - payload.point.x, entry.y - payload.point.y, entry.z - payload.point.z) <
@@ -1748,88 +1931,87 @@ export default function WorkbookSessionPage() {
       if (isDuplicate) return;
       if (currentPoints.length === 0) {
         setSelectedObjectId(targetObject.id);
-        setSolid3dHostedSegmentDraft({
+        setSolid3dHostedDraft({
           objectId: targetObject.id,
+          mode: "segment",
           points: [{ ...payload.point, label: "H1" }],
         });
         return;
       }
       const firstPoint = currentPoints[0];
-      if (
-        Number.isInteger(firstPoint.faceIndex) &&
-        Number.isInteger(payload.point.faceIndex) &&
-        Number(firstPoint.faceIndex) !== Number(payload.point.faceIndex)
-      ) {
-        setError("Для MVP отрезок нужно строить в пределах одной грани.");
-        return;
-      }
       const secondPoint: Solid3dSectionPoint = {
         ...payload.point,
         label: "H2",
       };
-      const hostFaceIndex = Number.isInteger(firstPoint.faceIndex)
-        ? Number(firstPoint.faceIndex)
-        : Number(payload.point.faceIndex) || 0;
-      const hostFaceId = `face-${hostFaceIndex}`;
-      const currentState = readSolid3dState(targetObject.meta);
       const startPointId = generateId();
       const endPointId = generateId();
-      const toHostedPoint = (
-        id: string,
-        point: Solid3dSectionPoint
-      ): Solid3dHostedPoint => ({
-        id,
-        kind: "hosted_point",
+      const startPointName = getNextHostedPointName(currentState.hostedPoints);
+      const endPointName = getNextHostedPointName([
+        ...currentState.hostedPoints,
+        { id: startPointId, name: startPointName } as Solid3dHostedPoint,
+      ]);
+      const startPoint = toHostedPoint(
+        targetObject.id,
+        objectColor,
+        firstPoint,
+        startPointId,
+        startPointName
+      );
+      const endPoint = toHostedPoint(
+        targetObject.id,
+        objectColor,
+        secondPoint,
+        endPointId,
+        endPointName
+      );
+      const nextSegment: Solid3dHostedSegment = {
+        id: generateId(),
+        kind: "hosted_segment",
         hostObjectId: targetObject.id,
-        hostFaceId,
-        faceIndex: hostFaceIndex,
-        x: point.x,
-        y: point.y,
-        z: point.z,
-        triangleVertexIndices: point.triangleVertexIndices,
-        barycentric: point.barycentric,
-        color: targetObject.color ?? "#c4872f",
-        radius: 2.4,
+        hostFaceId:
+          startPoint.hostFaceId && startPoint.hostFaceId === endPoint.hostFaceId
+            ? startPoint.hostFaceId
+            : undefined,
+        faceIndex:
+          Number.isInteger(startPoint.faceIndex) &&
+          Number.isInteger(endPoint.faceIndex) &&
+          startPoint.faceIndex === endPoint.faceIndex
+            ? startPoint.faceIndex
+            : undefined,
+        startPointId,
+        endPointId,
+        semanticRole: "construction",
+        color: objectColor,
+        thickness: Math.max(1, targetObject.strokeWidth ?? 2),
+        dashed: false,
         visible: true,
-      });
+      };
       const nextState = {
         ...currentState,
-        hostedPoints: [
-          ...currentState.hostedPoints,
-          toHostedPoint(startPointId, firstPoint),
-          toHostedPoint(endPointId, secondPoint),
-        ],
-        hostedSegments: [
-          ...currentState.hostedSegments,
-          {
-            id: generateId(),
-            kind: "hosted_segment" as const,
-            hostObjectId: targetObject.id,
-            hostFaceId,
-            faceIndex: hostFaceIndex,
-            startPointId,
-            endPointId,
-            color: targetObject.color ?? "#c4872f",
-            thickness: Math.max(1, targetObject.strokeWidth ?? 2),
-            dashed: false,
-            visible: true,
-          },
-        ],
+        hostedPoints: [...currentState.hostedPoints, startPoint, endPoint],
+        hostedSegments: [...currentState.hostedSegments, nextSegment],
       };
       commitObjectUpdate(targetObject.id, {
         meta: writeSolid3dState(nextState, targetObject.meta),
       });
       setSelectedObjectId(targetObject.id);
-      setSolid3dHostedSegmentDraft(null);
+      setSelectedHostedEntity({
+        objectId: targetObject.id,
+        entityType: "segment",
+        entityId: nextSegment.id,
+      });
+      setSolid3dHostedDraft(null);
       setError(null);
     },
     [
       boardObjects,
       commitObjectUpdate,
+      getNextHostedPointName,
       setError,
       setSelectedObjectId,
-      solid3dHostedSegmentDraft,
+      solid3dHostedDraft,
       solid3dSectionDraftHandlers,
+      toHostedPoint,
     ]
   );
 
@@ -1868,7 +2050,7 @@ export default function WorkbookSessionPage() {
     [boardObjects, openUtilityPanel, setSelectedConstraintId, setSelectedObjectId]
   );
 
-  const transformPanelProps: WorkbookSessionTransformPanelProps =
+  const transformPanelBaseProps: WorkbookSessionTransformPanelProps =
     buildWorkbookSessionTransformPanelRuntimeProps({
       selectionViewportState,
       workbookSessionTooling,
@@ -1888,6 +2070,30 @@ export default function WorkbookSessionPage() {
       solid3dSectionDraftHandlers,
       mirrorSelectedObject,
     });
+
+  const transformPanelProps: WorkbookSessionTransformPanelProps = {
+    ...transformPanelBaseProps,
+    hostedGeometryDraftMode: solid3dHostedDraft?.mode ?? null,
+    hostedGeometryDraftPoints: solid3dHostedDraft?.points ?? [],
+    onStartSolid3dHostedPointMode: handleStartSolid3dHostedPointMode,
+    onStartSolid3dHostedSegmentMode: handleStartSolid3dHostedSegmentMode,
+    onCancelSolid3dHostedDraft: () => handleCancelSolid3dHostedDraft(selectedObjectId ?? undefined),
+    selectedHostedEntityType: selectedHostedEntity?.entityType ?? null,
+    selectedHostedEntityId: selectedHostedEntity?.entityId ?? null,
+    onSelectHostedEntity: (entityType, entityId) => {
+      if (!selectedObjectId) return;
+      setSelectedHostedEntity({
+        objectId: selectedObjectId,
+        entityType,
+        entityId,
+      });
+    },
+    onClearHostedEntitySelection: () => {
+      setSelectedHostedEntity(null);
+    },
+    onUpdateSolid3dHostedPoint: selectedSolid3dActions.updateSolid3dHostedPoint,
+    onUpdateSolid3dHostedSegment: selectedSolid3dActions.updateSolid3dHostedSegment,
+  };
 
 
   const { exportBoardAsPdf, defaultExportPdfName } = useWorkbookPdfExport({
@@ -2276,12 +2482,12 @@ export default function WorkbookSessionPage() {
     autoDividerStep: boardSettings.dividerStep,
     areaSelection,
     solid3dDraftPointCollectionObjectId:
-      solid3dHostedSegmentDraft?.objectId ?? solid3dSectionPointCollecting,
-    solid3dSectionMarkers: solid3dHostedSegmentDraft
+      solid3dHostedDraft?.objectId ?? solid3dSectionPointCollecting,
+    solid3dSectionMarkers: solid3dHostedDraft
       ? {
-          objectId: solid3dHostedSegmentDraft.objectId,
+          objectId: solid3dHostedDraft.objectId,
           sectionId: "hosted-draft",
-          selectedPoints: solid3dHostedSegmentDraft.points,
+          selectedPoints: solid3dHostedDraft.points,
         }
       : selectionViewportState.isSolid3dPointCollectionActive && solid3dDraftPoints
         ? {
@@ -2566,9 +2772,6 @@ export default function WorkbookSessionPage() {
     setObjectContextMenu: workbookSessionActions.setObjectContextMenu,
     contextMenuObject: selectionViewportState.contextMenuObject,
     onRequestEditObject: handleOpenObjectEditorFromContextMenu,
-    onStartSolid3dHostedSegment: handleStartSolid3dHostedSegment,
-    onCancelSolid3dHostedSegment: handleCancelSolid3dHostedSegment,
-    solid3dHostedSegmentDraftObjectId: solid3dHostedSegmentDraft?.objectId ?? null,
     pointLabelDraft,
     setPointLabelDraft: workbookSessionActions.setPointLabelDraft,
     renamePointObject: selectedStructureActions.renamePointObject,

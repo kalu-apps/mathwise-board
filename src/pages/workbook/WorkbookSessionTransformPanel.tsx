@@ -113,6 +113,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
   setSolid3dInspectorTab,
   solid3dFigureTab,
   setSolid3dFigureTab,
+  selectedSolidObjectId,
   selectedSolid3dState,
   selectedSolidMesh,
   selectedSolidIsCurved,
@@ -146,6 +147,17 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
   onClearSolid3dDraftPoints,
   onUpdateSolid3dSection,
   onDeleteSolid3dSection,
+  hostedGeometryDraftMode,
+  hostedGeometryDraftPoints,
+  selectedHostedEntityType,
+  selectedHostedEntityId,
+  onSelectHostedEntity,
+  onClearHostedEntitySelection,
+  onStartSolid3dHostedPointMode,
+  onStartSolid3dHostedSegmentMode,
+  onCancelSolid3dHostedDraft,
+  onUpdateSolid3dHostedPoint,
+  onUpdateSolid3dHostedSegment,
   getSolidVertexLabel,
 }: WorkbookSessionTransformPanelProps) {
   return (
@@ -216,6 +228,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
             setSolid3dInspectorTab={setSolid3dInspectorTab}
             solid3dFigureTab={solid3dFigureTab}
             setSolid3dFigureTab={setSolid3dFigureTab}
+            selectedSolidObjectId={selectedSolidObjectId ?? selectedObject.id}
             activeSolidSectionId={activeSolidSectionId}
             setActiveSolidSectionId={setActiveSolidSectionId}
             solid3dDraftPoints={solid3dDraftPoints}
@@ -240,6 +253,17 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
             onClearSolid3dDraftPoints={onClearSolid3dDraftPoints}
             onUpdateSolid3dSection={onUpdateSolid3dSection}
             onDeleteSolid3dSection={onDeleteSolid3dSection}
+            hostedGeometryDraftMode={hostedGeometryDraftMode}
+            hostedGeometryDraftPoints={hostedGeometryDraftPoints}
+            selectedHostedEntityType={selectedHostedEntityType}
+            selectedHostedEntityId={selectedHostedEntityId}
+            onSelectHostedEntity={onSelectHostedEntity}
+            onClearHostedEntitySelection={onClearHostedEntitySelection}
+            onStartSolid3dHostedPointMode={onStartSolid3dHostedPointMode}
+            onStartSolid3dHostedSegmentMode={onStartSolid3dHostedSegmentMode}
+            onCancelSolid3dHostedDraft={onCancelSolid3dHostedDraft}
+            onUpdateSolid3dHostedPoint={onUpdateSolid3dHostedPoint}
+            onUpdateSolid3dHostedSegment={onUpdateSolid3dHostedSegment}
             getSolidVertexLabel={getSolidVertexLabel}
             canToggleSelectedObjectLabels={canToggleSelectedObjectLabels}
             selectedObjectShowLabels={selectedObjectShowLabels}

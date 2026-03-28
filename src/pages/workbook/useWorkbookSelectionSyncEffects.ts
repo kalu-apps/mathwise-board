@@ -52,7 +52,7 @@ type UseWorkbookSelectionSyncEffectsParams = {
   dividerDraftObjectIdRef: MutableRefObject<string | null>;
   setIsUtilityPanelOpen: Dispatch<SetStateAction<boolean>>;
   setSolid3dFigureTab: (tab: "display" | "surface" | "faces" | "edges" | "angles") => void;
-  setSolid3dInspectorTab: (tab: "section" | "display" | "surface") => void;
+  setSolid3dInspectorTab: (tab: "figure" | "section" | "hosted") => void;
   setShape2dInspectorTab: (tab: "display" | "angles") => void;
   shape2dInspectorTab: "display" | "angles";
   setSelectedTextDraft: Dispatch<SetStateAction<string>>;

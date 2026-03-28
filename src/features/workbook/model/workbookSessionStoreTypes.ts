@@ -110,7 +110,7 @@ export type WorkbookSessionToolingSlice = {
     presetTitle?: string;
   } | null;
   graphWorkbenchTab: "catalog" | "work";
-  solid3dInspectorTab: "figure" | "section";
+  solid3dInspectorTab: "figure" | "section" | "hosted";
   solid3dFigureTab: "display" | "surface" | "faces" | "edges" | "angles";
   shape2dInspectorTab: "display" | "vertices" | "angles" | "segments";
   activeSolidSectionId: string | null;
@@ -185,7 +185,9 @@ export type WorkbookSessionStoreActions = {
     updater: StateUpdater<{ presetId: string; presetTitle?: string } | null>
   ) => void;
   setGraphWorkbenchTab: (updater: StateUpdater<"catalog" | "work">) => void;
-  setSolid3dInspectorTab: (updater: StateUpdater<"figure" | "section">) => void;
+  setSolid3dInspectorTab: (
+    updater: StateUpdater<"figure" | "section" | "hosted">
+  ) => void;
   setSolid3dFigureTab: (
     updater: StateUpdater<"display" | "surface" | "faces" | "edges" | "angles">
   ) => void;

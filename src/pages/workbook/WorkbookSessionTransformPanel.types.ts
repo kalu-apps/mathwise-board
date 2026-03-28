@@ -4,6 +4,8 @@ import type { Solid3dMesh } from "@/features/workbook/model/solid3dGeometry";
 import type { WorkbookShapeAngleMark, WorkbookShapeAngleMarkStyle } from "@/features/workbook/model/shapeAngleMarks";
 import type {
   Solid3dAngleMark,
+  Solid3dHostedPoint,
+  Solid3dHostedSegment,
   Solid3dSectionPoint,
   Solid3dSectionState,
   Solid3dState,
@@ -17,7 +19,7 @@ export type TextFontOption = {
 export type LineStyle = "solid" | "dashed";
 export type LineKind = "line" | "segment";
 export type TextAlign = "left" | "center" | "right";
-export type Solid3dInspectorTab = "figure" | "section";
+export type Solid3dInspectorTab = "figure" | "section" | "hosted";
 export type Solid3dFigureTab = "display" | "surface" | "faces" | "edges" | "angles";
 export type Shape2dInspectorTab = "display" | "vertices" | "angles" | "segments";
 export type Solid3dDraftPoints = {
@@ -136,6 +138,7 @@ export type WorkbookSessionTransformPanelProps = {
   setSolid3dInspectorTab: Dispatch<SetStateAction<Solid3dInspectorTab>>;
   solid3dFigureTab: Solid3dFigureTab;
   setSolid3dFigureTab: Dispatch<SetStateAction<Solid3dFigureTab>>;
+  selectedSolidObjectId?: string | null;
   selectedSolid3dState: Solid3dState | null;
   selectedSolidMesh: Solid3dMesh | null;
   selectedSolidIsCurved: boolean;
@@ -178,6 +181,26 @@ export type WorkbookSessionTransformPanelProps = {
     patch: Partial<Solid3dSectionState>
   ) => void | Promise<void>;
   onDeleteSolid3dSection: (sectionId: string) => void | Promise<void>;
+  hostedGeometryDraftMode?: "point" | "segment" | null;
+  hostedGeometryDraftPoints?: Solid3dSectionPoint[];
+  selectedHostedEntityType?: "point" | "segment" | null;
+  selectedHostedEntityId?: string | null;
+  onSelectHostedEntity?: (
+    entityType: "point" | "segment",
+    entityId: string
+  ) => void | Promise<void>;
+  onClearHostedEntitySelection?: () => void;
+  onStartSolid3dHostedPointMode?: (objectId: string) => void;
+  onStartSolid3dHostedSegmentMode?: (objectId: string) => void;
+  onCancelSolid3dHostedDraft?: () => void;
+  onUpdateSolid3dHostedPoint?: (
+    pointId: string,
+    patch: Partial<Solid3dHostedPoint>
+  ) => void | Promise<void>;
+  onUpdateSolid3dHostedSegment?: (
+    segmentId: string,
+    patch: Partial<Solid3dHostedSegment>
+  ) => void | Promise<void>;
   getSolidVertexLabel: (index: number) => string;
   getSectionVertexLabel: (index: number) => string;
 };

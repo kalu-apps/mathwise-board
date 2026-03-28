@@ -58,7 +58,10 @@ import {
   shouldSnapWorkbookPointerForTool,
 } from "../model/sceneTools";
 import type { WorkbookBoardObject, WorkbookLayer, WorkbookPoint, WorkbookStroke, WorkbookTool } from "../model/types";
-import type { Solid3dSectionPoint } from "../model/solid3dState";
+import type {
+  Solid3dHostedPointClassification,
+  Solid3dSectionPoint,
+} from "../model/solid3dState";
 
 type ShapeDraft = {
   tool:
@@ -171,6 +174,9 @@ type InteractionCallbacks = {
     faceIndex: number;
     triangleVertexIndices: [number, number, number];
     barycentric: [number, number, number];
+    classification?: Solid3dHostedPointClassification;
+    vertexIndex?: number;
+    edgeKey?: string;
   } | null;
   resolveSolid3dResizeHandleHit: (
     selected: WorkbookBoardObject,
@@ -524,6 +530,10 @@ export const useWorkbookCanvasInteractions = (
                 faceIndex: picked.faceIndex,
                 triangleVertexIndices: picked.triangleVertexIndices,
                 barycentric: picked.barycentric,
+                classification: picked.classification,
+                vertexIndex: picked.vertexIndex,
+                edgeKey: picked.edgeKey,
+                local3d: [picked.point.x, picked.point.y, picked.point.z],
               },
             });
             return;
