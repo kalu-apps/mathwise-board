@@ -65,9 +65,11 @@ const EXPORT_MAX_CANVAS_PIXELS = 8_500_000;
 const EXPORT_MIN_SCALE = 0.35;
 const EXPORT_PDF_FOOTER_HEIGHT_PT = 28;
 const EXPORT_PDF_FOOTER_SIDE_PADDING_PT = 24;
-const EXPORT_PDF_FOOTER_LINE_Y_OFFSET_PT = 12;
+const EXPORT_PDF_FOOTER_LINE_Y_OFFSET_PT = 8;
 const EXPORT_PDF_FOOTER_PRIMARY_FONT_SIZE_PT = 8;
 const EXPORT_PDF_FOOTER_PRIMARY_TEXT_RGB = 56;
+const EXPORT_PDF_FOOTER_TEXT_TOP_GAP_PT = 4;
+const EXPORT_PDF_FOOTER_TEXT_BOTTOM_PADDING_PT = 3;
 const inlinedExportImageUrls = new Map<string, Promise<string | null>>();
 const WORKBOOK_ASSET_PATH_RE = /^\/api\/workbook\/sessions\/[^/]+\/assets\/[^/]+(?:\/content)?$/i;
 
@@ -238,11 +240,22 @@ const drawWorkbookPdfFooter = (params: {
   ctx.lineTo(pageWidth - EXPORT_PDF_FOOTER_SIDE_PADDING_PT, lineY);
   ctx.stroke();
 
-  const primaryY = lineY + 10;
   ctx.fillStyle = `rgb(${EXPORT_PDF_FOOTER_PRIMARY_TEXT_RGB}, ${EXPORT_PDF_FOOTER_PRIMARY_TEXT_RGB}, ${EXPORT_PDF_FOOTER_PRIMARY_TEXT_RGB})`;
   ctx.font = `italic ${EXPORT_PDF_FOOTER_PRIMARY_FONT_SIZE_PT}px "Arial", "Segoe UI", sans-serif`;
-  ctx.textBaseline = "top";
-  ctx.fillText(primaryText, EXPORT_PDF_FOOTER_SIDE_PADDING_PT, primaryY);
+  ctx.textBaseline = "alphabetic";
+  const textMetrics = ctx.measureText(primaryText);
+  const textAscent =
+    Number.isFinite(textMetrics.actualBoundingBoxAscent) && textMetrics.actualBoundingBoxAscent > 0
+      ? textMetrics.actualBoundingBoxAscent
+      : EXPORT_PDF_FOOTER_PRIMARY_FONT_SIZE_PT * 0.8;
+  const textDescent =
+    Number.isFinite(textMetrics.actualBoundingBoxDescent) && textMetrics.actualBoundingBoxDescent >= 0
+      ? textMetrics.actualBoundingBoxDescent
+      : EXPORT_PDF_FOOTER_PRIMARY_FONT_SIZE_PT * 0.2;
+  const baselineMinY = lineY + EXPORT_PDF_FOOTER_TEXT_TOP_GAP_PT + textAscent;
+  const baselineMaxY = EXPORT_PDF_FOOTER_HEIGHT_PT - EXPORT_PDF_FOOTER_TEXT_BOTTOM_PADDING_PT - textDescent;
+  const primaryBaselineY = Math.min(baselineMaxY, baselineMinY);
+  ctx.fillText(primaryText, EXPORT_PDF_FOOTER_SIDE_PADDING_PT, primaryBaselineY);
 
   const footerDataUrl = canvas.toDataURL("image/png");
   pdf.addImage(
