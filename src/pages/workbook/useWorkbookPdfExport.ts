@@ -1,6 +1,7 @@
 import { useCallback, useMemo, type MutableRefObject } from "react";
 import { jsPDF } from "jspdf";
 import {
+  getStrokeExportBounds,
   type WorkbookExportBounds,
 } from "@/features/workbook/model/export";
 import { normalizeWorkbookAssetContentUrl } from "@/features/workbook/model/workbookAssetUrl";
