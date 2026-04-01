@@ -13,9 +13,12 @@ type WorkbookLessonRecordingControlsProps = {
   elapsedMs: number;
   isSupported: boolean;
   audioSummary: LessonRecordingAudioSummary;
+  micEnabled: boolean;
+  canToggleMicrophone: boolean;
   onRequestStart: () => void;
   onPause: () => void;
   onResume: () => void;
+  onToggleMicrophone: () => void;
   onStop: () => void;
 };
 
@@ -44,9 +47,12 @@ export function WorkbookLessonRecordingControls({
   elapsedMs,
   isSupported,
   audioSummary,
+  micEnabled,
+  canToggleMicrophone,
   onRequestStart,
   onPause,
   onResume,
+  onToggleMicrophone,
   onStop,
 }: WorkbookLessonRecordingControlsProps) {
   if (!isSupported) {
@@ -75,7 +81,7 @@ export function WorkbookLessonRecordingControls({
           <span>
             <IconButton
               size="small"
-              className="workbook-session__toolbar-icon workbook-session__toolbar-icon--recording"
+              className="workbook-session__toolbar-icon workbook-session__toolbar-icon--recording workbook-session__toolbar-icon--recording-idle"
               onClick={onRequestStart}
               aria-label="Начать запись урока"
             >
@@ -104,6 +110,7 @@ export function WorkbookLessonRecordingControls({
   }
 
   const isPaused = status === "paused";
+  const isMicrophoneActive = audioSummary.hasMicrophoneAudio && micEnabled;
 
   return (
     <div className={`workbook-session__recording-cluster ${isPaused ? "is-paused" : "is-recording"}`}>
@@ -113,19 +120,36 @@ export function WorkbookLessonRecordingControls({
       >
         {isPaused ? "Пауза" : "REC"} · {formatDuration(elapsedMs)}
       </span>
-      <Tooltip title={resolveMicrophoneTooltip(audioSummary)} placement="bottom" arrow>
+      <Tooltip
+        title={
+          canToggleMicrophone
+            ? micEnabled
+              ? "Выключить микрофон"
+              : "Включить микрофон"
+            : resolveMicrophoneTooltip(audioSummary)
+        }
+        placement="bottom"
+        arrow
+      >
         <span>
           <IconButton
             size="small"
             className={`workbook-session__toolbar-icon workbook-session__toolbar-icon--recording-mic ${
-              audioSummary.hasDisplayAudio || audioSummary.hasMicrophoneAudio
+              isMicrophoneActive
                 ? "is-audio-on"
                 : "is-audio-off"
             }`}
-            disabled
-            aria-label={resolveMicrophoneTooltip(audioSummary)}
+            disabled={!canToggleMicrophone}
+            onClick={onToggleMicrophone}
+            aria-label={
+              canToggleMicrophone
+                ? micEnabled
+                  ? "Выключить микрофон"
+                  : "Включить микрофон"
+                : resolveMicrophoneTooltip(audioSummary)
+            }
           >
-            {audioSummary.hasDisplayAudio || audioSummary.hasMicrophoneAudio ? (
+            {isMicrophoneActive ? (
               <MicRoundedIcon />
             ) : (
               <MicOffRoundedIcon />

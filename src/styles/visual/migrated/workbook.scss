@@ -1064,6 +1064,12 @@
     radial-gradient(circle at 84% 14%, color-mix(in srgb, #f34d6d 18%, transparent), transparent 62%),
     color-mix(in srgb, var(--surface-elevated) 94%, transparent);
 }
+.workbook-session__recording-cluster.is-idle {
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
 .workbook-session__recording-cluster.is-recording {
   border-color: color-mix(in srgb, #f34d6d 58%, var(--border-strong));
   box-shadow: 0 0 0 1px color-mix(in srgb, #f34d6d 16%, transparent);
@@ -1104,6 +1110,9 @@
   background: color-mix(in srgb, #f34d6d 16%, var(--surface-elevated)) !important;
   color: color-mix(in srgb, #b8123a 88%, var(--text-primary)) !important;
 }
+.workbook-session__toolbar-icon--recording-idle {
+  box-shadow: none !important;
+}
 .workbook-session__toolbar-icon--recording-stop {
   border-color: color-mix(in srgb, #f34d6d 72%, var(--border-strong)) !important;
   background: color-mix(in srgb, #f34d6d 24%, var(--surface-elevated)) !important;
@@ -1121,24 +1130,6 @@
 .workbook-session__toolbar-icon--recording-mic.is-audio-off {
   border-color: color-mix(in srgb, #c87373 48%, var(--border-subtle)) !important;
   color: color-mix(in srgb, #a94949 68%, var(--text-primary)) !important;
-}
-.workbook-session__recording-watermark {
-  position: absolute;
-  right: 14px;
-  bottom: 12px;
-  z-index: 18;
-  pointer-events: none;
-  padding: 6px 10px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--brand-soft) 32%, var(--border-subtle));
-  background:
-    linear-gradient(145deg, color-mix(in srgb, var(--surface-elevated) 90%, transparent), color-mix(in srgb, var(--surface-soft) 92%, transparent));
-  color: color-mix(in srgb, var(--text-primary) 78%, #ffffff);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-shadow: 0 1px 1px color-mix(in srgb, #000000 14%, transparent);
-  box-shadow: 0 6px 16px color-mix(in srgb, #000000 18%, transparent);
 }
 .workbook-session__recording-prestart {
   display: grid;

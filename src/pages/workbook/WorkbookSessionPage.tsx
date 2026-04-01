@@ -22,7 +22,6 @@ import { useWorkbookSessionStore } from "@/features/workbook/model/workbookSessi
 import {
   WorkbookLessonRecordingControls,
   WorkbookLessonRecordingDialogs,
-  WorkbookLessonRecordingWatermark,
   useWorkbookLessonRecording,
 } from "@/features/workbook/lessonRecording";
 import {
@@ -625,6 +624,8 @@ export default function WorkbookSessionPage() {
       !isEnded &&
       !isWorkspaceInteractionBlocked,
     canUseMedia,
+    micEnabled,
+    setMicEnabled,
     sessionTitle: session?.title,
     setError,
   });
@@ -636,22 +637,28 @@ export default function WorkbookSessionPage() {
           elapsedMs={lessonRecording.elapsedMs}
           isSupported={lessonRecording.isSupported}
           audioSummary={lessonRecording.audioSummary}
+          micEnabled={lessonRecording.micEnabled}
+          canToggleMicrophone={lessonRecording.canToggleMicrophone}
           onRequestStart={lessonRecording.openPreStartDialog}
           onPause={lessonRecording.pauseRecording}
           onResume={lessonRecording.resumeRecording}
+          onToggleMicrophone={lessonRecording.toggleMicrophone}
           onStop={() => lessonRecording.stopRecording("stopped")}
         />
       ) : null,
     [
       lessonRecording.audioSummary,
+      lessonRecording.canToggleMicrophone,
       lessonRecording.canShowControls,
       lessonRecording.elapsedMs,
       lessonRecording.isSupported,
+      lessonRecording.micEnabled,
       lessonRecording.openPreStartDialog,
       lessonRecording.pauseRecording,
       lessonRecording.resumeRecording,
       lessonRecording.status,
       lessonRecording.stopRecording,
+      lessonRecording.toggleMicrophone,
     ]
   );
   const {
@@ -2945,11 +2952,6 @@ export default function WorkbookSessionPage() {
           }}
           docsWindowOpen={docsWindow.open}
           docsWindowProps={docsWindowProps}
-          lessonRecordingWatermark={
-            <WorkbookLessonRecordingWatermark
-              visible={lessonRecording.isWatermarkVisible}
-            />
-          }
         />
         <WorkbookSessionSidebar
           isCompactViewport={isCompactViewport}

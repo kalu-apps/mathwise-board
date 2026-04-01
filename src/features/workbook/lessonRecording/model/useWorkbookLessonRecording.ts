@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { mixLessonRecordingAudio } from "./lessonRecordingAudio";
 import { buildLessonRecordingFileName, triggerLessonRecordingDownload } from "./lessonRecordingFile";
 import { resolveLessonRecordingProfile } from "./lessonRecordingQuality";
+import { createLessonRecordingVideoTrackWithWatermark } from "./lessonRecordingVideo";
 import type {
   LessonRecordingAudioSummary,
   LessonRecordingNotice,
@@ -20,6 +21,8 @@ type UseWorkbookLessonRecordingParams = {
   isTeacher: boolean;
   canRecord: boolean;
   canUseMedia: boolean;
+  micEnabled: boolean;
+  setMicEnabled: (next: SetStateAction<boolean>) => void;
   sessionTitle?: string | null;
   setError: (
     updater: string | null | ((current: string | null) => string | null)
@@ -31,6 +34,8 @@ type LessonRecordingRuntime = {
   microphoneStream: MediaStream | null;
   recorderStream: MediaStream | null;
   mixedAudioCleanup: (() => void) | null;
+  setMixedMicrophoneEnabled: ((enabled: boolean) => void) | null;
+  videoWatermarkCleanup: (() => void) | null;
   displayVideoTrack: MediaStreamTrack | null;
   displayEndedHandler: (() => void) | null;
   extension: "webm" | "mp4";
@@ -64,6 +69,8 @@ export const useWorkbookLessonRecording = ({
   isTeacher,
   canRecord,
   canUseMedia,
+  micEnabled,
+  setMicEnabled,
   sessionTitle,
   setError,
 }: UseWorkbookLessonRecordingParams) => {
@@ -81,6 +88,8 @@ export const useWorkbookLessonRecording = ({
     microphoneStream: null,
     recorderStream: null,
     mixedAudioCleanup: null,
+    setMixedMicrophoneEnabled: null,
+    videoWatermarkCleanup: null,
     displayVideoTrack: null,
     displayEndedHandler: null,
     extension: "webm",
@@ -106,6 +115,9 @@ export const useWorkbookLessonRecording = ({
     if (runtime.mixedAudioCleanup) {
       runtime.mixedAudioCleanup();
     }
+    if (runtime.videoWatermarkCleanup) {
+      runtime.videoWatermarkCleanup();
+    }
 
     const trackSet = new Set<MediaStreamTrack>();
     [runtime.displayStream, runtime.microphoneStream, runtime.recorderStream].forEach((stream) => {
@@ -124,6 +136,8 @@ export const useWorkbookLessonRecording = ({
       microphoneStream: null,
       recorderStream: null,
       mixedAudioCleanup: null,
+      setMixedMicrophoneEnabled: null,
+      videoWatermarkCleanup: null,
       displayVideoTrack: null,
       displayEndedHandler: null,
       extension: "webm",
@@ -255,6 +269,8 @@ export const useWorkbookLessonRecording = ({
     let displayStream: MediaStream | null = null;
     let microphoneStream: MediaStream | null = null;
     let mixedAudioCleanup: (() => void) | null = null;
+    let setMixedMicrophoneEnabled: ((enabled: boolean) => void) | null = null;
+    let videoWatermarkCleanup: (() => void) | null = null;
 
     try {
       displayStream = await navigator.mediaDevices.getDisplayMedia(
@@ -304,17 +320,45 @@ export const useWorkbookLessonRecording = ({
     }
 
     const recorderStream = new MediaStream();
-    recorderStream.addTrack(displayVideoTrack);
+    let recorderVideoTrack: MediaStreamTrack | null = null;
+    try {
+      const watermarkedVideo = await createLessonRecordingVideoTrackWithWatermark(displayVideoTrack);
+      recorderVideoTrack = watermarkedVideo.track;
+      videoWatermarkCleanup = watermarkedVideo.cleanup;
+    } catch {
+      recorderVideoTrack = displayVideoTrack.clone();
+      videoWatermarkCleanup = () => {
+        try {
+          recorderVideoTrack?.stop();
+        } catch {
+          // ignore cleanup failures
+        }
+      };
+    }
+    recorderStream.addTrack(recorderVideoTrack);
+
+    const hasMicrophoneTrack = Boolean(microphoneStream?.getAudioTracks()[0]);
+    const shouldEnableMicrophone = hasMicrophoneTrack;
+    if (hasMicrophoneTrack) {
+      microphoneStream?.getAudioTracks().forEach((track) => {
+        track.enabled = shouldEnableMicrophone;
+      });
+      if (!micEnabled) {
+        setMicEnabled(true);
+      }
+    }
 
     let resolvedAudioSummary = INITIAL_AUDIO_SUMMARY;
     try {
       const mixedAudio = await mixLessonRecordingAudio({
         displayStream,
         microphoneStream,
+        microphoneEnabled: shouldEnableMicrophone,
       });
       if (mixedAudio?.track) {
         recorderStream.addTrack(mixedAudio.track);
         mixedAudioCleanup = mixedAudio.cleanup;
+        setMixedMicrophoneEnabled = mixedAudio.setMicrophoneEnabled ?? null;
         resolvedAudioSummary = mixedAudio.summary;
       }
     } catch {
@@ -376,6 +420,8 @@ export const useWorkbookLessonRecording = ({
       microphoneStream,
       recorderStream,
       mixedAudioCleanup,
+      setMixedMicrophoneEnabled,
+      videoWatermarkCleanup,
       displayVideoTrack,
       displayEndedHandler: onDisplayEnded,
       extension: profile.extension,
@@ -389,6 +435,12 @@ export const useWorkbookLessonRecording = ({
         tone: "warning",
         message:
           "Запись начата без аудио. Проверьте, что для вкладки включен захват звука и доступ к микрофону.",
+      });
+    } else if (!resolvedAudioSummary.hasDisplayAudio) {
+      setNotice({
+        tone: "warning",
+        message:
+          "Для записи голосов всех участников выбирайте вкладку с опцией «Поделиться аудио».",
       });
     }
     try {
@@ -416,7 +468,9 @@ export const useWorkbookLessonRecording = ({
     cleanupRuntimeResources,
     finalizeRecording,
     isTeacher,
+    micEnabled,
     setError,
+    setMicEnabled,
     stopRecording,
   ]);
 
@@ -478,6 +532,14 @@ export const useWorkbookLessonRecording = ({
     setNotice(null);
   }, []);
 
+  const toggleMicrophone = useCallback(() => {
+    if (!canUseMedia) {
+      setError("Микрофон недоступен для текущего участника.");
+      return;
+    }
+    setMicEnabled((current) => !current);
+  }, [canUseMedia, setError, setMicEnabled]);
+
   useEffect(() => {
     if (status !== "recording") return;
     const timer = window.setInterval(() => {
@@ -501,6 +563,14 @@ export const useWorkbookLessonRecording = ({
       stopRecording("interrupted");
     }
   }, [canRecord, status, stopRecording]);
+
+  useEffect(() => {
+    const runtime = runtimeRef.current;
+    runtime.microphoneStream?.getAudioTracks().forEach((track) => {
+      track.enabled = micEnabled;
+    });
+    runtime.setMixedMicrophoneEnabled?.(micEnabled);
+  }, [micEnabled]);
 
   useEffect(() => {
     const isRecordingActive = status === "recording" || status === "paused" || status === "stopping";
@@ -531,7 +601,8 @@ export const useWorkbookLessonRecording = ({
 
   const isSupported = isLessonRecordingSupported();
   const canShowControls = isTeacher;
-  const isWatermarkVisible = status === "recording" || status === "paused" || status === "stopping";
+  const isRecordingActive = status === "recording" || status === "paused";
+  const canToggleMicrophone = isRecordingActive && canUseMedia && audioSummary.hasMicrophoneAudio;
 
   return useMemo(
     () => ({
@@ -542,23 +613,26 @@ export const useWorkbookLessonRecording = ({
       audioSummary,
       isSupported,
       canShowControls,
-      isWatermarkVisible,
+      micEnabled,
+      canToggleMicrophone,
       openPreStartDialog,
       closePreStartDialog,
       startRecording,
       pauseRecording,
       resumeRecording,
+      toggleMicrophone,
       stopRecording,
       closeNotice,
     }),
     [
       audioSummary,
+      canToggleMicrophone,
       canShowControls,
       closeNotice,
       closePreStartDialog,
       elapsedMs,
       isSupported,
-      isWatermarkVisible,
+      micEnabled,
       notice,
       openPreStartDialog,
       pauseRecording,
@@ -566,6 +640,7 @@ export const useWorkbookLessonRecording = ({
       resumeRecording,
       startRecording,
       status,
+      toggleMicrophone,
       stopRecording,
     ]
   );

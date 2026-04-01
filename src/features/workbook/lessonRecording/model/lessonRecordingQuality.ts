@@ -2,6 +2,24 @@ import type { LessonRecordingProfile } from "./lessonRecordingTypes";
 
 const PROFILE_CANDIDATES: LessonRecordingProfile[] = [
   {
+    mimeType: "video/mp4;codecs=avc1.640028,mp4a.40.2",
+    extension: "mp4",
+    videoBitsPerSecond: 14_000_000,
+    audioBitsPerSecond: 192_000,
+  },
+  {
+    mimeType: "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+    extension: "mp4",
+    videoBitsPerSecond: 12_000_000,
+    audioBitsPerSecond: 192_000,
+  },
+  {
+    mimeType: "video/mp4",
+    extension: "mp4",
+    videoBitsPerSecond: 10_000_000,
+    audioBitsPerSecond: 160_000,
+  },
+  {
     mimeType: "video/webm;codecs=vp9,opus",
     extension: "webm",
     videoBitsPerSecond: 14_000_000,
