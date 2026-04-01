@@ -1,4 +1,6 @@
 import {
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useMemo,
@@ -111,7 +113,6 @@ import { useWorkbookSessionRealtimeLifecycle } from "./useWorkbookSessionRealtim
 import { useWorkbookToolRuntimeHandlers } from "./useWorkbookToolRuntimeHandlers";
 import { WorkbookSessionWorkspace } from "./WorkbookSessionWorkspace";
 import { WorkbookSessionSidebar } from "./WorkbookSessionSidebar";
-import { WorkbookSessionPageManagerFullscreen } from "./WorkbookSessionPageManagerFullscreen";
 import { useWorkbookSessionSelectionViewportState } from "./useWorkbookSessionSelectionViewportState";
 import { buildWorkbookSessionSelectionViewportParams } from "./buildWorkbookSessionSelectionViewportParams";
 import { useWorkbookSessionDerivedState } from "./useWorkbookSessionDerivedState";
@@ -123,7 +124,6 @@ import {
   type WorkbookToolSettingsPopoverState,
   type WorkbookToolSettingsPopoverTool,
 } from "./WorkbookSessionToolSettingsPopover";
-import { WorkbookImportModal } from "./WorkbookImportModal";
 import { WorkbookImportModalBoundary } from "./WorkbookImportModalBoundary";
 import { captureWorkbookSessionPreviewDataUrl } from "./workbookHubPreviewCapture";
 import { useWorkbookPageTransitionOverlay } from "./useWorkbookPageTransitionOverlay";
@@ -132,6 +132,18 @@ import {
   queueWorkbookHubPreviewRefreshHint,
   type WorkbookHubPreviewBridgeMessage,
 } from "./workbookHubPreviewBridge";
+
+const WorkbookSessionPageManagerFullscreen = lazy(() =>
+  import("./WorkbookSessionPageManagerFullscreen").then((module) => ({
+    default: module.WorkbookSessionPageManagerFullscreen,
+  }))
+);
+
+const WorkbookImportModal = lazy(() =>
+  import("./WorkbookImportModal").then((module) => ({
+    default: module.WorkbookImportModal,
+  }))
+);
 
 export default function WorkbookSessionPage() {
   const { user, isAuthReady, openAuthModal } = useAuth();
@@ -2969,34 +2981,42 @@ export default function WorkbookSessionPage() {
         active={isImportModalOpen}
         onReset={handleImportModalClose}
       >
-        <WorkbookImportModal
-          open={isImportModalOpen}
-          sessionId={sessionId}
-          initialFiles={pendingImportFiles}
-          container={overlayContainer}
-          onClose={handleImportModalClose}
-          onImportFile={handleImportModalFile}
-        />
+        {isImportModalOpen ? (
+          <Suspense fallback={null}>
+            <WorkbookImportModal
+              open={isImportModalOpen}
+              sessionId={sessionId}
+              initialFiles={pendingImportFiles}
+              container={overlayContainer}
+              onClose={handleImportModalClose}
+              onImportFile={handleImportModalFile}
+            />
+          </Suspense>
+        ) : null}
       </WorkbookImportModalBoundary>
 
-      <WorkbookSessionPageManagerFullscreen
-        open={isPageManagerOpen}
-        overlayContainer={overlayContainer}
-        pageOptions={selectionViewportState.boardPageOptions}
-        boardObjects={boardObjects}
-        boardStrokes={boardStrokes}
-        annotationStrokes={annotationStrokes}
-        imageAssetUrls={selectionViewportState.imageAssetUrls}
-        boardBackgroundColor={boardSettings.backgroundColor}
-        boardGridColor={boardSettings.gridColor}
-        boardGridSize={boardSettings.gridSize}
-        currentPage={safeCurrentBoardPage}
-        canManageBoardPages={canManageSharedBoardSettings}
-        isBoardPageMutationPending={isBoardPageMutationPending}
-        onClose={handleClosePageManager}
-        onSelectPage={handleSelectBoardPage}
-        onReorderPages={handleReorderBoardPages}
-      />
+      {isPageManagerOpen ? (
+        <Suspense fallback={null}>
+          <WorkbookSessionPageManagerFullscreen
+            open={isPageManagerOpen}
+            overlayContainer={overlayContainer}
+            pageOptions={selectionViewportState.boardPageOptions}
+            boardObjects={boardObjects}
+            boardStrokes={boardStrokes}
+            annotationStrokes={annotationStrokes}
+            imageAssetUrls={selectionViewportState.imageAssetUrls}
+            boardBackgroundColor={boardSettings.backgroundColor}
+            boardGridColor={boardSettings.gridColor}
+            boardGridSize={boardSettings.gridSize}
+            currentPage={safeCurrentBoardPage}
+            canManageBoardPages={canManageSharedBoardSettings}
+            isBoardPageMutationPending={isBoardPageMutationPending}
+            onClose={handleClosePageManager}
+            onSelectPage={handleSelectBoardPage}
+            onReorderPages={handleReorderBoardPages}
+          />
+        </Suspense>
+      ) : null}
 
       <WorkbookLessonRecordingDialogs
         overlayContainer={overlayContainer}

@@ -111,11 +111,33 @@ export default defineConfig(({ mode, command }) => {
             if (normalizedId.includes("/src/features/workbook/model/solid3d")) {
               return "workbook-solid3d";
             }
+            if (normalizedId.includes("/src/features/workbook/lessonRecording/")) {
+              return "workbook-recording";
+            }
             if (normalizedId.includes("/src/features/auth-ambient/")) {
               return "auth-ambient";
             }
             if (normalizedId.includes("/src/features/workbook/model/functionGraph")) {
               return "workbook-graph";
+            }
+            if (
+              normalizedId.includes("/src/pages/workbook/WorkbookSessionPageManagerFullscreen") ||
+              normalizedId.includes("/src/pages/workbook/WorkbookImportModal")
+            ) {
+              return "workbook-session-modal-tools";
+            }
+            if (
+              normalizedId.includes("/src/pages/workbook/useWorkbookSession") ||
+              normalizedId.includes("/src/pages/workbook/buildWorkbookSession") ||
+              normalizedId.includes("/src/pages/workbook/workbookSession")
+            ) {
+              return "workbook-session-runtime";
+            }
+            if (
+              normalizedId.includes("/src/pages/workbook/WorkbookSessionTransformPanel") ||
+              normalizedId.includes("/src/pages/workbook/WorkbookSessionOverlays")
+            ) {
+              return "workbook-session-panels";
             }
           },
         },
