@@ -20,6 +20,12 @@ import {
 } from "@/features/workbook/model/api";
 import { useWorkbookSessionStore } from "@/features/workbook/model/workbookSessionStore";
 import {
+  WorkbookLessonRecordingControls,
+  WorkbookLessonRecordingDialogs,
+  WorkbookLessonRecordingWatermark,
+  useWorkbookLessonRecording,
+} from "@/features/workbook/lessonRecording";
+import {
   startWorkbookPerformanceSession,
 } from "@/features/workbook/model/workbookPerformance";
 import type {
@@ -611,6 +617,43 @@ export default function WorkbookSessionPage() {
     boardObjects,
   });
   const showSidebarParticipantsInLayout = showSidebarParticipants;
+  const lessonRecording = useWorkbookLessonRecording({
+    isTeacher: isTeacherActor && session?.kind === "CLASS",
+    canRecord:
+      isTeacherActor &&
+      session?.kind === "CLASS" &&
+      !isEnded &&
+      !isWorkspaceInteractionBlocked,
+    canUseMedia,
+    sessionTitle: session?.title,
+    setError,
+  });
+  const lessonRecordingControls = useMemo(
+    () =>
+      lessonRecording.canShowControls ? (
+        <WorkbookLessonRecordingControls
+          status={lessonRecording.status}
+          elapsedMs={lessonRecording.elapsedMs}
+          isSupported={lessonRecording.isSupported}
+          audioSummary={lessonRecording.audioSummary}
+          onRequestStart={lessonRecording.openPreStartDialog}
+          onPause={lessonRecording.pauseRecording}
+          onResume={lessonRecording.resumeRecording}
+          onStop={() => lessonRecording.stopRecording("stopped")}
+        />
+      ) : null,
+    [
+      lessonRecording.audioSummary,
+      lessonRecording.canShowControls,
+      lessonRecording.elapsedMs,
+      lessonRecording.isSupported,
+      lessonRecording.openPreStartDialog,
+      lessonRecording.pauseRecording,
+      lessonRecording.resumeRecording,
+      lessonRecording.status,
+      lessonRecording.stopRecording,
+    ]
+  );
   const {
     clampedEraserRadius,
     resetToolRuntimeToSelect,
@@ -2715,6 +2758,7 @@ export default function WorkbookSessionPage() {
     showInviteLinkButton: canManageSession && session?.kind === "CLASS",
     copyingInviteLink,
     onCopyInviteLink: handleCopyInviteLink,
+    recordingControls: lessonRecordingControls,
     contextbarRef,
     isDockedContextbarViewport,
     isCompactViewport,
@@ -2901,6 +2945,11 @@ export default function WorkbookSessionPage() {
           }}
           docsWindowOpen={docsWindow.open}
           docsWindowProps={docsWindowProps}
+          lessonRecordingWatermark={
+            <WorkbookLessonRecordingWatermark
+              visible={lessonRecording.isWatermarkVisible}
+            />
+          }
         />
         <WorkbookSessionSidebar
           isCompactViewport={isCompactViewport}
@@ -2945,6 +2994,19 @@ export default function WorkbookSessionPage() {
         onClose={handleClosePageManager}
         onSelectPage={handleSelectBoardPage}
         onReorderPages={handleReorderBoardPages}
+      />
+
+      <WorkbookLessonRecordingDialogs
+        overlayContainer={overlayContainer}
+        isCompactDialogViewport={isCompactDialogViewport}
+        preStartDialogOpen={lessonRecording.preStartDialogOpen}
+        isStarting={lessonRecording.status === "starting"}
+        onClosePreStartDialog={lessonRecording.closePreStartDialog}
+        onConfirmPreStartDialog={() => {
+          void lessonRecording.startRecording();
+        }}
+        notice={lessonRecording.notice}
+        onCloseNotice={lessonRecording.closeNotice}
       />
 
       {confirmDialogContent ? (

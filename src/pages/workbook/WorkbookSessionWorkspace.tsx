@@ -3,6 +3,7 @@ import {
   lazy,
   type DragEventHandler,
   type MutableRefObject,
+  type ReactNode,
 } from "react";
 import { CircularProgress, IconButton, Tooltip } from "@mui/material";
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
@@ -23,6 +24,7 @@ type WorkbookSessionWorkspaceProps = {
   boardShellProps: React.ComponentProps<typeof WorkbookSessionBoardShell>;
   docsWindowOpen: boolean;
   docsWindowProps: WorkbookSessionDocsWindowProps;
+  lessonRecordingWatermark?: ReactNode;
   onWorkspaceDragOver?: DragEventHandler<HTMLDivElement>;
   onWorkspaceDrop?: DragEventHandler<HTMLDivElement>;
 };
@@ -36,6 +38,7 @@ export function WorkbookSessionWorkspace({
   boardShellProps,
   docsWindowOpen,
   docsWindowProps,
+  lessonRecordingWatermark,
   onWorkspaceDragOver,
   onWorkspaceDrop,
 }: WorkbookSessionWorkspaceProps) {
@@ -66,6 +69,7 @@ export function WorkbookSessionWorkspace({
         <WorkbookSessionContextbar {...contextbarProps} />
       </div>
       <WorkbookSessionBoardShell {...boardShellProps} />
+      {lessonRecordingWatermark}
 
       {docsWindowOpen ? (
         <Suspense fallback={null}>

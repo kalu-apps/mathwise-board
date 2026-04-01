@@ -71,6 +71,7 @@ interface WorkbookSessionContextbarProps {
   showInviteLinkButton: boolean;
   copyingInviteLink: boolean;
   onCopyInviteLink: () => Promise<void> | void;
+  recordingControls?: ReactNode;
   contextbarRef: MutableRefObject<HTMLDivElement | null>;
   isDockedContextbarViewport: boolean;
   isCompactViewport: boolean;
@@ -118,6 +119,7 @@ export function WorkbookSessionContextbar({
   showInviteLinkButton,
   copyingInviteLink,
   onCopyInviteLink,
+  recordingControls,
   contextbarRef,
   isDockedContextbarViewport,
   isCompactViewport,
@@ -357,6 +359,9 @@ export function WorkbookSessionContextbar({
             </IconButton>
           </span>
         </Tooltip>
+        {recordingControls ? (
+          <span className="workbook-session__recording-controls-wrap">{recordingControls}</span>
+        ) : null}
         <Tooltip title={hotkeysTooltipContent} placement="bottom-start" arrow>
           <span>
             <IconButton size="small" className="workbook-session__toolbar-icon">
