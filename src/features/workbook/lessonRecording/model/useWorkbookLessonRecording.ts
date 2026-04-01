@@ -18,7 +18,7 @@ type DisplayMediaWithHints = MediaStreamConstraints & {
 };
 
 type UseWorkbookLessonRecordingParams = {
-  isTeacher: boolean;
+  canAccessRecording: boolean;
   canRecord: boolean;
   canUseMedia: boolean;
   micEnabled: boolean;
@@ -66,7 +66,7 @@ const resolveNowElapsedMs = (params: {
 };
 
 export const useWorkbookLessonRecording = ({
-  isTeacher,
+  canAccessRecording,
   canRecord,
   canUseMedia,
   micEnabled,
@@ -231,8 +231,10 @@ export const useWorkbookLessonRecording = ({
   );
 
   const startRecording = useCallback(async () => {
-    if (!isTeacher) {
-      setError("Запуск записи доступен только преподавателю.");
+    if (!canAccessRecording) {
+      setError(
+        "Запуск записи доступен преподавателю класса или владельцу личной тетради."
+      );
       return;
     }
     if (!canRecord) {
@@ -463,11 +465,11 @@ export const useWorkbookLessonRecording = ({
       return current;
     });
   }, [
+    canAccessRecording,
     canRecord,
     canUseMedia,
     cleanupRuntimeResources,
     finalizeRecording,
-    isTeacher,
     micEnabled,
     setError,
     setMicEnabled,
@@ -475,8 +477,10 @@ export const useWorkbookLessonRecording = ({
   ]);
 
   const openPreStartDialog = useCallback(() => {
-    if (!isTeacher) {
-      setError("Запуск записи доступен только преподавателю.");
+    if (!canAccessRecording) {
+      setError(
+        "Запуск записи доступен преподавателю класса или владельцу личной тетради."
+      );
       return;
     }
     if (!canRecord) {
@@ -490,7 +494,7 @@ export const useWorkbookLessonRecording = ({
     if (statusRef.current !== "idle") return;
     setNotice(null);
     setPreStartDialogOpen(true);
-  }, [canRecord, isTeacher, setError]);
+  }, [canAccessRecording, canRecord, setError]);
 
   const closePreStartDialog = useCallback(() => {
     if (statusRef.current === "starting") return;
@@ -600,7 +604,7 @@ export const useWorkbookLessonRecording = ({
   );
 
   const isSupported = isLessonRecordingSupported();
-  const canShowControls = isTeacher;
+  const canShowControls = canAccessRecording;
   const isRecordingActive = status === "recording" || status === "paused";
   const canToggleMicrophone = isRecordingActive && canUseMedia && audioSummary.hasMicrophoneAudio;
 

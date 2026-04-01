@@ -628,11 +628,15 @@ export default function WorkbookSessionPage() {
     boardObjects,
   });
   const showSidebarParticipantsInLayout = showSidebarParticipants;
+  const canAccessLessonRecording = useMemo(() => {
+    if (session?.kind === "PERSONAL") return true;
+    if (session?.kind === "CLASS") return isTeacherActor;
+    return false;
+  }, [isTeacherActor, session?.kind]);
   const lessonRecording = useWorkbookLessonRecording({
-    isTeacher: isTeacherActor && session?.kind === "CLASS",
+    canAccessRecording: canAccessLessonRecording,
     canRecord:
-      isTeacherActor &&
-      session?.kind === "CLASS" &&
+      canAccessLessonRecording &&
       !isEnded &&
       !isWorkspaceInteractionBlocked,
     canUseMedia,
