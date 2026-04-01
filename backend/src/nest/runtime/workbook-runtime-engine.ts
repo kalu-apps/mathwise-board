@@ -2508,6 +2508,7 @@ export const handleWorkbookApiRequestByDomains = async (
           {
             authCookieName: AUTH_COOKIE_NAME,
             teacherPassword: WHITEBOARD_TEACHER_PASSWORD,
+            isTeacherEmail,
             resolveAuthUser,
             readBody,
             unauthorized,

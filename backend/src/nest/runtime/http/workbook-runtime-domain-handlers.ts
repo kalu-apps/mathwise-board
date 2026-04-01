@@ -31,6 +31,7 @@ type JsonResponse = (res: ServerResponse, status: number, payload: unknown) => v
 type AuthHandlerDeps = {
   authCookieName: string;
   teacherPassword: string;
+  isTeacherEmail: (value: unknown) => boolean;
   resolveAuthUser: ResolveAuthUser;
   readBody: (req: IncomingMessage) => Promise<unknown>;
   unauthorized: (res: ServerResponse, message?: string) => void;
@@ -83,9 +84,10 @@ export const handleAuthDomainRoute = async (
 
   if (pathname === "/api/auth/password/login" && method === "POST") {
     const body = (await deps.readBody(req)) as { email?: string; password?: string } | null;
+    const email = String(body?.email ?? "").trim().toLowerCase();
     const password = String(body?.password ?? "").normalize("NFKC").trim();
     const teacherPassword = deps.teacherPassword.normalize("NFKC");
-    if (password !== teacherPassword) {
+    if (!deps.isTeacherEmail(email) || password !== teacherPassword) {
       deps.unauthorized(res, "Неверный логин или пароль.");
       return true;
     }
