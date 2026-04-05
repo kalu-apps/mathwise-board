@@ -493,42 +493,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     [selectedStroke]
   );
 
-  const renderedStrokesForDisplay = useMemo(() => {
-    if (!movingStrokeSelection || !selectedStroke || !movingStrokeKey) {
-      return renderedStrokes;
-    }
-    let replaced = false;
-    const sourceStrokePrefix = `${movingStrokeSelection.id}::preview-`;
-    const nextStrokes = renderedStrokes
-      .map((stroke) => {
-        const isSourceStroke =
-          stroke.layer === movingStrokeSelection.layer &&
-          (stroke.id === movingStrokeSelection.id || stroke.id.startsWith(sourceStrokePrefix));
-        if (!isSourceStroke || replaced) return stroke;
-        replaced = true;
-        return selectedStroke;
-      })
-      .filter((stroke, index, list) => {
-        if (
-          stroke.layer === movingStrokeSelection.layer &&
-          (stroke.id === movingStrokeSelection.id || stroke.id.startsWith(sourceStrokePrefix))
-        ) {
-          const firstMatchIndex = list.findIndex(
-            (candidate) =>
-              candidate.layer === movingStrokeSelection.layer &&
-              (candidate.id === movingStrokeSelection.id ||
-                candidate.id.startsWith(sourceStrokePrefix))
-          );
-          return index === firstMatchIndex;
-        }
-        return true;
-      });
-    if (replaced) {
-      return nextStrokes;
-    }
-    return [...renderedStrokes, selectedStroke];
-  }, [movingStrokeKey, movingStrokeSelection, renderedStrokes, selectedStroke]);
-
   const areaSelectionOverlay = useMemo(() => {
     if (!areaSelection) return null;
     if (!moving || moving.object.id !== "__area-selection__") {
@@ -746,6 +710,42 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     onStrokeReplace,
     onObjectUpdate,
   });
+
+  const renderedStrokesForDisplay = useMemo(() => {
+    if (!movingStrokeSelection || !selectedStroke || !movingStrokeKey) {
+      return renderedStrokes;
+    }
+    let replaced = false;
+    const sourceStrokePrefix = `${movingStrokeSelection.id}::preview-`;
+    const nextStrokes = renderedStrokes
+      .map((stroke) => {
+        const isSourceStroke =
+          stroke.layer === movingStrokeSelection.layer &&
+          (stroke.id === movingStrokeSelection.id || stroke.id.startsWith(sourceStrokePrefix));
+        if (!isSourceStroke || replaced) return stroke;
+        replaced = true;
+        return selectedStroke;
+      })
+      .filter((stroke, index, list) => {
+        if (
+          stroke.layer === movingStrokeSelection.layer &&
+          (stroke.id === movingStrokeSelection.id || stroke.id.startsWith(sourceStrokePrefix))
+        ) {
+          const firstMatchIndex = list.findIndex(
+            (candidate) =>
+              candidate.layer === movingStrokeSelection.layer &&
+              (candidate.id === movingStrokeSelection.id ||
+                candidate.id.startsWith(sourceStrokePrefix))
+          );
+          return index === firstMatchIndex;
+        }
+        return true;
+      });
+    if (replaced) {
+      return nextStrokes;
+    }
+    return [...renderedStrokes, selectedStroke];
+  }, [movingStrokeKey, movingStrokeSelection, renderedStrokes, selectedStroke]);
 
   const {
     selectedPreviewObject,
