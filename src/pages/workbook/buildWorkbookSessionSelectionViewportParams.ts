@@ -128,10 +128,12 @@ export const buildWorkbookSessionSelectionViewportParams = ({
     boardStrokes: data.boardStrokes,
     annotationStrokes: data.annotationStrokes,
     incomingEraserPreviews: page.incomingEraserPreviews,
+    currentPage: scene.currentBoardPage,
     boardSettings: {
       pagesCount: data.boardSettings.pagesCount,
-      currentPage: data.boardSettings.currentPage,
       activeFrameId: data.boardSettings.activeFrameId,
+      pageOrder: data.boardSettings.pageOrder,
+      pageTitles: data.boardSettings.pageTitles,
     },
     frameFocusMode: page.frameFocusMode,
     selectedObjectId: scene.selectedObjectId,

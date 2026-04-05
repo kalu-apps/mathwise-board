@@ -60,10 +60,10 @@ interface UseWorkbookCanvasPropsParams {
     | "gridColor"
     | "backgroundColor"
     | "showPageNumbers"
-    | "currentPage"
     | "autoSectionDividers"
     | "dividerStep"
   >;
+  currentPage: number;
   viewportZoom: number;
   canvasVisibilityMode: WorkbookCanvasVisibilityMode;
   imageAssetUrls: Record<string, string>;
@@ -135,6 +135,7 @@ export const buildWorkbookCanvasProps = ({
   graphDraftFunctions,
   lineStyle,
   boardSettings,
+  currentPage,
   viewportZoom,
   canvasVisibilityMode,
   imageAssetUrls,
@@ -210,7 +211,7 @@ export const buildWorkbookCanvasProps = ({
   imageAssetUrls,
   incomingEraserPreviews: visibleIncomingEraserPreviews,
   showPageNumbers: boardSettings.showPageNumbers,
-  currentPage: boardSettings.currentPage,
+  currentPage,
   disabled: !canEdit || boardLocked,
   selectedObjectId,
   selectedConstraintId,

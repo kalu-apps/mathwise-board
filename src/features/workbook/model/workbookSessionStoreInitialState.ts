@@ -41,6 +41,7 @@ export const initialCollabSlice = (): WorkbookSessionCollabSlice => ({
 export const initialSceneSlice = (): WorkbookSessionSceneSlice => ({
   selectedObjectId: null,
   selectedConstraintId: null,
+  currentBoardPage: 1,
   canvasViewport: { x: 0, y: 0 },
   viewportZoom: 1,
 });

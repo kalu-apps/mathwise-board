@@ -45,7 +45,7 @@ type UseWorkbookObjectMutationHandlersParams = {
   canDraw: boolean;
   canSelect: boolean;
   canManageSession: boolean;
-  boardSettingsCurrentPage: number;
+  currentBoardPage: number;
   activeSceneLayerId: string;
   userId?: string;
   volatilePreviewQueueMax: number;
@@ -86,7 +86,7 @@ export const useWorkbookObjectMutationHandlers = ({
   canDraw,
   canSelect,
   canManageSession,
-  boardSettingsCurrentPage,
+  currentBoardPage,
   activeSceneLayerId,
   userId,
   volatilePreviewQueueMax,
@@ -127,7 +127,7 @@ export const useWorkbookObjectMutationHandlers = ({
         object.meta && typeof object.meta === "object" ? object.meta : {};
       let objectWithPage: WorkbookBoardObject = {
         ...object,
-        page: object.page ?? boardSettingsCurrentPage,
+        page: object.page ?? currentBoardPage,
         meta: {
           ...currentMeta,
           sceneLayerId: activeSceneLayerId,
@@ -282,7 +282,7 @@ export const useWorkbookObjectMutationHandlers = ({
     [
       sessionId,
       canDraw,
-      boardSettingsCurrentPage,
+      currentBoardPage,
       activeSceneLayerId,
       commitInteractiveBoardObjects,
       setError,

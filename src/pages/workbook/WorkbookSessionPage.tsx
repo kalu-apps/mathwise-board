@@ -96,6 +96,9 @@ import {
   TAB_LOCK_HEARTBEAT_MS,
   WORKBOOK_CHAT_EMOJIS,
   MAIN_SCENE_LAYER_ID,
+  normalizeWorkbookPageOrder,
+  resolveMaxKnownWorkbookPage,
+  toSafeWorkbookPage,
   getSectionVertexLabel,
   getSolidVertexLabel,
 } from "./WorkbookSessionPage.core";
@@ -171,6 +174,7 @@ export default function WorkbookSessionPage() {
   );
   const selectedObjectId = useWorkbookSessionStore((state) => state.scene.selectedObjectId);
   const selectedConstraintId = useWorkbookSessionStore((state) => state.scene.selectedConstraintId);
+  const currentBoardPage = useWorkbookSessionStore((state) => state.scene.currentBoardPage);
   const canvasViewport = useWorkbookSessionStore((state) => state.scene.canvasViewport);
   const viewportZoom = useWorkbookSessionStore((state) => state.scene.viewportZoom);
   const focusPoint = useWorkbookSessionStore((state) => state.runtime.focusPoint);
@@ -194,10 +198,11 @@ export default function WorkbookSessionPage() {
     () => ({
       selectedObjectId,
       selectedConstraintId,
+      currentBoardPage,
       canvasViewport,
       viewportZoom,
     }),
-    [selectedObjectId, selectedConstraintId, canvasViewport, viewportZoom]
+    [selectedObjectId, selectedConstraintId, currentBoardPage, canvasViewport, viewportZoom]
   );
 
   useEffect(() => {
@@ -263,6 +268,7 @@ export default function WorkbookSessionPage() {
     setFloatingPanelsTop,
     setSelectedObjectId,
     setSelectedConstraintId,
+    setCurrentBoardPage,
     setCanvasViewport,
     setViewportZoom,
     setFocusPoint,
@@ -478,6 +484,46 @@ export default function WorkbookSessionPage() {
     entityType: "point" | "segment";
     entityId: string;
   } | null>(null);
+  const currentBoardPageRef = useRef<number>(Math.max(1, Math.round(currentBoardPage || 1)));
+  const initializedLocalPageSessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    currentBoardPageRef.current = Math.max(1, Math.round(currentBoardPage || 1));
+  }, [currentBoardPage]);
+
+  useEffect(() => {
+    initializedLocalPageSessionIdRef.current = null;
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!bootstrapReady || !sessionId || !session) return;
+    if (initializedLocalPageSessionIdRef.current === sessionId) return;
+    initializedLocalPageSessionIdRef.current = sessionId;
+    const maxKnownPage = resolveMaxKnownWorkbookPage({
+      pagesCount: boardSettings.pagesCount,
+      boardObjects,
+      boardStrokes,
+      annotationStrokes,
+    });
+    const normalizedOrder = normalizeWorkbookPageOrder(boardSettings.pageOrder, maxKnownPage);
+    const preferredPage = Math.min(maxKnownPage, toSafeWorkbookPage(boardSettings.currentPage));
+    const nextLocalPage = normalizedOrder.includes(preferredPage)
+      ? preferredPage
+      : normalizedOrder[0] ?? 1;
+    setCurrentBoardPage(nextLocalPage);
+  }, [
+    annotationStrokes,
+    boardObjects,
+    boardSettings.currentPage,
+    boardSettings.pageOrder,
+    boardSettings.pagesCount,
+    boardStrokes,
+    bootstrapReady,
+    session,
+    sessionId,
+    setCurrentBoardPage,
+  ]);
+
   const handleSessionRootRef = useCallback(
     (node: HTMLElement | null) => {
       sessionRootRef.current = node;
@@ -1202,7 +1248,6 @@ export default function WorkbookSessionPage() {
 
   const {
     handleSharedBoardSettingsChange,
-    handleSelectBoardPage,
     handleReorderBoardPages,
     handleAddBoardPage,
     handleDeleteBoardPage,
@@ -1310,7 +1355,7 @@ export default function WorkbookSessionPage() {
     sessionId,
     canDraw,
     canDelete,
-    boardSettingsCurrentPage: boardSettings.currentPage,
+    currentBoardPage,
     buildHistoryEntryFromEvents,
     queueStrokePreview,
     finalizeStrokePreview,
@@ -1338,7 +1383,7 @@ export default function WorkbookSessionPage() {
     canDraw,
     canSelect,
     canManageSession,
-    boardSettingsCurrentPage: boardSettings.currentPage,
+    currentBoardPage,
     activeSceneLayerId,
     userId: user?.id,
     volatilePreviewQueueMax,
@@ -1414,6 +1459,7 @@ export default function WorkbookSessionPage() {
     canSelect,
     areaSelection,
     areaSelectionHasContent,
+    currentBoardPage,
     boardSettings,
     areaFillColor: strokeColor,
     selectedObjectId,
@@ -2211,10 +2257,91 @@ export default function WorkbookSessionPage() {
     onDeleteSolid3dHostedSegment: selectedSolid3dActions.deleteSolid3dHostedSegment,
   };
 
+  const orderedBoardPages = useMemo(
+    () => selectionViewportState.boardPageOptions.map((option) => option.page),
+    [selectionViewportState.boardPageOptions]
+  );
+  const safeCurrentBoardPage = useMemo(
+    () =>
+      orderedBoardPages.includes(currentBoardPage)
+        ? currentBoardPage
+        : orderedBoardPages[0] ?? Math.max(1, Math.round(currentBoardPage || 1)),
+    [currentBoardPage, orderedBoardPages]
+  );
+  useEffect(() => {
+    if (safeCurrentBoardPage === currentBoardPage) return;
+    setCurrentBoardPage(safeCurrentBoardPage);
+  }, [currentBoardPage, safeCurrentBoardPage, setCurrentBoardPage]);
+  const handleSelectLocalBoardPage = useCallback(
+    (page: number) => {
+      const nextPage = toSafeWorkbookPage(page);
+      if (!orderedBoardPages.includes(nextPage)) return;
+      setCurrentBoardPage((current) => (current === nextPage ? current : nextPage));
+    },
+    [orderedBoardPages, setCurrentBoardPage]
+  );
+  const handleAddLocalBoardPage = useCallback(() => {
+    const maxKnownPage = resolveMaxKnownWorkbookPage({
+      pagesCount: boardSettings.pagesCount,
+      boardObjects,
+      boardStrokes,
+      annotationStrokes,
+    });
+    const nextPage = Math.max(1, maxKnownPage + 1);
+    handleAddBoardPage();
+    setCurrentBoardPage(nextPage);
+  }, [
+    annotationStrokes,
+    boardObjects,
+    boardSettings.pagesCount,
+    boardStrokes,
+    handleAddBoardPage,
+    setCurrentBoardPage,
+  ]);
+  const handleDeleteLocalBoardPage = useCallback(
+    async (targetPage: number) => {
+      const maxKnownPage = resolveMaxKnownWorkbookPage({
+        pagesCount: boardSettings.pagesCount,
+        boardObjects,
+        boardStrokes,
+        annotationStrokes,
+      });
+      const safeTargetPage = Math.min(maxKnownPage, toSafeWorkbookPage(targetPage));
+      const currentOrder = normalizeWorkbookPageOrder(boardSettings.pageOrder, maxKnownPage);
+      const nextOrder = normalizeWorkbookPageOrder(
+        currentOrder
+          .filter((pageId) => pageId !== safeTargetPage)
+          .map((pageId) => (pageId > safeTargetPage ? pageId - 1 : pageId)),
+        Math.max(1, maxKnownPage - 1)
+      );
+      const safeCurrentLocalPage = Math.min(maxKnownPage, toSafeWorkbookPage(currentBoardPage));
+      const nextCurrentLocalPage = safeCurrentLocalPage > safeTargetPage
+        ? safeCurrentLocalPage - 1
+        : Math.min(safeCurrentLocalPage, Math.max(1, maxKnownPage - 1));
+      await handleDeleteBoardPage(targetPage);
+      if (nextOrder.includes(nextCurrentLocalPage)) {
+        setCurrentBoardPage(nextCurrentLocalPage);
+        return;
+      }
+      setCurrentBoardPage(nextOrder[0] ?? 1);
+    },
+    [
+      annotationStrokes,
+      boardObjects,
+      boardSettings.pageOrder,
+      boardSettings.pagesCount,
+      boardStrokes,
+      currentBoardPage,
+      handleDeleteBoardPage,
+      setCurrentBoardPage,
+    ]
+  );
+
 
   const { exportBoardAsPdf, defaultExportPdfName } = useWorkbookPdfExport({
     boardSettings,
-    boardSettingsRef,
+    currentBoardPage,
+    currentBoardPageRef,
     boardObjects,
     boardStrokes,
     sessionId,
@@ -2222,7 +2349,7 @@ export default function WorkbookSessionPage() {
     exportingSections,
     setExportingSections,
     setCanvasVisibilityMode,
-    setBoardSettings,
+    setCurrentBoardPage,
     setError,
   });
 
@@ -2246,7 +2373,7 @@ export default function WorkbookSessionPage() {
     handleMenuClearBoard,
     exportBoardAsPdf,
     defaultExportPdfName,
-    handleDeleteBoardPage,
+    handleDeleteBoardPage: handleDeleteLocalBoardPage,
   });
 
   const canvasHandlers = useWorkbookCanvasHandlers({
@@ -2279,6 +2406,7 @@ export default function WorkbookSessionPage() {
     buildWorkbookSessionUtilityPanelProps({
       settings: {
         boardSettings,
+        currentBoardPage: safeCurrentBoardPage,
         onSharedBoardSettingsChange: handleSharedBoardSettingsChange,
         boardPageOptions: selectionViewportState.boardPageOptions,
         canManageSharedBoardSettings,
@@ -2354,18 +2482,11 @@ export default function WorkbookSessionPage() {
       workspaceRef.current ?? sessionRootRef.current
     );
     if (!previewDataUrl) return;
+    const safePreviewPage = Math.max(1, Math.trunc(currentBoardPage || 1));
     return {
       previewDataUrl,
-      previewAlt:
-        typeof boardSettings.currentPage === "number" &&
-        Number.isFinite(boardSettings.currentPage)
-          ? `Последний вид доски · страница ${Math.max(1, Math.trunc(boardSettings.currentPage))}`
-          : "Последний вид доски",
-      page:
-        typeof boardSettings.currentPage === "number" &&
-        Number.isFinite(boardSettings.currentPage)
-          ? Math.max(1, Math.trunc(boardSettings.currentPage))
-          : undefined,
+      previewAlt: `Последний вид доски · страница ${safePreviewPage}`,
+      page: safePreviewPage,
       viewport: {
         x: canvasViewport.x,
         y: canvasViewport.y,
@@ -2373,9 +2494,9 @@ export default function WorkbookSessionPage() {
       },
     };
   }, [
-    boardSettings.currentPage,
     canvasViewport.x,
     canvasViewport.y,
+    currentBoardPage,
     session,
     sessionRootRef,
     viewportZoom,
@@ -2509,7 +2630,7 @@ export default function WorkbookSessionPage() {
   }, [handleBack]);
 
   const { isPageTransitionActive, transitionLabel } = useWorkbookPageTransitionOverlay({
-    currentPage: boardSettings.currentPage,
+    currentPage: safeCurrentBoardPage,
     loading,
     bootstrapReady,
     boardObjectsRef,
@@ -2525,9 +2646,8 @@ export default function WorkbookSessionPage() {
     [graphDraftFunctions]
   );
   const handleOpenPageManager = useCallback(() => {
-    if (!canManageSharedBoardSettings) return;
     setIsPageManagerOpen(true);
-  }, [canManageSharedBoardSettings]);
+  }, []);
   const handleClosePageManager = useCallback(() => {
     setIsPageManagerOpen(false);
   }, []);
@@ -2583,7 +2703,7 @@ export default function WorkbookSessionPage() {
     imageAssetUrls: selectionViewportState.imageAssetUrls,
     incomingEraserPreviews: selectionViewportState.visibleIncomingEraserPreviews,
     showPageNumbers: boardSettings.showPageNumbers,
-    currentPage: boardSettings.currentPage,
+    currentPage: safeCurrentBoardPage,
     disabled: !canEdit || boardLocked,
     selectedObjectId,
     selectedConstraintId,
@@ -2657,7 +2777,6 @@ export default function WorkbookSessionPage() {
     }
     return fallback;
   };
-  const safeCurrentBoardPage = Math.max(1, Math.round(boardSettings.currentPage || 1));
   const safeTotalBoardPages = Math.max(
     safeCurrentBoardPage,
     Math.round(boardSettings.pagesCount || 1),
@@ -2762,8 +2881,8 @@ export default function WorkbookSessionPage() {
     onOpenPageManager: handleOpenPageManager,
     canManageBoardPages: canManageSharedBoardSettings,
     isBoardPageMutationPending,
-    onSelectBoardPage: handleSelectBoardPage,
-    onAddBoardPage: handleAddBoardPage,
+    onSelectBoardPage: handleSelectLocalBoardPage,
+    onAddBoardPage: handleAddLocalBoardPage,
     onDeleteBoardPage: handleRequestDeleteBoardPage,
     canUseUndo,
     undoDepth,
@@ -3020,7 +3139,7 @@ export default function WorkbookSessionPage() {
             canManageBoardPages={canManageSharedBoardSettings}
             isBoardPageMutationPending={isBoardPageMutationPending}
             onClose={handleClosePageManager}
-            onSelectPage={handleSelectBoardPage}
+            onSelectPage={handleSelectLocalBoardPage}
             onReorderPages={handleReorderBoardPages}
           />
         </Suspense>

@@ -189,7 +189,7 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
   };
   const safeCurrentBoardPage = Math.max(
     1,
-    Math.round(data.boardSettings.currentPage || 1)
+    Math.round(scene.currentBoardPage || 1)
   );
   const safeTotalBoardPages = Math.max(
     safeCurrentBoardPage,

@@ -5,6 +5,7 @@ import type { WorkbookSessionGraphPanelProps } from "./WorkbookSessionGraphPanel
 type BuildWorkbookSessionUtilityPanelPropsInput = {
   settings: {
     boardSettings: WorkbookBoardSettings;
+    currentBoardPage: number;
     onSharedBoardSettingsChange: (patch: Partial<WorkbookBoardSettings>) => void;
     boardPageOptions: WorkbookSessionBoardSettingsPanelProps["pageOptions"];
     canManageSharedBoardSettings: boolean;
@@ -45,6 +46,7 @@ export const buildWorkbookSessionUtilityPanelProps = ({
 }: BuildWorkbookSessionUtilityPanelPropsInput) => {
   const settingsPanelProps: WorkbookSessionBoardSettingsPanelProps = {
     sharedBoardSettings: settings.boardSettings,
+    currentBoardPage: settings.currentBoardPage,
     onSharedBoardSettingsChange: settings.onSharedBoardSettingsChange,
     pageOptions: settings.boardPageOptions,
     canManageSharedBoardSettings: settings.canManageSharedBoardSettings,

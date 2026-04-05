@@ -293,23 +293,11 @@ export const useWorkbookVolatileSyncPipeline = ({
     [flushQueuedVolatileSync, volatileSyncTimerRef]
   );
 
-  const queueViewportSync = useCallback(
-    (offset: WorkbookPoint) => {
-      viewportSyncQueuedOffsetRef.current = offset;
-      const elapsed = Date.now() - viewportSyncLastSentAtRef.current;
-      const delay =
-        elapsed >= VIEWPORT_SYNC_MIN_INTERVAL_MS ? 0 : VIEWPORT_SYNC_MIN_INTERVAL_MS - elapsed;
-      scheduleVolatileSyncFlush(delay);
-    },
-    [scheduleVolatileSyncFlush, viewportSyncLastSentAtRef, viewportSyncQueuedOffsetRef]
-  );
-
   const handleCanvasViewportOffsetChange = useCallback(
     (offset: WorkbookPoint) => {
       setCanvasViewport(offset);
-      queueViewportSync(offset);
     },
-    [queueViewportSync, setCanvasViewport]
+    [setCanvasViewport]
   );
 
   const queueStrokePreview = useCallback(

@@ -20,6 +20,7 @@ export type WorkbookBoardPageOption = {
 
 export type WorkbookSessionBoardSettingsPanelProps = {
   sharedBoardSettings: WorkbookBoardSettings;
+  currentBoardPage: number;
   onSharedBoardSettingsChange: (patch: Partial<WorkbookBoardSettings>) => void;
   pageOptions: WorkbookBoardPageOption[];
   canManageSharedBoardSettings: boolean;
@@ -27,6 +28,7 @@ export type WorkbookSessionBoardSettingsPanelProps = {
 
 export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBoardSettingsPanel({
   sharedBoardSettings,
+  currentBoardPage,
   onSharedBoardSettingsChange,
   pageOptions,
   canManageSharedBoardSettings,
@@ -37,7 +39,7 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
       ? pageOptions
       : [
           {
-            page: Math.max(1, Math.round(sharedBoardSettings.currentPage || 1)),
+            page: Math.max(1, Math.round(currentBoardPage || 1)),
             position: 1,
             hasContent: false,
             label: "Страница 1",
@@ -50,7 +52,7 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
             },
           },
         ];
-  const safeCurrentPage = Math.max(1, Math.round(sharedBoardSettings.currentPage || 1));
+  const safeCurrentPage = Math.max(1, Math.round(currentBoardPage || 1));
   const totalPages = Math.max(
     safeCurrentPage,
     Math.round(sharedBoardSettings.pagesCount || 1),

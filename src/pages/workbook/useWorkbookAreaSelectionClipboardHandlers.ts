@@ -39,6 +39,7 @@ type UseWorkbookAreaSelectionClipboardHandlersParams = {
   canSelect: boolean;
   areaSelection: WorkbookAreaSelection | null;
   areaSelectionHasContent: boolean;
+  currentBoardPage: number;
   boardSettings: WorkbookBoardSettings;
   areaFillColor: string;
   selectedObjectId: string | null;
@@ -69,6 +70,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
   canSelect,
   areaSelection,
   areaSelectionHasContent,
+  currentBoardPage,
   boardSettings,
   areaFillColor,
   selectedObjectId,
@@ -369,7 +371,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
       fill: normalizedColor,
       strokeWidth: 0,
       opacity: 0.24,
-      page: boardSettings.currentPage,
+      page: currentBoardPage,
       meta: {
         sceneLayerId: boardSettings.activeSceneLayerId,
         showLabels: false,
@@ -398,8 +400,8 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
     areaSelectionHasContent,
     boardObjectsRef,
     boardSettings.activeSceneLayerId,
-    boardSettings.currentPage,
     canSelect,
+    currentBoardPage,
     setAreaSelectionContextMenu,
     setError,
     userId,

@@ -30,7 +30,7 @@ type UseWorkbookStrokeCommitHandlersParams = {
   sessionId: string;
   canDraw: boolean;
   canDelete: boolean;
-  boardSettingsCurrentPage: number;
+  currentBoardPage: number;
   buildHistoryEntryFromEvents: (events: WorkbookClientEventInput[]) => unknown;
   queueStrokePreview: (payload: { stroke: WorkbookStroke; previewVersion: number }) => void;
   finalizeStrokePreview: (strokeId: string) => void;
@@ -57,7 +57,7 @@ export const useWorkbookStrokeCommitHandlers = ({
   sessionId,
   canDraw,
   canDelete,
-  boardSettingsCurrentPage,
+  currentBoardPage,
   buildHistoryEntryFromEvents,
   queueStrokePreview,
   finalizeStrokePreview,
@@ -80,14 +80,14 @@ export const useWorkbookStrokeCommitHandlers = ({
       if (payload.stroke.tool !== "pen" && payload.stroke.tool !== "highlighter") return;
       const strokeWithPage: WorkbookStroke = {
         ...payload.stroke,
-        page: Math.max(1, payload.stroke.page ?? boardSettingsCurrentPage),
+        page: Math.max(1, payload.stroke.page ?? currentBoardPage),
       };
       queueStrokePreview({
         stroke: strokeWithPage,
         previewVersion: payload.previewVersion,
       });
     },
-    [boardSettingsCurrentPage, canDraw, queueStrokePreview, sessionId]
+    [canDraw, currentBoardPage, queueStrokePreview, sessionId]
   );
 
   const commitStroke = useCallback(
@@ -96,7 +96,7 @@ export const useWorkbookStrokeCommitHandlers = ({
       const type = stroke.layer === "board" ? "board.stroke" : "annotations.stroke";
       const strokeWithPage: WorkbookStroke = {
         ...stroke,
-        page: Math.max(1, stroke.page ?? boardSettingsCurrentPage),
+        page: Math.max(1, stroke.page ?? currentBoardPage),
       };
       finalizeStrokePreview(strokeWithPage.id);
       applyLocalStrokeCollection(strokeWithPage.layer, (current) =>
@@ -137,8 +137,8 @@ export const useWorkbookStrokeCommitHandlers = ({
     [
       appendEventsAndApply,
       applyLocalStrokeCollection,
-      boardSettingsCurrentPage,
       canDraw,
+      currentBoardPage,
       finalizeStrokePreview,
       markDirty,
       sessionId,
@@ -209,7 +209,7 @@ export const useWorkbookStrokeCommitHandlers = ({
         id: payload.preserveSourceId && index === 0 ? sourceStroke.id : generateId(),
         points,
         createdAt: new Date().toISOString(),
-        page: Math.max(1, sourceStroke.page ?? boardSettingsCurrentPage),
+        page: Math.max(1, sourceStroke.page ?? currentBoardPage),
       }));
       const replacementIds = new Set(replacementStrokes.map((item) => item.id));
       finalizeStrokePreview(sourceStroke.id);
@@ -241,8 +241,8 @@ export const useWorkbookStrokeCommitHandlers = ({
     [
       appendEventsAndApply,
       applyLocalStrokeCollection,
-      boardSettingsCurrentPage,
       canDelete,
+      currentBoardPage,
       finalizeStrokePreview,
       sessionId,
       setError,
@@ -287,7 +287,7 @@ export const useWorkbookStrokeCommitHandlers = ({
           id: generateId(),
           points,
           createdAt: nowIso,
-          page: Math.max(1, sourceStroke.page ?? boardSettingsCurrentPage),
+          page: Math.max(1, sourceStroke.page ?? currentBoardPage),
         }));
         replacements.forEach((stroke) => {
           createStrokeEvents.push({
@@ -401,9 +401,9 @@ export const useWorkbookStrokeCommitHandlers = ({
     [
       appendEventsAndApply,
       applyLocalBoardObjects,
-      boardSettingsCurrentPage,
       buildHistoryEntryFromEvents,
       canDelete,
+      currentBoardPage,
       commitInteractiveBoardObjects,
       markDirty,
       sessionId,

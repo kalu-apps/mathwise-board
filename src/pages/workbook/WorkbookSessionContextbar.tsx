@@ -139,10 +139,11 @@ export function WorkbookSessionContextbar({
     0
   );
   const canMutatePages = canManageBoardPages && !isBoardPageMutationPending;
+  const canNavigatePages = !isBoardPageMutationPending && orderedPageIds.length > 0;
   const prevPageId = orderedPageIds[currentPageOrderIndex - 1] ?? null;
   const nextPageId = orderedPageIds[currentPageOrderIndex + 1] ?? null;
-  const canGoPrev = canMutatePages && typeof prevPageId === "number";
-  const canGoNext = canMutatePages && typeof nextPageId === "number";
+  const canGoPrev = canNavigatePages && typeof prevPageId === "number";
+  const canGoNext = canNavigatePages && typeof nextPageId === "number";
   const canDeleteCurrentPage = canMutatePages && safeTotalBoardPages > 1;
 
   return (
@@ -236,7 +237,7 @@ export function WorkbookSessionContextbar({
             type="button"
             className="workbook-session__page-badge workbook-session__page-badge--button"
             onClick={onOpenPageManager}
-            disabled={!canManageBoardPages}
+            disabled={!canNavigatePages}
           >
             Стр. {currentPagePosition}
           </button>

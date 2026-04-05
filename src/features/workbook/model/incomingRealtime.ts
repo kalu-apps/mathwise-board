@@ -161,7 +161,6 @@ export const applyWorkbookIncomingRealtimeEvent = (
     queueIncomingPreviewPatch,
     applyLocalBoardObjects,
     setSession,
-    setCanvasViewport,
     setIncomingEraserPreviews,
     setBoardStrokes,
     setAnnotationStrokes,
@@ -175,7 +174,6 @@ export const applyWorkbookIncomingRealtimeEvent = (
     setPointerPoint,
     setFocusPointsByUser,
     setPointerPointsByUser,
-    viewportLastReceivedAtRef,
     finalizedStrokePreviewIdsRef,
     incomingStrokePreviewVersionRef,
     objectLastCommittedEventAtRef,
@@ -193,7 +191,6 @@ export const applyWorkbookIncomingRealtimeEvent = (
     eraserPreviewPointMergeMinDistancePx,
     eraserPreviewExpiryMs,
     eraserPreviewEndExpiryMs,
-    viewportSyncEpsilon,
   } = params;
 
   if (event.type === "presence.sync") {
@@ -217,32 +214,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
   }
 
   if (event.type === "board.viewport.sync") {
-    if (event.authorUserId === userId) return true;
-    const payload = event.payload as { offset?: unknown };
-    const rawOffset =
-      payload.offset && typeof payload.offset === "object"
-        ? (payload.offset as Partial<WorkbookPoint>)
-        : null;
-    if (
-      !rawOffset ||
-      typeof rawOffset.x !== "number" ||
-      !Number.isFinite(rawOffset.x) ||
-      typeof rawOffset.y !== "number" ||
-      !Number.isFinite(rawOffset.y)
-    ) {
-      return true;
-    }
-    const offset: WorkbookPoint = { x: rawOffset.x, y: rawOffset.y };
-    viewportLastReceivedAtRef.current = Date.now();
-    setCanvasViewport((current) => {
-      if (
-        Math.abs(current.x - offset.x) <= viewportSyncEpsilon &&
-        Math.abs(current.y - offset.y) <= viewportSyncEpsilon
-      ) {
-        return current;
-      }
-      return { x: offset.x, y: offset.y };
-    });
+    // Viewport is local per participant: keep incoming sync events as no-op for compatibility.
     return true;
   }
 
