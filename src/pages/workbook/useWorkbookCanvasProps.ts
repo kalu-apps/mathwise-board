@@ -98,6 +98,7 @@ interface UseWorkbookCanvasPropsParams {
   onObjectCreate: CanvasProps["onObjectCreate"];
   getLatestBoardObject: CanvasProps["getLatestBoardObject"];
   onObjectUpdate: CanvasProps["onObjectUpdate"];
+  onObjectPinToggle: CanvasProps["onObjectPinToggle"];
   onObjectDelete: CanvasProps["onObjectDelete"];
   onObjectContextMenu: CanvasProps["onObjectContextMenu"];
   onShapeVertexContextMenu: CanvasProps["onShapeVertexContextMenu"];
@@ -165,6 +166,7 @@ export const buildWorkbookCanvasProps = ({
   onObjectCreate,
   getLatestBoardObject,
   onObjectUpdate,
+  onObjectPinToggle,
   onObjectDelete,
   onObjectContextMenu,
   onShapeVertexContextMenu,
@@ -243,6 +245,7 @@ export const buildWorkbookCanvasProps = ({
   onObjectCreate,
   getLatestBoardObject,
   onObjectUpdate,
+  onObjectPinToggle,
   onObjectDelete,
   onObjectContextMenu,
   onShapeVertexContextMenu,

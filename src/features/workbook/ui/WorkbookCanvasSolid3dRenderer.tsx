@@ -20,6 +20,7 @@ import {
 } from "../model/sceneGeometry";
 import { resolveRenderedShapeAngleMarkStyle } from "../model/shapeAngleMarks";
 import { toPath } from "../model/stroke";
+import { WORKBOOK_VERTEX_LABEL_FONT_SIZE } from "../model/vertexLabelDefaults";
 
 type Solid3dObjectRendererParams = {
   object: WorkbookBoardObject;
@@ -1344,7 +1345,7 @@ export const renderWorkbookCanvasSolid3dObject = ({
                     x={entry.projected.x + 5}
                     y={entry.projected.y - 5}
                     fill={pointColor}
-                    fontSize={11}
+                    fontSize={WORKBOOK_VERTEX_LABEL_FONT_SIZE}
                     fontWeight={600}
                     paintOrder="stroke"
                     stroke="#ffffff"
@@ -1401,7 +1402,7 @@ export const renderWorkbookCanvasSolid3dObject = ({
                   x={placement?.x ?? vertex.x + 4}
                   y={placement?.y ?? vertex.y - 4}
                   fill={color}
-                  fontSize={isRoundPreset ? 8 : 8.5}
+                  fontSize={WORKBOOK_VERTEX_LABEL_FONT_SIZE}
                   fontWeight={700}
                   textAnchor={placement?.textAnchor ?? "start"}
                   dominantBaseline="central"
@@ -1432,7 +1433,7 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 x={marker.placement.x}
                 y={marker.placement.y}
                 fill={marker.color}
-                fontSize={8.5}
+                fontSize={WORKBOOK_VERTEX_LABEL_FONT_SIZE}
                 fontWeight={700}
                 textAnchor={marker.placement.textAnchor}
                 dominantBaseline="central"

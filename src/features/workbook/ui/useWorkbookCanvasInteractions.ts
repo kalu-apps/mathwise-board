@@ -57,6 +57,7 @@ import {
   isWorkbookStrokeDrawingTool,
   shouldSnapWorkbookPointerForTool,
 } from "../model/sceneTools";
+import { buildWorkbookStrokeMoveProxyObject, type WorkbookStrokeSelection } from "../model/strokeSelection";
 import type { WorkbookBoardObject, WorkbookLayer, WorkbookPoint, WorkbookStroke, WorkbookTool } from "../model/types";
 import type {
   Solid3dHostedPointClassification,
@@ -196,6 +197,7 @@ type InteractionCallbacks = {
     svg: SVGSVGElement,
     groupOverride?: WorkbookBoardObject[]
   ) => void;
+  toggleObjectPin: (objectId: string, pinned: boolean) => void;
   startResizing: (
     object: WorkbookBoardObject,
     mode: ResizeState["mode"],
@@ -235,6 +237,7 @@ type InteractionCallbacks = {
 type InteractionExternalApi = {
   onSelectedConstraintChange: (constraintId: string | null) => void;
   onSelectedObjectChange: (objectId: string | null) => void;
+  onSelectedStrokeChange: (selection: WorkbookStrokeSelection | null) => void;
   onStrokeDelete: (strokeId: string, layer: WorkbookLayer) => void;
   onObjectDelete: (objectId: string) => void;
   onObjectCreate: (object: WorkbookBoardObject) => void;
@@ -363,6 +366,9 @@ export const useWorkbookCanvasInteractions = (
         event.clientY,
         shouldSnapPoint
       );
+      if (startMode !== "select") {
+        api.onSelectedStrokeChange(null);
+      }
       if (startMode === "solid3d_insert") {
         api.onSelectedConstraintChange(null);
         api.onSelectedObjectChange(null);
@@ -410,6 +416,20 @@ export const useWorkbookCanvasInteractions = (
         pointerIdRef.current = event.pointerId;
         setters.setPanning(buildPanState({ x: event.clientX, y: event.clientY }, data.viewportOffset));
         svg.setPointerCapture(event.pointerId);
+        return;
+      }
+
+      if (startMode === "lock_toggle") {
+        const target = callbacks.resolveTopObject(point);
+        api.onSelectedConstraintChange(null);
+        api.onAreaSelectionChange?.(null);
+        if (target) {
+          api.onSelectedObjectChange(target.id);
+          callbacks.toggleObjectPin(target.id, !target.pinned);
+        } else {
+          api.onSelectedObjectChange(null);
+        }
+        api.onRequestSelectTool?.();
         return;
       }
 
@@ -498,6 +518,7 @@ export const useWorkbookCanvasInteractions = (
 
       if (startMode === "point") {
         api.onSelectedConstraintChange(null);
+        api.onSelectedObjectChange(null);
         const created = buildWorkbookPointObject({
           point,
           layer: data.layer,
@@ -565,6 +586,7 @@ export const useWorkbookCanvasInteractions = (
           ? collectAreaSelectionObjects(data.areaSelection, data.objectById)
           : [];
         const target = callbacks.resolveTopObject(point);
+        const strokeTarget = callbacks.resolveTopStroke(point);
         const selectAction = resolveWorkbookSelectStartAction({
           hasSelected: Boolean(selected),
           selectedPinned: selected?.pinned ?? true,
@@ -579,6 +601,7 @@ export const useWorkbookCanvasInteractions = (
         api.onSelectedConstraintChange(null);
         if (selectAction === "solid3d_resize" && selected?.type === "solid3d" && solid3dResizeHit) {
           pointerIdRef.current = event.pointerId;
+          api.onSelectedStrokeChange(null);
           setters.setSolid3dResize(
             buildSolid3dResizeState({
               object: selected,
@@ -593,10 +616,12 @@ export const useWorkbookCanvasInteractions = (
         }
         if (selectAction === "resize" && selected && resizeMode) {
           api.onAreaSelectionChange?.(null);
+          api.onSelectedStrokeChange(null);
           callbacks.startResizing(selected, resizeMode, event, svg);
           return;
         }
         if (selectAction === "move_group" && groupedTargets.length > 0 && data.areaSelection) {
+          api.onSelectedStrokeChange(null);
           const proxyObject = buildAreaSelectionProxyObject({
             rect: data.areaSelection.rect,
             layer: data.layer,
@@ -607,11 +632,29 @@ export const useWorkbookCanvasInteractions = (
         }
         if (selectAction === "move" && target && !target.pinned) {
           api.onAreaSelectionChange?.(null);
+          api.onSelectedStrokeChange(null);
           api.onSelectedObjectChange(target.id);
           callbacks.startMoving(target, event, svg);
           return;
         }
+        if (!target && strokeTarget) {
+          api.onAreaSelectionChange?.(null);
+          api.onSelectedObjectChange(null);
+          api.onSelectedStrokeChange({
+            id: strokeTarget.id,
+            layer: strokeTarget.layer,
+          });
+          const strokeProxy = buildWorkbookStrokeMoveProxyObject(
+            strokeTarget,
+            data.authorUserId
+          );
+          if (strokeProxy) {
+            callbacks.startMoving(strokeProxy, event, svg, [strokeProxy]);
+          }
+          return;
+        }
         api.onSelectedObjectChange(null);
+        api.onSelectedStrokeChange(null);
         api.onAreaSelectionChange?.(null);
         pointerIdRef.current = event.pointerId;
         setters.setAreaSelectionDraft(buildAreaSelectionDraftState(point));
@@ -645,18 +688,21 @@ export const useWorkbookCanvasInteractions = (
           const target = callbacks.resolveTopObject(point);
           if (target && target.id !== data.selectedObjectId) {
             api.onSelectedConstraintChange(null);
+            api.onSelectedStrokeChange(null);
             api.onSelectedObjectChange(target.id);
             api.onRequestSelectTool?.();
             return;
           }
           if (!target && data.selectedObjectId) {
             api.onSelectedConstraintChange(null);
+            api.onSelectedStrokeChange(null);
             api.onSelectedObjectChange(null);
             api.onRequestSelectTool?.();
             return;
           }
         }
         api.onSelectedConstraintChange(null);
+        api.onSelectedStrokeChange(null);
         callbacks.startShape(data.tool as ShapeDraft["tool"], event, svg);
       }
     },
@@ -724,7 +770,8 @@ export const useWorkbookCanvasInteractions = (
           data.panning,
           event.clientX,
           event.clientY,
-          data.safeZoom
+          data.safeZoom,
+          data.safeZoom > 1
         );
         api.onViewportOffsetChange?.(nextOffset);
         return;

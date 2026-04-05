@@ -129,7 +129,6 @@ type BuildWorkbookSessionLayoutRuntimePropsInput = {
     renameLineEndpointByObjectId: OverlaysProps["renameLineEndpointByObjectId"];
     renamePointObject: OverlaysProps["renamePointObject"];
     commitObjectDelete: OverlaysProps["commitObjectDelete"];
-    commitObjectPin: OverlaysProps["commitObjectPin"];
     scaleObject: OverlaysProps["scaleObject"];
     commitObjectReorder: OverlaysProps["commitObjectReorder"];
     restoreImageOriginalView: OverlaysProps["restoreImageOriginalView"];
@@ -172,6 +171,7 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
   actions,
   overlayContainer,
 }: BuildWorkbookSessionLayoutRuntimePropsInput): WorkbookSessionLayoutRuntimeProps => {
+  const noop = () => {};
   const normalizePoint = (
     point: { x?: number; y?: number } | null | undefined,
     fallback: { x: number; y: number }
@@ -202,6 +202,13 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
     typeof ui.floatingPanelsTop === "number" && Number.isFinite(ui.floatingPanelsTop)
       ? ui.floatingPanelsTop
       : 86;
+  const sessionChatParticipantCards: SessionChatPanelProps["participantCards"] =
+    derived.participantCards.map((participant) => ({
+      userId: participant.userId,
+      displayName: participant.displayName,
+      photo: participant.photo ?? "",
+      isOnline: participant.isOnline,
+    }));
 
   const hotkeysTooltipContent = (
     <div className="workbook-session__hotkeys-tooltip">
@@ -250,7 +257,7 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
     isSessionChatMaximized: ui.isSessionChatMaximized,
     isCompactViewport: page.isCompactViewport,
     sessionChatPosition,
-    participantCards: derived.participantCards,
+    participantCards: sessionChatParticipantCards,
     chatMessages: data.chatMessages,
     firstUnreadSessionChatMessageId: derived.firstUnreadSessionChatMessageId,
     currentUserId: user?.id,
@@ -291,6 +298,7 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
     totalBoardPages: safeTotalBoardPages,
     canManageBoardPages: permissions.canManageSharedBoardSettings,
     isBoardPageMutationPending: page.isBoardPageMutationPending,
+    onOpenPageManager: noop,
     onSelectBoardPage: handlers.handleSelectBoardPage,
     onAddBoardPage: handlers.handleAddBoardPage,
     onDeleteBoardPage: handlers.handleDeleteBoardPage,
@@ -416,12 +424,12 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
     objectContextMenu: page.objectContextMenu,
     setObjectContextMenu: actions.setObjectContextMenu,
     contextMenuObject: derived.contextMenuObject,
+    onRequestEditObject: noop,
     pointLabelDraft: page.pointLabelDraft,
     setPointLabelDraft: actions.setPointLabelDraft,
     renamePointObject: handlers.renamePointObject,
     canDelete: permissions.canDelete,
     commitObjectDelete: handlers.commitObjectDelete,
-    commitObjectPin: handlers.commitObjectPin,
     scaleObject: handlers.scaleObject,
     commitObjectReorder: handlers.commitObjectReorder,
     canBringContextMenuImageToFront: derived.canBringContextMenuImageToFront,

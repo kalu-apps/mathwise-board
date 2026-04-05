@@ -46,6 +46,7 @@ import {
   type WorkbookAreaSelectionResizeState,
 } from "../model/sceneInteraction";
 import {
+  getStrokeRect,
   toPath,
 } from "../model/stroke";
 import {
@@ -114,6 +115,12 @@ import {
 } from "./WorkbookCanvas.types";
 import { useWorkbookCanvasSceneRuntime } from "./useWorkbookCanvasSceneRuntime";
 import { useWorkbookCanvasDomHandlers } from "./useWorkbookCanvasDomHandlers";
+import {
+  buildWorkbookStrokeSelectionKey,
+  resolveWorkbookStrokeMoveProxySelection,
+  translateWorkbookStrokePoints,
+  type WorkbookStrokeSelection,
+} from "../model/strokeSelection";
 
 export type { WorkbookEraserCommitPayload } from "./WorkbookCanvas.types";
 
@@ -180,6 +187,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   onObjectCreate,
   getLatestBoardObject,
   onObjectUpdate,
+  onObjectPinToggle,
   onObjectDelete,
   onObjectContextMenu,
   onShapeVertexContextMenu,
@@ -288,6 +296,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const eraserLastAppliedPointRef = useRef<WorkbookPoint | null>(null);
   const eraserLastPreviewPointRef = useRef<WorkbookPoint | null>(null);
   const [inlineTextEdit, setInlineTextEdit] = useState<InlineTextEditDraft | null>(null);
+  const [selectedStrokeSelection, setSelectedStrokeSelection] =
+    useState<WorkbookStrokeSelection | null>(null);
   const inlineTextLastInputAtRef = useRef(0);
   const [pendingCommittedBridgeStrokeId, setPendingCommittedBridgeStrokeId] = useState<
     string | null
@@ -437,6 +447,43 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     visibleHitStrokeCandidatesInRect,
   } = sceneAccess;
 
+  const selectedStrokeKey = useMemo(
+    () => buildWorkbookStrokeSelectionKey(selectedStrokeSelection),
+    [selectedStrokeSelection]
+  );
+
+  const selectedStrokeBase = useMemo(
+    () => (selectedStrokeKey ? strokeByKey.get(selectedStrokeKey) ?? null : null),
+    [selectedStrokeKey, strokeByKey]
+  );
+
+  const selectedStroke = useMemo(() => {
+    if (!selectedStrokeBase) return null;
+    if (!moving) return selectedStrokeBase;
+    const movingStrokeSelection = resolveWorkbookStrokeMoveProxySelection(moving.object);
+    if (
+      !movingStrokeSelection ||
+      movingStrokeSelection.id !== selectedStrokeBase.id ||
+      movingStrokeSelection.layer !== selectedStrokeBase.layer
+    ) {
+      return selectedStrokeBase;
+    }
+    const deltaX = moving.current.x - moving.start.x;
+    const deltaY = moving.current.y - moving.start.y;
+    if (Math.abs(deltaX) <= 0.01 && Math.abs(deltaY) <= 0.01) {
+      return selectedStrokeBase;
+    }
+    return {
+      ...selectedStrokeBase,
+      points: translateWorkbookStrokePoints(selectedStrokeBase.points, deltaX, deltaY),
+    };
+  }, [moving, selectedStrokeBase]);
+
+  const selectedStrokeRect = useMemo(
+    () => (selectedStroke ? getStrokeRect(selectedStroke) : null),
+    [selectedStroke]
+  );
+
   const getObjectSceneLayerId = resolveWorkbookObjectSceneLayerId;
 
   const startInlineTextEdit = useCallback(
@@ -496,6 +543,22 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         : current
     );
   }, [inlineTextEdit, objectById]);
+
+  useEffect(() => {
+    if (tool === "select") return;
+    setSelectedStrokeSelection((current) => (current ? null : current));
+  }, [tool]);
+
+  useEffect(() => {
+    if (!selectedObjectId) return;
+    setSelectedStrokeSelection((current) => (current ? null : current));
+  }, [selectedObjectId]);
+
+  useEffect(() => {
+    if (!selectedStrokeKey) return;
+    if (strokeByKey.has(selectedStrokeKey)) return;
+    setSelectedStrokeSelection(null);
+  }, [selectedStrokeKey, strokeByKey]);
 
   const handleInlineTextDraftChange = useCallback(
     (objectId: string, text: string) => {
@@ -857,6 +920,36 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   const finishMoving = (nextMoving = movingState.ref.current) => {
     if (!nextMoving) return;
+    const movingStrokeSelection = resolveWorkbookStrokeMoveProxySelection(nextMoving.object);
+    if (movingStrokeSelection) {
+      const sourceStrokeKey = buildWorkbookStrokeSelectionKey(movingStrokeSelection);
+      const sourceStroke = sourceStrokeKey ? strokeByKey.get(sourceStrokeKey) ?? null : null;
+      const deltaX = nextMoving.current.x - nextMoving.start.x;
+      const deltaY = nextMoving.current.y - nextMoving.start.y;
+      if (
+        sourceStroke &&
+        (Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5)
+      ) {
+        const translatedPoints = translateWorkbookStrokePoints(
+          sourceStroke.points,
+          deltaX,
+          deltaY
+        );
+        if (translatedPoints.length > 0) {
+          onStrokeReplace({
+            stroke: sourceStroke,
+            fragments: [translatedPoints],
+            preserveSourceId: true,
+          });
+          setSelectedStrokeSelection({
+            id: sourceStroke.id,
+            layer: sourceStroke.layer,
+          });
+        }
+      }
+      setMoving(null);
+      return;
+    }
     const { objectPatches, nextAreaSelection } = buildMoveCommitResult({
       moving: nextMoving,
       areaSelection,
@@ -929,6 +1022,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         startStroke,
         startShape,
         startMoving,
+        toggleObjectPin: onObjectPinToggle,
         startResizing,
         startSolid3dGesture,
         startGraphPan,
@@ -951,6 +1045,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       api: {
         onSelectedConstraintChange,
         onSelectedObjectChange,
+        onSelectedStrokeChange: setSelectedStrokeSelection,
         onStrokeDelete,
         onObjectDelete,
         onObjectCreate,
@@ -1208,6 +1303,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           areaSelection={areaSelection}
           selectedRect={selectedRect}
           selectedPreviewObject={selectedPreviewObject}
+          selectedStroke={selectedStroke}
+          selectedStrokeRect={selectedStrokeRect}
           selectedLineControls={selectedLineControls}
           selectedSolidResizeHandles={selectedSolidResizeHandles}
           tool={tool}

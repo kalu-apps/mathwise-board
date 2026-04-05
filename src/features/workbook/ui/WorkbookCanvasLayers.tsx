@@ -587,6 +587,8 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
   areaSelection,
   selectedRect,
   selectedPreviewObject,
+  selectedStroke,
+  selectedStrokeRect,
   selectedLineControls,
   selectedSolidResizeHandles,
   tool,
@@ -594,6 +596,8 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
   areaSelection: WorkbookAreaSelection | null;
   selectedRect: { x: number; y: number; width: number; height: number } | null;
   selectedPreviewObject: WorkbookBoardObject | null;
+  selectedStroke: WorkbookStroke | null;
+  selectedStrokeRect: { x: number; y: number; width: number; height: number } | null;
   selectedLineControls:
     | {
         c1: WorkbookPoint;
@@ -603,7 +607,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
   selectedSolidResizeHandles: Array<{ mode: string; x: number; y: number }>;
   tool: WorkbookTool;
 }) {
-  if (!areaSelection && !selectedRect) return null;
+  if (!areaSelection && !selectedRect && !selectedStrokeRect) return null;
 
   return (
     <>
@@ -632,6 +636,32 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                 />
               ))
             : null}
+        </>
+      ) : null}
+
+      {tool === "select" && selectedStroke && selectedStrokeRect ? (
+        <>
+          <path
+            d={toPath(selectedStroke.points)}
+            fill="none"
+            stroke={WORKBOOK_LAYER_COLORS.warning}
+            strokeWidth={Math.max(2, (selectedStroke.width ?? 2) + 2)}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray="7 5"
+            opacity={0.92}
+          />
+          <rect
+            x={selectedStrokeRect.x}
+            y={selectedStrokeRect.y}
+            width={selectedStrokeRect.width}
+            height={selectedStrokeRect.height}
+            fill="none"
+            stroke={WORKBOOK_LAYER_COLORS.warning}
+            strokeWidth={1.2}
+            strokeDasharray="7 5"
+            opacity={0.78}
+          />
         </>
       ) : null}
 

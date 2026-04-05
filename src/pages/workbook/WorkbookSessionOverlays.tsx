@@ -91,7 +91,6 @@ type WorkbookSessionOverlaysProps = {
   renamePointObject: (objectId: string, label: string) => void | Promise<void>;
   canDelete: boolean;
   commitObjectDelete: (objectId: string) => void | Promise<void>;
-  commitObjectPin: (objectId: string, pinned: boolean) => void | Promise<void>;
   scaleObject: (factor: number, objectId?: string) => void | Promise<void>;
   commitObjectReorder: (objectId: string, direction: "front" | "back") => void | Promise<void>;
   canBringContextMenuImageToFront: boolean;
@@ -162,7 +161,6 @@ export function WorkbookSessionOverlays({
   renamePointObject,
   canDelete,
   commitObjectDelete,
-  commitObjectPin,
   scaleObject,
   commitObjectReorder,
   canBringContextMenuImageToFront,
@@ -609,14 +607,6 @@ export function WorkbookSessionOverlays({
             ) : null}
             {contextMenuObject && contextMenuObject.type !== "point" ? (
               <>
-                <MenuItem
-                  onClick={() => {
-                    void commitObjectPin(contextMenuObject.id, !contextMenuObject.pinned);
-                    setObjectContextMenu(null);
-                  }}
-                >
-                  {contextMenuObject?.pinned ? "Открепить объект" : "Закрепить объект"}
-                </MenuItem>
                 <MenuItem
                   onClick={() => {
                     void scaleObject(1.1, contextMenuObject.id);

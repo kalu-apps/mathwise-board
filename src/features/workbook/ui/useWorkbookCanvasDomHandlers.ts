@@ -155,20 +155,26 @@ export const useWorkbookCanvasDomHandlers = ({
       if (disabled) return;
       if (!event.ctrlKey && !event.metaKey) {
         if (!onViewportOffsetChange) return;
-        // Intercept all regular wheel/trackpad gestures on canvas to keep
-        // viewport navigation strictly vertical and avoid native horizontal scroll.
+        // Intercept all regular wheel/trackpad gestures on canvas.
+        // Horizontal pan is enabled only when zoomed in beyond 100%.
         preventDefaultIfCancelable(event);
-        if (!Number.isFinite(event.deltaY) || Math.abs(event.deltaY) <= 0.0001) return;
+        const allowHorizontalPan = safeZoom > 1;
+        const hasDeltaY = Number.isFinite(event.deltaY) && Math.abs(event.deltaY) > 0.0001;
+        const hasDeltaX =
+          allowHorizontalPan && Number.isFinite(event.deltaX) && Math.abs(event.deltaX) > 0.0001;
+        if (!hasDeltaY && !hasDeltaX) return;
         const deltaModeScale =
           event.deltaMode === 1
             ? 16
             : event.deltaMode === 2
               ? (typeof window !== "undefined" ? Math.max(480, window.innerHeight) : 800)
               : 1;
-        const deltaY = event.deltaY * deltaModeScale;
+        const deltaY = hasDeltaY ? event.deltaY * deltaModeScale : 0;
+        const deltaX = hasDeltaX ? event.deltaX * deltaModeScale : 0;
+        const safeScrollZoom = Math.max(0.08, safeZoom);
         const nextOffset: WorkbookPoint = {
-          x: viewportOffset.x,
-          y: Math.max(0, viewportOffset.y + deltaY / Math.max(0.08, safeZoom)),
+          x: Math.max(0, viewportOffset.x + deltaX / safeScrollZoom),
+          y: Math.max(0, viewportOffset.y + deltaY / safeScrollZoom),
         };
         onViewportOffsetChange(nextOffset);
         return;

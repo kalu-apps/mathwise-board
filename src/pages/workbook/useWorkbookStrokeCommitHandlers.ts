@@ -185,6 +185,7 @@ export const useWorkbookStrokeCommitHandlers = ({
     async (payload: {
       stroke: WorkbookStroke;
       fragments: WorkbookPoint[][];
+      preserveSourceId?: boolean;
     }) => {
       if (!sessionId || !canDelete) return;
       const sourceStroke = payload.stroke;
@@ -201,9 +202,9 @@ export const useWorkbookStrokeCommitHandlers = ({
         sourceStroke.layer === "annotations"
           ? ("annotations.stroke.delete" as const)
           : ("board.stroke.delete" as const);
-      const replacementStrokes: WorkbookStroke[] = fragments.map((points) => ({
+      const replacementStrokes: WorkbookStroke[] = fragments.map((points, index) => ({
         ...sourceStroke,
-        id: generateId(),
+        id: payload.preserveSourceId && index === 0 ? sourceStroke.id : generateId(),
         points,
         createdAt: new Date().toISOString(),
         page: Math.max(1, sourceStroke.page ?? boardSettingsCurrentPage),

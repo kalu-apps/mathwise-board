@@ -35,6 +35,7 @@ import {
   WORKBOOK_SYSTEM_COLORS,
   WORKBOOK_TEXT_FALLBACK_COLOR,
 } from "../model/workbookVisualColors";
+import { WORKBOOK_VERTEX_LABEL_FONT_SIZE } from "../model/vertexLabelDefaults";
 
 type PrimaryObjectRendererParams = {
   object: WorkbookBoardObject;
@@ -172,7 +173,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
                   x={labelPlacements[index]?.x ?? vertex.x + 4}
                   y={labelPlacements[index]?.y ?? vertex.y - 4}
                   fill={vertexColor}
-                  fontSize={12}
+                  fontSize={WORKBOOK_VERTEX_LABEL_FONT_SIZE}
                   fontWeight={700}
                   textAnchor={labelPlacements[index]?.textAnchor ?? "start"}
                   dominantBaseline="central"
@@ -360,7 +361,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
               x={basis.start.x + basis.normal.x * labelOffset}
               y={basis.start.y + basis.normal.y * labelOffset}
               fill={object.color ?? WORKBOOK_RENDER_COLORS.primary}
-              fontSize={13}
+              fontSize={WORKBOOK_VERTEX_LABEL_FONT_SIZE}
               fontWeight={600}
               paintOrder="stroke"
               stroke={WORKBOOK_RENDER_COLORS.softStroke}
@@ -375,7 +376,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
               x={basis.end.x + basis.normal.x * labelOffset}
               y={basis.end.y + basis.normal.y * labelOffset}
               fill={object.color ?? WORKBOOK_RENDER_COLORS.primary}
-              fontSize={13}
+              fontSize={WORKBOOK_VERTEX_LABEL_FONT_SIZE}
               fontWeight={600}
               paintOrder="stroke"
               stroke={WORKBOOK_RENDER_COLORS.softStroke}
@@ -409,7 +410,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
               x={center.x + 6}
               y={center.y - 6}
               fill={object.color ?? WORKBOOK_RENDER_COLORS.primary}
-              fontSize={10}
+              fontSize={WORKBOOK_VERTEX_LABEL_FONT_SIZE}
               fontWeight={700}
               paintOrder="stroke"
               stroke={WORKBOOK_RENDER_COLORS.softStroke}

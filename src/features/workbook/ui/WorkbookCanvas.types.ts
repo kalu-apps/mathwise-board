@@ -127,6 +127,7 @@ export type WorkbookCanvasProps = {
   onStrokeReplace: (payload: {
     stroke: WorkbookStroke;
     fragments: WorkbookPoint[][];
+    preserveSourceId?: boolean;
   }) => void;
   onObjectCreate: (object: WorkbookBoardObject) => void;
   getLatestBoardObject?: (objectId: string) => WorkbookBoardObject | null;
@@ -138,6 +139,7 @@ export type WorkbookCanvasProps = {
       markDirty?: boolean;
     }
   ) => void;
+  onObjectPinToggle: (objectId: string, pinned: boolean) => void;
   onObjectDelete: (objectId: string) => void;
   onObjectContextMenu?: (objectId: string, anchor: { x: number; y: number }) => void;
   onShapeVertexContextMenu?: (payload: {

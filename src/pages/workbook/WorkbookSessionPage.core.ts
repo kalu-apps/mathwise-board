@@ -216,6 +216,7 @@ export const defaultColorByLayer: Record<WorkbookLayer, string> = {
 };
 
 export const defaultWidthByTool: Partial<Record<WorkbookTool, number>> = {
+  lock_toggle: 2,
   area_select: 2,
   pen: 3,
   highlighter: 12,

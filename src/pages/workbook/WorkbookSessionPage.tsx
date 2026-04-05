@@ -32,6 +32,7 @@ import {
 import type {
   WorkbookEvent,
   WorkbookLayer,
+  WorkbookTool,
 } from "@/features/workbook/model/types";
 import { sanitizeFunctionGraphDrafts } from "@/features/workbook/model/functionGraph";
 import {
@@ -2320,6 +2321,7 @@ export default function WorkbookSessionPage() {
   } = useWorkbookToolCatalog({
     tool,
     canSelect,
+    canManageSession,
     canDelete,
     canUseLaser,
     canDraw,
@@ -2620,6 +2622,7 @@ export default function WorkbookSessionPage() {
     onObjectCreate: handleCanvasObjectCreate,
     getLatestBoardObject: getLatestCanvasObject,
     onObjectUpdate: canvasHandlers.handleCanvasObjectUpdate,
+    onObjectPinToggle: commitObjectPin,
     onObjectDelete: canvasHandlers.handleCanvasObjectDelete,
     onObjectContextMenu: handleObjectContextMenu,
     onShapeVertexContextMenu: handleShapeVertexContextMenu,
@@ -2891,7 +2894,6 @@ export default function WorkbookSessionPage() {
     renamePointObject: selectedStructureActions.renamePointObject,
     canDelete,
     commitObjectDelete,
-    commitObjectPin,
     scaleObject,
     commitObjectReorder,
     canBringContextMenuImageToFront: selectionViewportState.canBringContextMenuImageToFront,

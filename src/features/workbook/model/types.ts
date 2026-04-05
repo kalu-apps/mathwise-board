@@ -14,6 +14,7 @@ export type WorkbookSceneLayer = {
 
 export type WorkbookTool =
   | "select"
+  | "lock_toggle"
   | "area_select"
   | "pan"
   | "pen"
