@@ -31,6 +31,7 @@ type UseWorkbookStrokeCommitHandlersParams = {
   canDraw: boolean;
   canDelete: boolean;
   boardSettingsCurrentPage: number;
+  buildHistoryEntryFromEvents: (events: WorkbookClientEventInput[]) => unknown;
   queueStrokePreview: (payload: { stroke: WorkbookStroke; previewVersion: number }) => void;
   finalizeStrokePreview: (strokeId: string) => void;
   applyLocalStrokeCollection: (
@@ -57,6 +58,7 @@ export const useWorkbookStrokeCommitHandlers = ({
   canDraw,
   canDelete,
   boardSettingsCurrentPage,
+  buildHistoryEntryFromEvents,
   queueStrokePreview,
   finalizeStrokePreview,
   applyLocalStrokeCollection,
@@ -341,6 +343,7 @@ export const useWorkbookStrokeCommitHandlers = ({
       ];
 
       if (events.length === 0) return;
+      const historyEntry = buildHistoryEntryFromEvents(events);
 
       const previousBoardStrokes = boardStrokesRef.current;
       const previousAnnotationStrokes = annotationStrokesRef.current;
@@ -380,7 +383,7 @@ export const useWorkbookStrokeCommitHandlers = ({
       }
 
       try {
-        await appendEventsAndApply(events);
+        await appendEventsAndApply(events, historyEntry ? { historyEntry } : undefined);
       } catch (error) {
         if (isRecoverableApiError(error)) {
           markDirty();
@@ -399,6 +402,7 @@ export const useWorkbookStrokeCommitHandlers = ({
       appendEventsAndApply,
       applyLocalBoardObjects,
       boardSettingsCurrentPage,
+      buildHistoryEntryFromEvents,
       canDelete,
       commitInteractiveBoardObjects,
       markDirty,

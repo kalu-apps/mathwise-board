@@ -467,14 +467,13 @@ export const useWorkbookCanvasInteractions = (
           return;
         }
         const target = callbacks.resolveTopObject(point);
-        if (target && !target.pinned) {
+        if (target) {
           api.onSelectedConstraintChange(null);
           const layerId = callbacks.getObjectSceneLayerId(target);
           if (layerId !== "main") {
             data.objectById.forEach((item) => {
               if (
                 item.id !== target.id &&
-                !item.pinned &&
                 callbacks.getObjectSceneLayerId(item) === layerId
               ) {
                 api.onObjectDelete(item.id);

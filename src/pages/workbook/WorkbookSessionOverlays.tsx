@@ -657,9 +657,7 @@ export function WorkbookSessionOverlays({
                 ) : null}
               </>
             ) : null}
-            {contextMenuObject &&
-            canDelete &&
-            !contextMenuObject.pinned ? (
+            {contextMenuObject && canDelete ? (
               <MenuItem
                 onClick={() => {
                   void commitObjectDelete(contextMenuObject.id);

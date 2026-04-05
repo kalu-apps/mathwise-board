@@ -90,7 +90,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
     if (!canDelete || !areaSelection || !areaSelectionHasContent) return;
     const currentBoardObjects = boardObjectsRef.current;
     const objectIds = areaSelection.objectIds.filter((id) =>
-      currentBoardObjects.some((object) => object.id === id && !object.pinned)
+      currentBoardObjects.some((object) => object.id === id)
     );
     const strokeIds = areaSelection.strokeIds.filter((entry) => {
       if (entry.layer === "annotations") {
@@ -179,9 +179,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
     const currentBoardObjects = boardObjectsRef.current;
     const selectedObjects = areaSelection.objectIds
       .map((id) => currentBoardObjects.find((object) => object.id === id))
-      .filter(
-        (object): object is WorkbookBoardObject => object != null && !object.pinned
-      );
+      .filter((object): object is WorkbookBoardObject => object != null);
     const selectedStrokes = areaSelection.strokeIds
       .map((entry) => {
         if (entry.layer === "annotations") {

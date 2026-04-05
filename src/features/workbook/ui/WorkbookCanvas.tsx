@@ -1105,7 +1105,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     selectedObjectId,
     disabled,
     objectById,
-    unpinnedSceneLayerObjectsById,
     getObjectSceneLayerId,
     onObjectDelete,
     onSelectedObjectChange,
