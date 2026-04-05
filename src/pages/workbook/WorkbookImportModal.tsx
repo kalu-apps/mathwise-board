@@ -592,6 +592,8 @@ export function WorkbookImportModal({
         const imported = await onImportFile({
           file: item.file,
           preparedDataUrl: item.preparedDataUrl,
+          imageWidth: item.isImage ? item.width : undefined,
+          imageHeight: item.isImage ? item.height : undefined,
           pdfSourceId: item.isPdf ? item.pdfSourceId : undefined,
           pdfPageRange: item.isPdf ? item.pdfPageRange : undefined,
           pdfPageCount: item.isPdf ? item.pdfPageCount : undefined,

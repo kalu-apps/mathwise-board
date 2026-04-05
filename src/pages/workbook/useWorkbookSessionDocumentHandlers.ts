@@ -11,6 +11,7 @@ import {
   buildWorkbookSnapshotBoardObject,
   resolvePrimaryDocumentRenderedPage,
   resolveWorkbookBoardInsertPosition,
+  resolveWorkbookImportedImageFrameSize,
 } from "@/features/workbook/model/documentAssets";
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import {
@@ -53,6 +54,8 @@ export type WorkbookDocumentImportStage = "uploading" | "inserting";
 export type WorkbookPreparedDocumentImport = {
   file: File;
   preparedDataUrl?: string;
+  imageWidth?: number;
+  imageHeight?: number;
   pdfSourceId?: string;
   pdfPageRange?: {
     from: number;
@@ -309,6 +312,8 @@ export const useWorkbookSessionDocumentHandlers = ({
     async ({
       file,
       preparedDataUrl,
+      imageWidth,
+      imageHeight,
       pdfSourceId,
       pdfPageRange,
       pdfPageCount,
@@ -655,7 +660,17 @@ export const useWorkbookSessionDocumentHandlers = ({
             renderedPage,
             type: isPdf ? "pdf" : isImage ? "image" : "file",
           });
-          const created = await commitObjectCreate(object);
+          const objectWithFrameSize =
+            isImage && object.type === "image"
+              ? {
+                  ...object,
+                  ...resolveWorkbookImportedImageFrameSize({
+                    sourceWidth: imageWidth,
+                    sourceHeight: imageHeight,
+                  }),
+                }
+              : object;
+          const created = await commitObjectCreate(objectWithFrameSize);
           if (!created) return false;
         }
         try {

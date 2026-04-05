@@ -9,6 +9,9 @@ import { WORKBOOK_TEXT_FALLBACK_COLOR } from "./workbookVisualColors";
 type WorkbookDocumentRenderedPage =
   NonNullable<WorkbookDocumentAsset["renderedPages"]>[number];
 
+const WORKBOOK_IMPORTED_IMAGE_FRAME_MAX_WIDTH = 380;
+const WORKBOOK_IMPORTED_IMAGE_FRAME_MAX_HEIGHT = 260;
+
 export const resolveWorkbookBoardInsertPosition = (
   viewport: WorkbookPoint,
   objectCount: number
@@ -27,6 +30,47 @@ export const resolvePrimaryDocumentRenderedPage = (
   renderedPages?.find((entry) => entry.page === page) ??
   renderedPages?.[0] ??
   null;
+
+export const resolveWorkbookImportedImageFrameSize = (params: {
+  sourceWidth?: number;
+  sourceHeight?: number;
+}) => {
+  const fallback = {
+    width: WORKBOOK_IMPORTED_IMAGE_FRAME_MAX_WIDTH,
+    height: WORKBOOK_IMPORTED_IMAGE_FRAME_MAX_HEIGHT,
+  };
+  const sourceWidth = Number(params.sourceWidth);
+  const sourceHeight = Number(params.sourceHeight);
+  if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight)) {
+    return fallback;
+  }
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return fallback;
+  }
+  const ratio = sourceWidth / sourceHeight;
+  if (!Number.isFinite(ratio) || ratio <= 0) {
+    return fallback;
+  }
+  const width = Math.max(
+    1,
+    Math.round(
+      Math.min(
+        WORKBOOK_IMPORTED_IMAGE_FRAME_MAX_WIDTH,
+        WORKBOOK_IMPORTED_IMAGE_FRAME_MAX_HEIGHT * ratio
+      )
+    )
+  );
+  const height = Math.max(
+    1,
+    Math.round(
+      Math.min(
+        WORKBOOK_IMPORTED_IMAGE_FRAME_MAX_HEIGHT,
+        WORKBOOK_IMPORTED_IMAGE_FRAME_MAX_WIDTH / ratio
+      )
+    )
+  );
+  return { width, height };
+};
 
 export const buildWorkbookDocumentAsset = (params: {
   assetId: string;

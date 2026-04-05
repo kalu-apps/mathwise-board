@@ -589,6 +589,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
   selectedPreviewObject,
   selectedStroke,
   selectedStrokeRect,
+  isStrokeDragging,
   selectedLineControls,
   selectedSolidResizeHandles,
   tool,
@@ -598,6 +599,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
   selectedPreviewObject: WorkbookBoardObject | null;
   selectedStroke: WorkbookStroke | null;
   selectedStrokeRect: { x: number; y: number; width: number; height: number } | null;
+  isStrokeDragging: boolean;
   selectedLineControls:
     | {
         c1: WorkbookPoint;
@@ -641,16 +643,18 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
 
       {tool === "select" && selectedStroke && selectedStrokeRect ? (
         <>
-          <path
-            d={toPath(selectedStroke.points)}
-            fill="none"
-            stroke={WORKBOOK_LAYER_COLORS.warning}
-            strokeWidth={Math.max(2, (selectedStroke.width ?? 2) + 2)}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeDasharray="7 5"
-            opacity={0.92}
-          />
+          {!isStrokeDragging ? (
+            <path
+              d={toPath(selectedStroke.points)}
+              fill="none"
+              stroke={WORKBOOK_LAYER_COLORS.warning}
+              strokeWidth={Math.max(2, (selectedStroke.width ?? 2) + 2)}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray="7 5"
+              opacity={0.92}
+            />
+          ) : null}
           <rect
             x={selectedStrokeRect.x}
             y={selectedStrokeRect.y}

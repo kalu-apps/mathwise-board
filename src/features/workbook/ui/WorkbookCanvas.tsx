@@ -457,10 +457,19 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     [selectedStrokeKey, strokeByKey]
   );
 
+  const movingStrokeSelection = useMemo(
+    () => (moving ? resolveWorkbookStrokeMoveProxySelection(moving.object) : null),
+    [moving]
+  );
+
+  const movingStrokeKey = useMemo(
+    () => buildWorkbookStrokeSelectionKey(movingStrokeSelection),
+    [movingStrokeSelection]
+  );
+
   const selectedStroke = useMemo(() => {
     if (!selectedStrokeBase) return null;
     if (!moving) return selectedStrokeBase;
-    const movingStrokeSelection = resolveWorkbookStrokeMoveProxySelection(moving.object);
     if (
       !movingStrokeSelection ||
       movingStrokeSelection.id !== selectedStrokeBase.id ||
@@ -477,12 +486,69 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       ...selectedStrokeBase,
       points: translateWorkbookStrokePoints(selectedStrokeBase.points, deltaX, deltaY),
     };
-  }, [moving, selectedStrokeBase]);
+  }, [moving, movingStrokeSelection, selectedStrokeBase]);
 
   const selectedStrokeRect = useMemo(
     () => (selectedStroke ? getStrokeRect(selectedStroke) : null),
     [selectedStroke]
   );
+
+  const renderedStrokesForDisplay = useMemo(() => {
+    if (!movingStrokeSelection || !selectedStroke || !movingStrokeKey) {
+      return renderedStrokes;
+    }
+    let replaced = false;
+    const sourceStrokePrefix = `${movingStrokeSelection.id}::preview-`;
+    const nextStrokes = renderedStrokes
+      .map((stroke) => {
+        const isSourceStroke =
+          stroke.layer === movingStrokeSelection.layer &&
+          (stroke.id === movingStrokeSelection.id || stroke.id.startsWith(sourceStrokePrefix));
+        if (!isSourceStroke || replaced) return stroke;
+        replaced = true;
+        return selectedStroke;
+      })
+      .filter((stroke, index, list) => {
+        if (
+          stroke.layer === movingStrokeSelection.layer &&
+          (stroke.id === movingStrokeSelection.id || stroke.id.startsWith(sourceStrokePrefix))
+        ) {
+          const firstMatchIndex = list.findIndex(
+            (candidate) =>
+              candidate.layer === movingStrokeSelection.layer &&
+              (candidate.id === movingStrokeSelection.id ||
+                candidate.id.startsWith(sourceStrokePrefix))
+          );
+          return index === firstMatchIndex;
+        }
+        return true;
+      });
+    if (replaced) {
+      return nextStrokes;
+    }
+    return [...renderedStrokes, selectedStroke];
+  }, [movingStrokeKey, movingStrokeSelection, renderedStrokes, selectedStroke]);
+
+  const areaSelectionOverlay = useMemo(() => {
+    if (!areaSelection) return null;
+    if (!moving || moving.object.id !== "__area-selection__") {
+      return areaSelection;
+    }
+    const deltaX = moving.current.x - moving.start.x;
+    const deltaY = moving.current.y - moving.start.y;
+    if (Math.abs(deltaX) <= 0.01 && Math.abs(deltaY) <= 0.01) {
+      return areaSelection;
+    }
+    return {
+      ...areaSelection,
+      rect: {
+        x: areaSelection.rect.x + deltaX,
+        y: areaSelection.rect.y + deltaY,
+        width: areaSelection.rect.width,
+        height: areaSelection.rect.height,
+      },
+    };
+  }, [areaSelection, moving]);
 
   const getObjectSceneLayerId = resolveWorkbookObjectSceneLayerId;
 
@@ -1188,7 +1254,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     >
       {newRendererEnabled ? (
         <WorkbookCommittedCanvasLayer
-          strokes={renderedStrokes}
+          strokes={renderedStrokesForDisplay}
           viewportOffset={resolvedViewportOffset}
           zoom={safeZoom}
           width={size.width}
@@ -1254,10 +1320,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
             style={{ display: "none" }}
             aria-hidden="true"
           >
-            <WorkbookStrokeLayer strokes={renderedStrokes} />
+            <WorkbookStrokeLayer strokes={renderedStrokesForDisplay} />
           </g>
         ) : (
-          <WorkbookStrokeLayer strokes={renderedStrokes} />
+          <WorkbookStrokeLayer strokes={renderedStrokesForDisplay} />
         )}
         <WorkbookPreviewStrokeRuntimeLayer strokes={previewStrokes} />
         <WorkbookDraftOverlayLayer
@@ -1299,11 +1365,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           pointerEvents="none"
         />
         <WorkbookSelectionOverlayLayer
-          areaSelection={areaSelection}
+          areaSelection={areaSelectionOverlay}
           selectedRect={selectedRect}
           selectedPreviewObject={selectedPreviewObject}
           selectedStroke={selectedStroke}
           selectedStrokeRect={selectedStrokeRect}
+          isStrokeDragging={Boolean(movingStrokeSelection)}
           selectedLineControls={selectedLineControls}
           selectedSolidResizeHandles={selectedSolidResizeHandles}
           tool={tool}

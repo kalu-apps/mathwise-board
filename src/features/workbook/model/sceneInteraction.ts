@@ -391,6 +391,7 @@ export const shouldKeepObjectSelectedInsideArea = (
 ) =>
   Boolean(
     areaSelection &&
-      (areaSelection.objectIds.length > 0 || areaSelection.strokeIds.length > 0) &&
+      areaSelection.objectIds.length > 0 &&
+      areaSelection.strokeIds.length === 0 &&
       isInsideRect(point, areaSelection.rect)
   );
