@@ -86,6 +86,12 @@ interface UseWorkbookCanvasDomHandlersParams {
   setEraserCursorPoint: (point: WorkbookPoint | null) => void;
 }
 
+const toPositiveModulo = (value: number, modulo: number) => {
+  if (!Number.isFinite(value) || !Number.isFinite(modulo) || modulo <= 0) return 0;
+  const normalized = value % modulo;
+  return normalized < 0 ? normalized + modulo : normalized;
+};
+
 export const useWorkbookCanvasDomHandlers = ({
   disabled,
   selectedObjectId,
@@ -128,13 +134,23 @@ export const useWorkbookCanvasDomHandlers = ({
   );
 
   const canvasStyle = useMemo(
-    () =>
-      ({
-        "--workbook-grid-size": `${Math.max(8, Math.min(96, Math.floor(gridSize || 22)))}px`,
+    () => {
+      const safeGridSizeWorld = Math.max(8, Math.min(96, Math.floor(gridSize || 22)));
+      const safeRenderZoom = Math.max(0.08, Number.isFinite(safeZoom) ? safeZoom : 1);
+      const gridStepPx = Math.max(1, safeGridSizeWorld * safeRenderZoom);
+      // Align screen-space CSS grid phase with world-space viewport translation.
+      const gridOffsetXPx = toPositiveModulo(-viewportOffset.x * safeRenderZoom, gridStepPx);
+      const gridOffsetYPx = toPositiveModulo(-viewportOffset.y * safeRenderZoom, gridStepPx);
+      return {
+        "--workbook-grid-size-world": `${safeGridSizeWorld}px`,
+        "--workbook-grid-size": `${gridStepPx}px`,
+        "--workbook-grid-offset-x": `${gridOffsetXPx}px`,
+        "--workbook-grid-offset-y": `${gridOffsetYPx}px`,
         "--workbook-grid-color": showGrid ? gridColor : "transparent",
         "--workbook-background-color": backgroundColor,
-      }) as CSSProperties,
-    [backgroundColor, gridColor, gridSize, showGrid]
+      } as CSSProperties;
+    },
+    [backgroundColor, gridColor, gridSize, safeZoom, showGrid, viewportOffset.x, viewportOffset.y]
   );
 
   const preventDefaultIfCancelable = (

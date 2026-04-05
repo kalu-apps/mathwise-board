@@ -80,21 +80,30 @@ const drawWorkbookGrid = (
     sourceWidth: number;
     targetWidth: number;
     gridSizePx: number;
+    gridOffsetXPx: number;
+    gridOffsetYPx: number;
     gridColor: string;
   }
 ) => {
   const scale = params.targetWidth / Math.max(1, params.sourceWidth);
   const scaledGridSize = Math.max(1, params.gridSizePx * scale);
   if (scaledGridSize <= 1) return;
+  const normalizeOffset = (value: number, modulo: number) => {
+    if (!Number.isFinite(value) || modulo <= 0) return 0;
+    const normalized = value % modulo;
+    return normalized < 0 ? normalized + modulo : normalized;
+  };
+  const scaledOffsetX = normalizeOffset(params.gridOffsetXPx * scale, scaledGridSize);
+  const scaledOffsetY = normalizeOffset(params.gridOffsetYPx * scale, scaledGridSize);
   context.save();
   context.strokeStyle = params.gridColor;
   context.lineWidth = 1;
   context.beginPath();
-  for (let x = 0.5; x <= params.width; x += scaledGridSize) {
+  for (let x = scaledOffsetX + 0.5; x <= params.width; x += scaledGridSize) {
     context.moveTo(x, 0);
     context.lineTo(x, params.height);
   }
-  for (let y = 0.5; y <= params.height; y += scaledGridSize) {
+  for (let y = scaledOffsetY + 0.5; y <= params.height; y += scaledGridSize) {
     context.moveTo(0, y);
     context.lineTo(params.width, y);
   }
@@ -340,6 +349,14 @@ export const captureWorkbookSessionPreviewDataUrl = async (
     canvasComputedStyle.getPropertyValue("--workbook-grid-size"),
     22
   );
+  const gridOffsetXPx = parseCssPixelSize(
+    canvasComputedStyle.getPropertyValue("--workbook-grid-offset-x"),
+    0
+  );
+  const gridOffsetYPx = parseCssPixelSize(
+    canvasComputedStyle.getPropertyValue("--workbook-grid-offset-y"),
+    0
+  );
 
   context.fillStyle = backgroundColor;
   context.fillRect(0, 0, targetSize.width, targetSize.height);
@@ -350,6 +367,8 @@ export const captureWorkbookSessionPreviewDataUrl = async (
       sourceWidth,
       targetWidth: targetSize.width,
       gridSizePx,
+      gridOffsetXPx,
+      gridOffsetYPx,
       gridColor,
     });
   }
