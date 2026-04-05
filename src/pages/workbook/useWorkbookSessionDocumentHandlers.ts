@@ -199,8 +199,9 @@ const resolvePdfImportRenderProfile = (params: {
 
 const resolvePdfImportInsertSize = (pageCount: number) => {
   const safePageCount = Math.max(1, Math.trunc(pageCount));
-  const compactHeight =
+  const baseCompactHeight =
     safePageCount <= 2 ? 312 : safePageCount <= 4 ? 286 : safePageCount <= 8 ? 252 : 224;
+  const compactHeight = Math.round(baseCompactHeight * 2);
   return {
     compactHeight,
     minWidth: Math.max(150, Math.round(compactHeight * 0.58)),

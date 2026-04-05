@@ -4928,6 +4928,138 @@
   color: currentColor;
 }
 
+.workbook-session__image-crop-modal-paper {
+  border-radius: 14px !important;
+  width: min(920px, calc(100vw - 24px)) !important;
+  max-width: min(920px, calc(100vw - 24px)) !important;
+}
+
+.workbook-session__image-crop-modal-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workbook-session__image-crop-modal-close.MuiIconButton-root {
+  color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
+}
+
+.workbook-session__image-crop-modal-close.MuiIconButton-root:hover {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.workbook-session__image-crop-modal-content {
+  display: grid;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.workbook-session__image-crop-modal-alert {
+  margin: 0;
+}
+
+.workbook-session__image-crop-file-name {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workbook-session__image-crop-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text-secondary) 90%, transparent);
+}
+
+.workbook-session__image-crop-preview-shell {
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 88%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 92%, transparent);
+  padding: 12px;
+  min-height: 280px;
+  display: grid;
+  place-items: center;
+}
+
+.workbook-session__image-crop-surface {
+  position: relative;
+  display: inline-block;
+  max-width: min(100%, 760px);
+  max-height: min(58vh, 520px);
+  line-height: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.workbook-session__image-crop-preview-image {
+  display: block;
+  width: min(100%, 760px);
+  max-height: min(58vh, 520px);
+  height: auto;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.workbook-session__image-crop-rect {
+  position: absolute;
+  border: 2px solid color-mix(in srgb, var(--brand-solid) 72%, #ffffff 28%);
+  border-radius: 8px;
+  box-shadow: 0 0 0 9999px color-mix(in srgb, #071122 52%, transparent);
+  cursor: move;
+}
+
+.workbook-session__image-crop-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+  background: color-mix(in srgb, var(--brand-solid) 82%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-solid) 36%, transparent);
+  padding: 0;
+  margin: 0;
+}
+
+.workbook-session__image-crop-handle.is-nw {
+  left: -6px;
+  top: -6px;
+  cursor: nwse-resize;
+}
+
+.workbook-session__image-crop-handle.is-ne {
+  right: -6px;
+  top: -6px;
+  cursor: nesw-resize;
+}
+
+.workbook-session__image-crop-handle.is-sw {
+  left: -6px;
+  bottom: -6px;
+  cursor: nesw-resize;
+}
+
+.workbook-session__image-crop-handle.is-se {
+  right: -6px;
+  bottom: -6px;
+  cursor: nwse-resize;
+}
+
+.workbook-session__image-crop-fallback {
+  min-height: 220px;
+  width: 100%;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 .workbook-session__pdf-preview-modal .MuiDialog-container {
   padding: 8px !important;
   align-items: stretch !important;

@@ -28,9 +28,17 @@ import {
 import { reportWorkbookImportEvent } from "@/features/workbook/model/workbookPerformance";
 import { generateId } from "@/shared/lib/id";
 import type { WorkbookPreparedDocumentImport } from "./useWorkbookSessionDocumentHandlers";
+import { WorkbookImageImportCropModal } from "./WorkbookImageImportCropModal";
 import { WorkbookPdfImportPreviewModal } from "./WorkbookPdfImportPreviewModal";
 import { createWorkbookPdfSource, inspectWorkbookPdf } from "@/features/workbook/model/api";
 import { ApiError } from "@/shared/api/client";
+import {
+  DEFAULT_WORKBOOK_IMPORT_CROP_RECT,
+  cropWorkbookImageDataUrl,
+  isWorkbookImportCropRectDefault,
+  normalizeWorkbookImportCropRect,
+  type WorkbookImportCropRect,
+} from "./workbookImageImportCrop";
 
 type ImportModalState =
   | "idle"
@@ -69,12 +77,16 @@ type WorkbookImportItem = {
   height?: number;
   previewUrl?: string;
   preparedDataUrl?: string;
+  basePreparedDataUrl?: string;
+  cropRect?: WorkbookImportCropRect;
+  isCropped?: boolean;
   pdfPageRange?: {
     from: number;
     to: number;
   };
   pdfPageCount?: number;
   pdfSourceId?: string;
+  baseWarning?: string;
   warning?: string;
   error?: string;
   status: ImportFileStatus;
@@ -141,6 +153,7 @@ export function WorkbookImportModal({
   const [modalState, setModalState] = useState<ImportModalState>("idle");
   const [items, setItems] = useState<WorkbookImportItem[]>([]);
   const [pdfPreviewItemId, setPdfPreviewItemId] = useState<string | null>(null);
+  const [imageCropItemId, setImageCropItemId] = useState<string | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const dialogContainer =
@@ -177,6 +190,17 @@ export function WorkbookImportModal({
   const pdfPreviewItem = useMemo(
     () => items.find((item) => item.id === pdfPreviewItemId && item.isPdf) ?? null,
     [items, pdfPreviewItemId]
+  );
+  const imageCropItem = useMemo(
+    () =>
+      items.find(
+        (item) =>
+          item.id === imageCropItemId &&
+          item.isImage &&
+          typeof item.basePreparedDataUrl === "string" &&
+          item.basePreparedDataUrl.length > 0
+      ) ?? null,
+    [imageCropItemId, items]
   );
   const pdfPreviewContainer = useMemo(() => {
     if (!open || !pdfPreviewItemId || typeof document === "undefined") return undefined;
@@ -429,8 +453,12 @@ export function WorkbookImportModal({
                     : warning,
                 previewUrl: preparedDataUrl,
                 preparedDataUrl,
+                basePreparedDataUrl: preparedDataUrl,
+                baseWarning: warning,
                 width,
                 height,
+                cropRect: DEFAULT_WORKBOOK_IMPORT_CROP_RECT,
+                isCropped: false,
                 progress: 100,
               });
             } catch {
@@ -517,6 +545,76 @@ export function WorkbookImportModal({
       setModalState(hasReadyAfterConfirm ? "ready" : "files_selected");
     },
     [items, pdfPreviewItemId]
+  );
+
+  const handleOpenImageCrop = useCallback((itemId: string) => {
+    setImageCropItemId(itemId);
+  }, []);
+
+  const handleCancelImageCrop = useCallback(() => {
+    setImageCropItemId(null);
+  }, []);
+
+  const handleConfirmImageCrop = useCallback(
+    async (nextCropRect: WorkbookImportCropRect) => {
+      const targetId = imageCropItemId;
+      if (!targetId) return;
+      const target = items.find((item) => item.id === targetId && item.isImage) ?? null;
+      if (!target || typeof target.basePreparedDataUrl !== "string") {
+        setImageCropItemId(null);
+        return;
+      }
+      const normalizedCropRect = normalizeWorkbookImportCropRect(nextCropRect);
+      const isDefaultCrop = isWorkbookImportCropRectDefault(normalizedCropRect);
+      setItemPatch(target.id, {
+        status: "optimizing",
+        progress: 12,
+        error: undefined,
+      });
+      try {
+        const baseDataUrl = target.basePreparedDataUrl;
+        let nextPreparedDataUrl = baseDataUrl;
+        let nextWarning = target.baseWarning;
+        if (!isDefaultCrop) {
+          const cropped = await cropWorkbookImageDataUrl({
+            dataUrl: baseDataUrl,
+            cropRect: normalizedCropRect,
+          });
+          const needsAggressiveResize = cropped.width * cropped.height > MAX_IMAGE_PIXELS;
+          nextPreparedDataUrl = await optimizeImageDataUrl(cropped.dataUrl, {
+            maxEdge: needsAggressiveResize ? 1_920 : 2_280,
+            quality: needsAggressiveResize ? 0.8 : 0.86,
+            maxChars: WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS,
+          });
+          if (needsAggressiveResize) {
+            nextWarning = "Обрезанный фрагмент очень большой. Применена безопасная оптимизация.";
+          }
+        }
+        const nextMeta = await readImageMeta(nextPreparedDataUrl);
+        setItemPatch(target.id, {
+          status: "ready",
+          previewUrl: nextPreparedDataUrl,
+          preparedDataUrl: nextPreparedDataUrl,
+          width: nextMeta.width,
+          height: nextMeta.height,
+          cropRect: normalizedCropRect,
+          isCropped: !isDefaultCrop,
+          baseWarning: target.baseWarning,
+          warning: nextWarning,
+          error: undefined,
+          progress: 100,
+        });
+      } catch {
+        setItemPatch(target.id, {
+          status: "ready",
+          error: "Не удалось применить обрезку. Попробуйте снова.",
+          progress: 100,
+        });
+      } finally {
+        setImageCropItemId(null);
+      }
+    },
+    [imageCropItemId, items, setItemPatch]
   );
 
   const restoreFullscreenAfterPicker = useCallback(() => {
@@ -681,6 +779,7 @@ export function WorkbookImportModal({
     fullscreenRestorePendingRef.current = false;
     fullscreenRestoreTargetRef.current = null;
     setPdfPreviewItemId(null);
+    setImageCropItemId(null);
     onClose();
   }, [isBusy, onClose]);
 
@@ -689,6 +788,7 @@ export function WorkbookImportModal({
       setModalState("idle");
       setItems([]);
       setPdfPreviewItemId(null);
+      setImageCropItemId(null);
       setBatchError(null);
       setIsBusy(false);
       return;
@@ -848,6 +948,24 @@ export function WorkbookImportModal({
                         Выбрать страницы
                       </Button>
                     </div>
+                  ) : item.isImage ? (
+                    <div className="workbook-session__import-item-actions">
+                      <span className="workbook-session__import-item-range">
+                        {item.isCropped ? "Обрезка: применена" : "Обрезка: весь кадр"}
+                      </span>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => handleOpenImageCrop(item.id)}
+                        disabled={
+                          isBusy ||
+                          item.status !== "ready" ||
+                          !item.basePreparedDataUrl
+                        }
+                      >
+                        Обрезать
+                      </Button>
+                    </div>
                   ) : null}
                   {item.warning ? (
                     <p className="workbook-session__import-item-warning">{item.warning}</p>
@@ -862,6 +980,7 @@ export function WorkbookImportModal({
                   onClick={() => {
                     setItems((current) => current.filter((entry) => entry.id !== item.id));
                     setPdfPreviewItemId((current) => (current === item.id ? null : current));
+                    setImageCropItemId((current) => (current === item.id ? null : current));
                   }}
                   disabled={isBusy}
                 >
@@ -918,6 +1037,17 @@ export function WorkbookImportModal({
         container={pdfPreviewContainer}
         onCancel={handleCancelPdfPreview}
         onConfirm={handleConfirmPdfPreview}
+      />
+      <WorkbookImageImportCropModal
+        open={open && Boolean(imageCropItem)}
+        sourceDataUrl={imageCropItem?.basePreparedDataUrl ?? null}
+        fileName={imageCropItem?.name}
+        initialCropRect={imageCropItem?.cropRect ?? DEFAULT_WORKBOOK_IMPORT_CROP_RECT}
+        container={dialogContainer}
+        onCancel={handleCancelImageCrop}
+        onConfirm={(cropRect) => {
+          void handleConfirmImageCrop(cropRect);
+        }}
       />
     </>
   );
