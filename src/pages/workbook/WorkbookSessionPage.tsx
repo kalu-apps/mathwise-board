@@ -542,41 +542,6 @@ export default function WorkbookSessionPage() {
     setCurrentBoardPage,
   ]);
 
-  useEffect(() => {
-    if (!bootstrapReady || !sessionId || !canManageSharedBoardSettings) return;
-    if (typeof ResizeObserver === "undefined") return;
-    const workspaceNode = workspaceRef.current;
-    if (!workspaceNode) return;
-
-    const tryGrowSharedPageFrameWidth = (workspaceWidth: number) => {
-      if (!Number.isFinite(workspaceWidth) || workspaceWidth <= 1) return;
-      const nextWidth = normalizeWorkbookPageFrameWidth(workspaceWidth);
-      const currentWidth = normalizeWorkbookPageFrameWidth(
-        boardSettingsRef.current.pageFrameWidth
-      );
-      if (nextWidth <= currentWidth + 24) return;
-      if (nextWidth <= lastAutoPageFrameWidthRef.current + 24) return;
-      lastAutoPageFrameWidthRef.current = nextWidth;
-      handleSharedBoardSettingsChange({ pageFrameWidth: nextWidth });
-    };
-
-    tryGrowSharedPageFrameWidth(workspaceNode.getBoundingClientRect().width);
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      tryGrowSharedPageFrameWidth(entry.contentRect.width);
-    });
-    observer.observe(workspaceNode);
-    return () => observer.disconnect();
-  }, [
-    bootstrapReady,
-    sessionId,
-    canManageSharedBoardSettings,
-    boardSettingsRef,
-    handleSharedBoardSettingsChange,
-    workspaceRef,
-  ]);
-
   const handleSessionRootRef = useCallback(
     (node: HTMLElement | null) => {
       sessionRootRef.current = node;
@@ -1319,6 +1284,41 @@ export default function WorkbookSessionPage() {
     setError,
     setIsBoardPageMutationPending,
   });
+
+  useEffect(() => {
+    if (!bootstrapReady || !sessionId || !canManageSharedBoardSettings) return;
+    if (typeof ResizeObserver === "undefined") return;
+    const workspaceNode = workspaceRef.current;
+    if (!workspaceNode) return;
+
+    const tryGrowSharedPageFrameWidth = (workspaceWidth: number) => {
+      if (!Number.isFinite(workspaceWidth) || workspaceWidth <= 1) return;
+      const nextWidth = normalizeWorkbookPageFrameWidth(workspaceWidth);
+      const currentWidth = normalizeWorkbookPageFrameWidth(
+        boardSettingsRef.current.pageFrameWidth
+      );
+      if (nextWidth <= currentWidth + 24) return;
+      if (nextWidth <= lastAutoPageFrameWidthRef.current + 24) return;
+      lastAutoPageFrameWidthRef.current = nextWidth;
+      handleSharedBoardSettingsChange({ pageFrameWidth: nextWidth });
+    };
+
+    tryGrowSharedPageFrameWidth(workspaceNode.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      tryGrowSharedPageFrameWidth(entry.contentRect.width);
+    });
+    observer.observe(workspaceNode);
+    return () => observer.disconnect();
+  }, [
+    bootstrapReady,
+    sessionId,
+    canManageSharedBoardSettings,
+    boardSettingsRef,
+    handleSharedBoardSettingsChange,
+    workspaceRef,
+  ]);
 
   const { upsertLibraryItem } = useWorkbookLibraryAndTimerActions({
     appendEventsAndApply,
