@@ -462,19 +462,33 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     [moving]
   );
 
-  const movingStrokeKey = useMemo(
-    () => buildWorkbookStrokeSelectionKey(movingStrokeSelection),
-    [movingStrokeSelection]
+  const movingStrokeSelections = useMemo(() => {
+    if (!moving) return [] as WorkbookStrokeSelection[];
+    if (movingStrokeSelection) return [movingStrokeSelection];
+    return moving.groupStrokeSelections.map((entry) => ({
+      id: entry.id,
+      layer: entry.layer,
+    }));
+  }, [moving, movingStrokeSelection]);
+
+  const movingStrokeKeys = useMemo(
+    () =>
+      new Set(
+        movingStrokeSelections.map((selection) =>
+          buildWorkbookStrokeSelectionKey(selection)
+        )
+      ),
+    [movingStrokeSelections]
   );
 
   const selectedStroke = useMemo(() => {
     if (!selectedStrokeBase) return null;
     if (!moving) return selectedStrokeBase;
-    if (
-      !movingStrokeSelection ||
-      movingStrokeSelection.id !== selectedStrokeBase.id ||
-      movingStrokeSelection.layer !== selectedStrokeBase.layer
-    ) {
+    const selectedStrokeMoveKey = buildWorkbookStrokeSelectionKey({
+      id: selectedStrokeBase.id,
+      layer: selectedStrokeBase.layer,
+    });
+    if (!movingStrokeKeys.has(selectedStrokeMoveKey)) {
       return selectedStrokeBase;
     }
     const deltaX = moving.current.x - moving.start.x;
@@ -486,7 +500,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       ...selectedStrokeBase,
       points: translateWorkbookStrokePoints(selectedStrokeBase.points, deltaX, deltaY),
     };
-  }, [moving, movingStrokeSelection, selectedStrokeBase]);
+  }, [moving, movingStrokeKeys, selectedStrokeBase]);
 
   const selectedStrokeRect = useMemo(
     () => (selectedStroke ? getStrokeRect(selectedStroke) : null),
@@ -712,40 +726,61 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   });
 
   const renderedStrokesForDisplay = useMemo(() => {
-    if (!movingStrokeSelection || !selectedStroke || !movingStrokeKey) {
+    if (!moving || movingStrokeSelections.length === 0) {
       return renderedStrokes;
     }
-    let replaced = false;
-    const sourceStrokePrefix = `${movingStrokeSelection.id}::preview-`;
-    const nextStrokes = renderedStrokes
-      .map((stroke) => {
-        const isSourceStroke =
-          stroke.layer === movingStrokeSelection.layer &&
-          (stroke.id === movingStrokeSelection.id || stroke.id.startsWith(sourceStrokePrefix));
-        if (!isSourceStroke || replaced) return stroke;
-        replaced = true;
-        return selectedStroke;
-      })
-      .filter((stroke, index, list) => {
-        if (
-          stroke.layer === movingStrokeSelection.layer &&
-          (stroke.id === movingStrokeSelection.id || stroke.id.startsWith(sourceStrokePrefix))
-        ) {
-          const firstMatchIndex = list.findIndex(
-            (candidate) =>
-              candidate.layer === movingStrokeSelection.layer &&
-              (candidate.id === movingStrokeSelection.id ||
-                candidate.id.startsWith(sourceStrokePrefix))
-          );
-          return index === firstMatchIndex;
-        }
-        return true;
-      });
-    if (replaced) {
-      return nextStrokes;
+    const deltaX = moving.current.x - moving.start.x;
+    const deltaY = moving.current.y - moving.start.y;
+    if (Math.abs(deltaX) <= 0.01 && Math.abs(deltaY) <= 0.01) {
+      return renderedStrokes;
     }
-    return [...renderedStrokes, selectedStroke];
-  }, [movingStrokeKey, movingStrokeSelection, renderedStrokes, selectedStroke]);
+
+    const translatedBySelectionKey = new Map<string, WorkbookStroke>();
+    movingStrokeSelections.forEach((selection) => {
+      const sourceStrokeKey = buildWorkbookStrokeSelectionKey(selection);
+      const sourceStroke = strokeByKey.get(sourceStrokeKey) ?? null;
+      if (!sourceStroke) return;
+      translatedBySelectionKey.set(sourceStrokeKey, {
+        ...sourceStroke,
+        points: translateWorkbookStrokePoints(sourceStroke.points, deltaX, deltaY),
+      });
+    });
+
+    if (translatedBySelectionKey.size === 0) {
+      return renderedStrokes;
+    }
+
+    const replacedSelectionKeys = new Set<string>();
+    const nextStrokes: WorkbookStroke[] = [];
+    renderedStrokes.forEach((stroke) => {
+      const matchingSelection = movingStrokeSelections.find(
+        (selection) =>
+          stroke.layer === selection.layer &&
+          (stroke.id === selection.id ||
+            stroke.id.startsWith(`${selection.id}::preview-`))
+      );
+      if (!matchingSelection) {
+        nextStrokes.push(stroke);
+        return;
+      }
+      const selectionKey = buildWorkbookStrokeSelectionKey(matchingSelection);
+      if (replacedSelectionKeys.has(selectionKey)) {
+        return;
+      }
+      replacedSelectionKeys.add(selectionKey);
+      const translated = translatedBySelectionKey.get(selectionKey);
+      if (translated) {
+        nextStrokes.push(translated);
+      }
+    });
+
+    translatedBySelectionKey.forEach((translated, selectionKey) => {
+      if (replacedSelectionKeys.has(selectionKey)) return;
+      nextStrokes.push(translated);
+    });
+
+    return nextStrokes;
+  }, [moving, movingStrokeSelections, renderedStrokes, strokeByKey]);
 
   const {
     selectedPreviewObject,
@@ -829,15 +864,18 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     object: WorkbookBoardObject,
     event: PointerEvent<SVGSVGElement>,
     svg: SVGSVGElement,
-    groupOverride?: WorkbookBoardObject[]
+    groupOverride?: WorkbookBoardObject[],
+    groupStrokeSelectionsOverride?: WorkbookStrokeSelection[]
   ) => {
     pointerIdRef.current = event.pointerId;
     const start = mapPointer(svg, event.clientX, event.clientY, false, false);
     const groupObjects = groupOverride ?? resolveMovingGroup(object);
+    const groupStrokeSelections = groupStrokeSelectionsOverride ?? [];
     setMoving(
       buildMovingState({
         object,
         groupObjects,
+        groupStrokeSelections,
         start,
         startClientX: event.clientX,
         startClientY: event.clientY,
@@ -986,12 +1024,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   const finishMoving = (nextMoving = movingState.ref.current) => {
     if (!nextMoving) return;
+    const deltaX = nextMoving.current.x - nextMoving.start.x;
+    const deltaY = nextMoving.current.y - nextMoving.start.y;
+    const hasMeaningfulMove = Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5;
     const movingStrokeSelection = resolveWorkbookStrokeMoveProxySelection(nextMoving.object);
     if (movingStrokeSelection) {
       const sourceStrokeKey = buildWorkbookStrokeSelectionKey(movingStrokeSelection);
       const sourceStroke = sourceStrokeKey ? strokeByKey.get(sourceStrokeKey) ?? null : null;
-      const deltaX = nextMoving.current.x - nextMoving.start.x;
-      const deltaY = nextMoving.current.y - nextMoving.start.y;
       if (
         sourceStroke &&
         (Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5)
@@ -1016,11 +1055,51 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       setMoving(null);
       return;
     }
+
+    const movedStrokeReplacements = !hasMeaningfulMove
+      ? []
+      : nextMoving.groupStrokeSelections
+      .map((selection) => {
+        const sourceStrokeKey = buildWorkbookStrokeSelectionKey(selection);
+        const sourceStroke = strokeByKey.get(sourceStrokeKey) ?? null;
+        if (!sourceStroke) return null;
+        const translatedPoints = translateWorkbookStrokePoints(
+          sourceStroke.points,
+          deltaX,
+          deltaY
+        );
+        if (translatedPoints.length === 0) return null;
+        return {
+          stroke: sourceStroke,
+          fragments: [translatedPoints],
+          preserveSourceId: true,
+        };
+      })
+      .filter(
+        (
+          entry
+        ): entry is {
+          stroke: WorkbookStroke;
+          fragments: WorkbookPoint[][];
+          preserveSourceId: true;
+        } => entry !== null
+      );
+
     const { objectPatches, nextAreaSelection } = buildMoveCommitResult({
       moving: nextMoving,
       areaSelection,
     });
-    objectPatches.forEach(({ id, patch }) => onObjectUpdate(id, patch));
+
+    if (hasMeaningfulMove && movedStrokeReplacements.length > 0 && onEraserCommit) {
+      onEraserCommit({
+        strokeDeletes: [],
+        strokeReplacements: movedStrokeReplacements,
+        objectUpdates: objectPatches.map(({ id, patch }) => ({ objectId: id, patch })),
+      });
+    } else {
+      movedStrokeReplacements.forEach((entry) => onStrokeReplace(entry));
+      objectPatches.forEach(({ id, patch }) => onObjectUpdate(id, patch));
+    }
     if (nextAreaSelection) {
       onAreaSelectionChange?.(nextAreaSelection);
     }
@@ -1370,7 +1449,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           selectedPreviewObject={selectedPreviewObject}
           selectedStroke={selectedStroke}
           selectedStrokeRect={selectedStrokeRect}
-          isStrokeDragging={Boolean(movingStrokeSelection)}
+          isStrokeDragging={movingStrokeSelections.length > 0}
           selectedLineControls={selectedLineControls}
           selectedSolidResizeHandles={selectedSolidResizeHandles}
           tool={tool}

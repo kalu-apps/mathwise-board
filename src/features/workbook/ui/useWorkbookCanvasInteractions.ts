@@ -195,7 +195,8 @@ type InteractionCallbacks = {
     object: WorkbookBoardObject,
     event: PointerEvent<SVGSVGElement>,
     svg: SVGSVGElement,
-    groupOverride?: WorkbookBoardObject[]
+    groupOverride?: WorkbookBoardObject[],
+    groupStrokeSelectionsOverride?: Array<{ id: string; layer: WorkbookLayer }>
   ) => void;
   toggleObjectPin: (objectId: string, pinned: boolean) => void;
   startResizing: (
@@ -584,6 +585,13 @@ export const useWorkbookCanvasInteractions = (
         const groupedTargets = keepInsideArea
           ? collectAreaSelectionObjects(data.areaSelection, data.objectById)
           : [];
+        const groupedStrokeSelections =
+          keepInsideArea && data.areaSelection
+            ? data.areaSelection.strokeIds.map((entry) => ({
+                id: entry.id,
+                layer: entry.layer,
+              }))
+            : [];
         const target = callbacks.resolveTopObject(point);
         const strokeTarget = callbacks.resolveTopStroke(point);
         const selectAction = resolveWorkbookSelectStartAction({
@@ -593,7 +601,8 @@ export const useWorkbookCanvasInteractions = (
           hasSolid3dResizeHit: Boolean(solid3dResizeHit),
           hasResizeMode: Boolean(resizeMode),
           keepInsideArea,
-          hasGroupedTargets: groupedTargets.length > 0,
+          hasGroupedTargets:
+            groupedTargets.length > 0 || groupedStrokeSelections.length > 0,
           hasTarget: Boolean(target),
           targetPinned: target?.pinned ?? true,
         });
@@ -619,14 +628,24 @@ export const useWorkbookCanvasInteractions = (
           callbacks.startResizing(selected, resizeMode, event, svg);
           return;
         }
-        if (selectAction === "move_group" && groupedTargets.length > 0 && data.areaSelection) {
+        if (
+          selectAction === "move_group" &&
+          (groupedTargets.length > 0 || groupedStrokeSelections.length > 0) &&
+          data.areaSelection
+        ) {
           api.onSelectedStrokeChange(null);
           const proxyObject = buildAreaSelectionProxyObject({
             rect: data.areaSelection.rect,
             layer: data.layer,
             authorUserId: data.authorUserId,
           });
-          callbacks.startMoving(proxyObject, event, svg, groupedTargets);
+          callbacks.startMoving(
+            proxyObject,
+            event,
+            svg,
+            groupedTargets,
+            groupedStrokeSelections
+          );
           return;
         }
         if (selectAction === "move" && target && !target.pinned) {

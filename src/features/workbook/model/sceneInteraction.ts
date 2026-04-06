@@ -19,6 +19,7 @@ import {
 import { readSolid3dState, writeSolid3dState } from "./solid3dState";
 import type {
   WorkbookBoardObject,
+  WorkbookLayer,
   WorkbookPoint,
   WorkbookStroke,
 } from "./types";
@@ -60,12 +61,14 @@ export const buildPanState = (
 export const buildMovingState = (params: {
   object: WorkbookBoardObject;
   groupObjects: WorkbookBoardObject[];
+  groupStrokeSelections?: Array<{ id: string; layer: WorkbookLayer }>;
   start: WorkbookPoint;
   startClientX: number;
   startClientY: number;
 }): MovingState => ({
   object: params.object,
   groupObjects: params.groupObjects,
+  groupStrokeSelections: params.groupStrokeSelections ?? [],
   start: params.start,
   current: params.start,
   startClientX: params.startClientX,
@@ -391,7 +394,6 @@ export const shouldKeepObjectSelectedInsideArea = (
 ) =>
   Boolean(
     areaSelection &&
-      areaSelection.objectIds.length > 0 &&
-      areaSelection.strokeIds.length === 0 &&
+      (areaSelection.objectIds.length > 0 || areaSelection.strokeIds.length > 0) &&
       isInsideRect(point, areaSelection.rect)
   );

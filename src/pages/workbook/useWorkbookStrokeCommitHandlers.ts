@@ -284,7 +284,7 @@ export const useWorkbookStrokeCommitHandlers = ({
         if (sanitizedFragments.length === 0) return;
         const replacements = sanitizedFragments.map((points) => ({
           ...sourceStroke,
-          id: generateId(),
+          id: entry.preserveSourceId ? sourceId : generateId(),
           points,
           createdAt: nowIso,
           page: Math.max(1, sourceStroke.page ?? currentBoardPage),

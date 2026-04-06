@@ -8,7 +8,7 @@ import {
   rotatePointAround,
 } from "./sceneGeometry";
 import type { WorkbookAreaSelection } from "./sceneSelection";
-import type { WorkbookBoardObject, WorkbookPoint } from "./types";
+import type { WorkbookBoardObject, WorkbookLayer, WorkbookPoint } from "./types";
 
 type ClientPointLike = {
   clientX: number;
@@ -18,6 +18,7 @@ type ClientPointLike = {
 export type MovingState = {
   object: WorkbookBoardObject;
   groupObjects: WorkbookBoardObject[];
+  groupStrokeSelections: Array<{ id: string; layer: WorkbookLayer }>;
   start: WorkbookPoint;
   current: WorkbookPoint;
   startClientX: number;
@@ -245,7 +246,11 @@ export const buildMoveCommitResult = (params: {
     };
   }
   const targets =
-    moving.groupObjects.length > 0 ? moving.groupObjects : [moving.object];
+    moving.groupObjects.length > 0
+      ? moving.groupObjects
+      : moving.object.id === "__area-selection__"
+        ? []
+        : [moving.object];
   const objectPatches = targets.map((target) => {
     const patch: Partial<WorkbookBoardObject> = {
       x: target.type === "section_divider" ? target.x : target.x + deltaX,

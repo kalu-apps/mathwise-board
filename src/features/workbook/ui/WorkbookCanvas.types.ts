@@ -17,7 +17,11 @@ export type WorkbookCanvasAreaSelection = WorkbookAreaSelection;
 
 export type WorkbookEraserCommitPayload = {
   strokeDeletes: Array<{ strokeId: string; layer: WorkbookLayer }>;
-  strokeReplacements: Array<{ stroke: WorkbookStroke; fragments: WorkbookPoint[][] }>;
+  strokeReplacements: Array<{
+    stroke: WorkbookStroke;
+    fragments: WorkbookPoint[][];
+    preserveSourceId?: boolean;
+  }>;
   objectUpdates: Array<{ objectId: string; patch: Partial<WorkbookBoardObject> }>;
 };
 
