@@ -427,11 +427,25 @@ export const useWorkbookBoardSettingsPages = ({
       annotationStrokes: annotationStrokesRef.current,
     });
     const nextPage = maxKnownPage + 1;
+    const fallbackPageVisualSettings = resolveWorkbookBoardPageVisualDefaults(
+      boardSettingsRef.current
+    );
+    const nextPageVisualSettings = normalizeWorkbookBoardPageVisualSettings(
+      {
+        ...fallbackPageVisualSettings,
+        showGrid: true,
+      },
+      fallbackPageVisualSettings
+    );
     const currentOrder = normalizeWorkbookPageOrder(boardSettingsRef.current.pageOrder, maxKnownPage);
     handleSharedBoardSettingsChange({
       pagesCount: nextPage,
       currentPage: nextPage,
       pageOrder: [...currentOrder, nextPage],
+      pageBoardSettingsByPage: {
+        ...(boardSettingsRef.current.pageBoardSettingsByPage ?? {}),
+        [String(nextPage)]: nextPageVisualSettings,
+      },
     });
     return true;
   }, [
