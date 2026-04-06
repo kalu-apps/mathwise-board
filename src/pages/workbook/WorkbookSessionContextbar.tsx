@@ -423,57 +423,59 @@ export function WorkbookSessionContextbar({
             </span>
           </Tooltip>
         ) : null}
-        <Tooltip
-          title={themeMode === "dark" ? "Включить светлую тему" : "Включить тёмную тему"}
-          placement="bottom"
-          arrow
-        >
-          <span>
-            <IconButton
-              size="small"
-              className="workbook-session__toolbar-icon workbook-session__toolbar-icon--plain"
-              onClick={onToggleThemeMode}
-            >
-              {themeMode === "dark" ? <LightModeRoundedIcon /> : <DarkModeRoundedIcon />}
-            </IconButton>
-          </span>
-        </Tooltip>
-        {showInviteLinkButton ? (
-          <Tooltip title="Скопировать ссылку приглашения" placement="bottom" arrow>
-            <span className="workbook-session__invite-link-wrap">
+        <span className="workbook-session__contextbar-right-actions">
+          <Tooltip
+            title={themeMode === "dark" ? "Включить светлую тему" : "Включить тёмную тему"}
+            placement="bottom"
+            arrow
+          >
+            <span>
+              <IconButton
+                size="small"
+                className="workbook-session__toolbar-icon workbook-session__toolbar-icon--plain"
+                onClick={onToggleThemeMode}
+              >
+                {themeMode === "dark" ? <LightModeRoundedIcon /> : <DarkModeRoundedIcon />}
+              </IconButton>
+            </span>
+          </Tooltip>
+          {showInviteLinkButton ? (
+            <Tooltip title="Скопировать ссылку приглашения" placement="bottom" arrow>
+              <span className="workbook-session__invite-link-wrap">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  className="workbook-session__invite-link-button"
+                  startIcon={<ContentCopyRoundedIcon />}
+                  onClick={() => void onCopyInviteLink()}
+                  disabled={copyingInviteLink}
+                >
+                  Ссылка-приглашение
+                </Button>
+              </span>
+            </Tooltip>
+          ) : null}
+          <Tooltip title={isExitSessionPending ? "Выходим..." : "Выйти из тетради"} placement="bottom" arrow>
+            <span className="workbook-session__contextbar-exit-wrap">
               <Button
                 size="small"
                 variant="outlined"
-                className="workbook-session__invite-link-button"
-                startIcon={<ContentCopyRoundedIcon />}
-                onClick={() => void onCopyInviteLink()}
-                disabled={copyingInviteLink}
+                className="workbook-session__contextbar-exit-button"
+                startIcon={
+                  isExitSessionPending ? (
+                    <CircularProgress size={13} thickness={6} />
+                  ) : (
+                    <LogoutRoundedIcon />
+                  )
+                }
+                onClick={() => void onExitSession()}
+                disabled={isExitSessionPending}
               >
-                Ссылка-приглашение
+                Выход
               </Button>
             </span>
           </Tooltip>
-        ) : null}
-        <Tooltip title={isExitSessionPending ? "Выходим..." : "Выйти из тетради"} placement="bottom" arrow>
-          <span className="workbook-session__contextbar-exit-wrap">
-            <Button
-              size="small"
-              variant="outlined"
-              className="workbook-session__contextbar-exit-button"
-              startIcon={
-                isExitSessionPending ? (
-                  <CircularProgress size={13} thickness={6} />
-                ) : (
-                  <LogoutRoundedIcon />
-                )
-              }
-              onClick={() => void onExitSession()}
-              disabled={isExitSessionPending}
-            >
-              Выход
-            </Button>
-          </span>
-        </Tooltip>
+        </span>
       </div>
     </div>
   );

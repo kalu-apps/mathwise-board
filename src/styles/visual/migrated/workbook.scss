@@ -952,6 +952,13 @@
 .workbook-session__contextbar > * {
   flex: 0 0 auto;
 }
+.workbook-session__contextbar-right-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
 .workbook-session__contextbar-exit-wrap {
   display: inline-flex;
 }
