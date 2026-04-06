@@ -51,6 +51,7 @@ let queue = readStorage<WorkbookPersistenceTask[]>(STORAGE_KEY, []);
 let flushing = false;
 let runtimeInitialized = false;
 const pausedSessionsUntilTs = new Map<string, number>();
+const blockedSessions = new Set<string>();
 
 const listeners = new Set<() => void>();
 
@@ -107,6 +108,7 @@ const cleanupExpiredSessionPauses = () => {
 
 const isSessionPersistencePaused = (sessionId: string) => {
   cleanupExpiredSessionPauses();
+  if (blockedSessions.has(sessionId)) return true;
   const untilTs = pausedSessionsUntilTs.get(sessionId);
   return typeof untilTs === "number" && untilTs > nowTs();
 };
@@ -273,8 +275,12 @@ export const dropWorkbookPersistenceTasksForSession = (sessionId: string) => {
   ensureRuntime();
   normalizeQueue();
   const dropped = removeTasksBySessionId(sessionId);
+  const pauseDeleted = pausedSessionsUntilTs.delete(sessionId);
+  const blockDeleted = blockedSessions.delete(sessionId);
   if (dropped > 0) {
     persistQueue();
+  }
+  if (dropped > 0 || pauseDeleted || blockDeleted) {
     emit();
   }
   return dropped;
@@ -295,6 +301,23 @@ export const pauseWorkbookPersistenceForSession = (
 export const resumeWorkbookPersistenceForSession = (sessionId: string) => {
   if (!sessionId) return;
   if (pausedSessionsUntilTs.delete(sessionId)) {
+    emit();
+  }
+};
+
+export const setWorkbookPersistenceBlockedForSession = (
+  sessionId: string,
+  blocked: boolean
+) => {
+  if (!sessionId) return;
+  if (blocked) {
+    if (!blockedSessions.has(sessionId)) {
+      blockedSessions.add(sessionId);
+      emit();
+    }
+    return;
+  }
+  if (blockedSessions.delete(sessionId)) {
     emit();
   }
 };
@@ -366,6 +389,7 @@ export const flushWorkbookPersistenceQueue = async () => {
   if (!isOnline()) return;
   if (flushing) return;
   if (queue.length === 0) return;
+  if (!queue.some((task) => !isSessionPersistencePaused(task.sessionId))) return;
   flushing = true;
   emit();
 
