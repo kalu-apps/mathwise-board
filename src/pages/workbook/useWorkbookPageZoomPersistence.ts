@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStorage, writeStorage } from "@/shared/lib/localDb";
 
 type SetState<T> = (updater: T | ((current: T) => T)) => void;
@@ -12,6 +12,7 @@ interface UseWorkbookPageZoomPersistenceParams {
   currentBoardPage: number;
   viewportZoom: number;
   setViewportZoom: SetState<number>;
+  availablePages: number[];
   enabled?: boolean;
 }
 
@@ -35,7 +36,7 @@ const toSafeZoom = (value: number) =>
 const areZoomValuesEqual = (left: number, right: number) =>
   Math.abs(left - right) <= ZOOM_EPS;
 
-const normalizeZoomByPage = (value: unknown) => {
+const normalizeZoomByPage = (value: unknown, allowedPages?: Set<number>) => {
   if (!value || typeof value !== "object") {
     return {} as Record<string, number>;
   }
@@ -44,10 +45,27 @@ const normalizeZoomByPage = (value: unknown) => {
   Object.entries(source).forEach(([key, raw]) => {
     const numericPage = Number.parseInt(key, 10);
     if (!Number.isFinite(numericPage) || numericPage < 1) return;
+    const safePage = toSafePage(numericPage);
+    if (allowedPages && !allowedPages.has(safePage)) return;
     if (typeof raw !== "number" || !Number.isFinite(raw)) return;
-    normalized[String(toSafePage(numericPage))] = toSafeZoom(raw);
+    normalized[String(safePage)] = toSafeZoom(raw);
   });
   return normalized;
+};
+
+const areZoomMapsEqual = (left: Record<string, number>, right: Record<string, number>) => {
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (let index = 0; index < leftKeys.length; index += 1) {
+    const leftKey = leftKeys[index];
+    const rightKey = rightKeys[index];
+    if (leftKey !== rightKey) return false;
+    if (!areZoomValuesEqual(left[leftKey] ?? DEFAULT_PAGE_ZOOM, right[rightKey] ?? DEFAULT_PAGE_ZOOM)) {
+      return false;
+    }
+  }
+  return true;
 };
 
 const removeZoomForPage = (source: Record<string, number>, page: number) => {
@@ -82,12 +100,17 @@ export function useWorkbookPageZoomPersistence({
   currentBoardPage,
   viewportZoom,
   setViewportZoom,
+  availablePages,
   enabled = true,
 }: UseWorkbookPageZoomPersistenceParams): UseWorkbookPageZoomPersistenceResult {
   const readyRef = useRef(false);
   const zoomByPageRef = useRef<Record<string, number>>({});
   const pendingApplyRef = useRef<{ page: number; zoom: number } | null>(null);
   const [storageEpoch, setStorageEpoch] = useState(0);
+  const normalizedAvailablePages = useMemo(() => {
+    const deduped = Array.from(new Set(availablePages.map(toSafePage)));
+    return deduped.length > 0 ? deduped : [1];
+  }, [availablePages]);
 
   const persistZoomByPage = useCallback(
     (nextZoomByPage: Record<string, number>) => {
@@ -141,16 +164,25 @@ export function useWorkbookPageZoomPersistence({
         storageKey,
         null
       );
-      zoomByPageRef.current = normalizeZoomByPage(stored?.zoomByPage);
+      const allowedPages = new Set(normalizedAvailablePages);
+      zoomByPageRef.current = normalizeZoomByPage(stored?.zoomByPage, allowedPages);
     }
     readyRef.current = true;
     setStorageEpoch((current) => current + 1);
-  }, [enabled, storageKey]);
+  }, [enabled, normalizedAvailablePages, storageKey]);
 
   useEffect(() => {
     if (!enabled || !readyRef.current) return;
     applyZoomForPage(currentBoardPage);
   }, [applyZoomForPage, currentBoardPage, enabled, storageEpoch]);
+
+  useEffect(() => {
+    if (!enabled || !readyRef.current) return;
+    const allowedPages = new Set(normalizedAvailablePages);
+    const normalized = normalizeZoomByPage(zoomByPageRef.current, allowedPages);
+    if (areZoomMapsEqual(zoomByPageRef.current, normalized)) return;
+    persistZoomByPage(normalized);
+  }, [enabled, normalizedAvailablePages, persistZoomByPage]);
 
   useEffect(() => {
     if (!enabled || !readyRef.current) return;

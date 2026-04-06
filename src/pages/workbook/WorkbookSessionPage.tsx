@@ -48,6 +48,7 @@ import {
 import { PageLoader } from "@/shared/ui/loading";
 import { PlatformConfirmDialog } from "@/shared/ui/PlatformConfirmDialog";
 import { generateId } from "@/shared/lib/id";
+import { readStorage } from "@/shared/lib/localDb";
 import { useWorkbookSessionContextbar } from "./useWorkbookSessionContextbar";
 import { useWorkbookSessionPanelHandlers } from "./useWorkbookSessionPanelHandlers";
 import { useWorkbookImportModalController } from "./useWorkbookImportModalController";
@@ -515,35 +516,6 @@ export default function WorkbookSessionPage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!bootstrapReady || !sessionId || !session) return;
-    if (initializedLocalPageSessionIdRef.current === sessionId) return;
-    initializedLocalPageSessionIdRef.current = sessionId;
-    const maxKnownPage = resolveMaxKnownWorkbookPage({
-      pagesCount: boardSettings.pagesCount,
-      boardObjects,
-      boardStrokes,
-      annotationStrokes,
-    });
-    const normalizedOrder = normalizeWorkbookPageOrder(boardSettings.pageOrder, maxKnownPage);
-    const preferredPage = Math.min(maxKnownPage, toSafeWorkbookPage(boardSettings.currentPage));
-    const nextLocalPage = normalizedOrder.includes(preferredPage)
-      ? preferredPage
-      : normalizedOrder[0] ?? 1;
-    setCurrentBoardPage(nextLocalPage);
-  }, [
-    annotationStrokes,
-    boardObjects,
-    boardSettings.currentPage,
-    boardSettings.pageOrder,
-    boardSettings.pagesCount,
-    boardStrokes,
-    bootstrapReady,
-    session,
-    sessionId,
-    setCurrentBoardPage,
-  ]);
-
   const handleSessionRootRef = useCallback(
     (node: HTMLElement | null) => {
       sessionRootRef.current = node;
@@ -853,6 +825,21 @@ export default function WorkbookSessionPage() {
     processedEventIdsRef,
   });
   const effectiveActorUserId = actorParticipant?.userId ?? user?.id ?? "";
+  const availablePagesForLocalPersistence = useMemo(() => {
+    const maxKnownPage = resolveMaxKnownWorkbookPage({
+      pagesCount: boardSettings.pagesCount,
+      boardObjects,
+      boardStrokes,
+      annotationStrokes,
+    });
+    return normalizeWorkbookPageOrder(boardSettings.pageOrder, maxKnownPage);
+  }, [
+    annotationStrokes,
+    boardObjects,
+    boardSettings.pageOrder,
+    boardSettings.pagesCount,
+    boardStrokes,
+  ]);
   const pageZoomStorageKey = useMemo(() => {
     return sessionId && effectiveActorUserId
       ? `workbook:page-zoom:${sessionId}:${effectiveActorUserId}`
@@ -866,6 +853,48 @@ export default function WorkbookSessionPage() {
     [effectiveActorUserId, sessionId]
   );
 
+  useEffect(() => {
+    if (!bootstrapReady || !sessionId || !session) return;
+    const initScope = `${sessionId}:${pageViewportStorageKey ? "storage" : "fallback"}`;
+    if (initializedLocalPageSessionIdRef.current === initScope) return;
+    initializedLocalPageSessionIdRef.current = initScope;
+
+    const rawLocalState = pageViewportStorageKey
+      ? readStorage<{ lastPage?: unknown } | null>(pageViewportStorageKey, null)
+      : null;
+    const rawLocalLastPage = rawLocalState?.lastPage;
+    const localLastPage =
+      typeof rawLocalLastPage === "number" && Number.isFinite(rawLocalLastPage)
+        ? toSafeWorkbookPage(rawLocalLastPage)
+        : null;
+
+    const maxKnownPage = resolveMaxKnownWorkbookPage({
+      pagesCount: boardSettings.pagesCount,
+      boardObjects,
+      boardStrokes,
+      annotationStrokes,
+    });
+    const normalizedOrder = normalizeWorkbookPageOrder(boardSettings.pageOrder, maxKnownPage);
+    const fallbackPreferredPage = Math.min(maxKnownPage, toSafeWorkbookPage(boardSettings.currentPage));
+    const preferredPage = localLastPage ?? fallbackPreferredPage;
+    const nextLocalPage = normalizedOrder.includes(preferredPage)
+      ? preferredPage
+      : normalizedOrder[0] ?? 1;
+    setCurrentBoardPage(nextLocalPage);
+  }, [
+    annotationStrokes,
+    boardObjects,
+    boardSettings.currentPage,
+    boardSettings.pageOrder,
+    boardSettings.pagesCount,
+    boardStrokes,
+    bootstrapReady,
+    pageViewportStorageKey,
+    session,
+    sessionId,
+    setCurrentBoardPage,
+  ]);
+
   const {
     applyZoomForPage: applyPageZoomForPage,
     handlePageCreated: handleZoomPageCreated,
@@ -875,6 +904,7 @@ export default function WorkbookSessionPage() {
     currentBoardPage,
     viewportZoom,
     setViewportZoom,
+    availablePages: availablePagesForLocalPersistence,
     enabled: bootstrapReady && Boolean(sessionId),
   });
 
