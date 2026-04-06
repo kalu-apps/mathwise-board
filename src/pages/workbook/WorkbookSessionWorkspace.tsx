@@ -5,8 +5,6 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from "react";
-import { CircularProgress, IconButton, Tooltip } from "@mui/material";
-import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import { WorkbookSessionContextbar } from "./WorkbookSessionContextbar";
 import { WorkbookSessionBoardShell } from "./WorkbookSessionBoardShell";
 import type { WorkbookSessionDocsWindowProps } from "./WorkbookSessionDocsWindow";
@@ -19,8 +17,6 @@ type WorkbookSessionWorkspaceProps = {
   workspaceRef: MutableRefObject<HTMLDivElement | null>;
   graphCatalogCursorActive: boolean;
   contextbarProps: React.ComponentProps<typeof WorkbookSessionContextbar>;
-  onBack: () => Promise<void> | void;
-  isBackNavigationPending?: boolean;
   boardShellProps: React.ComponentProps<typeof WorkbookSessionBoardShell>;
   docsWindowOpen: boolean;
   docsWindowProps: WorkbookSessionDocsWindowProps;
@@ -33,8 +29,6 @@ export function WorkbookSessionWorkspace({
   workspaceRef,
   graphCatalogCursorActive,
   contextbarProps,
-  onBack,
-  isBackNavigationPending = false,
   boardShellProps,
   docsWindowOpen,
   docsWindowProps,
@@ -52,20 +46,6 @@ export function WorkbookSessionWorkspace({
       onDrop={onWorkspaceDrop}
     >
       <div className="workbook-session__workspace-head">
-        <Tooltip title={isBackNavigationPending ? "Возвращаемся к тетрадям..." : "Вернуться к тетрадям"}>
-          <IconButton
-            className="header__session-back workbook-session__session-back"
-            disabled={isBackNavigationPending}
-            onClick={() => {
-              if (isBackNavigationPending) return;
-              void onBack();
-            }}
-            size="small"
-            aria-label={isBackNavigationPending ? "Возвращаемся к тетрадям" : "Вернуться к тетрадям"}
-          >
-            {isBackNavigationPending ? <CircularProgress size={16} thickness={5} /> : <ArrowBackRoundedIcon />}
-          </IconButton>
-        </Tooltip>
         <WorkbookSessionContextbar {...contextbarProps} />
       </div>
       <WorkbookSessionBoardShell {...boardShellProps} />

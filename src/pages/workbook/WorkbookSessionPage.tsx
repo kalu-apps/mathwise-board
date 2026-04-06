@@ -15,6 +15,7 @@ import {
   Button,
   TextField,
 } from "@mui/material";
+import { useThemeMode } from "@/app/theme/themeModeContext";
 import { useAuth } from "@/features/auth/model/AuthContext";
 import {
   updateWorkbookSessionDraftPreview,
@@ -151,6 +152,7 @@ const WorkbookImportModal = lazy(() =>
 
 export default function WorkbookSessionPage() {
   const { user, isAuthReady, openAuthModal } = useAuth();
+  const { mode: themeMode, toggleMode } = useThemeMode();
   const { sessionId = "" } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -612,6 +614,15 @@ export default function WorkbookSessionPage() {
 
   const fallbackBackPath = "/workbook";
   const fromPath = searchParams.get("from") || fallbackBackPath;
+  const sessionUserLabel = useMemo(() => {
+    if (!user) return "";
+    const fullName = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim();
+    return fullName || user.email || "";
+  }, [user]);
+  const sessionUserInitial = useMemo(
+    () => (sessionUserLabel || user?.email || "U").slice(0, 1).toUpperCase(),
+    [sessionUserLabel, user?.email]
+  );
   const isWorkbookSessionAuthLost = isAuthReady && !user;
   const isSessionAccessBlocked = refs.authRequiredRef.current;
   const isWorkspaceInteractionBlocked = isSessionTabPassive || isSessionAccessBlocked;
@@ -1801,16 +1812,10 @@ export default function WorkbookSessionPage() {
     updateFunctionGraphAppearance:
       selectedGraphTextActions.updateSelectedFunctionGraphAppearance,
     setGraphWorkbenchTab,
-    setGraphExpressionDraft,
     setSelectedGraphPresetId,
-    clearGraphDraftError: () => {
-      setGraphDraftError((current) => (current ? null : current));
-    },
     appendSelectedGraphFunction: selectedGraphTextActions.appendSelectedGraphFunction,
     activateGraphCatalogCursor,
     updateSelectedGraphFunction: selectedGraphTextActions.updateSelectedGraphFunction,
-    normalizeGraphExpressionDraft: selectedGraphTextActions.normalizeGraphExpressionDraft,
-    commitSelectedGraphExpressions: selectedGraphTextActions.commitSelectedGraphExpressions,
     removeSelectedGraphFunction: selectedGraphTextActions.removeSelectedGraphFunction,
     reflectGraphFunctionByAxis: selectedGraphTextActions.reflectGraphFunctionByAxis,
   });
@@ -2430,8 +2435,6 @@ export default function WorkbookSessionPage() {
         selectedFunctionGraphPlaneColor:
           selectionViewportState.selectedFunctionGraphPlaneColor,
         graphWorkbenchTab,
-        graphExpressionDraft,
-        graphDraftError,
         selectedGraphPresetId,
         graphTabFunctions: selectionViewportState.graphTabFunctions,
         onCreatePlane: panelHandlers.handleGraphPanelCreatePlane,
@@ -2441,12 +2444,9 @@ export default function WorkbookSessionPage() {
         onClearPlaneBackground: panelHandlers.handleGraphPanelClearPlaneBackground,
         onSelectCatalogTab: panelHandlers.handleGraphPanelSelectCatalogTab,
         onSelectWorkTab: panelHandlers.handleGraphPanelSelectWorkTab,
-        onGraphExpressionDraftChange: panelHandlers.handleGraphPanelExpressionDraftChange,
-        onAddGraphFunction: panelHandlers.handleGraphPanelAddFunction,
         onSelectGraphPreset: panelHandlers.handleGraphPanelSelectPreset,
         onGraphFunctionColorChange: panelHandlers.handleGraphPanelFunctionColorChange,
-        onGraphFunctionExpressionChange: panelHandlers.handleGraphPanelFunctionExpressionChange,
-        onCommitGraphExpressions: panelHandlers.handleGraphPanelCommitExpressions,
+        onToggleGraphFunctionDashed: panelHandlers.handleGraphPanelToggleDashed,
         onRemoveGraphFunction: panelHandlers.handleGraphPanelRemoveFunction,
         onToggleGraphFunctionVisibility: panelHandlers.handleGraphPanelToggleVisibility,
         onReflectGraphFunctionByAxis: panelHandlers.handleGraphPanelReflectFunction,
@@ -2908,6 +2908,12 @@ export default function WorkbookSessionPage() {
     hotkeysTooltipContent,
     isFullscreen,
     onToggleFullscreen: toggleFullscreen,
+    themeMode,
+    onToggleThemeMode: toggleMode,
+    sessionUserLabel,
+    sessionUserInitial,
+    onExitSession: handleBack,
+    isExitSessionPending: isBackNavigationPending,
     showCollaborationPanels,
     isParticipantsCollapsed,
     onToggleParticipantsCollapsed: () =>
@@ -3088,8 +3094,6 @@ export default function WorkbookSessionPage() {
           workspaceRef={workspaceRef}
           graphCatalogCursorActive={graphCatalogCursorActive}
           contextbarProps={contextbarProps}
-          onBack={handleBack}
-          isBackNavigationPending={isBackNavigationPending}
           onWorkspaceDragOver={handleWorkspaceDragOver}
           onWorkspaceDrop={handleWorkspaceDrop}
           boardShellProps={{

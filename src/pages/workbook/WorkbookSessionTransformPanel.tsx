@@ -340,6 +340,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                 ))}
               </Select>
               <div className="workbook-session__line-range workbook-session__text-size-inline">
+                <span className="workbook-session__text-size-label">Размер текста</span>
                 <input
                   type="range"
                   min={12}
@@ -354,7 +355,6 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                     void onUpdateSelectedTextFormatting({ fontSize: nextSize });
                   }}
                 />
-                <span>{selectedTextFontSizeDraft}px</span>
               </div>
             </div>
             <div className="workbook-session__text-controls-grid">
@@ -444,8 +444,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                     </IconButton>
                   </span>
                 </Tooltip>
-              </div>
-              <div className="workbook-session__text-color-row">
+                <span className="workbook-session__text-icon-divider" aria-hidden="true" />
                 <Tooltip title="Цвет текста" arrow>
                   <span className="workbook-session__text-color-control">
                     <FormatColorTextRoundedIcon fontSize="small" />

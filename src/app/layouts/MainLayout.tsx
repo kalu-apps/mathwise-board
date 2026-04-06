@@ -10,9 +10,10 @@ export function MainLayout() {
   const { user, isAuthReady, isAuthModalOpen, closeAuthModal, authModalEmail } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const isWorkbookSessionRoute = location.pathname.startsWith("/workbook/session/");
   const hideAuthModalForWorkbook =
     location.pathname.startsWith("/workbook/invite/") ||
-    location.pathname.startsWith("/workbook/session/");
+    isWorkbookSessionRoute;
 
   useEffect(() => {
     if (!isAuthReady || !user) return;
@@ -39,10 +40,10 @@ export function MainLayout() {
 
   return (
     <>
-      <Header />
+      {!isWorkbookSessionRoute ? <Header /> : null}
       <ConnectivityBanner />
       <PerformanceModeBanner />
-      <main className="app-main">
+      <main className={`app-main${isWorkbookSessionRoute ? " app-main--workbook-session" : ""}`}>
         <Outlet />
       </main>
       {!hideAuthModalForWorkbook ? (

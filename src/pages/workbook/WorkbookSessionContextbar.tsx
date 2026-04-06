@@ -3,6 +3,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  CircularProgress,
   Button,
   IconButton,
   Menu,
@@ -14,6 +15,9 @@ import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
 import HelpOutlineRoundedIcon from "@mui/icons-material/HelpOutlineRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
+import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
+import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
+import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import ZoomInRoundedIcon from "@mui/icons-material/ZoomInRounded";
 import ZoomOutRoundedIcon from "@mui/icons-material/ZoomOutRounded";
 import CenterFocusStrongRoundedIcon from "@mui/icons-material/CenterFocusStrongRounded";
@@ -26,6 +30,7 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import UndoRoundedIcon from "@mui/icons-material/UndoRounded";
 import RedoRoundedIcon from "@mui/icons-material/RedoRounded";
+import type { ThemeMode } from "@/app/theme/themeModeContext";
 import type { WorkbookUtilityTab } from "@/features/workbook/model/workbookSessionUiTypes";
 import type { WorkbookBoardPageOption } from "./WorkbookSessionBoardSettingsPanel";
 
@@ -65,6 +70,12 @@ interface WorkbookSessionContextbarProps {
   hotkeysTooltipContent: ReactNode;
   isFullscreen: boolean;
   onToggleFullscreen: () => Promise<void> | void;
+  themeMode: ThemeMode;
+  onToggleThemeMode: () => void;
+  sessionUserLabel?: string;
+  sessionUserInitial?: string;
+  onExitSession: () => Promise<void> | void;
+  isExitSessionPending?: boolean;
   showCollaborationPanels: boolean;
   isParticipantsCollapsed: boolean;
   onToggleParticipantsCollapsed: () => void;
@@ -113,6 +124,12 @@ export function WorkbookSessionContextbar({
   hotkeysTooltipContent,
   isFullscreen,
   onToggleFullscreen,
+  themeMode,
+  onToggleThemeMode,
+  sessionUserLabel,
+  sessionUserInitial,
+  onExitSession,
+  isExitSessionPending = false,
   showCollaborationPanels,
   isParticipantsCollapsed,
   onToggleParticipantsCollapsed,
@@ -383,6 +400,49 @@ export function WorkbookSessionContextbar({
             >
               {isFullscreen ? <FullscreenExitRoundedIcon /> : <FullscreenRoundedIcon />}
             </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip
+          title={themeMode === "dark" ? "Включить светлую тему" : "Включить тёмную тему"}
+          placement="bottom"
+          arrow
+        >
+          <span>
+            <IconButton
+              size="small"
+              className="workbook-session__toolbar-icon"
+              onClick={onToggleThemeMode}
+            >
+              {themeMode === "dark" ? <LightModeRoundedIcon /> : <DarkModeRoundedIcon />}
+            </IconButton>
+          </span>
+        </Tooltip>
+        {sessionUserLabel ? (
+          <span className="workbook-session__contextbar-user-badge" aria-label={sessionUserLabel}>
+            <span className="workbook-session__contextbar-user-avatar">
+              {(sessionUserInitial || sessionUserLabel || "U").slice(0, 1).toUpperCase()}
+            </span>
+            <span className="workbook-session__contextbar-user-name">{sessionUserLabel}</span>
+          </span>
+        ) : null}
+        <Tooltip title={isExitSessionPending ? "Выходим..." : "Выйти из тетради"} placement="bottom" arrow>
+          <span className="workbook-session__contextbar-exit-wrap">
+            <Button
+              size="small"
+              variant="outlined"
+              className="workbook-session__contextbar-exit-button"
+              startIcon={
+                isExitSessionPending ? (
+                  <CircularProgress size={13} thickness={6} />
+                ) : (
+                  <LogoutRoundedIcon />
+                )
+              }
+              onClick={() => void onExitSession()}
+              disabled={isExitSessionPending}
+            >
+              Выход
+            </Button>
           </span>
         </Tooltip>
         {showInviteLinkButton ? (
