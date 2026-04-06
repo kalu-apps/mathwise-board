@@ -4,6 +4,10 @@ import { generateId } from "@/shared/lib/id";
 import { buildIdempotencyHeaders } from "@/shared/lib/idempotency";
 import type { WorkbookClientEventInput } from "./events";
 import type { WorkbookLayer } from "./types";
+import {
+  observeWorkbookEventsPostAttempt,
+  observeWorkbookEventsPostConflict,
+} from "./workbookEventsPostDiagnostics";
 
 type WorkbookPersistenceTaskBase = {
   id: string;
@@ -222,6 +226,12 @@ const upsertTask = (task: WorkbookPersistenceTask) => {
 
 const executeTask = async (task: WorkbookPersistenceTask) => {
   if (task.type === "events") {
+    observeWorkbookEventsPostAttempt({
+      sessionId: task.sessionId,
+      source: "queue",
+      idempotencyKey: task.idempotencyKey,
+      events: task.events,
+    });
     await api.post<{ events: unknown[]; latestSeq: number }>(
       `/workbook/sessions/${encodeURIComponent(task.sessionId)}/events`,
       { events: task.events },
@@ -458,6 +468,15 @@ export const flushWorkbookPersistenceQueue = async () => {
           error.code === "conflict"
         ) {
           const attempts = task.attempts + 1;
+          if (task.type === "events") {
+            observeWorkbookEventsPostConflict({
+              sessionId: task.sessionId,
+              source: "queue",
+              idempotencyKey: task.idempotencyKey,
+              events: task.events,
+              attempts,
+            });
+          }
           if (attempts >= MAX_CONFLICT_ATTEMPTS_PER_TASK) {
             // Deterministic safeguard: do not keep replaying the same conflicting intent forever.
             queue.splice(executableTaskIndex, 1);
