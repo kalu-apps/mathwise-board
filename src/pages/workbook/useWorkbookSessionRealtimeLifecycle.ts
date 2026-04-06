@@ -4,7 +4,6 @@ import { useWorkbookRealtimeApplyQueue } from "@/features/workbook/model/useWork
 import {
   dropWorkbookPersistenceTasksForSession,
   flushWorkbookPersistenceQueue,
-  setWorkbookPersistenceBlockedForSession,
 } from "@/features/workbook/model/persistenceQueue";
 import { useWorkbookSessionLoadAndAuth } from "./useWorkbookSessionLoadAndAuth";
 import { useWorkbookRealtimeTransport } from "./useWorkbookRealtimeTransport";
@@ -114,23 +113,6 @@ export const useWorkbookSessionRealtimeLifecycle = ({
     setIsWorkbookStreamConnected,
     setIsWorkbookLiveConnected,
   } = realtimeTransportParams;
-
-  useEffect(() => {
-    if (!sessionId) return;
-    const blocked =
-      isWorkbookSessionAuthLost || !persistenceLifecycleParams.sessionReady;
-    setWorkbookPersistenceBlockedForSession(sessionId, blocked);
-    if (!blocked) {
-      void flushWorkbookPersistenceQueue();
-    }
-    return () => {
-      setWorkbookPersistenceBlockedForSession(sessionId, false);
-    };
-  }, [
-    isWorkbookSessionAuthLost,
-    persistenceLifecycleParams.sessionReady,
-    sessionId,
-  ]);
 
   useEffect(() => {
     if (!sessionId || !isWorkbookSessionAuthLost) return;
