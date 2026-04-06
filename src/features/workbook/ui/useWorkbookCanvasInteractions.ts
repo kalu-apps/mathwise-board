@@ -267,6 +267,7 @@ type InteractionData = {
   forcePanMode: boolean;
   viewportOffset: WorkbookPoint;
   safeZoom: number;
+  allowHorizontalPan: boolean;
   selectedObjectId: string | null;
   objectById: Map<string, WorkbookBoardObject>;
   areaSelection: WorkbookAreaSelection | null;
@@ -789,7 +790,7 @@ export const useWorkbookCanvasInteractions = (
           event.clientX,
           event.clientY,
           data.safeZoom,
-          data.safeZoom > 1
+          data.allowHorizontalPan
         );
         api.onViewportOffsetChange?.(nextOffset);
         return;

@@ -60,13 +60,13 @@ export const useWorkbookCanvasViewport = ({
     0.3,
     Math.min(3, Number.isFinite(viewportZoom) ? viewportZoom : 1)
   );
-  const allowHorizontalPan = safeZoom > 1;
   const pageFrameBounds = useMemo(
     () => resolveWorkbookPageFrameBounds(pageFrameWidth),
     [pageFrameWidth]
   );
   const visibleViewportWidth = Math.max(1, size.width / safeZoom);
   const visibleViewportHeight = Math.max(1, size.height / safeZoom);
+  const allowHorizontalPan = pageFrameBounds.width > visibleViewportWidth + 1;
   const resolvedViewportOffset = useMemo(
     () => {
       const clamped = clampWorkbookViewportOffsetToPageFrame({
@@ -75,18 +75,9 @@ export const useWorkbookCanvasViewport = ({
         viewportWidth: visibleViewportWidth,
         viewportHeight: visibleViewportHeight,
       });
-      return {
-        x: allowHorizontalPan ? clamped.x : pageFrameBounds.minX,
-        y: clamped.y,
-      };
+      return clamped;
     },
-    [
-      allowHorizontalPan,
-      pageFrameBounds,
-      viewportOffset,
-      visibleViewportHeight,
-      visibleViewportWidth,
-    ]
+    [pageFrameBounds, viewportOffset, visibleViewportHeight, visibleViewportWidth]
   );
 
   useEffect(() => {
@@ -154,6 +145,7 @@ export const useWorkbookCanvasViewport = ({
   return {
     size,
     safeZoom,
+    allowHorizontalPan,
     pageFrameBounds,
     visibleViewportWidth,
     visibleViewportHeight,

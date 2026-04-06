@@ -315,6 +315,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const {
     size,
     safeZoom,
+    allowHorizontalPan,
     pageFrameBounds,
     resolvedViewportOffset,
     effectiveFocusPoints,
@@ -1214,6 +1215,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         forcePanMode,
         viewportOffset: resolvedViewportOffset,
         safeZoom,
+        allowHorizontalPan,
         selectedObjectId,
         objectById,
         areaSelection,
@@ -1319,6 +1321,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     setEraserCursorPoint,
     viewportOffset: resolvedViewportOffset,
     safeZoom,
+    allowHorizontalPan,
     pageFrameBounds,
     onViewportOffsetChange,
   });

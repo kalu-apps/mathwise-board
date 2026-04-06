@@ -27,6 +27,7 @@ interface UseWorkbookCanvasDomHandlersParams {
   tool: WorkbookTool;
   viewportOffset: WorkbookPoint;
   safeZoom: number;
+  allowHorizontalPan: boolean;
   pageFrameBounds: WorkbookPageFrameBounds;
   onViewportOffsetChange?: (offset: WorkbookPoint) => void;
   onObjectUpdate: (
@@ -103,6 +104,7 @@ export const useWorkbookCanvasDomHandlers = ({
   tool,
   viewportOffset,
   safeZoom,
+  allowHorizontalPan,
   pageFrameBounds,
   onViewportOffsetChange,
   onObjectUpdate,
@@ -199,9 +201,8 @@ export const useWorkbookCanvasDomHandlers = ({
       if (!event.ctrlKey && !event.metaKey) {
         if (!onViewportOffsetChange) return;
         // Intercept all regular wheel/trackpad gestures on canvas.
-        // Horizontal pan is enabled only when zoomed in beyond 100%.
+        // Horizontal pan is enabled only when page width overflows visible viewport width.
         preventDefaultIfCancelable(event);
-        const allowHorizontalPan = safeZoom > 1;
         const hasDeltaY = Number.isFinite(event.deltaY) && Math.abs(event.deltaY) > 0.0001;
         const hasDeltaX =
           allowHorizontalPan && Number.isFinite(event.deltaX) && Math.abs(event.deltaX) > 0.0001;
@@ -252,6 +253,7 @@ export const useWorkbookCanvasDomHandlers = ({
       objectById,
       onObjectUpdate,
       onViewportOffsetChange,
+      allowHorizontalPan,
       safeZoom,
       selectedObjectId,
       viewportOffset.x,
