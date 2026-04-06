@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert,
   Button,
   Dialog,
   DialogActions,
@@ -272,18 +271,12 @@ export function WorkbookImageImportCropModal({
     setDragState(null);
   }, [dragState]);
 
-  const cropPercentLabel = useMemo(
-    () => `${Math.round(cropRect.width * 100)}% × ${Math.round(cropRect.height * 100)}%`,
-    [cropRect.height, cropRect.width]
-  );
-
   return (
     <Dialog
       open={open}
       onClose={onCancel}
       container={container}
-      fullWidth
-      maxWidth="md"
+      maxWidth={false}
       className="workbook-session__image-crop-modal"
       PaperProps={{ className: "workbook-session__image-crop-modal-paper" }}
     >
@@ -299,17 +292,6 @@ export function WorkbookImageImportCropModal({
         </IconButton>
       </DialogTitle>
       <DialogContent className="workbook-session__image-crop-modal-content">
-        <Alert severity="info" className="workbook-session__image-crop-modal-alert">
-          Выберите нужную область. В доску будет импортирован только обрезанный фрагмент.
-        </Alert>
-        {fileName ? (
-          <div className="workbook-session__image-crop-file-name" title={fileName}>
-            {fileName}
-          </div>
-        ) : null}
-        <div className="workbook-session__image-crop-meta">
-          <span>Область: {cropPercentLabel}</span>
-        </div>
         <div className="workbook-session__image-crop-preview-shell">
           {sourceDataUrl ? (
             <div

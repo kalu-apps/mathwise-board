@@ -442,22 +442,45 @@ export const useWorkbookUtilityPanelController = ({
       panelNode?.style.removeProperty("--workbook-utility-max-height");
       return;
     }
+    let frameId: number | null = null;
     const updatePanelMaxHeight = () => {
       const currentPanelNode = utilityPanelRef.current;
       if (!currentPanelNode) return;
-      const maxHeight = Math.max(
-        280,
-        Math.floor(window.innerHeight - Math.max(8, floatingPanelsTop) - 12)
-      );
+      const workspaceNode = workspaceRef.current;
+      const canvasNode = workspaceNode?.querySelector<HTMLDivElement>(".workbook-session__canvas");
+      const canvasRect = canvasNode?.getBoundingClientRect();
+      const workspaceRect = workspaceNode?.getBoundingClientRect();
+      const viewportMaxHeight = window.innerHeight - Math.max(8, floatingPanelsTop) - 12;
+      const notebookMaxHeight = (canvasRect?.height ?? workspaceRect?.height ?? viewportMaxHeight) - 14;
+      const maxHeight = Math.max(260, Math.floor(Math.min(viewportMaxHeight, notebookMaxHeight)));
       currentPanelNode.style.setProperty("--workbook-utility-max-height", `${maxHeight}px`);
     };
+    const schedulePanelMaxHeightUpdate = () => {
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        updatePanelMaxHeight();
+      });
+    };
+    const resizeObserver =
+      typeof ResizeObserver === "function"
+        ? new ResizeObserver(() => {
+            schedulePanelMaxHeightUpdate();
+          })
+        : null;
+    const workspaceNode = workspaceRef.current;
+    const canvasNode = workspaceNode?.querySelector<HTMLDivElement>(".workbook-session__canvas");
+    if (workspaceNode && resizeObserver) resizeObserver.observe(workspaceNode);
+    if (canvasNode && resizeObserver) resizeObserver.observe(canvasNode);
     updatePanelMaxHeight();
-    window.addEventListener("resize", updatePanelMaxHeight);
+    window.addEventListener("resize", schedulePanelMaxHeightUpdate);
     return () => {
-      window.removeEventListener("resize", updatePanelMaxHeight);
+      window.removeEventListener("resize", schedulePanelMaxHeightUpdate);
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
+      resizeObserver?.disconnect();
       panelNode?.style.removeProperty("--workbook-utility-max-height");
     };
-  }, [floatingPanelsTop, isCompactViewport, isUtilityPanelOpen, utilityPanelRef]);
+  }, [floatingPanelsTop, isCompactViewport, isUtilityPanelOpen, utilityPanelRef, workspaceRef]);
 
   const utilityPanelTitle = useMemo(() => {
     if (utilityTab === "settings") return "Настройки доски";

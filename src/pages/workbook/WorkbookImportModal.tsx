@@ -514,7 +514,36 @@ export function WorkbookImportModal({
     [validateAndPrepareItems]
   );
 
+  const canReopenItemPreview = useCallback(
+    (item: WorkbookImportItem) => {
+      if (isBusy) return false;
+      if (item.isPdf) return true;
+      if (item.isImage) {
+        return Boolean(item.basePreparedDataUrl) && item.status !== "invalid";
+      }
+      return false;
+    },
+    [isBusy]
+  );
+
+  const handleReopenItemPreview = useCallback(
+    (item: WorkbookImportItem) => {
+      if (!canReopenItemPreview(item)) return;
+      if (item.isPdf) {
+        setImageCropItemId(null);
+        setPdfPreviewItemId(item.id);
+        return;
+      }
+      if (item.isImage) {
+        setPdfPreviewItemId(null);
+        setImageCropItemId(item.id);
+      }
+    },
+    [canReopenItemPreview]
+  );
+
   const handleOpenPdfPreview = useCallback((itemId: string) => {
+    setImageCropItemId(null);
     setPdfPreviewItemId(itemId);
   }, []);
 
@@ -888,8 +917,9 @@ export function WorkbookImportModal({
           }}
         >
           <UploadFileRoundedIcon fontSize="large" />
-          <strong>Перетащите файлы сюда</strong>
-          <span>или выберите вручную</span>
+          <span className="workbook-session__import-dropzone-caption">
+            Перетащите файл сюда или выберите вручную
+          </span>
           <Button
             variant="outlined"
             onClick={requestFileDialog}
@@ -901,83 +931,102 @@ export function WorkbookImportModal({
 
         {items.length > 0 ? (
           <div className="workbook-session__import-list" role="list">
-            {items.map((item) => (
-              <article
-                key={item.id}
-                className={`workbook-session__import-item ${
-                  item.status === "failed" || item.status === "invalid"
-                    ? "is-error"
-                    : item.status === "success"
-                      ? "is-success"
-                      : ""
-                }`}
-                role="listitem"
-              >
-                <div className="workbook-session__import-item-preview">
-                  {item.previewUrl ? (
-                    <img src={item.previewUrl} alt={item.name} loading="lazy" />
-                  ) : item.isImage ? (
-                    <ImageRoundedIcon fontSize="small" />
-                  ) : (
-                    <InsertDriveFileRoundedIcon fontSize="small" />
-                  )}
-                </div>
-                <div className="workbook-session__import-item-meta">
-                  <div className="workbook-session__import-item-headline">
-                    <strong>{item.name}</strong>
+            {items.map((item) => {
+              const isPreviewOpenable = canReopenItemPreview(item);
+              return (
+                <article
+                  key={item.id}
+                  className={`workbook-session__import-item ${
+                    item.status === "failed" || item.status === "invalid"
+                      ? "is-error"
+                      : item.status === "success"
+                        ? "is-success"
+                        : ""
+                  }${isPreviewOpenable ? " is-preview-openable" : ""}`}
+                  role="listitem"
+                  tabIndex={isPreviewOpenable ? 0 : undefined}
+                  aria-label={isPreviewOpenable ? `Открыть предпросмотр ${item.name}` : undefined}
+                  onClick={isPreviewOpenable ? () => handleReopenItemPreview(item) : undefined}
+                  onKeyDown={
+                    isPreviewOpenable
+                      ? (event) => {
+                          if (event.key !== "Enter" && event.key !== " ") return;
+                          event.preventDefault();
+                          handleReopenItemPreview(item);
+                        }
+                      : undefined
+                  }
+                >
+                  <div className="workbook-session__import-item-preview">
+                    {item.previewUrl ? (
+                      <img src={item.previewUrl} alt={item.name} loading="lazy" />
+                    ) : item.isImage ? (
+                      <ImageRoundedIcon fontSize="small" />
+                    ) : (
+                      <InsertDriveFileRoundedIcon fontSize="small" />
+                    )}
                   </div>
-                  <div className="workbook-session__import-item-details">
-                    <span>{item.extension || item.mimeType}</span>
-                    <span>{formatFileSizeMb(item.size)}</span>
-                    {item.width && item.height ? (
-                      <span>
-                        {item.width}×{item.height}
-                      </span>
+                  <div className="workbook-session__import-item-meta">
+                    <div className="workbook-session__import-item-headline">
+                      <strong>{item.name}</strong>
+                    </div>
+                    <div className="workbook-session__import-item-details">
+                      <span>{item.extension || item.mimeType}</span>
+                      <span>{formatFileSizeMb(item.size)}</span>
+                      {item.width && item.height ? (
+                        <span>
+                          {item.width}×{item.height}
+                        </span>
+                      ) : null}
+                    </div>
+                    {item.isPdf ? (
+                      <div className="workbook-session__import-item-actions">
+                        <span className="workbook-session__import-item-range">
+                          Страницы: {item.pdfPageRange?.from ?? 1}-{item.pdfPageRange?.to ?? 1}
+                          {item.pdfPageCount ? ` из ${item.pdfPageCount}` : ""}
+                        </span>
+                        <Button
+                          size="small"
+                          variant="text"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleOpenPdfPreview(item.id);
+                          }}
+                          disabled={isBusy}
+                        >
+                          Выбрать страницы
+                        </Button>
+                      </div>
+                    ) : item.isImage ? (
+                      <div className="workbook-session__import-item-actions">
+                        <span className="workbook-session__import-item-range">
+                          {item.isCropped ? "Обрезка: сохранена" : "Обрезка: весь кадр"}
+                        </span>
+                      </div>
+                    ) : null}
+                    {item.warning ? (
+                      <p className="workbook-session__import-item-warning">{item.warning}</p>
+                    ) : null}
+                    {item.error ? (
+                      <p className="workbook-session__import-item-error">{item.error}</p>
                     ) : null}
                   </div>
-                  {item.isPdf ? (
-                    <div className="workbook-session__import-item-actions">
-                      <span className="workbook-session__import-item-range">
-                        Страницы: {item.pdfPageRange?.from ?? 1}-{item.pdfPageRange?.to ?? 1}
-                        {item.pdfPageCount ? ` из ${item.pdfPageCount}` : ""}
-                      </span>
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={() => handleOpenPdfPreview(item.id)}
-                        disabled={isBusy}
-                      >
-                        Выбрать страницы
-                      </Button>
-                    </div>
-                  ) : item.isImage ? (
-                    <div className="workbook-session__import-item-actions">
-                      <span className="workbook-session__import-item-range">
-                        {item.isCropped ? "Обрезка: сохранена" : "Обрезка: весь кадр"}
-                      </span>
-                    </div>
-                  ) : null}
-                  {item.warning ? (
-                    <p className="workbook-session__import-item-warning">{item.warning}</p>
-                  ) : null}
-                  {item.error ? (
-                    <p className="workbook-session__import-item-error">{item.error}</p>
-                  ) : null}
-                </div>
-                <IconButton
-                  className="workbook-session__import-item-remove"
-                  aria-label={`Удалить ${item.name}`}
-                  onClick={() => {
-                    setItems((current) => current.filter((entry) => entry.id !== item.id));
-                    setPdfPreviewItemId((current) => (current === item.id ? null : current));
-                    setImageCropItemId((current) => (current === item.id ? null : current));
-                  }}
-                  disabled={isBusy}
-                >
-                  <CloseRoundedIcon fontSize="inherit" />
-                </IconButton>
-              </article>
-            ))}
+                  <IconButton
+                    className="workbook-session__import-item-remove"
+                    aria-label={`Удалить ${item.name}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setItems((current) => current.filter((entry) => entry.id !== item.id));
+                      setPdfPreviewItemId((current) => (current === item.id ? null : current));
+                      setImageCropItemId((current) => (current === item.id ? null : current));
+                    }}
+                    disabled={isBusy}
+                  >
+                    <CloseRoundedIcon fontSize="inherit" />
+                  </IconButton>
+                </article>
+              );
+            })}
           </div>
         ) : null}
         {(modalState === "uploading" || modalState === "processing") && items.length > 0 ? (
