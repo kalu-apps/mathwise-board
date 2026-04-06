@@ -35,6 +35,9 @@ type BuildWorkbookHistoryEntryFromEventsArgs = {
   currentDocumentState: WorkbookDocumentState;
 };
 
+const toSafePage = (value: number | null | undefined) =>
+  Math.max(1, Math.round(value || 1));
+
 export const buildWorkbookHistoryEntryFromEvents = ({
   events,
   currentBoardStrokes,
@@ -252,6 +255,7 @@ export const buildWorkbookHistoryEntryFromEvents = ({
   return {
     forward,
     inverse,
+    page: toSafePage(currentBoardSettings.currentPage),
     createdAt: new Date().toISOString(),
   } satisfies WorkbookHistoryEntry;
 };

@@ -351,6 +351,7 @@ export type WorkbookHistoryOperation =
 export type WorkbookHistoryEntry = {
   forward: WorkbookHistoryOperation[];
   inverse: WorkbookHistoryOperation[];
+  page: number;
   createdAt: string;
 };
 

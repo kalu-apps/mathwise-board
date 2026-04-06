@@ -189,6 +189,14 @@ export type WorkbookTimerState = {
   updatedAt: string;
 };
 
+export type WorkbookBoardPageVisualSettings = {
+  showGrid: boolean;
+  gridSize: number;
+  gridColor: string;
+  backgroundColor: string;
+  snapToGrid: boolean;
+};
+
 export type WorkbookBoardSettings = {
   title: string;
   showGrid: boolean;
@@ -196,6 +204,7 @@ export type WorkbookBoardSettings = {
   gridColor: string;
   backgroundColor: string;
   snapToGrid: boolean;
+  pageBoardSettingsByPage?: Record<string, WorkbookBoardPageVisualSettings>;
   showPageNumbers: boolean;
   pageFrameWidth: number;
   currentPage: number;

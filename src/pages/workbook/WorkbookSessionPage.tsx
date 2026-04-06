@@ -21,6 +21,7 @@ import {
   updateWorkbookSessionDraftPreview,
   uploadWorkbookAsset,
 } from "@/features/workbook/model/api";
+import { resolveWorkbookBoardPageVisualSettings } from "@/features/workbook/model/boardPageSettings";
 import { normalizeWorkbookPageFrameWidth } from "@/features/workbook/model/pageFrame";
 import { useWorkbookSessionStore } from "@/features/workbook/model/workbookSessionStore";
 import {
@@ -236,6 +237,10 @@ export default function WorkbookSessionPage() {
     libraryState,
     documentState,
   } = workbookSessionData;
+  const currentPageVisualSettings = useMemo(
+    () => resolveWorkbookBoardPageVisualSettings(boardSettings, currentBoardPage),
+    [boardSettings, currentBoardPage]
+  );
   const refs = useWorkbookSessionRefs();
   const {
     tool,
@@ -972,6 +977,7 @@ export default function WorkbookSessionPage() {
     redoStackRef,
     setUndoDepth,
     setRedoDepth,
+    currentBoardPageRef,
     boardStrokesRef,
     annotationStrokesRef,
     constraintsRef,
@@ -1703,7 +1709,7 @@ export default function WorkbookSessionPage() {
     canDraw,
     tool,
     boardObjectCount: boardObjects.length,
-    boardGridSize: boardSettings.gridSize,
+    boardGridSize: currentPageVisualSettings.gridSize,
     userId: user?.id,
     pendingSolid3dInsertPreset,
     setPendingSolid3dInsertPreset,
@@ -1737,6 +1743,7 @@ export default function WorkbookSessionPage() {
 
   const { handleUndo, handleRedo } = useWorkbookHistoryHotkeys({
     canUseUndo,
+    currentBoardPage,
     tool,
     areaSelectionHasContent,
     appendEventsAndApply,
@@ -2377,6 +2384,17 @@ export default function WorkbookSessionPage() {
     if (safeCurrentBoardPage === currentBoardPage) return;
     setCurrentBoardPage(safeCurrentBoardPage);
   }, [currentBoardPage, safeCurrentBoardPage, setCurrentBoardPage]);
+  const safeCurrentPageVisualSettings = useMemo(
+    () => resolveWorkbookBoardPageVisualSettings(boardSettings, safeCurrentBoardPage),
+    [boardSettings, safeCurrentBoardPage]
+  );
+  const boardSettingsForCurrentPage = useMemo(
+    () => ({
+      ...boardSettings,
+      ...safeCurrentPageVisualSettings,
+    }),
+    [boardSettings, safeCurrentPageVisualSettings]
+  );
 
   const {
     handlePageCreated: handleViewportPageCreated,
@@ -2535,7 +2553,7 @@ export default function WorkbookSessionPage() {
   const { settingsPanelProps, graphPanelProps } =
     buildWorkbookSessionUtilityPanelProps({
       settings: {
-        boardSettings,
+        boardSettings: boardSettingsForCurrentPage,
         currentBoardPage: safeCurrentBoardPage,
         onSharedBoardSettingsChange: handleSharedBoardSettingsChange,
         boardPageOptions: selectionViewportState.boardPageOptions,
@@ -2818,14 +2836,14 @@ export default function WorkbookSessionPage() {
     textPreset,
     graphFunctions: sanitizedGraphDraftFunctions,
     lineStyle,
-    snapToGrid: boardSettings.snapToGrid,
-    gridSize: boardSettings.gridSize,
+    snapToGrid: currentPageVisualSettings.snapToGrid,
+    gridSize: currentPageVisualSettings.gridSize,
     viewportZoom,
     pageFrameWidth: boardSettings.pageFrameWidth,
     visibilityMode: canvasVisibilityMode,
-    showGrid: boardSettings.showGrid,
-    gridColor: boardSettings.gridColor,
-    backgroundColor: boardSettings.backgroundColor,
+    showGrid: currentPageVisualSettings.showGrid,
+    gridColor: currentPageVisualSettings.gridColor,
+    backgroundColor: currentPageVisualSettings.backgroundColor,
     imageAssetUrls: selectionViewportState.imageAssetUrls,
     incomingEraserPreviews: selectionViewportState.visibleIncomingEraserPreviews,
     showPageNumbers: boardSettings.showPageNumbers,
@@ -3260,9 +3278,9 @@ export default function WorkbookSessionPage() {
             boardStrokes={boardStrokes}
             annotationStrokes={annotationStrokes}
             imageAssetUrls={selectionViewportState.imageAssetUrls}
-            boardBackgroundColor={boardSettings.backgroundColor}
-            boardGridColor={boardSettings.gridColor}
-            boardGridSize={boardSettings.gridSize}
+            boardBackgroundColor={safeCurrentPageVisualSettings.backgroundColor}
+            boardGridColor={safeCurrentPageVisualSettings.gridColor}
+            boardGridSize={safeCurrentPageVisualSettings.gridSize}
             boardPageFrameWidth={boardSettings.pageFrameWidth}
             currentPage={safeCurrentBoardPage}
             canManageBoardPages={canManageSharedBoardSettings}

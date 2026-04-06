@@ -13,6 +13,10 @@ import {
 } from "./WorkbookSessionPage.core";
 import { normalizeWorkbookPageFrameWidth } from "@/features/workbook/model/pageFrame";
 import {
+  normalizeWorkbookBoardPageVisualSettingsByPage,
+  resolveWorkbookBoardPageVisualDefaults,
+} from "@/features/workbook/model/boardPageSettings";
+import {
   type WorkbookHistoryEntry,
   type WorkbookSceneSnapshot,
   normalizeSceneLayersForBoard,
@@ -44,6 +48,7 @@ type UseWorkbookSessionHistoryRuntimeParams = {
   redoStackRef: MutableRefObject<WorkbookHistoryEntry[]>;
   setUndoDepth: Dispatch<SetStateAction<number>>;
   setRedoDepth: Dispatch<SetStateAction<number>>;
+  currentBoardPageRef: MutableRefObject<number>;
   boardStrokesRef: MutableRefObject<WorkbookStroke[]>;
   annotationStrokesRef: MutableRefObject<WorkbookStroke[]>;
   constraintsRef: MutableRefObject<WorkbookConstraint[]>;
@@ -74,12 +79,29 @@ export const useWorkbookSessionHistoryRuntime = ({
   redoStackRef,
   setUndoDepth,
   setRedoDepth,
+  currentBoardPageRef,
   boardStrokesRef,
   annotationStrokesRef,
   constraintsRef,
   boardSettingsRef,
   documentStateRef,
 }: UseWorkbookSessionHistoryRuntimeParams) => {
+  const toSafePage = useCallback(
+    (value: number | null | undefined) => Math.max(1, Math.round(value || 1)),
+    []
+  );
+
+  const countEntriesForPage = useCallback(
+    (entries: WorkbookHistoryEntry[], page: number) => {
+      const safePage = toSafePage(page);
+      return entries.reduce((count, entry) => {
+        const entryPage = toSafePage(entry.page);
+        return entryPage === safePage ? count + 1 : count;
+      }, 0);
+    },
+    [toSafePage]
+  );
+
   const restoreSceneSnapshot = useCallback((snapshot: WorkbookSceneSnapshot) => {
     const normalizedBoardObjects = snapshot.boardObjects.map((object) =>
       clampBoardObjectToPageFrame(object, snapshot.boardSettings.pageFrameWidth)
@@ -98,13 +120,20 @@ export const useWorkbookSessionHistoryRuntime = ({
         snapshot.boardSettings.sceneLayers,
         snapshot.boardSettings.activeSceneLayerId
       );
-      return {
+      const normalizedSettings: WorkbookBoardSettings = {
         ...current,
         ...snapshot.boardSettings,
         pageFrameWidth: normalizeWorkbookPageFrameWidth(snapshot.boardSettings.pageFrameWidth),
         sceneLayers: next.sceneLayers,
         activeSceneLayerId: next.activeSceneLayerId,
       };
+      const fallbackPageVisual = resolveWorkbookBoardPageVisualDefaults(normalizedSettings);
+      normalizedSettings.pageBoardSettingsByPage =
+        normalizeWorkbookBoardPageVisualSettingsByPage(
+          snapshot.boardSettings.pageBoardSettingsByPage,
+          fallbackPageVisual
+        );
+      return normalizedSettings;
     });
     setLibraryState(snapshot.libraryState);
     setDocumentState(snapshot.documentState);
@@ -149,18 +178,34 @@ export const useWorkbookSessionHistoryRuntime = ({
   ]);
 
   const pushHistoryEntry = useCallback((entry: WorkbookHistoryEntry) => {
-    const nextUndo = [...undoStackRef.current, entry];
+    const nextUndo = [
+      ...undoStackRef.current,
+      {
+        ...entry,
+        page: toSafePage(entry.page ?? currentBoardPageRef.current),
+      },
+    ];
     undoStackRef.current = nextUndo.slice(-80);
     redoStackRef.current = [];
-    setUndoDepth(undoStackRef.current.length);
+    const activePage = toSafePage(currentBoardPageRef.current);
+    setUndoDepth(countEntriesForPage(undoStackRef.current, activePage));
     setRedoDepth(0);
-  }, [redoStackRef, setRedoDepth, setUndoDepth, undoStackRef]);
+  }, [
+    countEntriesForPage,
+    currentBoardPageRef,
+    redoStackRef,
+    setRedoDepth,
+    setUndoDepth,
+    toSafePage,
+    undoStackRef,
+  ]);
 
   const rollbackHistoryEntry = useCallback(() => {
     if (undoStackRef.current.length === 0) return;
     undoStackRef.current = undoStackRef.current.slice(0, -1);
-    setUndoDepth(undoStackRef.current.length);
-  }, [setUndoDepth, undoStackRef]);
+    const activePage = toSafePage(currentBoardPageRef.current);
+    setUndoDepth(countEntriesForPage(undoStackRef.current, activePage));
+  }, [countEntriesForPage, currentBoardPageRef, setUndoDepth, toSafePage, undoStackRef]);
 
   const buildHistoryEntryFromEvents = useCallback(
     (events: WorkbookClientEventInput[]) =>

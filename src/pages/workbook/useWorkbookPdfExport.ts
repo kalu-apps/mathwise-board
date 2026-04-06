@@ -4,6 +4,7 @@ import {
   getStrokeExportBounds,
   type WorkbookExportBounds,
 } from "@/features/workbook/model/export";
+import { resolveWorkbookBoardPageVisualSettings } from "@/features/workbook/model/boardPageSettings";
 import { normalizeWorkbookAssetContentUrl } from "@/features/workbook/model/workbookAssetUrl";
 import {
   WORKBOOK_BOARD_BACKGROUND_COLOR,
@@ -430,10 +431,18 @@ export const useWorkbookPdfExport = ({
   }, [boardObjects, boardSettings.pagesCount, boardStrokes, currentBoardPage]);
 
   const renderBoardToCanvas = useCallback(
-    async (scale = 2, options?: { bounds?: WorkbookExportBounds | null }) => {
+    async (scale = 2, options?: { bounds?: WorkbookExportBounds | null; page?: number }) => {
       const svg = document.querySelector<SVGSVGElement>(".workbook-session__canvas-svg");
       if (!svg) return null;
       const bounds = options?.bounds ?? null;
+      const exportPage = Math.max(
+        1,
+        Math.round(options?.page ?? currentBoardPage ?? 1)
+      );
+      const pageVisualSettings = resolveWorkbookBoardPageVisualSettings(
+        boardSettings,
+        exportPage
+      );
       const svgClone = svg.cloneNode(true) as SVGSVGElement;
       svgClone
         .querySelectorAll<SVGGElement>('[data-workbook-export-only="true"]')
@@ -513,11 +522,15 @@ export const useWorkbookPdfExport = ({
         if (!ctx) return null;
         ctx.save();
         ctx.scale(safeScale, safeScale);
-        ctx.fillStyle = boardSettings.backgroundColor || WORKBOOK_BOARD_BACKGROUND_COLOR;
+        ctx.fillStyle =
+          pageVisualSettings.backgroundColor || WORKBOOK_BOARD_BACKGROUND_COLOR;
         ctx.fillRect(0, 0, width, height);
-        if (boardSettings.showGrid) {
-          const gridStep = Math.max(8, Math.min(96, Math.floor(boardSettings.gridSize || 22)));
-          ctx.strokeStyle = boardSettings.gridColor || WORKBOOK_BOARD_GRID_COLOR;
+        if (pageVisualSettings.showGrid) {
+          const gridStep = Math.max(
+            8,
+            Math.min(96, Math.floor(pageVisualSettings.gridSize || 22))
+          );
+          ctx.strokeStyle = pageVisualSettings.gridColor || WORKBOOK_BOARD_GRID_COLOR;
           ctx.lineWidth = 1;
           ctx.beginPath();
           const minGridX = bounds ? Math.floor(bounds.minX / gridStep) * gridStep : 0;
@@ -551,7 +564,7 @@ export const useWorkbookPdfExport = ({
         URL.revokeObjectURL(url);
       }
     },
-    [boardSettings.backgroundColor, boardSettings.gridColor, boardSettings.gridSize, boardSettings.showGrid]
+    [boardSettings, currentBoardPage]
   );
 
   const resolveExportFileBaseName = useCallback(() => {
@@ -626,6 +639,7 @@ export const useWorkbookPdfExport = ({
         for (const tile of tiles) {
           const rendered = await renderBoardToCanvas(2.2, {
             bounds: tile.bounds,
+            page: pageNumber,
           });
           if (!rendered) continue;
           if (renderedPagesCount > 0) {

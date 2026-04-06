@@ -5,10 +5,12 @@ import type { WorkbookTool } from "@/features/workbook/model/types";
 type HistoryEntryLike = {
   inverse: unknown[];
   forward: unknown[];
+  page?: number;
 };
 
 type UseWorkbookHistoryHotkeysParams = {
   canUseUndo: boolean;
+  currentBoardPage: number;
   tool: WorkbookTool;
   areaSelectionHasContent: boolean;
   appendEventsAndApply: (
@@ -37,6 +39,7 @@ type UseWorkbookHistoryHotkeysParams = {
 
 export const useWorkbookHistoryHotkeys = ({
   canUseUndo,
+  currentBoardPage,
   tool,
   areaSelectionHasContent,
   appendEventsAndApply,
@@ -55,17 +58,59 @@ export const useWorkbookHistoryHotkeys = ({
   cutAreaSelectionObjects,
   pasteAreaSelectionObjects,
 }: UseWorkbookHistoryHotkeysParams) => {
+  const toSafePage = useCallback(
+    (value: number | null | undefined) => Math.max(1, Math.round(value || 1)),
+    []
+  );
+
+  const resolveEntryPage = useCallback(
+    (entry: HistoryEntryLike) => toSafePage(entry.page ?? currentBoardPage),
+    [currentBoardPage, toSafePage]
+  );
+
+  const countEntriesForPage = useCallback(
+    (entries: HistoryEntryLike[], page: number) => {
+      const safePage = toSafePage(page);
+      return entries.reduce((count, entry) => {
+        const entryPage = resolveEntryPage(entry);
+        return entryPage === safePage ? count + 1 : count;
+      }, 0);
+    },
+    [resolveEntryPage, toSafePage]
+  );
+
+  const findLastEntryIndexForPage = useCallback(
+    (entries: HistoryEntryLike[], page: number) => {
+      const safePage = toSafePage(page);
+      for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const entry = entries[index];
+        if (!entry) continue;
+        if (resolveEntryPage(entry) === safePage) {
+          return index;
+        }
+      }
+      return -1;
+    },
+    [resolveEntryPage, toSafePage]
+  );
+
   const handleUndo = useCallback(async () => {
     if (!canUseUndo || undoStackRef.current.length === 0) return;
-    const entry = undoStackRef.current[undoStackRef.current.length - 1];
+    const targetIndex = findLastEntryIndexForPage(undoStackRef.current, currentBoardPage);
+    if (targetIndex < 0) return;
+    const entry = undoStackRef.current[targetIndex];
     if (!entry) return;
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
-    undoStackRef.current = undoStackRef.current.slice(0, -1);
+    undoStackRef.current = [
+      ...undoStackRef.current.slice(0, targetIndex),
+      ...undoStackRef.current.slice(targetIndex + 1),
+    ];
     redoStackRef.current = [...redoStackRef.current, entry].slice(-80);
-    setUndoDepth(undoStackRef.current.length);
-    setRedoDepth(redoStackRef.current.length);
+    const safePage = toSafePage(currentBoardPage);
+    setUndoDepth(countEntriesForPage(undoStackRef.current, safePage));
+    setRedoDepth(countEntriesForPage(redoStackRef.current, safePage));
     applyHistoryOperations(entry.inverse);
     markDirty();
     try {
@@ -90,25 +135,35 @@ export const useWorkbookHistoryHotkeys = ({
     clearIncomingEraserPreviewRuntime,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
+    countEntriesForPage,
+    currentBoardPage,
+    findLastEntryIndexForPage,
     markDirty,
     redoStackRef,
     setError,
     setRedoDepth,
     setUndoDepth,
+    toSafePage,
     undoStackRef,
   ]);
 
   const handleRedo = useCallback(async () => {
     if (!canUseUndo || redoStackRef.current.length === 0) return;
-    const entry = redoStackRef.current[redoStackRef.current.length - 1];
+    const targetIndex = findLastEntryIndexForPage(redoStackRef.current, currentBoardPage);
+    if (targetIndex < 0) return;
+    const entry = redoStackRef.current[targetIndex];
     if (!entry) return;
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
-    redoStackRef.current = redoStackRef.current.slice(0, -1);
+    redoStackRef.current = [
+      ...redoStackRef.current.slice(0, targetIndex),
+      ...redoStackRef.current.slice(targetIndex + 1),
+    ];
     undoStackRef.current = [...undoStackRef.current, entry].slice(-80);
-    setUndoDepth(undoStackRef.current.length);
-    setRedoDepth(redoStackRef.current.length);
+    const safePage = toSafePage(currentBoardPage);
+    setUndoDepth(countEntriesForPage(undoStackRef.current, safePage));
+    setRedoDepth(countEntriesForPage(redoStackRef.current, safePage));
     applyHistoryOperations(entry.forward);
     markDirty();
     try {
@@ -133,11 +188,29 @@ export const useWorkbookHistoryHotkeys = ({
     clearIncomingEraserPreviewRuntime,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
+    countEntriesForPage,
+    currentBoardPage,
+    findLastEntryIndexForPage,
     markDirty,
     redoStackRef,
     setError,
     setRedoDepth,
     setUndoDepth,
+    toSafePage,
+    undoStackRef,
+  ]);
+
+  useEffect(() => {
+    const safePage = toSafePage(currentBoardPage);
+    setUndoDepth(countEntriesForPage(undoStackRef.current, safePage));
+    setRedoDepth(countEntriesForPage(redoStackRef.current, safePage));
+  }, [
+    countEntriesForPage,
+    currentBoardPage,
+    redoStackRef,
+    setRedoDepth,
+    setUndoDepth,
+    toSafePage,
     undoStackRef,
   ]);
 

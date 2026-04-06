@@ -259,6 +259,7 @@ export const DEFAULT_BOARD_SETTINGS: WorkbookBoardSettings = {
   gridColor: WORKBOOK_BOARD_GRID_COLOR,
   backgroundColor: WORKBOOK_BOARD_BACKGROUND_COLOR,
   snapToGrid: false,
+  pageBoardSettingsByPage: {},
   showPageNumbers: false,
   pageFrameWidth: normalizeWorkbookPageFrameWidth(WORKBOOK_PAGE_FRAME_WIDTH),
   currentPage: 1,

@@ -5,6 +5,14 @@ import type {
   WorkbookBoardSettings,
   WorkbookStroke,
 } from "@/features/workbook/model/types";
+import {
+  extractWorkbookBoardPageVisualSettingsPatch,
+  normalizeWorkbookBoardPageVisualSettings,
+  normalizeWorkbookBoardPageVisualSettingsByPage,
+  remapWorkbookBoardPageVisualSettingsByPageAfterDelete,
+  resolveWorkbookBoardPageVisualDefaults,
+  resolveWorkbookBoardPageVisualSettings,
+} from "@/features/workbook/model/boardPageSettings";
 import { normalizeWorkbookPageFrameWidth } from "@/features/workbook/model/pageFrame";
 import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import {
@@ -89,6 +97,7 @@ export const useWorkbookBoardSettingsPages = ({
         ? {
             forward: [{ kind: "patch_board_settings", patch: forwardPatch }],
             inverse: [{ kind: "patch_board_settings", patch: inversePatch }],
+            page: toSafeWorkbookPage(historyBefore?.currentPage ?? nextSettings.currentPage),
             createdAt: new Date().toISOString(),
           }
         : null;
@@ -196,7 +205,40 @@ export const useWorkbookBoardSettingsPages = ({
         if (!queuedBoardSettingsHistoryBeforeRef.current) {
           queuedBoardSettingsHistoryBeforeRef.current = cloneSerializable(current);
         }
-        const merged = { ...current, ...patch };
+        const pageVisualPatch = extractWorkbookBoardPageVisualSettingsPatch(patch);
+        const hasPageVisualPatch = Object.keys(pageVisualPatch).length > 0;
+        const merged: WorkbookBoardSettings = {
+          ...current,
+          ...patch,
+        };
+        if (hasPageVisualPatch) {
+          const targetPage = toSafeWorkbookPage(
+            typeof patch.currentPage === "number"
+              ? patch.currentPage
+              : current.currentPage
+          );
+          const currentPageVisualSettings = resolveWorkbookBoardPageVisualSettings(
+            current,
+            targetPage
+          );
+          const nextPageVisualSettings = normalizeWorkbookBoardPageVisualSettings(
+            {
+              ...currentPageVisualSettings,
+              ...pageVisualPatch,
+            },
+            currentPageVisualSettings
+          );
+          merged.pageBoardSettingsByPage = {
+            ...(current.pageBoardSettingsByPage ?? {}),
+            [String(targetPage)]: nextPageVisualSettings,
+          };
+          // Keep root defaults stable; page-specific values are stored in pageBoardSettingsByPage.
+          merged.showGrid = current.showGrid;
+          merged.gridSize = current.gridSize;
+          merged.gridColor = current.gridColor;
+          merged.backgroundColor = current.backgroundColor;
+          merged.snapToGrid = current.snapToGrid;
+        }
         const normalizedLayers = normalizeSceneLayersForBoard(
           merged.sceneLayers,
           merged.activeSceneLayerId
@@ -217,11 +259,11 @@ export const useWorkbookBoardSettingsPages = ({
           merged.pageTitles,
           safePagesCount
         );
-          const nextSettings: WorkbookBoardSettings = {
-            ...merged,
-            sceneLayers: normalizedLayers.sceneLayers,
-            activeSceneLayerId: normalizedLayers.activeSceneLayerId,
-            title: typeof merged.title === "string" ? merged.title : current.title,
+        const nextSettings: WorkbookBoardSettings = {
+          ...merged,
+          sceneLayers: normalizedLayers.sceneLayers,
+          activeSceneLayerId: normalizedLayers.activeSceneLayerId,
+          title: typeof merged.title === "string" ? merged.title : current.title,
           gridSize: Math.max(
             8,
             Math.min(96, Math.round(merged.gridSize || current.gridSize))
@@ -232,18 +274,26 @@ export const useWorkbookBoardSettingsPages = ({
               safePagesCount,
               Math.round(merged.currentPage || current.currentPage || 1)
             )
-            ),
-            pagesCount: safePagesCount,
-            pageOrder: normalizedPageOrder,
-            pageTitles: normalizedPageTitles,
-            pageFrameWidth: normalizeWorkbookPageFrameWidth(
-              merged.pageFrameWidth ?? current.pageFrameWidth
-            ),
-            dividerStep: Math.max(
+          ),
+          pagesCount: safePagesCount,
+          pageOrder: normalizedPageOrder,
+          pageTitles: normalizedPageTitles,
+          pageFrameWidth: normalizeWorkbookPageFrameWidth(
+            merged.pageFrameWidth ?? current.pageFrameWidth
+          ),
+          dividerStep: Math.max(
             320,
             Math.min(2400, Math.round(merged.dividerStep || current.dividerStep || 320))
           ),
         };
+        const fallbackPageVisualSettings =
+          resolveWorkbookBoardPageVisualDefaults(nextSettings);
+        nextSettings.pageBoardSettingsByPage =
+          normalizeWorkbookBoardPageVisualSettingsByPage(
+            merged.pageBoardSettingsByPage,
+            fallbackPageVisualSettings,
+            safePagesCount
+          );
         scheduleBoardSettingsCommit(nextSettings);
         return nextSettings;
       });
@@ -529,6 +579,15 @@ export const useWorkbookBoardSettingsPages = ({
           const shiftedPage = parsedPage > safeTargetPage ? parsedPage - 1 : parsedPage;
           shiftedPageTitles[String(shiftedPage)] = value;
         });
+        const fallbackPageVisualSettings =
+          resolveWorkbookBoardPageVisualDefaults(boardSettingsSnapshot);
+        const shiftedPageBoardSettingsByPage =
+          remapWorkbookBoardPageVisualSettingsByPageAfterDelete({
+            source: boardSettingsSnapshot.pageBoardSettingsByPage,
+            targetPage: safeTargetPage,
+            fallback: fallbackPageVisualSettings,
+            maxKnownPage: nextPagesCount,
+          });
         events.push({
           type: "board.settings.update",
           payload: {
@@ -537,6 +596,7 @@ export const useWorkbookBoardSettingsPages = ({
               currentPage: nextCurrentPage,
               pageOrder: nextPageOrder,
               pageTitles: shiftedPageTitles,
+              pageBoardSettingsByPage: shiftedPageBoardSettingsByPage,
             },
           },
         });

@@ -5,6 +5,10 @@ import {
   normalizeDocumentAssetPayload,
 } from "./scene";
 import { normalizeWorkbookPageFrameWidth } from "./pageFrame";
+import {
+  normalizeWorkbookBoardPageVisualSettingsByPage,
+  resolveWorkbookBoardPageVisualDefaults,
+} from "./boardPageSettings";
 import type {
   WorkbookBoardSettings,
   WorkbookComment,
@@ -157,11 +161,20 @@ export const applyWorkbookIncomingSessionMetaEvent = (
         merged.sceneLayers,
         merged.activeSceneLayerId
       );
-      return {
+      const normalizedSettings: WorkbookBoardSettings = {
         ...merged,
         pageFrameWidth: normalizeWorkbookPageFrameWidth(merged.pageFrameWidth),
         sceneLayers: normalizedLayers.sceneLayers,
         activeSceneLayerId: normalizedLayers.activeSceneLayerId,
+      };
+      const fallbackPageVisual = resolveWorkbookBoardPageVisualDefaults(normalizedSettings);
+      normalizedSettings.pageBoardSettingsByPage =
+        normalizeWorkbookBoardPageVisualSettingsByPage(
+          merged.pageBoardSettingsByPage,
+          fallbackPageVisual
+        );
+      return {
+        ...normalizedSettings,
       };
     });
     return true;

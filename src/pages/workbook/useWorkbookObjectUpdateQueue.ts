@@ -12,6 +12,9 @@ import {
 } from "@/features/workbook/model/runtime";
 import { type WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
 
+const toSafePage = (value: number | null | undefined) =>
+  Math.max(1, Math.round(value || 1));
+
 type AppendEventsAndApply = (
   events: WorkbookClientEventInput[],
   options?: {
@@ -82,6 +85,7 @@ export const useWorkbookObjectUpdateQueue = ({
                 return {
                   forward: [{ kind: "patch_object" as const, objectId, patch: forwardPatch }],
                   inverse: [{ kind: "patch_object" as const, objectId, patch: inversePatch }],
+                  page: toSafePage(historyAfter.page),
                   createdAt: new Date().toISOString(),
                 } satisfies WorkbookHistoryEntry;
               })()

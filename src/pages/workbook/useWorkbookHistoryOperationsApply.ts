@@ -2,6 +2,10 @@ import { useCallback, type MutableRefObject } from "react";
 import {
   mergeBoardObjectWithPatch,
 } from "@/features/workbook/model/runtime";
+import {
+  normalizeWorkbookBoardPageVisualSettingsByPage,
+  resolveWorkbookBoardPageVisualDefaults,
+} from "@/features/workbook/model/boardPageSettings";
 import type {
   WorkbookBoardObject,
   WorkbookBoardSettings,
@@ -193,12 +197,21 @@ export const useWorkbookHistoryOperationsApply = ({
               merged.sceneLayers,
               merged.activeSceneLayerId
             );
-            return {
+            const normalizedSettings: WorkbookBoardSettings = {
               ...merged,
               pageFrameWidth: normalizeWorkbookPageFrameWidth(merged.pageFrameWidth),
               sceneLayers: normalizedLayers.sceneLayers,
               activeSceneLayerId: normalizedLayers.activeSceneLayerId,
             };
+            const fallbackPageVisual = resolveWorkbookBoardPageVisualDefaults(
+              normalizedSettings
+            );
+            normalizedSettings.pageBoardSettingsByPage =
+              normalizeWorkbookBoardPageVisualSettingsByPage(
+                merged.pageBoardSettingsByPage,
+                fallbackPageVisual
+              );
+            return normalizedSettings;
           });
           return;
         }
