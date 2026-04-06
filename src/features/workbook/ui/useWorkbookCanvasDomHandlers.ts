@@ -141,7 +141,8 @@ export const useWorkbookCanvasDomHandlers = ({
   const canvasStyle = useMemo(
     () => {
       const safeGridSizeWorld = Math.max(8, Math.min(96, Math.floor(gridSize || 22)));
-      const safeRenderZoom = Math.max(0.08, Number.isFinite(safeZoom) ? safeZoom : 1);
+      const safeRenderZoom =
+        Number.isFinite(safeZoom) && safeZoom > 0 ? safeZoom : 1;
       const gridStepPx = Math.max(1, safeGridSizeWorld * safeRenderZoom);
       // Align screen-space CSS grid phase with world-space viewport translation.
       const gridOffsetXPx = toPositiveModulo(-viewportOffset.x * safeRenderZoom, gridStepPx);
