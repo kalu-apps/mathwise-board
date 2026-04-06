@@ -188,12 +188,6 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                 </label>
               </div>
             </div>
-            <div className="workbook-session__board-settings-note">
-              Переключение, добавление и удаление страниц доступны в верхней панели контекста рядом с масштабом.
-            </div>
-            <div className="workbook-session__board-settings-note">
-              Настройки ручки, маркера и ластика открываются правым кликом по инструменту в панели слева.
-            </div>
           </section>
         ) : (
           <section className="workbook-session__board-settings-card workbook-session__board-settings-card--muted">

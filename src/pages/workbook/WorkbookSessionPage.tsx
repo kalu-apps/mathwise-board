@@ -614,15 +614,6 @@ export default function WorkbookSessionPage() {
 
   const fallbackBackPath = "/workbook";
   const fromPath = searchParams.get("from") || fallbackBackPath;
-  const sessionUserLabel = useMemo(() => {
-    if (!user) return "";
-    const fullName = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim();
-    return fullName || user.email || "";
-  }, [user]);
-  const sessionUserInitial = useMemo(
-    () => (sessionUserLabel || user?.email || "U").slice(0, 1).toUpperCase(),
-    [sessionUserLabel, user?.email]
-  );
   const isWorkbookSessionAuthLost = isAuthReady && !user;
   const isSessionAccessBlocked = refs.authRequiredRef.current;
   const isWorkspaceInteractionBlocked = isSessionTabPassive || isSessionAccessBlocked;
@@ -2910,8 +2901,6 @@ export default function WorkbookSessionPage() {
     onToggleFullscreen: toggleFullscreen,
     themeMode,
     onToggleThemeMode: toggleMode,
-    sessionUserLabel,
-    sessionUserInitial,
     onExitSession: handleBack,
     isExitSessionPending: isBackNavigationPending,
     showCollaborationPanels,

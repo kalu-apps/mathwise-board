@@ -952,44 +952,19 @@
 .workbook-session__contextbar > * {
   flex: 0 0 auto;
 }
-.workbook-session__contextbar-user-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  max-width: min(240px, 46vw);
-  padding: 2px 8px 2px 4px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--brand-soft) 28%, var(--border-subtle));
-  background: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
-}
-.workbook-session__contextbar-user-avatar {
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--accent-text);
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--brand-soft) 58%, var(--surface-elevated)),
-    color-mix(in srgb, var(--brand-solid) 56%, var(--surface-elevated))
-  );
-}
-.workbook-session__contextbar-user-name {
-  min-width: 0;
-  font-size: 11px;
-  font-weight: 650;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .workbook-session__contextbar-exit-wrap {
   display: inline-flex;
+}
+.workbook-session__toolbar-icon--plain.MuiIconButton-root {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-secondary);
+}
+.workbook-session__toolbar-icon--plain.MuiIconButton-root:hover {
+  border: none !important;
+  background: transparent !important;
+  color: var(--text-primary);
 }
 .workbook-session__contextbar-exit-button.MuiButton-root {
   min-height: 30px;
@@ -1018,15 +993,22 @@
   flex-direction: column;
 }
 .workbook-session__zoom-badge {
-  min-width: 56px;
-  padding: 3px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  height: 32px;
+  padding: 0 10px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
-  background: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 86%, transparent);
+  background: color-mix(in srgb, var(--surface-elevated) 90%, transparent);
   font-size: 11px;
   font-weight: 700;
+  line-height: 1;
   color: var(--text-primary);
   text-align: center;
+  box-sizing: border-box;
+  white-space: nowrap;
   appearance: none;
   cursor: pointer;
   transition:
@@ -1248,7 +1230,8 @@
 .workbook-session__board-shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
   gap: 10px;
   min-height: 0;
   height: 100%;
@@ -1329,10 +1312,15 @@
     radial-gradient(circle at 20% 8%, color-mix(in srgb, var(--brand-mint) 10%, transparent), transparent 62%),
     color-mix(in srgb, var(--surface-soft) 92%, transparent);
   backdrop-filter: blur(10px);
-  position: sticky;
-  top: 72px;
-  max-height: calc(100vh - 220px);
+  position: relative;
+  top: auto;
+  align-self: stretch;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
   overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   scrollbar-width: thin;
   min-width: 0;
   max-width: 100%;
@@ -5614,7 +5602,7 @@
 
 .workbook-session:fullscreen .workbook-session__tools,
 .workbook-session.is-fullscreen .workbook-session__tools {
-  top: 10px;
+  top: auto;
   max-height: 100%;
 }
 
