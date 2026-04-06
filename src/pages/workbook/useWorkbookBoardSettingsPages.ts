@@ -35,6 +35,7 @@ type AppendEventsAndApply = (
     trackHistory?: boolean;
     markDirty?: boolean;
     historyEntry?: unknown;
+    queueOnConflict?: boolean;
   }
 ) => Promise<void>;
 
@@ -121,6 +122,7 @@ export const useWorkbookBoardSettingsPages = ({
           await appendEventsAndApply(persistEvents, {
             historyEntry,
             markDirty: !isNavigationOnlyCommit,
+            queueOnConflict: true,
           });
           break;
         } catch (error) {

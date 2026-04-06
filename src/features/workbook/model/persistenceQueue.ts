@@ -262,6 +262,17 @@ export const getWorkbookPersistenceQueueSnapshot = (): WorkbookPersistenceQueueS
   };
 };
 
+export const hasWorkbookPersistencePendingForSession = (sessionId: string) => {
+  if (!sessionId) return false;
+  normalizeQueue();
+  return queue.some((task) => task.sessionId === sessionId);
+};
+
+export const isWorkbookPersistencePausedForSession = (sessionId: string) => {
+  if (!sessionId) return false;
+  return isSessionPersistencePaused(sessionId);
+};
+
 export const subscribeWorkbookPersistenceQueue = (listener: () => void) => {
   listeners.add(listener);
   return () => {

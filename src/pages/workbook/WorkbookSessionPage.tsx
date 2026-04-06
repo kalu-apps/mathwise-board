@@ -39,6 +39,11 @@ import type {
 } from "@/features/workbook/model/types";
 import { sanitizeFunctionGraphDrafts } from "@/features/workbook/model/functionGraph";
 import {
+  flushWorkbookPersistenceQueue,
+  hasWorkbookPersistencePendingForSession,
+  isWorkbookPersistencePausedForSession,
+} from "@/features/workbook/model/persistenceQueue";
+import {
   readSolid3dState,
   writeSolid3dState,
   type Solid3dHostedPointClassification,
@@ -2705,7 +2710,33 @@ export default function WorkbookSessionPage() {
     setIsBackNavigationPending(true);
     const showStudentExitNoticeState =
       session?.roleInSession === "student" ? { showStudentExitNotice: true } : undefined;
+
+    const waitForRuntimeSyncStabilization = async () => {
+      if (!sessionId) return true;
+      const startedAt = Date.now();
+      const timeoutMs = 4_000;
+      while (Date.now() - startedAt < timeoutMs) {
+        await flushWorkbookPersistenceQueue();
+        const hasPendingQueue = hasWorkbookPersistencePendingForSession(sessionId);
+        const persistencePaused = isWorkbookPersistencePausedForSession(sessionId);
+        const resyncInFlight = refs.sessionResyncInFlightRef.current;
+        if (!resyncInFlight && !hasPendingQueue && !persistencePaused) {
+          return true;
+        }
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, 120);
+        });
+      }
+      return false;
+    };
+
     try {
+      const syncStableBeforeExit = await waitForRuntimeSyncStabilization();
+      if (!syncStableBeforeExit) {
+        setError("Синхронизация еще выполняется. Подождите пару секунд и повторите выход.");
+        setIsBackNavigationPending(false);
+        return;
+      }
       if (dirtyRef.current) {
         const saved = await persistSnapshots({ force: true });
         if (!saved) {
@@ -2713,6 +2744,12 @@ export default function WorkbookSessionPage() {
           setIsBackNavigationPending(false);
           return;
         }
+      }
+      const syncStableAfterSnapshot = await waitForRuntimeSyncStabilization();
+      if (!syncStableAfterSnapshot) {
+        setError("Не удалось дождаться завершения синхронизации перед выходом из тетради.");
+        setIsBackNavigationPending(false);
+        return;
       }
       if (typeof window !== "undefined" && window.opener && !window.opener.closed) {
         // Try to hand off preview to the hub tab without waiting for upload in this tab.
@@ -2757,6 +2794,8 @@ export default function WorkbookSessionPage() {
     postSessionExitPreviewToHub,
     persistSessionExitPreview,
     persistSnapshots,
+    refs.sessionResyncInFlightRef,
+    sessionId,
     session,
     setError,
   ]);
