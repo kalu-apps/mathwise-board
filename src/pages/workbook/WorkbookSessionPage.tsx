@@ -133,6 +133,7 @@ import {
 import { WorkbookImportModalBoundary } from "./WorkbookImportModalBoundary";
 import { captureWorkbookSessionPreviewDataUrl } from "./workbookHubPreviewCapture";
 import { useWorkbookPageTransitionOverlay } from "./useWorkbookPageTransitionOverlay";
+import { useWorkbookPageZoomPersistence } from "./useWorkbookPageZoomPersistence";
 import {
   WORKBOOK_HUB_PREVIEW_BRIDGE_EVENT,
   queueWorkbookHubPreviewRefreshHint,
@@ -849,6 +850,20 @@ export default function WorkbookSessionPage() {
     sessionChatListRef,
     lastAppliedSeqRef: refs.lastAppliedSeqRef,
     processedEventIdsRef,
+  });
+  const pageZoomStorageKey = useMemo(() => {
+    const effectiveActorUserId = actorParticipant?.userId ?? user?.id ?? "";
+    return sessionId && effectiveActorUserId
+      ? `workbook:page-zoom:${sessionId}:${effectiveActorUserId}`
+      : "";
+  }, [actorParticipant?.userId, sessionId, user?.id]);
+
+  useWorkbookPageZoomPersistence({
+    storageKey: pageZoomStorageKey,
+    currentBoardPage,
+    viewportZoom,
+    setViewportZoom,
+    enabled: bootstrapReady && Boolean(sessionId),
   });
 
   useWorkbookSessionContextbar({
