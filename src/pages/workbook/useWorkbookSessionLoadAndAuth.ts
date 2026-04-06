@@ -88,8 +88,10 @@ export const useWorkbookSessionLoadAndAuth = ({
     sessionResyncInFlightRef.current = true;
     lastForcedResyncAtRef.current = now;
     pauseWorkbookPersistenceForSession(sessionId);
-    setRealtimeSyncWarning(
-      "Обнаружен конфликт синхронизации. Повторно загружаем состояние доски."
+    const conflictWarningText =
+      "Обнаружен конфликт синхронизации. Повторно загружаем состояние доски.";
+    setRealtimeSyncWarning((current) =>
+      current === conflictWarningText ? current : conflictWarningText
     );
     void Promise.resolve(loadSession({ background: true, reason: "conflict" })).finally(() => {
       resumeWorkbookPersistenceForSession(sessionId);

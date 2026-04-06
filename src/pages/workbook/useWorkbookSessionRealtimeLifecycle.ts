@@ -110,6 +110,7 @@ export const useWorkbookSessionRealtimeLifecycle = ({
   } = loadAndAuthParams;
 
   const {
+    bootstrapReady,
     setRealtimeSyncWarning,
     setIsWorkbookStreamConnected,
     setIsWorkbookLiveConnected,
@@ -118,7 +119,9 @@ export const useWorkbookSessionRealtimeLifecycle = ({
   useEffect(() => {
     if (!sessionId) return;
     const blocked =
-      isWorkbookSessionAuthLost || !persistenceLifecycleParams.sessionReady;
+      isWorkbookSessionAuthLost
+      || !persistenceLifecycleParams.sessionReady
+      || !bootstrapReady;
     setWorkbookPersistenceBlockedForSession(sessionId, blocked);
     if (!blocked) {
       void flushWorkbookPersistenceQueue();
@@ -128,6 +131,7 @@ export const useWorkbookSessionRealtimeLifecycle = ({
     };
   }, [
     isWorkbookSessionAuthLost,
+    bootstrapReady,
     persistenceLifecycleParams.sessionReady,
     sessionId,
   ]);

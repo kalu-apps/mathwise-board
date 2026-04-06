@@ -278,6 +278,7 @@ export const buildWorkbookSessionRealtimeLifecycleParams = ({
   persistenceLifecycleParams: {
     sessionId,
     sessionReady: Boolean(data.session && !isWorkbookSessionAuthLost),
+    bootstrapReady,
     persistSnapshotsRef: refs.persistSnapshotsRef,
     dirtyRef: refs.dirtyRef,
     autosaveIntervalMs,

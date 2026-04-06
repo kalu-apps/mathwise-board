@@ -23,6 +23,7 @@ import {
 } from "@/features/workbook/model/api";
 import { resolveWorkbookBoardPageVisualSettings } from "@/features/workbook/model/boardPageSettings";
 import { normalizeWorkbookPageFrameWidth } from "@/features/workbook/model/pageFrame";
+import { getWorkbookPersistenceQueueSnapshot } from "@/features/workbook/model/persistenceQueue";
 import { useWorkbookSessionStore } from "@/features/workbook/model/workbookSessionStore";
 import {
   WorkbookLessonRecordingControls,
@@ -154,6 +155,8 @@ const WorkbookImportModal = lazy(() =>
     default: module.WorkbookImportModal,
   }))
 );
+
+const AUTO_PAGE_FRAME_GROW_DELAY_MS = 2_500;
 
 export default function WorkbookSessionPage() {
   const { user, isAuthReady, openAuthModal } = useAuth();
@@ -1352,11 +1355,14 @@ export default function WorkbookSessionPage() {
   useEffect(() => {
     if (!bootstrapReady || !sessionId || !canManageSharedBoardSettings) return;
     if (typeof ResizeObserver === "undefined") return;
+    if (typeof window === "undefined") return;
     const workspaceNode = workspaceRef.current;
     if (!workspaceNode) return;
 
     const tryGrowSharedPageFrameWidth = (workspaceWidth: number) => {
       if (!Number.isFinite(workspaceWidth) || workspaceWidth <= 1) return;
+      if (sessionResyncInFlightRef.current) return;
+      if (getWorkbookPersistenceQueueSnapshot().pendingCount > 0) return;
       const nextWidth = normalizeWorkbookPageFrameWidth(workspaceWidth);
       const currentWidth = normalizeWorkbookPageFrameWidth(
         boardSettingsRef.current.pageFrameWidth
@@ -1367,14 +1373,21 @@ export default function WorkbookSessionPage() {
       handleSharedBoardSettingsChange({ pageFrameWidth: nextWidth });
     };
 
-    tryGrowSharedPageFrameWidth(workspaceNode.getBoundingClientRect().width);
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      tryGrowSharedPageFrameWidth(entry.contentRect.width);
-    });
-    observer.observe(workspaceNode);
-    return () => observer.disconnect();
+    let observer: ResizeObserver | null = null;
+    const startWatching = () => {
+      tryGrowSharedPageFrameWidth(workspaceNode.getBoundingClientRect().width);
+      observer = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        tryGrowSharedPageFrameWidth(entry.contentRect.width);
+      });
+      observer.observe(workspaceNode);
+    };
+    const timerId = window.setTimeout(startWatching, AUTO_PAGE_FRAME_GROW_DELAY_MS);
+    return () => {
+      window.clearTimeout(timerId);
+      observer?.disconnect();
+    };
   }, [
     bootstrapReady,
     sessionId,
