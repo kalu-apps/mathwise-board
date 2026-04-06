@@ -396,7 +396,7 @@ export function subscribeWorkbookLiveSocket(params: {
 export async function appendWorkbookEvents(params: {
   sessionId: string;
   events: WorkbookClientEventInput[];
-}, options?: { queueOnConflict?: boolean }) {
+}) {
   const idempotencyKey = `event-${generateId()}`;
   try {
     const response = await api.post<{ events: WorkbookEvent[]; latestSeq: number }>(
@@ -411,12 +411,7 @@ export async function appendWorkbookEvents(params: {
     void flushWorkbookPersistenceQueue();
     return response;
   } catch (error) {
-    const shouldQueueOnConflict =
-      options?.queueOnConflict === true &&
-      error instanceof ApiError &&
-      error.status === 409 &&
-      error.code === "conflict";
-    if (isRecoverableApiError(error) || shouldQueueOnConflict) {
+    if (isRecoverableApiError(error)) {
       enqueueWorkbookEventsPersistence({
         sessionId: params.sessionId,
         events: params.events,

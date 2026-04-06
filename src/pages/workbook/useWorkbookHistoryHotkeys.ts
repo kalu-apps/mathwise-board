@@ -19,7 +19,6 @@ type UseWorkbookHistoryHotkeysParams = {
       trackHistory?: boolean;
       markDirty?: boolean;
       historyEntry?: unknown;
-      queueOnConflict?: boolean;
     }
   ) => Promise<void>;
   setError: (value: string | null) => void;
@@ -124,7 +123,7 @@ export const useWorkbookHistoryHotkeys = ({
             },
           },
         ],
-        { trackHistory: false, markDirty: false, queueOnConflict: true }
+        { trackHistory: false, markDirty: false }
       );
     } catch {
       setError("Не удалось выполнить отмену действия.");
@@ -177,7 +176,7 @@ export const useWorkbookHistoryHotkeys = ({
             },
           },
         ],
-        { trackHistory: false, markDirty: false, queueOnConflict: true }
+        { trackHistory: false, markDirty: false }
       );
     } catch {
       setError("Не удалось повторить действие.");

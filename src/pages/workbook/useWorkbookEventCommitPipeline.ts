@@ -106,7 +106,6 @@ export const useWorkbookEventCommitPipeline = ({
         trackHistory?: boolean;
         markDirty?: boolean;
         historyEntry?: WorkbookHistoryEntry | null;
-        queueOnConflict?: boolean;
       }
     ) => {
       if (!sessionId) return;
@@ -137,8 +136,6 @@ export const useWorkbookEventCommitPipeline = ({
         const response = await appendWorkbookEvents({
           sessionId,
           events: preparedEvents,
-        }, {
-          queueOnConflict: options?.queueOnConflict === true,
         });
         observeWorkbookRealtimePersistAck({
           sessionId,
