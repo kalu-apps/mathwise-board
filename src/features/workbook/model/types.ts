@@ -197,6 +197,7 @@ export type WorkbookBoardSettings = {
   backgroundColor: string;
   snapToGrid: boolean;
   showPageNumbers: boolean;
+  pageFrameWidth: number;
   currentPage: number;
   pagesCount: number;
   pageOrder: number[];

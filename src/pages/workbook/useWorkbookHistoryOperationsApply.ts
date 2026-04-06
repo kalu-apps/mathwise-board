@@ -14,6 +14,7 @@ import {
   clampBoardObjectToPageFrame,
   cloneSerializable,
 } from "./WorkbookSessionPage.core";
+import { normalizeWorkbookPageFrameWidth } from "@/features/workbook/model/pageFrame";
 import {
   normalizeSceneLayersForBoard,
   type WorkbookHistoryOperation,
@@ -34,6 +35,7 @@ type UseWorkbookHistoryOperationsApplyParams = {
   setDocumentState: SetState<WorkbookDocumentState>;
   setSelectedConstraintId: SetState<string | null>;
   setSelectedObjectId: SetState<string | null>;
+  boardSettingsRef: MutableRefObject<WorkbookBoardSettings>;
   objectUpdateQueuedPatchRef: MutableRefObject<Map<string, Partial<WorkbookBoardObject>>>;
   objectUpdateDispatchOptionsRef: MutableRefObject<
     Map<string, { trackHistory: boolean; markDirty: boolean }>
@@ -60,6 +62,7 @@ export const useWorkbookHistoryOperationsApply = ({
   setDocumentState,
   setSelectedConstraintId,
   setSelectedObjectId,
+  boardSettingsRef,
   objectUpdateQueuedPatchRef,
   objectUpdateDispatchOptionsRef,
   objectUpdateHistoryBeforeRef,
@@ -107,7 +110,10 @@ export const useWorkbookHistoryOperationsApply = ({
           return;
         }
         if (operation.kind === "upsert_object") {
-          const nextObject = clampBoardObjectToPageFrame(cloneSerializable(operation.object));
+          const nextObject = clampBoardObjectToPageFrame(
+            cloneSerializable(operation.object),
+            boardSettingsRef.current.pageFrameWidth
+          );
           applyLocalBoardObjects((current) => {
             const exists = current.some((item) => item.id === nextObject.id);
             if (!exists) return [...current, nextObject];
@@ -120,7 +126,8 @@ export const useWorkbookHistoryOperationsApply = ({
             current.map((item) =>
               item.id === operation.objectId
                 ? clampBoardObjectToPageFrame(
-                    mergeBoardObjectWithPatch(item, cloneSerializable(operation.patch))
+                    mergeBoardObjectWithPatch(item, cloneSerializable(operation.patch)),
+                    boardSettingsRef.current.pageFrameWidth
                   )
                 : item
             )
@@ -188,6 +195,7 @@ export const useWorkbookHistoryOperationsApply = ({
             );
             return {
               ...merged,
+              pageFrameWidth: normalizeWorkbookPageFrameWidth(merged.pageFrameWidth),
               sceneLayers: normalizedLayers.sceneLayers,
               activeSceneLayerId: normalizedLayers.activeSceneLayerId,
             };
@@ -266,6 +274,7 @@ export const useWorkbookHistoryOperationsApply = ({
       setDocumentState,
       setSelectedConstraintId,
       setSelectedObjectId,
+      boardSettingsRef,
     ]
   );
 

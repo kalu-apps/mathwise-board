@@ -23,6 +23,10 @@ import type {
   WorkbookTimerState,
 } from "./types";
 import { normalizeWorkbookObjectZOrder } from "./objectZOrder";
+import {
+  normalizeWorkbookPageFrameWidth,
+  WORKBOOK_PAGE_FRAME_WIDTH,
+} from "./pageFrame";
 import { normalizeWorkbookAssetContentUrl } from "./workbookAssetUrl";
 import {
   WORKBOOK_BOARD_ANNOTATION_COLOR,
@@ -501,6 +505,7 @@ const normalizeBoardSettings = (raw: unknown): WorkbookBoardSettings => {
       backgroundColor: WORKBOOK_BOARD_BACKGROUND_COLOR,
       snapToGrid: false,
       showPageNumbers: false,
+      pageFrameWidth: normalizeWorkbookPageFrameWidth(WORKBOOK_PAGE_FRAME_WIDTH),
       currentPage: 1,
       pagesCount: 1,
       pageOrder: [1],
@@ -531,6 +536,9 @@ const normalizeBoardSettings = (raw: unknown): WorkbookBoardSettings => {
     backgroundColor: toColor(source.backgroundColor, WORKBOOK_BOARD_BACKGROUND_COLOR),
     snapToGrid: Boolean(source.snapToGrid),
     showPageNumbers: Boolean(source.showPageNumbers),
+    pageFrameWidth: normalizeWorkbookPageFrameWidth(
+      source.pageFrameWidth ?? WORKBOOK_PAGE_FRAME_WIDTH
+    ),
     currentPage: Math.max(1, toSafeInt(source.currentPage, 1)),
     pagesCount,
     pageOrder,

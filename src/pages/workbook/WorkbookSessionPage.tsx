@@ -21,6 +21,7 @@ import {
   updateWorkbookSessionDraftPreview,
   uploadWorkbookAsset,
 } from "@/features/workbook/model/api";
+import { normalizeWorkbookPageFrameWidth } from "@/features/workbook/model/pageFrame";
 import { useWorkbookSessionStore } from "@/features/workbook/model/workbookSessionStore";
 import {
   WorkbookLessonRecordingControls,
@@ -488,6 +489,7 @@ export default function WorkbookSessionPage() {
   } | null>(null);
   const currentBoardPageRef = useRef<number>(Math.max(1, Math.round(currentBoardPage || 1)));
   const initializedLocalPageSessionIdRef = useRef<string | null>(null);
+  const lastAutoPageFrameWidthRef = useRef<number>(0);
 
   useEffect(() => {
     currentBoardPageRef.current = Math.max(1, Math.round(currentBoardPage || 1));
@@ -495,6 +497,7 @@ export default function WorkbookSessionPage() {
 
   useEffect(() => {
     initializedLocalPageSessionIdRef.current = null;
+    lastAutoPageFrameWidthRef.current = 0;
   }, [sessionId]);
 
   useEffect(() => {
@@ -537,6 +540,41 @@ export default function WorkbookSessionPage() {
     session,
     sessionId,
     setCurrentBoardPage,
+  ]);
+
+  useEffect(() => {
+    if (!bootstrapReady || !sessionId || !canManageSharedBoardSettings) return;
+    if (typeof ResizeObserver === "undefined") return;
+    const workspaceNode = workspaceRef.current;
+    if (!workspaceNode) return;
+
+    const tryGrowSharedPageFrameWidth = (workspaceWidth: number) => {
+      if (!Number.isFinite(workspaceWidth) || workspaceWidth <= 1) return;
+      const nextWidth = normalizeWorkbookPageFrameWidth(workspaceWidth);
+      const currentWidth = normalizeWorkbookPageFrameWidth(
+        boardSettingsRef.current.pageFrameWidth
+      );
+      if (nextWidth <= currentWidth + 24) return;
+      if (nextWidth <= lastAutoPageFrameWidthRef.current + 24) return;
+      lastAutoPageFrameWidthRef.current = nextWidth;
+      handleSharedBoardSettingsChange({ pageFrameWidth: nextWidth });
+    };
+
+    tryGrowSharedPageFrameWidth(workspaceNode.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      tryGrowSharedPageFrameWidth(entry.contentRect.width);
+    });
+    observer.observe(workspaceNode);
+    return () => observer.disconnect();
+  }, [
+    bootstrapReady,
+    sessionId,
+    canManageSharedBoardSettings,
+    boardSettingsRef,
+    handleSharedBoardSettingsChange,
+    workspaceRef,
   ]);
 
   const handleSessionRootRef = useCallback(
@@ -876,6 +914,7 @@ export default function WorkbookSessionPage() {
     finalizeStrokePreview,
   } = useWorkbookSessionIncomingRuntime({
     refs,
+    pageFrameWidth: boardSettings.pageFrameWidth,
     setBoardObjects,
     setIncomingStrokePreviews,
     setIncomingEraserPreviews,
@@ -1342,6 +1381,7 @@ export default function WorkbookSessionPage() {
       setDocumentState,
       setSelectedConstraintId,
       setSelectedObjectId,
+      boardSettingsRef,
       objectUpdateQueuedPatchRef,
       objectUpdateDispatchOptionsRef,
       objectUpdateHistoryBeforeRef,
@@ -1397,6 +1437,7 @@ export default function WorkbookSessionPage() {
     canManageSession,
     currentBoardPage,
     activeSceneLayerId,
+    pageFrameWidth: boardSettings.pageFrameWidth,
     userId: user?.id,
     volatilePreviewQueueMax,
     realtimeBackpressureV2Enabled,
@@ -1564,6 +1605,7 @@ export default function WorkbookSessionPage() {
     canDelete,
     sessionId,
     activeSceneLayerId,
+    pageFrameWidth: boardSettings.pageFrameWidth,
     userId: user?.id,
     boardObjects,
     boardObjectsRef,
@@ -2697,6 +2739,7 @@ export default function WorkbookSessionPage() {
     snapToGrid: boardSettings.snapToGrid,
     gridSize: boardSettings.gridSize,
     viewportZoom,
+    pageFrameWidth: boardSettings.pageFrameWidth,
     visibilityMode: canvasVisibilityMode,
     showGrid: boardSettings.showGrid,
     gridColor: boardSettings.gridColor,
@@ -3138,6 +3181,7 @@ export default function WorkbookSessionPage() {
             boardBackgroundColor={boardSettings.backgroundColor}
             boardGridColor={boardSettings.gridColor}
             boardGridSize={boardSettings.gridSize}
+            boardPageFrameWidth={boardSettings.pageFrameWidth}
             currentPage={safeCurrentBoardPage}
             canManageBoardPages={canManageSharedBoardSettings}
             isBoardPageMutationPending={isBoardPageMutationPending}

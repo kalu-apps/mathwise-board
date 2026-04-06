@@ -26,6 +26,7 @@ type UseWorkbookSelectedStructureActionsParams = {
   canDelete: boolean;
   sessionId: string;
   activeSceneLayerId: string;
+  pageFrameWidth: number;
   userId?: string;
   boardObjects: WorkbookBoardObject[];
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
@@ -50,6 +51,7 @@ export const useWorkbookSelectedStructureActions = ({
   canDelete,
   sessionId,
   activeSceneLayerId,
+  pageFrameWidth,
   userId,
   boardObjects,
   boardObjectsRef,
@@ -281,7 +283,7 @@ export const useWorkbookSelectedStructureActions = ({
       payload: { objectId: point.id },
     }));
     const createdWithZOrder = ensureWorkbookObjectZOrder(
-      clampBoardObjectToPageFrame(created),
+      clampBoardObjectToPageFrame(created, pageFrameWidth),
       boardObjectsRef.current
     );
 
@@ -318,7 +320,7 @@ export const useWorkbookSelectedStructureActions = ({
       }
     }
     setError("Не удалось объединить точки.");
-  }, [activeSceneLayerId, appendEventsAndApply, boardObjects, boardObjectsRef, canDelete, canDraw, selectedObjectId, sessionId, setError, setSelectedObjectId, userId]);
+  }, [activeSceneLayerId, appendEventsAndApply, boardObjects, boardObjectsRef, canDelete, canDraw, pageFrameWidth, selectedObjectId, sessionId, setError, setSelectedObjectId, userId]);
 
   return {
     updateSelectedDividerMeta,

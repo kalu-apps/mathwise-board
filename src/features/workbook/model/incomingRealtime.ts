@@ -11,7 +11,6 @@ import {
 import {
   clampWorkbookObjectToPageFrame,
   resolveWorkbookPageFrameBounds,
-  WORKBOOK_PAGE_FRAME_WIDTH,
 } from "./pageFrame";
 import { mergeBoardObjectWithPatch, mergePreviewPathPoints } from "./runtime";
 import type {
@@ -94,6 +93,7 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
   applyLocalBoardObjects: (
     updater: (current: WorkbookBoardObject[]) => WorkbookBoardObject[]
   ) => void;
+  boardSettingsRef: MutableRefObject<WorkbookBoardSettings>;
   setSession: Dispatch<SetStateAction<WorkbookSession | null>>;
   setCanvasViewport: Dispatch<SetStateAction<WorkbookPoint>>;
   setIncomingEraserPreviews: Dispatch<
@@ -136,8 +136,6 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
   viewportSyncEpsilon: number;
 };
 
-const WORKBOOK_PAGE_FRAME_BOUNDS = resolveWorkbookPageFrameBounds(WORKBOOK_PAGE_FRAME_WIDTH);
-
 export const applyWorkbookIncomingRealtimeEvent = (
   params: ApplyWorkbookIncomingRealtimeEventParams
 ) => {
@@ -160,6 +158,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     finalizeStrokePreview,
     queueIncomingPreviewPatch,
     applyLocalBoardObjects,
+    boardSettingsRef,
     setSession,
     setIncomingEraserPreviews,
     setBoardStrokes,
@@ -192,6 +191,9 @@ export const applyWorkbookIncomingRealtimeEvent = (
     eraserPreviewExpiryMs,
     eraserPreviewEndExpiryMs,
   } = params;
+  const pageFrameBounds = resolveWorkbookPageFrameBounds(
+    boardSettingsRef.current.pageFrameWidth
+  );
 
   if (event.type === "presence.sync") {
     const payload = event.payload as { participants?: unknown };
@@ -379,7 +381,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     if (!object) return true;
     const boundedObject = clampWorkbookObjectToPageFrame(
       object,
-      WORKBOOK_PAGE_FRAME_BOUNDS
+      pageFrameBounds
     );
     objectLastCommittedEventAtRef.current.set(object.id, eventTimestamp);
     applyLocalBoardObjects((current) =>
@@ -418,7 +420,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
         found = true;
         return clampWorkbookObjectToPageFrame(
           mergeBoardObjectWithPatch(item, safePatch),
-          WORKBOOK_PAGE_FRAME_BOUNDS
+          pageFrameBounds
         );
       });
       return found ? next : current;

@@ -8,6 +8,7 @@ import {
 type UseWorkbookCanvasViewportParams = {
   containerNode: HTMLDivElement | null;
   viewportZoom: number;
+  pageFrameWidth: number;
   viewportOffset: WorkbookPoint;
   onViewportOffsetChange?: (offset: WorkbookPoint) => void;
   focusPoint?: WorkbookPoint | null;
@@ -44,6 +45,7 @@ const useElementSize = (element: HTMLDivElement | null) => {
 export const useWorkbookCanvasViewport = ({
   containerNode,
   viewportZoom,
+  pageFrameWidth,
   viewportOffset,
   onViewportOffsetChange,
   focusPoint,
@@ -59,7 +61,10 @@ export const useWorkbookCanvasViewport = ({
     Math.min(3, Number.isFinite(viewportZoom) ? viewportZoom : 1)
   );
   const allowHorizontalPan = safeZoom > 1;
-  const pageFrameBounds = useMemo(() => resolveWorkbookPageFrameBounds(), []);
+  const pageFrameBounds = useMemo(
+    () => resolveWorkbookPageFrameBounds(pageFrameWidth),
+    [pageFrameWidth]
+  );
   const visibleViewportWidth = Math.max(1, size.width / safeZoom);
   const visibleViewportHeight = Math.max(1, size.height / safeZoom);
   const resolvedViewportOffset = useMemo(

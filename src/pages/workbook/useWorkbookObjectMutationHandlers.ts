@@ -47,6 +47,7 @@ type UseWorkbookObjectMutationHandlersParams = {
   canManageSession: boolean;
   currentBoardPage: number;
   activeSceneLayerId: string;
+  pageFrameWidth: number;
   userId?: string;
   volatilePreviewQueueMax: number;
   realtimeBackpressureV2Enabled: boolean;
@@ -88,6 +89,7 @@ export const useWorkbookObjectMutationHandlers = ({
   canManageSession,
   currentBoardPage,
   activeSceneLayerId,
+  pageFrameWidth,
   userId,
   volatilePreviewQueueMax,
   realtimeBackpressureV2Enabled,
@@ -204,7 +206,10 @@ export const useWorkbookObjectMutationHandlers = ({
       }
       const normalizedObjectWithPage =
         normalizeObjectPayload(objectWithPage) ?? objectWithPage;
-      const clampedObjectWithPage = clampBoardObjectToPageFrame(normalizedObjectWithPage);
+      const clampedObjectWithPage = clampBoardObjectToPageFrame(
+        normalizedObjectWithPage,
+        pageFrameWidth
+      );
       const objectWithZOrder = ensureWorkbookObjectZOrder(
         clampedObjectWithPage,
         boardObjectsRef.current
@@ -284,6 +289,7 @@ export const useWorkbookObjectMutationHandlers = ({
       canDraw,
       currentBoardPage,
       activeSceneLayerId,
+      pageFrameWidth,
       commitInteractiveBoardObjects,
       setError,
       sendWorkbookLiveEvents,
@@ -333,7 +339,8 @@ export const useWorkbookObjectMutationHandlers = ({
           }
         : patch;
       const clampedObject = clampBoardObjectToPageFrame(
-        mergeBoardObjectWithPatch(currentObject, constrainedPatch)
+        mergeBoardObjectWithPatch(currentObject, constrainedPatch),
+        pageFrameWidth
       );
       const normalizedPatch = buildBoardObjectDiffPatch(currentObject, clampedObject);
       if (!normalizedPatch) return;
@@ -409,6 +416,7 @@ export const useWorkbookObjectMutationHandlers = ({
       scheduleLocalPreviewBoardObjectPatch,
       scheduleVolatileSyncFlush,
       sessionId,
+      pageFrameWidth,
       volatilePreviewQueueMax,
       boardObjectsRef,
       boardObjectIndexByIdRef,

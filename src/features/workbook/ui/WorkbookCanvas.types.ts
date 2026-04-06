@@ -87,6 +87,7 @@ export type WorkbookCanvasProps = {
   snapToGrid?: boolean;
   gridSize?: number;
   viewportZoom?: number;
+  pageFrameWidth?: number;
   visibilityMode?: "viewport" | "full";
   showGrid?: boolean;
   gridColor?: string;

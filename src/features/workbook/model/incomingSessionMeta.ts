@@ -4,6 +4,7 @@ import {
   normalizeDocumentAnnotationPayload,
   normalizeDocumentAssetPayload,
 } from "./scene";
+import { normalizeWorkbookPageFrameWidth } from "./pageFrame";
 import type {
   WorkbookBoardSettings,
   WorkbookComment,
@@ -158,6 +159,7 @@ export const applyWorkbookIncomingSessionMetaEvent = (
       );
       return {
         ...merged,
+        pageFrameWidth: normalizeWorkbookPageFrameWidth(merged.pageFrameWidth),
         sceneLayers: normalizedLayers.sceneLayers,
         activeSceneLayerId: normalizedLayers.activeSceneLayerId,
       };

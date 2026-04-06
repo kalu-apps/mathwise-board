@@ -5,6 +5,7 @@ import type {
   WorkbookBoardSettings,
   WorkbookStroke,
 } from "@/features/workbook/model/types";
+import { normalizeWorkbookPageFrameWidth } from "@/features/workbook/model/pageFrame";
 import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import {
   buildBoardSettingsDiffPatch,
@@ -216,11 +217,11 @@ export const useWorkbookBoardSettingsPages = ({
           merged.pageTitles,
           safePagesCount
         );
-        const nextSettings: WorkbookBoardSettings = {
-          ...merged,
-          sceneLayers: normalizedLayers.sceneLayers,
-          activeSceneLayerId: normalizedLayers.activeSceneLayerId,
-          title: typeof merged.title === "string" ? merged.title : current.title,
+          const nextSettings: WorkbookBoardSettings = {
+            ...merged,
+            sceneLayers: normalizedLayers.sceneLayers,
+            activeSceneLayerId: normalizedLayers.activeSceneLayerId,
+            title: typeof merged.title === "string" ? merged.title : current.title,
           gridSize: Math.max(
             8,
             Math.min(96, Math.round(merged.gridSize || current.gridSize))
@@ -231,11 +232,14 @@ export const useWorkbookBoardSettingsPages = ({
               safePagesCount,
               Math.round(merged.currentPage || current.currentPage || 1)
             )
-          ),
-          pagesCount: safePagesCount,
-          pageOrder: normalizedPageOrder,
-          pageTitles: normalizedPageTitles,
-          dividerStep: Math.max(
+            ),
+            pagesCount: safePagesCount,
+            pageOrder: normalizedPageOrder,
+            pageTitles: normalizedPageTitles,
+            pageFrameWidth: normalizeWorkbookPageFrameWidth(
+              merged.pageFrameWidth ?? current.pageFrameWidth
+            ),
+            dividerStep: Math.max(
             320,
             Math.min(2400, Math.round(merged.dividerStep || current.dividerStep || 320))
           ),

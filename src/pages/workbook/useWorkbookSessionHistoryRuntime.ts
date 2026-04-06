@@ -11,6 +11,7 @@ import type {
 import {
   clampBoardObjectToPageFrame,
 } from "./WorkbookSessionPage.core";
+import { normalizeWorkbookPageFrameWidth } from "@/features/workbook/model/pageFrame";
 import {
   type WorkbookHistoryEntry,
   type WorkbookSceneSnapshot,
@@ -80,7 +81,9 @@ export const useWorkbookSessionHistoryRuntime = ({
   documentStateRef,
 }: UseWorkbookSessionHistoryRuntimeParams) => {
   const restoreSceneSnapshot = useCallback((snapshot: WorkbookSceneSnapshot) => {
-    const normalizedBoardObjects = snapshot.boardObjects.map(clampBoardObjectToPageFrame);
+    const normalizedBoardObjects = snapshot.boardObjects.map((object) =>
+      clampBoardObjectToPageFrame(object, snapshot.boardSettings.pageFrameWidth)
+    );
     setBoardStrokes(snapshot.boardStrokes);
     boardObjectsRef.current = normalizedBoardObjects;
     boardObjectIndexByIdRef.current = buildWorkbookBoardObjectIndex(normalizedBoardObjects);
@@ -98,6 +101,7 @@ export const useWorkbookSessionHistoryRuntime = ({
       return {
         ...current,
         ...snapshot.boardSettings,
+        pageFrameWidth: normalizeWorkbookPageFrameWidth(snapshot.boardSettings.pageFrameWidth),
         sceneLayers: next.sceneLayers,
         activeSceneLayerId: next.activeSceneLayerId,
       };

@@ -9,12 +9,13 @@ import {
   WORKBOOK_BOARD_BACKGROUND_COLOR,
   WORKBOOK_BOARD_GRID_COLOR,
 } from "@/features/workbook/model/workbookVisualColors";
+import { resolveWorkbookPageFrameBounds } from "@/features/workbook/model/pageFrame";
 import type {
   WorkbookBoardObject,
   WorkbookBoardSettings,
   WorkbookStroke,
 } from "@/features/workbook/model/types";
-import { MAX_EXPORT_CANVAS_SIDE, WORKBOOK_PAGE_FRAME_BOUNDS } from "./WorkbookSessionPage.core";
+import { MAX_EXPORT_CANVAS_SIDE } from "./WorkbookSessionPage.core";
 
 type SetCurrentBoardPage = (next: number | ((current: number) => number)) => void;
 
@@ -49,14 +50,17 @@ const yieldToMainThread = () =>
     window.requestAnimationFrame(() => resolve());
   });
 
-const resolvePageExportBounds = (): WorkbookExportBounds => ({
-  minX: WORKBOOK_PAGE_FRAME_BOUNDS.minX,
-  minY: WORKBOOK_PAGE_FRAME_BOUNDS.minY,
-  maxX: WORKBOOK_PAGE_FRAME_BOUNDS.maxX,
-  maxY: WORKBOOK_PAGE_FRAME_BOUNDS.maxY,
-  width: WORKBOOK_PAGE_FRAME_BOUNDS.width,
-  height: WORKBOOK_PAGE_FRAME_BOUNDS.height,
-});
+const resolvePageExportBounds = (pageFrameWidth: number): WorkbookExportBounds => {
+  const bounds = resolveWorkbookPageFrameBounds(pageFrameWidth);
+  return {
+    minX: bounds.minX,
+    minY: bounds.minY,
+    maxX: bounds.maxX,
+    maxY: bounds.maxY,
+    width: bounds.width,
+    height: bounds.height,
+  };
+};
 
 const EXPORT_MAX_CANVAS_PIXELS = 8_500_000;
 const EXPORT_MIN_SCALE = 0.35;
@@ -367,8 +371,9 @@ export const useWorkbookPdfExport = ({
   setError,
 }: UseWorkbookPdfExportParams) => {
   const resolveUniformContentExportBounds = useCallback(
-    (_exportPages: number[]): WorkbookExportBounds => resolvePageExportBounds(),
-    []
+    (_exportPages: number[]): WorkbookExportBounds =>
+      resolvePageExportBounds(boardSettings.pageFrameWidth),
+    [boardSettings.pageFrameWidth]
   );
 
   const switchBoardPageForExport = useCallback(

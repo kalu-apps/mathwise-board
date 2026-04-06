@@ -60,6 +60,7 @@ interface UseWorkbookCanvasPropsParams {
     | "gridColor"
     | "backgroundColor"
     | "showPageNumbers"
+    | "pageFrameWidth"
     | "autoSectionDividers"
     | "dividerStep"
   >;
@@ -204,6 +205,7 @@ export const buildWorkbookCanvasProps = ({
   snapToGrid: boardSettings.snapToGrid,
   gridSize: boardSettings.gridSize,
   viewportZoom,
+  pageFrameWidth: boardSettings.pageFrameWidth,
   visibilityMode: canvasVisibilityMode,
   showGrid: boardSettings.showGrid,
   gridColor: boardSettings.gridColor,

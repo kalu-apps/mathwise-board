@@ -231,7 +231,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
           : object.points,
         createdAt: now,
         authorUserId: userId ?? object.authorUserId,
-      });
+      }, boardSettings.pageFrameWidth);
       const nextObject = ensureWorkbookObjectZOrder(
         translatedObject,
         simulatedBoardObjects

@@ -28,6 +28,7 @@ type WorkbookSessionPageManagerFullscreenProps = {
   boardBackgroundColor?: string;
   boardGridColor?: string;
   boardGridSize?: number;
+  boardPageFrameWidth: number;
   currentPage: number;
   canManageBoardPages: boolean;
   isBoardPageMutationPending: boolean;
@@ -45,6 +46,7 @@ type PageCardPreviewProps = {
   boardBackgroundColor?: string;
   boardGridColor?: string;
   boardGridSize?: number;
+  boardPageFrameWidth: number;
 };
 
 type SortablePageCardProps = PageCardPreviewProps & {
@@ -74,6 +76,7 @@ const PageCardPreview = ({
   boardBackgroundColor,
   boardGridColor,
   boardGridSize,
+  boardPageFrameWidth,
 }: PageCardPreviewProps) => (
   <div className="workbook-session__page-card-preview" aria-hidden="true">
     <WorkbookSessionPagePreview
@@ -83,6 +86,7 @@ const PageCardPreview = ({
       backgroundColor={boardBackgroundColor}
       gridColor={boardGridColor}
       gridSize={boardGridSize}
+      pageFrameWidth={boardPageFrameWidth}
     />
     <span className="workbook-session__page-card-number">#{pagePosition}</span>
     {isCurrent ? <span className="workbook-session__page-card-current">Текущая</span> : null}
@@ -98,6 +102,7 @@ function SortablePageCard({
   boardBackgroundColor,
   boardGridColor,
   boardGridSize,
+  boardPageFrameWidth,
   isDropTarget,
   isDragDisabled,
   isAnyDragActive,
@@ -161,6 +166,7 @@ function SortablePageCard({
         boardBackgroundColor={boardBackgroundColor}
         boardGridColor={boardGridColor}
         boardGridSize={boardGridSize}
+        boardPageFrameWidth={boardPageFrameWidth}
       />
     </div>
   );
@@ -177,6 +183,7 @@ export function WorkbookSessionPageManagerFullscreen({
   boardBackgroundColor,
   boardGridColor,
   boardGridSize,
+  boardPageFrameWidth,
   currentPage,
   canManageBoardPages,
   isBoardPageMutationPending,
@@ -451,6 +458,7 @@ export function WorkbookSessionPageManagerFullscreen({
                     boardBackgroundColor={boardBackgroundColor}
                     boardGridColor={boardGridColor}
                     boardGridSize={boardGridSize}
+                    boardPageFrameWidth={boardPageFrameWidth}
                     isDropTarget={
                       overDragPageId === option.page && activeDragPageId !== option.page
                     }
@@ -491,6 +499,7 @@ export function WorkbookSessionPageManagerFullscreen({
                   boardBackgroundColor={boardBackgroundColor}
                   boardGridColor={boardGridColor}
                   boardGridSize={boardGridSize}
+                  boardPageFrameWidth={boardPageFrameWidth}
                 />
               </div>
             ) : null}

@@ -8,8 +8,8 @@ import {
 } from "react";
 import {
   clampWorkbookObjectToPageFrame,
+  normalizeWorkbookPageFrameWidth,
   resolveWorkbookPageFrameBounds,
-  WORKBOOK_PAGE_FRAME_WIDTH,
 } from "./pageFrame";
 import { mergeBoardObjectWithPatch } from "./runtime";
 import type {
@@ -37,6 +37,7 @@ export type WorkbookIncomingEraserPreviewEntry = {
 };
 
 type UseWorkbookIncomingRuntimeControllerParams = {
+  pageFrameWidth: number;
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
   setBoardObjects: Dispatch<SetStateAction<WorkbookBoardObject[]>>;
   setIncomingStrokePreviews: Dispatch<
@@ -90,9 +91,10 @@ export const useWorkbookIncomingRuntimeController = (
   params: UseWorkbookIncomingRuntimeControllerParams
 ) => {
   const pageFrameBoundsRef = useRef(
-    resolveWorkbookPageFrameBounds(WORKBOOK_PAGE_FRAME_WIDTH)
+    resolveWorkbookPageFrameBounds(normalizeWorkbookPageFrameWidth(params.pageFrameWidth))
   );
   const {
+    pageFrameWidth,
     boardObjectsRef,
     setBoardObjects,
     setIncomingStrokePreviews,
@@ -117,6 +119,12 @@ export const useWorkbookIncomingRuntimeController = (
     finalizedStrokePreviewIdsRef,
     maxIncomingPreviewPatchesPerObject,
   } = params;
+
+  useEffect(() => {
+    pageFrameBoundsRef.current = resolveWorkbookPageFrameBounds(
+      normalizeWorkbookPageFrameWidth(pageFrameWidth)
+    );
+  }, [pageFrameWidth]);
 
   const queuedBoardObjectsRef = useRef<WorkbookBoardObject[] | null>(null);
   const boardObjectsFrameRef = useRef<number | null>(null);

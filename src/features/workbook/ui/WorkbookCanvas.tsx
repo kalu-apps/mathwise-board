@@ -18,6 +18,7 @@ import {
 } from "../model/sceneCreation";
 import {
   clampWorkbookPointToPageFrame,
+  WORKBOOK_PAGE_FRAME_WIDTH,
 } from "../model/pageFrame";
 import {
   buildForcedVisibleObjectIdSet,
@@ -153,6 +154,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   snapToGrid = false,
   gridSize = 22,
   viewportZoom = 1,
+  pageFrameWidth = WORKBOOK_PAGE_FRAME_WIDTH,
   visibilityMode = "viewport",
   showGrid = true,
   gridColor = WORKBOOK_BOARD_GRID_COLOR,
@@ -321,6 +323,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   } = useWorkbookCanvasViewport({
     containerNode,
     viewportZoom,
+    pageFrameWidth,
     viewportOffset,
     onViewportOffsetChange,
     focusPoint,
