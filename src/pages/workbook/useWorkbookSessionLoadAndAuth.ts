@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   dropWorkbookPersistenceTasksForSession,
   flushWorkbookPersistenceQueue,
@@ -20,6 +20,9 @@ export const useWorkbookSessionLoadAndAuth = ({
   clearIncomingRealtimeApplyQueue,
   ...loadSessionParams
 }: WorkbookSessionLoadAndAuthParams) => {
+  const conflictResyncQueuedRef = useRef(false);
+  const conflictRetryTimerRef = useRef<number | null>(null);
+
   const loadSession = useWorkbookSessionLoadSession({
     sessionId,
     setSaveState,
@@ -60,11 +63,28 @@ export const useWorkbookSessionLoadAndAuth = ({
     [authRequiredRef, sessionId, setError, setSaveState, setSaveSyncWarning]
   );
 
-  const handleRealtimeConflict = useCallback(() => {
+  const clearConflictRetryTimer = useCallback(() => {
+    if (conflictRetryTimerRef.current === null || typeof window === "undefined") return;
+    window.clearTimeout(conflictRetryTimerRef.current);
+    conflictRetryTimerRef.current = null;
+  }, []);
+
+  const triggerQueuedConflictResync = useCallback(function runConflictResync() {
     if (!sessionId || authRequiredRef.current) return;
+    if (!conflictResyncQueuedRef.current) return;
     if (sessionResyncInFlightRef.current) return;
     const now = Date.now();
-    if (now - lastForcedResyncAtRef.current < 5_000) return;
+    const sinceLastResyncMs = now - lastForcedResyncAtRef.current;
+    if (sinceLastResyncMs < 5_000) {
+      if (typeof window === "undefined" || conflictRetryTimerRef.current !== null) return;
+      conflictRetryTimerRef.current = window.setTimeout(() => {
+        conflictRetryTimerRef.current = null;
+        runConflictResync();
+      }, Math.max(250, 5_000 - sinceLastResyncMs));
+      return;
+    }
+    clearConflictRetryTimer();
+    conflictResyncQueuedRef.current = false;
     sessionResyncInFlightRef.current = true;
     lastForcedResyncAtRef.current = now;
     pauseWorkbookPersistenceForSession(sessionId);
@@ -75,15 +95,38 @@ export const useWorkbookSessionLoadAndAuth = ({
       resumeWorkbookPersistenceForSession(sessionId);
       void flushWorkbookPersistenceQueue();
       sessionResyncInFlightRef.current = false;
+      if (conflictResyncQueuedRef.current) {
+        runConflictResync();
+      }
     });
   }, [
     sessionId,
     authRequiredRef,
+    clearConflictRetryTimer,
     sessionResyncInFlightRef,
     lastForcedResyncAtRef,
     setRealtimeSyncWarning,
     loadSession,
   ]);
+
+  const handleRealtimeConflict = useCallback(() => {
+    if (!sessionId || authRequiredRef.current) return;
+    conflictResyncQueuedRef.current = true;
+    triggerQueuedConflictResync();
+  }, [authRequiredRef, sessionId, triggerQueuedConflictResync]);
+
+  useEffect(() => {
+    conflictResyncQueuedRef.current = false;
+    clearConflictRetryTimer();
+  }, [clearConflictRetryTimer, sessionId]);
+
+  useEffect(
+    () => () => {
+      clearConflictRetryTimer();
+      conflictResyncQueuedRef.current = false;
+    },
+    [clearConflictRetryTimer]
+  );
 
   return {
     loadSession,
