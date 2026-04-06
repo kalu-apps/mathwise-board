@@ -134,6 +134,7 @@ import { WorkbookImportModalBoundary } from "./WorkbookImportModalBoundary";
 import { captureWorkbookSessionPreviewDataUrl } from "./workbookHubPreviewCapture";
 import { useWorkbookPageTransitionOverlay } from "./useWorkbookPageTransitionOverlay";
 import { useWorkbookPageZoomPersistence } from "./useWorkbookPageZoomPersistence";
+import { useWorkbookPageViewportPersistence } from "./useWorkbookPageViewportPersistence";
 import {
   WORKBOOK_HUB_PREVIEW_BRIDGE_EVENT,
   queueWorkbookHubPreviewRefreshHint,
@@ -851,12 +852,19 @@ export default function WorkbookSessionPage() {
     lastAppliedSeqRef: refs.lastAppliedSeqRef,
     processedEventIdsRef,
   });
+  const effectiveActorUserId = actorParticipant?.userId ?? user?.id ?? "";
   const pageZoomStorageKey = useMemo(() => {
-    const effectiveActorUserId = actorParticipant?.userId ?? user?.id ?? "";
     return sessionId && effectiveActorUserId
       ? `workbook:page-zoom:${sessionId}:${effectiveActorUserId}`
       : "";
-  }, [actorParticipant?.userId, sessionId, user?.id]);
+  }, [effectiveActorUserId, sessionId]);
+  const pageViewportStorageKey = useMemo(
+    () =>
+      sessionId && effectiveActorUserId
+        ? `workbook:page-viewport:${sessionId}:${effectiveActorUserId}`
+        : "",
+    [effectiveActorUserId, sessionId]
+  );
 
   useWorkbookPageZoomPersistence({
     storageKey: pageZoomStorageKey,
@@ -2335,6 +2343,17 @@ export default function WorkbookSessionPage() {
     if (safeCurrentBoardPage === currentBoardPage) return;
     setCurrentBoardPage(safeCurrentBoardPage);
   }, [currentBoardPage, safeCurrentBoardPage, setCurrentBoardPage]);
+
+  useWorkbookPageViewportPersistence({
+    storageKey: pageViewportStorageKey,
+    currentBoardPage,
+    setCurrentBoardPage,
+    canvasViewport,
+    setCanvasViewport,
+    availablePages: orderedBoardPages,
+    enabled: bootstrapReady && Boolean(sessionId),
+  });
+
   const handleSelectLocalBoardPage = useCallback(
     (page: number) => {
       const nextPage = toSafeWorkbookPage(page);
