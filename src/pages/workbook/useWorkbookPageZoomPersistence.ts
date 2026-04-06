@@ -15,6 +15,12 @@ interface UseWorkbookPageZoomPersistenceParams {
   enabled?: boolean;
 }
 
+type UseWorkbookPageZoomPersistenceResult = {
+  applyZoomForPage: (page: number) => void;
+  handlePageCreated: (page: number) => void;
+  handlePageDeleted: (targetPage: number) => void;
+};
+
 const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 3;
 const ZOOM_EPS = 0.0001;
@@ -44,17 +50,55 @@ const normalizeZoomByPage = (value: unknown) => {
   return normalized;
 };
 
+const removeZoomForPage = (source: Record<string, number>, page: number) => {
+  const safePage = toSafePage(page);
+  const pageKey = String(safePage);
+  if (!Object.prototype.hasOwnProperty.call(source, pageKey)) {
+    return source;
+  }
+  const next: Record<string, number> = {};
+  Object.entries(source).forEach(([key, zoom]) => {
+    if (key === pageKey) return;
+    next[key] = zoom;
+  });
+  return next;
+};
+
+const remapZoomByPageAfterDelete = (source: Record<string, number>, targetPage: number) => {
+  const safeTargetPage = toSafePage(targetPage);
+  const next: Record<string, number> = {};
+  Object.entries(source).forEach(([key, zoom]) => {
+    const numericPage = Number.parseInt(key, 10);
+    if (!Number.isFinite(numericPage) || numericPage < 1) return;
+    if (numericPage === safeTargetPage) return;
+    const nextPage = numericPage > safeTargetPage ? numericPage - 1 : numericPage;
+    next[String(toSafePage(nextPage))] = toSafeZoom(zoom);
+  });
+  return next;
+};
+
 export function useWorkbookPageZoomPersistence({
   storageKey,
   currentBoardPage,
   viewportZoom,
   setViewportZoom,
   enabled = true,
-}: UseWorkbookPageZoomPersistenceParams) {
+}: UseWorkbookPageZoomPersistenceParams): UseWorkbookPageZoomPersistenceResult {
   const readyRef = useRef(false);
   const zoomByPageRef = useRef<Record<string, number>>({});
   const pendingApplyRef = useRef<{ page: number; zoom: number } | null>(null);
   const [storageEpoch, setStorageEpoch] = useState(0);
+
+  const persistZoomByPage = useCallback(
+    (nextZoomByPage: Record<string, number>) => {
+      zoomByPageRef.current = nextZoomByPage;
+      if (!storageKey) return;
+      writeStorage<PersistedWorkbookPageZoomState>(storageKey, {
+        zoomByPage: nextZoomByPage,
+      });
+    },
+    [storageKey]
+  );
 
   const resolveZoomForPage = useCallback((page: number) => {
     const safePage = toSafePage(page);
@@ -126,13 +170,38 @@ export function useWorkbookPageZoomPersistence({
       return;
     }
 
-    zoomByPageRef.current = {
+    const nextZoomByPage = {
       ...zoomByPageRef.current,
       [pageKey]: safeZoom,
     };
-    if (!storageKey) return;
-    writeStorage<PersistedWorkbookPageZoomState>(storageKey, {
-      zoomByPage: zoomByPageRef.current,
-    });
-  }, [currentBoardPage, enabled, storageKey, viewportZoom]);
+    persistZoomByPage(nextZoomByPage);
+  }, [currentBoardPage, enabled, persistZoomByPage, viewportZoom]);
+
+  const handlePageCreated = useCallback(
+    (page: number) => {
+      if (!readyRef.current) return;
+      const nextZoomByPage = removeZoomForPage(zoomByPageRef.current, page);
+      if (nextZoomByPage === zoomByPageRef.current) return;
+      persistZoomByPage(nextZoomByPage);
+    },
+    [persistZoomByPage]
+  );
+
+  const handlePageDeleted = useCallback(
+    (targetPage: number) => {
+      if (!readyRef.current) return;
+      const nextZoomByPage = remapZoomByPageAfterDelete(
+        zoomByPageRef.current,
+        targetPage
+      );
+      persistZoomByPage(nextZoomByPage);
+    },
+    [persistZoomByPage]
+  );
+
+  return {
+    applyZoomForPage,
+    handlePageCreated,
+    handlePageDeleted,
+  };
 }

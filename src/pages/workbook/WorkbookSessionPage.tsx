@@ -866,7 +866,11 @@ export default function WorkbookSessionPage() {
     [effectiveActorUserId, sessionId]
   );
 
-  useWorkbookPageZoomPersistence({
+  const {
+    applyZoomForPage: applyPageZoomForPage,
+    handlePageCreated: handleZoomPageCreated,
+    handlePageDeleted: handleZoomPageDeleted,
+  } = useWorkbookPageZoomPersistence({
     storageKey: pageZoomStorageKey,
     currentBoardPage,
     viewportZoom,
@@ -2344,12 +2348,16 @@ export default function WorkbookSessionPage() {
     setCurrentBoardPage(safeCurrentBoardPage);
   }, [currentBoardPage, safeCurrentBoardPage, setCurrentBoardPage]);
 
-  useWorkbookPageViewportPersistence({
+  const {
+    handlePageCreated: handleViewportPageCreated,
+    handlePageDeleted: handleViewportPageDeleted,
+  } = useWorkbookPageViewportPersistence({
     storageKey: pageViewportStorageKey,
     currentBoardPage,
     setCurrentBoardPage,
     canvasViewport,
     setCanvasViewport,
+    applyZoomForPage: applyPageZoomForPage,
     availablePages: orderedBoardPages,
     enabled: bootstrapReady && Boolean(sessionId),
   });
@@ -2370,14 +2378,19 @@ export default function WorkbookSessionPage() {
       annotationStrokes,
     });
     const nextPage = Math.max(1, maxKnownPage + 1);
-    handleAddBoardPage();
+    const created = handleAddBoardPage();
+    if (!created) return;
+    handleZoomPageCreated(nextPage);
+    handleViewportPageCreated(nextPage);
     setCurrentBoardPage(nextPage);
   }, [
     annotationStrokes,
     boardObjects,
     boardSettings.pagesCount,
     boardStrokes,
+    handleViewportPageCreated,
     handleAddBoardPage,
+    handleZoomPageCreated,
     setCurrentBoardPage,
   ]);
   const handleDeleteLocalBoardPage = useCallback(
@@ -2400,7 +2413,10 @@ export default function WorkbookSessionPage() {
       const nextCurrentLocalPage = safeCurrentLocalPage > safeTargetPage
         ? safeCurrentLocalPage - 1
         : Math.min(safeCurrentLocalPage, Math.max(1, maxKnownPage - 1));
-      await handleDeleteBoardPage(targetPage);
+      const deleted = await handleDeleteBoardPage(targetPage);
+      if (!deleted) return;
+      handleZoomPageDeleted(safeTargetPage);
+      handleViewportPageDeleted(safeTargetPage);
       if (nextOrder.includes(nextCurrentLocalPage)) {
         setCurrentBoardPage(nextCurrentLocalPage);
         return;
@@ -2415,6 +2431,8 @@ export default function WorkbookSessionPage() {
       boardStrokes,
       currentBoardPage,
       handleDeleteBoardPage,
+      handleViewportPageDeleted,
+      handleZoomPageDeleted,
       setCurrentBoardPage,
     ]
   );

@@ -15,9 +15,15 @@ interface UseWorkbookPageViewportPersistenceParams {
   setCurrentBoardPage: SetState<number>;
   canvasViewport: WorkbookPoint;
   setCanvasViewport: SetState<WorkbookPoint>;
+  applyZoomForPage?: (page: number) => void;
   availablePages: number[];
   enabled?: boolean;
 }
+
+type UseWorkbookPageViewportPersistenceResult = {
+  handlePageCreated: (page: number) => void;
+  handlePageDeleted: (targetPage: number) => void;
+};
 
 const PAGE_MIN = 1;
 const VIEWPORT_EPS = 0.01;
@@ -56,6 +62,36 @@ const normalizeViewportByPage = (value: unknown, allowedPages: Set<number>) => {
     });
   });
   return normalized;
+};
+
+const removeViewportForPage = (source: Record<string, WorkbookPoint>, page: number) => {
+  const safePage = toSafePage(page);
+  const pageKey = String(safePage);
+  if (!Object.prototype.hasOwnProperty.call(source, pageKey)) {
+    return source;
+  }
+  const next: Record<string, WorkbookPoint> = {};
+  Object.entries(source).forEach(([key, viewport]) => {
+    if (key === pageKey) return;
+    next[key] = viewport;
+  });
+  return next;
+};
+
+const remapViewportByPageAfterDelete = (
+  source: Record<string, WorkbookPoint>,
+  targetPage: number
+) => {
+  const safeTargetPage = toSafePage(targetPage);
+  const next: Record<string, WorkbookPoint> = {};
+  Object.entries(source).forEach(([key, viewport]) => {
+    const numericPage = Number.parseInt(key, 10);
+    if (!Number.isFinite(numericPage) || numericPage < 1) return;
+    if (numericPage === safeTargetPage) return;
+    const nextPage = numericPage > safeTargetPage ? numericPage - 1 : numericPage;
+    next[String(toSafePage(nextPage))] = toSafeViewport(viewport);
+  });
+  return next;
 };
 
 const resolveRawLastPage = (value: unknown) => {
@@ -123,9 +159,10 @@ export function useWorkbookPageViewportPersistence({
   setCurrentBoardPage,
   canvasViewport,
   setCanvasViewport,
+  applyZoomForPage,
   availablePages,
   enabled = true,
-}: UseWorkbookPageViewportPersistenceParams) {
+}: UseWorkbookPageViewportPersistenceParams): UseWorkbookPageViewportPersistenceResult {
   const safeCurrentPage = toSafePage(currentBoardPage);
   const safeCurrentViewport = toSafeViewport(canvasViewport);
   const normalizedAvailablePages = useMemo(() => {
@@ -252,6 +289,7 @@ export function useWorkbookPageViewportPersistence({
       setCurrentBoardPage(target);
       return;
     }
+    applyZoomForPage?.(target);
     const appliedViewport = applyViewportForPage(target);
     lifecycleRef.current = {
       page: target,
@@ -261,6 +299,7 @@ export function useWorkbookPageViewportPersistence({
     restoreTargetPageRef.current = null;
   }, [
     applyViewportForPage,
+    applyZoomForPage,
     enabled,
     normalizedAvailablePages,
     safeCurrentPage,
@@ -298,6 +337,7 @@ export function useWorkbookPageViewportPersistence({
         };
       }
       schedulePersist();
+      applyZoomForPage?.(safeCurrentPage);
       const appliedViewport = applyViewportForPage(safeCurrentPage);
       lifecycleRef.current = {
         page: safeCurrentPage,
@@ -343,6 +383,7 @@ export function useWorkbookPageViewportPersistence({
     };
   }, [
     applyViewportForPage,
+    applyZoomForPage,
     enabled,
     normalizedAvailablePages,
     safeCurrentPage,
@@ -361,4 +402,61 @@ export function useWorkbookPageViewportPersistence({
     stateRef.current = normalized;
     schedulePersist();
   }, [availablePagesKey, enabled, normalizedAvailablePages, safeCurrentPage, schedulePersist]);
+
+  const handlePageCreated = useCallback(
+    (page: number) => {
+      if (!readyRef.current) return;
+      const safePage = toSafePage(page);
+      const nextViewportByPage = removeViewportForPage(stateRef.current.viewportByPage, safePage);
+      const nextLastPage =
+        stateRef.current.lastPage === safePage ? null : stateRef.current.lastPage;
+      const changed =
+        nextViewportByPage !== stateRef.current.viewportByPage
+        || !arePagesEqual(nextLastPage, stateRef.current.lastPage);
+      if (!changed) return;
+      stateRef.current = {
+        ...stateRef.current,
+        lastPage: nextLastPage,
+        viewportByPage: nextViewportByPage,
+      };
+      lifecycleRef.current = null;
+      pendingApplyRef.current = null;
+      schedulePersist();
+    },
+    [schedulePersist]
+  );
+
+  const handlePageDeleted = useCallback(
+    (targetPage: number) => {
+      if (!readyRef.current) return;
+      const safeTargetPage = toSafePage(targetPage);
+      const nextViewportByPage = remapViewportByPageAfterDelete(
+        stateRef.current.viewportByPage,
+        safeTargetPage
+      );
+      const currentLastPage = stateRef.current.lastPage;
+      const nextLastPage =
+        typeof currentLastPage === "number"
+          ? currentLastPage === safeTargetPage
+            ? null
+            : currentLastPage > safeTargetPage
+              ? currentLastPage - 1
+              : currentLastPage
+          : null;
+      stateRef.current = {
+        ...stateRef.current,
+        lastPage: nextLastPage,
+        viewportByPage: nextViewportByPage,
+      };
+      lifecycleRef.current = null;
+      pendingApplyRef.current = null;
+      schedulePersist();
+    },
+    [schedulePersist]
+  );
+
+  return {
+    handlePageCreated,
+    handlePageDeleted,
+  };
 }

@@ -369,7 +369,7 @@ export const useWorkbookBoardSettingsPages = ({
   );
 
   const handleAddBoardPage = useCallback(() => {
-    if (!canManageSharedBoardSettings || isBoardPageMutationPending) return;
+    if (!canManageSharedBoardSettings || isBoardPageMutationPending) return false;
     const maxKnownPage = resolveMaxKnownWorkbookPage({
       pagesCount: boardSettingsRef.current.pagesCount,
       boardObjects: boardObjectsRef.current,
@@ -383,6 +383,7 @@ export const useWorkbookBoardSettingsPages = ({
       currentPage: nextPage,
       pageOrder: [...currentOrder, nextPage],
     });
+    return true;
   }, [
     annotationStrokesRef,
     boardObjectsRef,
@@ -395,10 +396,10 @@ export const useWorkbookBoardSettingsPages = ({
 
   const handleDeleteBoardPage = useCallback(
     async (targetPage: number) => {
-      if (!canManageSharedBoardSettings || !canDelete || isBoardPageMutationPending) return;
+      if (!canManageSharedBoardSettings || !canDelete || isBoardPageMutationPending) return false;
       if (boardSettingsCommitInFlightRef.current) {
         setError("Дождитесь завершения синхронизации настроек и повторите попытку.");
-        return;
+        return false;
       }
 
       const boardSettingsSnapshot = boardSettingsRef.current;
@@ -414,7 +415,7 @@ export const useWorkbookBoardSettingsPages = ({
 
       if (maxKnownPage <= 1) {
         setError("Нельзя удалить единственную страницу доски.");
-        return;
+        return false;
       }
 
       const safeTargetPage = Math.min(maxKnownPage, toSafeWorkbookPage(targetPage));
@@ -541,8 +542,10 @@ export const useWorkbookBoardSettingsPages = ({
         });
 
         await appendEventsAndApply(events);
+        return true;
       } catch {
         setError("Не удалось удалить страницу доски.");
+        return false;
       } finally {
         setIsBoardPageMutationPending(false);
       }
