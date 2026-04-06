@@ -4,7 +4,9 @@ import { useWorkbookRealtimeApplyQueue } from "@/features/workbook/model/useWork
 import {
   dropWorkbookPersistenceTasksForSession,
   flushWorkbookPersistenceQueue,
+  getWorkbookPersistencePendingCountForSession,
   setWorkbookPersistenceBlockedForSession,
+  setWorkbookPersistenceConflictHandler,
 } from "@/features/workbook/model/persistenceQueue";
 import { useWorkbookSessionLoadAndAuth } from "./useWorkbookSessionLoadAndAuth";
 import { useWorkbookRealtimeTransport } from "./useWorkbookRealtimeTransport";
@@ -124,6 +126,10 @@ export const useWorkbookSessionRealtimeLifecycle = ({
       || !bootstrapReady;
     setWorkbookPersistenceBlockedForSession(sessionId, blocked);
     if (!blocked) {
+      if (getWorkbookPersistencePendingCountForSession(sessionId) > 0) {
+        handleRealtimeConflict();
+        return;
+      }
       void flushWorkbookPersistenceQueue();
     }
     return () => {
@@ -134,7 +140,20 @@ export const useWorkbookSessionRealtimeLifecycle = ({
     bootstrapReady,
     persistenceLifecycleParams.sessionReady,
     sessionId,
+    handleRealtimeConflict,
   ]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const conflictHandler = (conflictSessionId: string) => {
+      if (conflictSessionId !== sessionId) return;
+      handleRealtimeConflict();
+    };
+    setWorkbookPersistenceConflictHandler(conflictHandler);
+    return () => {
+      setWorkbookPersistenceConflictHandler(null);
+    };
+  }, [handleRealtimeConflict, sessionId]);
 
   useEffect(() => {
     if (!sessionId || !isWorkbookSessionAuthLost) return;
