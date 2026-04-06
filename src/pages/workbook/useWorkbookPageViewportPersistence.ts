@@ -227,7 +227,7 @@ export function useWorkbookPageViewportPersistence({
 
     readyRef.current = true;
     setStorageEpoch((current) => current + 1);
-  }, [availablePagesKey, enabled, normalizedAvailablePages, storageKey]);
+  }, [enabled, storageKey]);
 
   useEffect(() => {
     return () => {
