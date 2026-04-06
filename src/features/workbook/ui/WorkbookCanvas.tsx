@@ -318,6 +318,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     allowHorizontalPan,
     pageFrameBounds,
     resolvedViewportOffset,
+    displayBias,
     effectiveFocusPoints,
     effectivePointerPoints,
     autoDividerLines,
@@ -638,8 +639,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
     try {
       const rect = svg.getBoundingClientRect();
-      const rawX = (clientX - rect.left) / safeZoom + resolvedViewportOffset.x;
-      const rawY = (clientY - rect.top) / safeZoom + resolvedViewportOffset.y;
+      const rawX =
+        (clientX - rect.left - displayBias.x) / safeZoom + resolvedViewportOffset.x;
+      const rawY =
+        (clientY - rect.top - displayBias.y) / safeZoom + resolvedViewportOffset.y;
       const x = clampToViewport
         ? Math.max(
             0 + resolvedViewportOffset.x,
@@ -1321,6 +1324,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     setEraserCursorPoint,
     viewportOffset: resolvedViewportOffset,
     safeZoom,
+    displayBias,
     allowHorizontalPan,
     pageFrameBounds,
     onViewportOffsetChange,
@@ -1343,6 +1347,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         <WorkbookCommittedCanvasLayer
           strokes={renderedStrokesForDisplay}
           viewportOffset={resolvedViewportOffset}
+          displayBias={displayBias}
           zoom={safeZoom}
           width={size.width}
           height={size.height}
@@ -1390,7 +1395,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           </radialGradient>
         </defs>
 
-        <g transform={`scale(${safeZoom})`}>
+        <g transform={`translate(${displayBias.x} ${displayBias.y}) scale(${safeZoom})`}>
         <g transform={`translate(${-resolvedViewportOffset.x} ${-resolvedViewportOffset.y})`}>
         <WorkbookAutoDividerLayer lines={autoDividerLines} />
         <WorkbookObjectSceneLayer entries={objectSceneEntries} />

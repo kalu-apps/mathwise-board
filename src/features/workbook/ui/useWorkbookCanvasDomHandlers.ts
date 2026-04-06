@@ -27,6 +27,7 @@ interface UseWorkbookCanvasDomHandlersParams {
   tool: WorkbookTool;
   viewportOffset: WorkbookPoint;
   safeZoom: number;
+  displayBias: WorkbookPoint;
   allowHorizontalPan: boolean;
   pageFrameBounds: WorkbookPageFrameBounds;
   onViewportOffsetChange?: (offset: WorkbookPoint) => void;
@@ -104,6 +105,7 @@ export const useWorkbookCanvasDomHandlers = ({
   tool,
   viewportOffset,
   safeZoom,
+  displayBias,
   allowHorizontalPan,
   pageFrameBounds,
   onViewportOffsetChange,
@@ -144,11 +146,21 @@ export const useWorkbookCanvasDomHandlers = ({
       const safeRenderZoom =
         Number.isFinite(safeZoom) && safeZoom > 0 ? safeZoom : 1;
       const gridStepPx = Math.max(1, safeGridSizeWorld * safeRenderZoom);
+      const displayBiasX = Number.isFinite(displayBias.x) ? displayBias.x : 0;
+      const displayBiasY = Number.isFinite(displayBias.y) ? displayBias.y : 0;
       // Align screen-space CSS grid phase with world-space viewport translation.
-      const gridOffsetXPx = toPositiveModulo(-viewportOffset.x * safeRenderZoom, gridStepPx);
-      const gridOffsetYPx = toPositiveModulo(-viewportOffset.y * safeRenderZoom, gridStepPx);
-      const pageLeftPx = (pageFrameBounds.minX - viewportOffset.x) * safeRenderZoom;
-      const pageTopPx = (pageFrameBounds.minY - viewportOffset.y) * safeRenderZoom;
+      const gridOffsetXPx = toPositiveModulo(
+        -viewportOffset.x * safeRenderZoom + displayBiasX,
+        gridStepPx
+      );
+      const gridOffsetYPx = toPositiveModulo(
+        -viewportOffset.y * safeRenderZoom + displayBiasY,
+        gridStepPx
+      );
+      const pageLeftPx =
+        (pageFrameBounds.minX - viewportOffset.x) * safeRenderZoom + displayBiasX;
+      const pageTopPx =
+        (pageFrameBounds.minY - viewportOffset.y) * safeRenderZoom + displayBiasY;
       const pageWidthPx = pageFrameBounds.width * safeRenderZoom;
       const pageHeightPx = pageFrameBounds.height * safeRenderZoom;
       const pageGridOffsetXPx = toPositiveModulo(gridOffsetXPx - pageLeftPx, gridStepPx);
@@ -170,6 +182,8 @@ export const useWorkbookCanvasDomHandlers = ({
     },
     [
       backgroundColor,
+      displayBias.x,
+      displayBias.y,
       gridColor,
       gridSize,
       pageFrameBounds.height,

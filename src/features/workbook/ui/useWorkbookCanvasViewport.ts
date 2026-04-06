@@ -4,6 +4,7 @@ import {
   clampWorkbookViewportOffsetToPageFrame,
   resolveWorkbookPageFrameBounds,
 } from "../model/pageFrame";
+import { resolveWorkbookDisplayBias } from "./resolveWorkbookDisplayBias";
 
 type UseWorkbookCanvasViewportParams = {
   containerNode: HTMLDivElement | null;
@@ -150,6 +151,24 @@ export const useWorkbookCanvasViewport = ({
     return lines;
   })();
 
+  const displayBias = useMemo(
+    () =>
+      resolveWorkbookDisplayBias({
+        viewportWidthPx: size.width,
+        viewportHeightPx: size.height,
+        pageFrameBounds,
+        viewportOffset: resolvedViewportOffset,
+        safeZoom,
+      }),
+    [
+      pageFrameBounds,
+      resolvedViewportOffset,
+      safeZoom,
+      size.height,
+      size.width,
+    ]
+  );
+
   return {
     size,
     safeZoom,
@@ -158,6 +177,7 @@ export const useWorkbookCanvasViewport = ({
     visibleViewportWidth,
     visibleViewportHeight,
     resolvedViewportOffset,
+    displayBias,
     effectiveFocusPoints,
     effectivePointerPoints,
     autoDividerLines,
