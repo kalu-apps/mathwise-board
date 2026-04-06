@@ -1361,7 +1361,7 @@ export default function WorkbookSessionPage() {
 
     const tryGrowSharedPageFrameWidth = (workspaceWidth: number) => {
       if (!Number.isFinite(workspaceWidth) || workspaceWidth <= 1) return;
-      if (sessionResyncInFlightRef.current) return;
+      if (refs.sessionResyncInFlightRef.current) return;
       if (getWorkbookPersistenceQueueSnapshot().pendingCount > 0) return;
       const nextWidth = normalizeWorkbookPageFrameWidth(workspaceWidth);
       const currentWidth = normalizeWorkbookPageFrameWidth(
