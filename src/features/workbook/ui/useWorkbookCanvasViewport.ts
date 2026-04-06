@@ -56,14 +56,23 @@ export const useWorkbookCanvasViewport = ({
   autoDividersEnabled,
 }: UseWorkbookCanvasViewportParams) => {
   const size = useElementSize(containerNode);
-  const safeZoom = Math.max(
-    0.3,
-    Math.min(3, Number.isFinite(viewportZoom) ? viewportZoom : 1)
-  );
   const pageFrameBounds = useMemo(
     () => resolveWorkbookPageFrameBounds(pageFrameWidth),
     [pageFrameWidth]
   );
+  const relativeZoom = Math.max(
+    0.3,
+    Math.min(3, Number.isFinite(viewportZoom) ? viewportZoom : 1)
+  );
+  const fitZoom = useMemo(() => {
+    const widthFit = size.width > 0 ? size.width / pageFrameBounds.width : 1;
+    const heightFit = size.height > 0 ? size.height / pageFrameBounds.height : 1;
+    const candidate = Math.min(widthFit, heightFit);
+    return Number.isFinite(candidate) && candidate > 0 ? candidate : 1;
+  }, [pageFrameBounds.height, pageFrameBounds.width, size.height, size.width]);
+  // 100% is "fit full workbook page into current viewport". Values above/below 100%
+  // zoom relative to this fit baseline, preserving predictable behavior across screens.
+  const safeZoom = Math.max(0.02, fitZoom * relativeZoom);
   const visibleViewportWidth = Math.max(1, size.width / safeZoom);
   const visibleViewportHeight = Math.max(1, size.height / safeZoom);
   const allowHorizontalPan = pageFrameBounds.width > visibleViewportWidth + 1;
