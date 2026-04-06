@@ -1500,6 +1500,20 @@
   max-height: none;
   border-radius: 14px;
   border: 1px solid color-mix(in srgb, var(--brand-soft) 34%, var(--border-subtle));
+  background: color-mix(in srgb, var(--surface-elevated) 86%, var(--surface-base));
+  overflow: hidden;
+  position: relative;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-solid) 7%, transparent);
+  box-sizing: border-box;
+}
+.workbook-session__canvas-page-surface {
+  position: absolute;
+  left: var(--workbook-page-left, 0px);
+  top: var(--workbook-page-top, 0px);
+  width: max(1px, var(--workbook-page-width, 1px));
+  height: max(1px, var(--workbook-page-height, 1px));
+  pointer-events: none;
+  z-index: 0;
   background:
     linear-gradient(
       to right,
@@ -1519,13 +1533,12 @@
     var(--workbook-grid-size, 22px) var(--workbook-grid-size, 22px),
     auto;
   background-position:
-    var(--workbook-grid-offset-x, 0px) var(--workbook-grid-offset-y, 0px),
-    var(--workbook-grid-offset-x, 0px) var(--workbook-grid-offset-y, 0px),
+    var(--workbook-page-grid-offset-x, 0px) var(--workbook-page-grid-offset-y, 0px),
+    var(--workbook-page-grid-offset-x, 0px) var(--workbook-page-grid-offset-y, 0px),
     0 0;
-  overflow: hidden;
-  position: relative;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-solid) 7%, transparent);
-  box-sizing: border-box;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--brand-solid) 20%, var(--border-subtle)),
+    0 0 0 1px color-mix(in srgb, var(--brand-soft) 20%, transparent);
 }
 .workbook-session__canvas-svg {
   position: absolute;

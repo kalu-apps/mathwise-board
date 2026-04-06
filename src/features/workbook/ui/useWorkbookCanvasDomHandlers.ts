@@ -8,6 +8,7 @@ import type {
   WorkbookPoint,
   WorkbookTool,
 } from "../model/types";
+import type { WorkbookPageFrameBounds } from "../model/pageFrame";
 import { handleWorkbookCanvasContextMenu } from "./workbookCanvasContextMenu";
 import type { WorkbookCanvasAreaSelection } from "./WorkbookCanvas.types";
 
@@ -26,6 +27,7 @@ interface UseWorkbookCanvasDomHandlersParams {
   tool: WorkbookTool;
   viewportOffset: WorkbookPoint;
   safeZoom: number;
+  pageFrameBounds: WorkbookPageFrameBounds;
   onViewportOffsetChange?: (offset: WorkbookPoint) => void;
   onObjectUpdate: (
     objectId: string,
@@ -101,6 +103,7 @@ export const useWorkbookCanvasDomHandlers = ({
   tool,
   viewportOffset,
   safeZoom,
+  pageFrameBounds,
   onViewportOffsetChange,
   onObjectUpdate,
   onSelectedObjectChange,
@@ -141,16 +144,40 @@ export const useWorkbookCanvasDomHandlers = ({
       // Align screen-space CSS grid phase with world-space viewport translation.
       const gridOffsetXPx = toPositiveModulo(-viewportOffset.x * safeRenderZoom, gridStepPx);
       const gridOffsetYPx = toPositiveModulo(-viewportOffset.y * safeRenderZoom, gridStepPx);
+      const pageLeftPx = (pageFrameBounds.minX - viewportOffset.x) * safeRenderZoom;
+      const pageTopPx = (pageFrameBounds.minY - viewportOffset.y) * safeRenderZoom;
+      const pageWidthPx = pageFrameBounds.width * safeRenderZoom;
+      const pageHeightPx = pageFrameBounds.height * safeRenderZoom;
+      const pageGridOffsetXPx = toPositiveModulo(gridOffsetXPx - pageLeftPx, gridStepPx);
+      const pageGridOffsetYPx = toPositiveModulo(gridOffsetYPx - pageTopPx, gridStepPx);
       return {
         "--workbook-grid-size-world": `${safeGridSizeWorld}px`,
         "--workbook-grid-size": `${gridStepPx}px`,
         "--workbook-grid-offset-x": `${gridOffsetXPx}px`,
         "--workbook-grid-offset-y": `${gridOffsetYPx}px`,
+        "--workbook-page-grid-offset-x": `${pageGridOffsetXPx}px`,
+        "--workbook-page-grid-offset-y": `${pageGridOffsetYPx}px`,
+        "--workbook-page-left": `${pageLeftPx}px`,
+        "--workbook-page-top": `${pageTopPx}px`,
+        "--workbook-page-width": `${pageWidthPx}px`,
+        "--workbook-page-height": `${pageHeightPx}px`,
         "--workbook-grid-color": showGrid ? gridColor : "transparent",
         "--workbook-background-color": backgroundColor,
       } as CSSProperties;
     },
-    [backgroundColor, gridColor, gridSize, safeZoom, showGrid, viewportOffset.x, viewportOffset.y]
+    [
+      backgroundColor,
+      gridColor,
+      gridSize,
+      pageFrameBounds.height,
+      pageFrameBounds.minX,
+      pageFrameBounds.minY,
+      pageFrameBounds.width,
+      safeZoom,
+      showGrid,
+      viewportOffset.x,
+      viewportOffset.y,
+    ]
   );
 
   const preventDefaultIfCancelable = (

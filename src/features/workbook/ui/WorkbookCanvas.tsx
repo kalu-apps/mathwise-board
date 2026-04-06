@@ -1316,6 +1316,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     setEraserCursorPoint,
     viewportOffset: resolvedViewportOffset,
     safeZoom,
+    pageFrameBounds,
     onViewportOffsetChange,
   });
 
@@ -1331,6 +1332,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       ref={setContainerNode}
       style={canvasStyle}
     >
+      <div className="workbook-session__canvas-page-surface" aria-hidden="true" />
       {newRendererEnabled ? (
         <WorkbookCommittedCanvasLayer
           strokes={renderedStrokesForDisplay}
