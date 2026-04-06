@@ -1,29 +1,33 @@
 # Branching Policy (Mandatory)
 
-This repository uses `main-only` flow:
+This repository uses `staging-first` flow:
 
-- `main` is the single working and release branch.
+- `staging` is the primary working branch for all implementation.
+- All first pushes go to `staging`.
+- `main` is updated only after validation/promotion from `staging`.
 - `next` is deprecated and must not be used.
 
 ## Permanent branches
 
-- `main` — единственная основная ветка (разработка + релизы).
+- `staging` — основная ветка для разработки и первичной интеграции.
+- `main` — стабильная/релизная ветка (продвижение только из `staging`).
 
 ## Allowed flows
 
 - Default flow:
-  - implement changes directly in `main`
-  - push changes directly to `main`
+  - implement changes in `staging`
+  - push changes to `staging`
 - Optional safety flow:
-  - create `feature/*`, `refactor/*`, `perf/*`, `chore/*`, `fix/*`, `docs/*` from `main`
-  - open PR target: `main`
+  - create `feature/*`, `refactor/*`, `perf/*`, `chore/*`, `fix/*`, `docs/*` from `staging`
+  - open PR target: `staging`
 
 ## Forbidden
 
 - No work in `next`.
-- No release/sync flows вида `next -> main` или `main -> next`.
+- No direct implementation pushes to `main`.
+- No release/sync flows вида `next -> main`, `main -> next`, or `next -> staging`.
 - No dual manual implementation of the same change in two branches.
 
 ## Practical rule
 
-- One source of truth is always `main`.
+- Primary source of truth for active work is always `staging`.

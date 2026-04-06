@@ -80,6 +80,7 @@ const toColor = (value: unknown, fallback: string) =>
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
 export const WORKBOOK_IMAGE_ASSET_META_KEY = "documentAssetId";
+export const WORKBOOK_IMAGE_ASPECT_RATIO_META_KEY = "imageAspectRatio";
 
 const normalizeSceneLayers = (
   rawLayers: unknown,

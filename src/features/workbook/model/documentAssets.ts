@@ -3,7 +3,11 @@ import type {
   WorkbookDocumentAsset,
   WorkbookPoint,
 } from "./types";
-import { WORKBOOK_IMAGE_ASSET_META_KEY } from "./scene";
+import {
+  WORKBOOK_IMAGE_ASSET_META_KEY,
+  WORKBOOK_IMAGE_ASPECT_RATIO_META_KEY,
+} from "./scene";
+import { resolveWorkbookImageAspectRatioFromDimensions } from "./imageGeometry";
 import { WORKBOOK_TEXT_FALLBACK_COLOR } from "./workbookVisualColors";
 
 type WorkbookDocumentRenderedPage =
@@ -121,17 +125,40 @@ export const buildWorkbookDocumentBoardObject = (params: {
   insertPosition: WorkbookPoint;
   imageUrl?: string;
   renderedPage?: WorkbookDocumentRenderedPage | null;
+  sourceWidth?: number;
+  sourceHeight?: number;
   type: "image" | "pdf" | "file";
 }): WorkbookBoardObject => {
   const isVisualImage = params.type === "image" || Boolean(params.imageUrl);
+  const imageFrame = resolveWorkbookImportedImageFrameSize({
+    sourceWidth: params.sourceWidth ?? params.renderedPage?.width,
+    sourceHeight: params.sourceHeight ?? params.renderedPage?.height,
+  });
+  const imageAspectRatio = resolveWorkbookImageAspectRatioFromDimensions({
+    width: params.sourceWidth ?? params.renderedPage?.width,
+    height: params.sourceHeight ?? params.renderedPage?.height,
+  });
+  const baseMeta =
+    params.type === "image" && params.assetId
+      ? {
+          [WORKBOOK_IMAGE_ASSET_META_KEY]: params.assetId,
+        }
+      : undefined;
+  const imageMeta =
+    isVisualImage && imageAspectRatio
+      ? {
+          ...(baseMeta ?? {}),
+          [WORKBOOK_IMAGE_ASPECT_RATIO_META_KEY]: imageAspectRatio,
+        }
+      : baseMeta;
   return {
     id: params.objectId,
     type: isVisualImage ? "image" : "text",
     layer: "board",
     x: params.insertPosition.x,
     y: params.insertPosition.y,
-    width: isVisualImage ? 380 : 320,
-    height: isVisualImage ? 260 : 120,
+    width: isVisualImage ? imageFrame.width : 320,
+    height: isVisualImage ? imageFrame.height : 120,
     color: WORKBOOK_TEXT_FALLBACK_COLOR,
     fill: "transparent",
     strokeWidth: 2,
@@ -140,12 +167,7 @@ export const buildWorkbookDocumentBoardObject = (params: {
     imageName: params.fileName,
     text: isVisualImage ? undefined : `PDF: ${params.fileName}`,
     fontSize: isVisualImage ? undefined : 18,
-    meta:
-      params.type === "image" && params.assetId
-        ? {
-            [WORKBOOK_IMAGE_ASSET_META_KEY]: params.assetId,
-          }
-        : undefined,
+    meta: imageMeta,
     authorUserId: params.authorUserId,
     createdAt: params.createdAt,
   };
@@ -159,29 +181,47 @@ export const buildWorkbookSnapshotBoardObject = (params: {
   createdAt: string;
   insertPosition: WorkbookPoint;
   imageUrl?: string;
+  sourceWidth?: number;
+  sourceHeight?: number;
 }): WorkbookBoardObject => {
   const renderedPage = resolvePrimaryDocumentRenderedPage(params.asset.renderedPages, params.page);
   const isVisualImage = params.asset.type === "image" || Boolean(renderedPage);
+  const imageFrame = resolveWorkbookImportedImageFrameSize({
+    sourceWidth: params.sourceWidth ?? renderedPage?.width,
+    sourceHeight: params.sourceHeight ?? renderedPage?.height,
+  });
+  const imageAspectRatio = resolveWorkbookImageAspectRatioFromDimensions({
+    width: params.sourceWidth ?? renderedPage?.width,
+    height: params.sourceHeight ?? renderedPage?.height,
+  });
+  const baseMeta =
+    params.asset.type === "image"
+      ? {
+          [WORKBOOK_IMAGE_ASSET_META_KEY]: params.asset.id,
+        }
+      : undefined;
+  const imageMeta =
+    isVisualImage && imageAspectRatio
+      ? {
+          ...(baseMeta ?? {}),
+          [WORKBOOK_IMAGE_ASPECT_RATIO_META_KEY]: imageAspectRatio,
+        }
+      : baseMeta;
   return {
     id: params.objectId,
     type: isVisualImage ? "image" : "text",
     layer: "board",
     x: params.insertPosition.x,
     y: params.insertPosition.y,
-    width: 320,
-    height: 220,
+    width: isVisualImage ? imageFrame.width : 320,
+    height: isVisualImage ? imageFrame.height : 220,
     color: WORKBOOK_TEXT_FALLBACK_COLOR,
     fill: "transparent",
     strokeWidth: 2,
     opacity: 1,
     imageUrl: params.imageUrl,
     imageName: params.asset.name,
-    meta:
-      params.asset.type === "image"
-        ? {
-            [WORKBOOK_IMAGE_ASSET_META_KEY]: params.asset.id,
-          }
-        : undefined,
+    meta: imageMeta,
     text:
       params.asset.type === "pdf"
         ? `PDF: ${params.asset.name}`
