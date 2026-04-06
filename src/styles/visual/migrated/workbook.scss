@@ -4355,21 +4355,23 @@
 
 .workbook-session__import-modal-paper {
   width: min(540px, calc(100vw - 32px));
-  max-height: min(76vh, 560px);
+  max-height: min(calc(100dvh - 20px), 760px);
   transition: width 0.2s ease, max-height 0.2s ease;
 }
 
 .workbook-session__import-modal-paper.workbook-session__import-modal-paper--expanded {
   width: min(860px, calc(100vw - 40px));
-  max-height: min(88vh, 780px);
+  max-height: min(calc(100dvh - 20px), 900px);
 }
 
 .workbook-session__import-modal-content {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: calc(100vh - 220px);
+  min-height: 0;
+  max-height: none;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .workbook-session__import-modal-title {
@@ -4932,6 +4934,7 @@
   border-radius: 14px !important;
   width: min(920px, calc(100vw - 24px)) !important;
   max-width: min(920px, calc(100vw - 24px)) !important;
+  max-height: min(calc(100dvh - 20px), 920px) !important;
 }
 
 .workbook-session__image-crop-modal-title {
@@ -4953,7 +4956,9 @@
 .workbook-session__image-crop-modal-content {
   display: grid;
   gap: 10px;
-  overflow: hidden;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .workbook-session__image-crop-modal-alert {

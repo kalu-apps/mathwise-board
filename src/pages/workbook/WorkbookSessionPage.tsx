@@ -468,7 +468,7 @@ export default function WorkbookSessionPage() {
     viewportSyncLastSentAtRef,
     viewportSyncQueuedOffsetRef,
   } = refs;
-  const [overlayContainer, setOverlayContainer] = useState<HTMLElement | undefined>(() =>
+  const [overlayContainer, setOverlayContainer] = useState<Element | undefined>(() =>
     typeof document !== "undefined" ? document.body : undefined
   );
   const [isPageManagerOpen, setIsPageManagerOpen] = useState(false);
@@ -494,6 +494,19 @@ export default function WorkbookSessionPage() {
   useEffect(() => {
     initializedLocalPageSessionIdRef.current = null;
   }, [sessionId]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const syncOverlayContainer = () => {
+      const nextContainer = document.fullscreenElement ?? document.body;
+      setOverlayContainer((current) => (current === nextContainer ? current : nextContainer));
+    };
+    syncOverlayContainer();
+    document.addEventListener("fullscreenchange", syncOverlayContainer);
+    return () => {
+      document.removeEventListener("fullscreenchange", syncOverlayContainer);
+    };
+  }, []);
 
   useEffect(() => {
     if (!bootstrapReady || !sessionId || !session) return;
@@ -527,9 +540,6 @@ export default function WorkbookSessionPage() {
   const handleSessionRootRef = useCallback(
     (node: HTMLElement | null) => {
       sessionRootRef.current = node;
-      if (typeof document === "undefined") return;
-      const nextContainer = node ?? document.body;
-      setOverlayContainer((current) => (current === nextContainer ? current : nextContainer));
     },
     [sessionRootRef]
   );

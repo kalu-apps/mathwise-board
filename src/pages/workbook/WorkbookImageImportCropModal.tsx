@@ -11,7 +11,6 @@ import {
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import {
   DEFAULT_WORKBOOK_IMPORT_CROP_RECT,
-  isWorkbookImportCropRectDefault,
   normalizeWorkbookImportCropRect,
   type WorkbookImportCropRect,
 } from "./workbookImageImportCrop";
@@ -278,8 +277,6 @@ export function WorkbookImageImportCropModal({
     [cropRect.height, cropRect.width]
   );
 
-  const isDefaultCrop = isWorkbookImportCropRectDefault(cropRect);
-
   return (
     <Dialog
       open={open}
@@ -291,7 +288,7 @@ export function WorkbookImageImportCropModal({
       PaperProps={{ className: "workbook-session__image-crop-modal-paper" }}
     >
       <DialogTitle className="workbook-session__image-crop-modal-title">
-        <span>Обрезка изображения перед импортом</span>
+        <span>Предпросмотр и обрезка изображения</span>
         <IconButton
           className="workbook-session__image-crop-modal-close"
           onClick={onCancel}
@@ -372,13 +369,6 @@ export function WorkbookImageImportCropModal({
         </div>
       </DialogContent>
       <DialogActions>
-        <Button
-          variant="text"
-          onClick={() => setCropRect(DEFAULT_WORKBOOK_IMPORT_CROP_RECT)}
-          disabled={isDefaultCrop}
-        >
-          Сбросить
-        </Button>
         <Button variant="outlined" onClick={onCancel}>
           Отмена
         </Button>
@@ -387,10 +377,9 @@ export function WorkbookImageImportCropModal({
           onClick={() => onConfirm(normalizeForDrag(cropRect))}
           disabled={!sourceDataUrl}
         >
-          Применить
+          Сохранить
         </Button>
       </DialogActions>
     </Dialog>
   );
 }
-

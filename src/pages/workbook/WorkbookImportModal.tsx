@@ -482,6 +482,12 @@ export function WorkbookImportModal({
       if (firstPdfNeedingSetup) {
         setPdfPreviewItemId((current) => current ?? firstPdfNeedingSetup.id);
       }
+      const firstImageNeedingCrop = nextItems.find(
+        (item) => item.isImage && item.status !== "invalid"
+      );
+      if (!firstPdfNeedingSetup && firstImageNeedingCrop) {
+        setImageCropItemId((current) => current ?? firstImageNeedingCrop.id);
+      }
       const validCount = nextItems.filter((item) => item.status === "ready").length;
       const hasProcessableItems = nextItems.some((item) => item.status !== "invalid");
       setModalState(validCount > 0 ? "ready" : hasProcessableItems ? "files_selected" : "failed");
@@ -546,10 +552,6 @@ export function WorkbookImportModal({
     },
     [items, pdfPreviewItemId]
   );
-
-  const handleOpenImageCrop = useCallback((itemId: string) => {
-    setImageCropItemId(itemId);
-  }, []);
 
   const handleCancelImageCrop = useCallback(() => {
     setImageCropItemId(null);
@@ -951,20 +953,8 @@ export function WorkbookImportModal({
                   ) : item.isImage ? (
                     <div className="workbook-session__import-item-actions">
                       <span className="workbook-session__import-item-range">
-                        {item.isCropped ? "Обрезка: применена" : "Обрезка: весь кадр"}
+                        {item.isCropped ? "Обрезка: сохранена" : "Обрезка: весь кадр"}
                       </span>
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={() => handleOpenImageCrop(item.id)}
-                        disabled={
-                          isBusy ||
-                          item.status !== "ready" ||
-                          !item.basePreparedDataUrl
-                        }
-                      >
-                        Обрезать
-                      </Button>
                     </div>
                   ) : null}
                   {item.warning ? (
