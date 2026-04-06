@@ -1334,6 +1334,7 @@ export default function WorkbookSessionPage() {
     canManageSharedBoardSettings,
     canDelete,
     isBoardPageMutationPending,
+    currentBoardPage,
     appendEventsAndApply,
     boardSettingsRef,
     boardObjectsRef,

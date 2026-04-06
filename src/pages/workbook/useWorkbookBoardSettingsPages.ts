@@ -42,6 +42,7 @@ type UseWorkbookBoardSettingsPagesParams = {
   canManageSharedBoardSettings: boolean;
   canDelete: boolean;
   isBoardPageMutationPending: boolean;
+  currentBoardPage: number;
   appendEventsAndApply: AppendEventsAndApply;
   boardSettingsRef: MutableRefObject<WorkbookBoardSettings>;
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
@@ -68,6 +69,7 @@ export const useWorkbookBoardSettingsPages = ({
   canManageSharedBoardSettings,
   canDelete,
   isBoardPageMutationPending,
+  currentBoardPage,
   appendEventsAndApply,
   boardSettingsRef,
   boardObjectsRef,
@@ -97,7 +99,7 @@ export const useWorkbookBoardSettingsPages = ({
         ? {
             forward: [{ kind: "patch_board_settings", patch: forwardPatch }],
             inverse: [{ kind: "patch_board_settings", patch: inversePatch }],
-            page: toSafeWorkbookPage(historyBefore?.currentPage ?? nextSettings.currentPage),
+            page: toSafeWorkbookPage(currentBoardPage),
             createdAt: new Date().toISOString(),
           }
         : null;
@@ -172,6 +174,7 @@ export const useWorkbookBoardSettingsPages = ({
     boardSettingsCommitInFlightRef,
     boardSettingsCommitTimerRef,
     canManageSharedBoardSettings,
+    currentBoardPage,
     queuedBoardSettingsCommitRef,
     queuedBoardSettingsHistoryBeforeRef,
     setBoardSettings,
@@ -212,11 +215,7 @@ export const useWorkbookBoardSettingsPages = ({
           ...patch,
         };
         if (hasPageVisualPatch) {
-          const targetPage = toSafeWorkbookPage(
-            typeof patch.currentPage === "number"
-              ? patch.currentPage
-              : current.currentPage
-          );
+          const targetPage = toSafeWorkbookPage(currentBoardPage);
           const currentPageVisualSettings = resolveWorkbookBoardPageVisualSettings(
             current,
             targetPage
@@ -303,6 +302,7 @@ export const useWorkbookBoardSettingsPages = ({
       boardObjectsRef,
       boardStrokesRef,
       canManageSharedBoardSettings,
+      currentBoardPage,
       isBoardPageMutationPending,
       queuedBoardSettingsHistoryBeforeRef,
       scheduleBoardSettingsCommit,

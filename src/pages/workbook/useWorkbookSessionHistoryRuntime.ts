@@ -208,8 +208,8 @@ export const useWorkbookSessionHistoryRuntime = ({
   }, [countEntriesForPage, currentBoardPageRef, setUndoDepth, toSafePage, undoStackRef]);
 
   const buildHistoryEntryFromEvents = useCallback(
-    (events: WorkbookClientEventInput[]) =>
-      buildWorkbookHistoryEntryFromEvents({
+    (events: WorkbookClientEventInput[]) => {
+      const historyEntry = buildWorkbookHistoryEntryFromEvents({
         events,
         currentBoardStrokes: boardStrokesRef.current,
         currentAnnotationStrokes: annotationStrokesRef.current,
@@ -217,14 +217,22 @@ export const useWorkbookSessionHistoryRuntime = ({
         currentConstraints: constraintsRef.current,
         currentBoardSettings: boardSettingsRef.current,
         currentDocumentState: documentStateRef.current,
-      }),
+      });
+      if (!historyEntry) return null;
+      return {
+        ...historyEntry,
+        page: toSafePage(currentBoardPageRef.current),
+      };
+    },
     [
       annotationStrokesRef,
       boardObjectsRef,
       boardSettingsRef,
       boardStrokesRef,
       constraintsRef,
+      currentBoardPageRef,
       documentStateRef,
+      toSafePage,
     ]
   );
 
