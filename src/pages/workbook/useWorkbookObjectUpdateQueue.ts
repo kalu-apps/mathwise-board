@@ -11,7 +11,6 @@ import {
   mergeBoardObjectWithPatch,
 } from "@/features/workbook/model/runtime";
 import { type WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
-import { buildObjectPatchSemanticPayload } from "./workbookHistoryPatchSemantics";
 
 const toSafePage = (value: number | null | undefined) =>
   Math.max(1, Math.round(value || 1));
@@ -83,16 +82,6 @@ export const useWorkbookObjectUpdateQueue = ({
                 const forwardPatch = buildBoardObjectDiffPatch(historyBefore, historyAfter);
                 const inversePatch = buildBoardObjectDiffPatch(historyAfter, historyBefore);
                 if (!forwardPatch || !inversePatch) return null;
-                const forwardSemanticPayload = buildObjectPatchSemanticPayload(
-                  historyBefore,
-                  historyAfter,
-                  forwardPatch
-                );
-                const inverseSemanticPayload = buildObjectPatchSemanticPayload(
-                  historyAfter,
-                  historyBefore,
-                  inversePatch
-                );
                 return {
                   forward: [
                     {
@@ -100,8 +89,6 @@ export const useWorkbookObjectUpdateQueue = ({
                       objectId,
                       patch: forwardPatch,
                       expectedCurrent: historyBefore,
-                      beforePatch: forwardSemanticPayload?.beforePatch,
-                      afterPatch: forwardSemanticPayload?.afterPatch,
                     },
                   ],
                   inverse: [
@@ -110,8 +97,6 @@ export const useWorkbookObjectUpdateQueue = ({
                       objectId,
                       patch: inversePatch,
                       expectedCurrent: historyAfter,
-                      beforePatch: inverseSemanticPayload?.beforePatch,
-                      afterPatch: inverseSemanticPayload?.afterPatch,
                     },
                   ],
                   page: toSafePage(historyAfter.page),
