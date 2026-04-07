@@ -9,7 +9,7 @@ import type {
   WorkbookConstraintRenderSegment,
   WorkbookMaskedObjectSceneEntry,
 } from "../model/sceneRender";
-import type { WorkbookAreaSelection } from "../model/sceneSelection";
+import { getAreaSelectionHandlePoints, type WorkbookAreaSelection } from "../model/sceneSelection";
 import { createPolygonPath, normalizeRect } from "../model/sceneGeometry";
 import type { WorkbookPolygonPreset } from "../model/shapeGeometry";
 import {
@@ -638,6 +638,20 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
             strokeWidth={1.2}
             strokeDasharray="7 5"
           />
+          {(tool === "area_select" || tool === "select") &&
+          areaSelection.objectIds.length + areaSelection.strokeIds.length === 1
+            ? getAreaSelectionHandlePoints(areaSelection.rect).map((handle) => (
+                <circle
+                  key={`area-selection-handle-${handle.mode}`}
+                  cx={handle.x}
+                  cy={handle.y}
+                  r={4}
+                  fill={WORKBOOK_LAYER_COLORS.primary}
+                  stroke={WORKBOOK_LAYER_COLORS.white}
+                  strokeWidth={1}
+                />
+              ))
+            : null}
         </>
       ) : null}
 
