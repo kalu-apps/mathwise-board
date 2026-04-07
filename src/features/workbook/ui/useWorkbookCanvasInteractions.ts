@@ -16,6 +16,7 @@ import {
   type WorkbookAreaSelection,
   type WorkbookAreaSelectionDraft,
 } from "../model/sceneSelection";
+import { getStrokeRect } from "../model/stroke";
 import {
   buildAreaSelectionDraftState,
   buildAreaSelectionResizeState,
@@ -697,12 +698,37 @@ export const useWorkbookCanvasInteractions = (
           return;
         }
         if (!target && strokeTarget) {
-          api.onAreaSelectionChange?.(null);
-          api.onSelectedObjectChange(null);
-          api.onSelectedStrokeChange({
+          const strokeRect = getStrokeRect(strokeTarget);
+          const strokeSelection = {
             id: strokeTarget.id,
             layer: strokeTarget.layer,
-          });
+          };
+          if (strokeRect) {
+            const singleStrokeAreaSelection: WorkbookAreaSelection = {
+              objectIds: [],
+              strokeIds: [strokeSelection],
+              rect: strokeRect,
+            };
+            api.onAreaSelectionChange?.(singleStrokeAreaSelection);
+            api.onSelectedObjectChange(null);
+            api.onSelectedStrokeChange(strokeSelection);
+            const strokeAreaProxy = buildAreaSelectionProxyObject({
+              rect: strokeRect,
+              layer: data.layer,
+              authorUserId: data.authorUserId,
+            });
+            callbacks.startMoving(
+              strokeAreaProxy,
+              event,
+              svg,
+              [],
+              [strokeSelection]
+            );
+            return;
+          }
+          api.onAreaSelectionChange?.(null);
+          api.onSelectedObjectChange(null);
+          api.onSelectedStrokeChange(strokeSelection);
           const strokeProxy = buildWorkbookStrokeMoveProxyObject(
             strokeTarget,
             data.authorUserId

@@ -654,7 +654,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
         </>
       ) : null}
 
-      {tool === "select" && selectedStroke && selectedStrokeRect ? (
+      {tool === "select" && !areaSelection && selectedStroke && selectedStrokeRect ? (
         <>
           <rect
             x={selectedStrokeRect.x}
