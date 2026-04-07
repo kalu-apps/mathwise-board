@@ -129,6 +129,8 @@ export const useWorkbookHistoryHotkeys = ({
     if (targetIndex < 0) return;
     const entry = undoStackRef.current[targetIndex];
     if (!entry) return;
+    const previousUndoStack = undoStackRef.current;
+    const previousRedoStack = redoStackRef.current;
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
@@ -155,6 +157,15 @@ export const useWorkbookHistoryHotkeys = ({
         { trackHistory: false, markDirty: false }
       );
     } catch {
+      applyHistoryOperations(entry.forward);
+      undoStackRef.current = previousUndoStack;
+      redoStackRef.current = previousRedoStack;
+      setUndoDepth(
+        countEntriesForPage(previousUndoStack, safePage, currentActorUserId)
+      );
+      setRedoDepth(
+        countEntriesForPage(previousRedoStack, safePage, currentActorUserId)
+      );
       setError("Не удалось выполнить отмену действия.");
     }
   }, [
@@ -188,6 +199,8 @@ export const useWorkbookHistoryHotkeys = ({
     if (targetIndex < 0) return;
     const entry = redoStackRef.current[targetIndex];
     if (!entry) return;
+    const previousUndoStack = undoStackRef.current;
+    const previousRedoStack = redoStackRef.current;
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
@@ -214,6 +227,15 @@ export const useWorkbookHistoryHotkeys = ({
         { trackHistory: false, markDirty: false }
       );
     } catch {
+      applyHistoryOperations(entry.inverse);
+      undoStackRef.current = previousUndoStack;
+      redoStackRef.current = previousRedoStack;
+      setUndoDepth(
+        countEntriesForPage(previousUndoStack, safePage, currentActorUserId)
+      );
+      setRedoDepth(
+        countEntriesForPage(previousRedoStack, safePage, currentActorUserId)
+      );
       setError("Не удалось повторить действие.");
     }
   }, [

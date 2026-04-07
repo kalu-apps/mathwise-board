@@ -1506,6 +1506,8 @@ export default function WorkbookSessionPage() {
     useWorkbookHistoryOperationsApply({
       setAnnotationStrokes,
       setBoardStrokes,
+      boardStrokesRef,
+      annotationStrokesRef,
       applyLocalBoardObjects,
       finalizeStrokePreview,
       setBoardSettings,

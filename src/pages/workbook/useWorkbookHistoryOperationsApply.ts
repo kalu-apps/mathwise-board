@@ -31,6 +31,8 @@ type SetState<T> = (updater: StateUpdater<T>) => void;
 type UseWorkbookHistoryOperationsApplyParams = {
   setAnnotationStrokes: SetState<WorkbookStroke[]>;
   setBoardStrokes: SetState<WorkbookStroke[]>;
+  boardStrokesRef: MutableRefObject<WorkbookStroke[]>;
+  annotationStrokesRef: MutableRefObject<WorkbookStroke[]>;
   applyLocalBoardObjects: (
     updater: (current: WorkbookBoardObject[]) => WorkbookBoardObject[]
   ) => void;
@@ -60,6 +62,8 @@ type UseWorkbookHistoryOperationsApplyParams = {
 export const useWorkbookHistoryOperationsApply = ({
   setAnnotationStrokes,
   setBoardStrokes,
+  boardStrokesRef,
+  annotationStrokesRef,
   applyLocalBoardObjects,
   finalizeStrokePreview,
   setBoardSettings,
@@ -105,13 +109,41 @@ export const useWorkbookHistoryOperationsApply = ({
 
   const applyHistoryOperations = useCallback(
     (operations: WorkbookHistoryOperation[]) => {
-      const strokeRemoveMismatchByLayer = new Set<WorkbookLayer>();
+      const strokeOpsByLayer = new Map<
+        WorkbookLayer,
+        Array<
+          Extract<WorkbookHistoryOperation, { kind: "upsert_stroke" | "remove_stroke" }>
+        >
+      >();
+      operations.forEach((operation) => {
+        if (operation.kind !== "upsert_stroke" && operation.kind !== "remove_stroke") {
+          return;
+        }
+        const layerOps = strokeOpsByLayer.get(operation.layer) ?? [];
+        layerOps.push(operation);
+        strokeOpsByLayer.set(operation.layer, layerOps);
+      });
+      const blockedStrokeLayers = new Set<WorkbookLayer>();
+      strokeOpsByLayer.forEach((layerOps, layer) => {
+        const hasUpsert = layerOps.some((operation) => operation.kind === "upsert_stroke");
+        const hasRemove = layerOps.some((operation) => operation.kind === "remove_stroke");
+        if (!hasUpsert || !hasRemove) return;
+        const currentLayerStrokes =
+          layer === "annotations" ? annotationStrokesRef.current : boardStrokesRef.current;
+        const hasRemoveMismatch = layerOps.some((operation) => {
+          if (operation.kind !== "remove_stroke") return false;
+          const currentStroke = currentLayerStrokes.find(
+            (item) => item.id === operation.strokeId
+          );
+          return !isExpectedStateMatch(currentStroke, operation.expectedCurrent);
+        });
+        if (hasRemoveMismatch) {
+          blockedStrokeLayers.add(layer);
+        }
+      });
       operations.forEach((operation) => {
         if (operation.kind === "upsert_stroke") {
-          if (
-            operation.expectedCurrent === null &&
-            strokeRemoveMismatchByLayer.has(operation.layer)
-          ) {
+          if (blockedStrokeLayers.has(operation.layer)) {
             return;
           }
           let applied = false;
@@ -133,21 +165,19 @@ export const useWorkbookHistoryOperationsApply = ({
           return;
         }
         if (operation.kind === "remove_stroke") {
+          if (blockedStrokeLayers.has(operation.layer)) {
+            return;
+          }
           let applied = false;
-          let hadMismatch = false;
           applyLocalStrokeCollection(operation.layer, (current) => {
             const currentStroke = current.find((item) => item.id === operation.strokeId);
             if (!isExpectedStateMatch(currentStroke, operation.expectedCurrent)) {
-              hadMismatch = true;
               return current;
             }
             if (!currentStroke) return current;
             applied = true;
             return current.filter((item) => item.id !== operation.strokeId);
           });
-          if (!applied && hadMismatch) {
-            strokeRemoveMismatchByLayer.add(operation.layer);
-          }
           if (applied) {
             finalizeStrokePreview(operation.strokeId);
           }
@@ -328,8 +358,10 @@ export const useWorkbookHistoryOperationsApply = ({
       });
     },
     [
+      annotationStrokesRef,
       applyLocalBoardObjects,
       applyLocalStrokeCollection,
+      boardStrokesRef,
       finalizeStrokePreview,
       isExpectedStateMatch,
       incomingPreviewQueuedPatchRef,
