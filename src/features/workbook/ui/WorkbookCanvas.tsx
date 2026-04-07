@@ -143,6 +143,8 @@ type ActiveStrokeDraft = ReturnType<typeof buildWorkbookActiveStrokeDraft>;
 type AreaSelectionDraft = WorkbookAreaSelectionDraft;
 type AreaSelectionResizeState = WorkbookAreaSelectionResizeState;
 
+const EMPTY_STROKE_REPLACEMENT_BY_SELECTION_KEY = new Map<string, WorkbookStroke>();
+
 const replaceRenderedStrokesBySelection = (params: {
   baseStrokes: WorkbookStroke[];
   selections: WorkbookStrokeSelection[];
@@ -568,6 +570,21 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     () => (selectedStroke ? getStrokeRect(selectedStroke) : null),
     [selectedStroke]
   );
+
+  const incomingPreviewStrokeSelections = useMemo(() => {
+    if (previewStrokes.length === 0) return [] as WorkbookStrokeSelection[];
+    const uniqueSelections = new Map<string, WorkbookStrokeSelection>();
+    previewStrokes.forEach((stroke) => {
+      const selection: WorkbookStrokeSelection = {
+        id: stroke.id,
+        layer: stroke.layer,
+      };
+      const selectionKey = buildWorkbookStrokeSelectionKey(selection);
+      if (!selectionKey || uniqueSelections.has(selectionKey)) return;
+      uniqueSelections.set(selectionKey, selection);
+    });
+    return Array.from(uniqueSelections.values());
+  }, [previewStrokes]);
 
   const areaSelectionOverlay = useMemo(() => {
     if (!areaSelection) return null;
@@ -1090,6 +1107,15 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   const renderedStrokesForDisplay = useMemo(() => {
     let nextStrokes = renderedStrokes;
+    if (incomingPreviewStrokeSelections.length > 0) {
+      // Hide committed copies while volatile preview exists for the same stroke selection.
+      nextStrokes = replaceRenderedStrokesBySelection({
+        baseStrokes: nextStrokes,
+        selections: incomingPreviewStrokeSelections,
+        replacementBySelectionKey: EMPTY_STROKE_REPLACEMENT_BY_SELECTION_KEY,
+      });
+    }
+
     if (moving && movingStrokeSelections.length > 0) {
       const deltaX = moving.current.x - moving.start.x;
       const deltaY = moving.current.y - moving.start.y;
@@ -1122,6 +1148,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
     return nextStrokes;
   }, [
+    incomingPreviewStrokeSelections,
     moving,
     movingStrokeSelections,
     renderedStrokes,
