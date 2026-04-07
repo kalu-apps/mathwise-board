@@ -3591,6 +3591,10 @@
   align-items: center;
 }
 
+.workbook-session__solid-card-head--segment .workbook-session__solid-section-delete {
+  justify-self: end;
+}
+
 .workbook-session__solid-card-title {
   font-size: 12px;
   font-weight: 700;
@@ -4137,11 +4141,11 @@
   }
 
   .workbook-session__solid-card-head--segment {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .workbook-session__solid-card-controls--segment-top {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr);
     width: 100%;
   }
 
