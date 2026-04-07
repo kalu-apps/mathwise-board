@@ -125,6 +125,7 @@ export function WorkbookSessionChatPanel({
         <div className="workbook-session__session-chat-head-actions">
           <IconButton
             size="small"
+            className="workbook-session__session-chat-head-icon"
             aria-label={isSessionChatMinimized ? "Развернуть чат" : "Свернуть чат"}
             onClick={() => setIsSessionChatMinimized((current) => !current)}
           >
@@ -136,6 +137,7 @@ export function WorkbookSessionChatPanel({
           </IconButton>
           <IconButton
             size="small"
+            className="workbook-session__session-chat-head-icon"
             aria-label={
               isSessionChatMaximized ? "Обычный размер чата" : "Развернуть чат на максимум"
             }
@@ -150,6 +152,7 @@ export function WorkbookSessionChatPanel({
           </IconButton>
           <IconButton
             size="small"
+            className="workbook-session__session-chat-head-icon"
             aria-label="Закрыть чат"
             onClick={() => {
               setIsSessionChatOpen(false);
@@ -202,20 +205,6 @@ export function WorkbookSessionChatPanel({
                   </IconButton>
                 </Tooltip>
               ) : null}
-              {sessionChatUnreadCount > 0 || !isSessionChatAtBottom ? (
-                <Tooltip title="Перемотать к последнему сообщению" arrow>
-                  <IconButton
-                    size="small"
-                    onClick={() => {
-                      onScrollSessionChatToLatest("smooth");
-                      onMarkSessionChatReadToLatest();
-                    }}
-                    aria-label="К последнему сообщению"
-                  >
-                    <KeyboardDoubleArrowDownRoundedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              ) : null}
             </div>
           </div>
           <div className="workbook-session__chat-list" ref={sessionChatListRef}>
@@ -252,6 +241,23 @@ export function WorkbookSessionChatPanel({
                 </div>
               ))
             )}
+            {sessionChatUnreadCount > 0 || !isSessionChatAtBottom ? (
+              <div className="workbook-session__chat-scroll-latest-wrap">
+                <Tooltip title="Перемотать к последнему сообщению" arrow>
+                  <IconButton
+                    size="small"
+                    className="workbook-session__chat-scroll-latest"
+                    onClick={() => {
+                      onScrollSessionChatToLatest("smooth");
+                      onMarkSessionChatReadToLatest();
+                    }}
+                    aria-label="К последнему сообщению"
+                  >
+                    <KeyboardDoubleArrowDownRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </div>
+            ) : null}
           </div>
           {canSendSessionChat ? (
             <div className="workbook-session__session-chat-input-wrap">

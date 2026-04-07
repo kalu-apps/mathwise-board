@@ -6,7 +6,6 @@ import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
 import MicRoundedIcon from "@mui/icons-material/MicRounded";
 import MicOffRoundedIcon from "@mui/icons-material/MicOffRounded";
-import FiberManualRecordRoundedIcon from "@mui/icons-material/FiberManualRecordRounded";
 import UnfoldLessRoundedIcon from "@mui/icons-material/UnfoldLessRounded";
 import type { WorkbookSessionParticipant } from "@/features/workbook/model/types";
 
@@ -206,142 +205,151 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
         {participantCards.map((participant) => {
           const isSelfParticipant = participant.userId === currentUserId;
           const boardToolsEnabled = isParticipantBoardToolsEnabled(participant);
+          const participantRoleLabel =
+            participant.roleInSession === "teacher" ? "Преподаватель" : "Студент";
+          const participantRoleWithSelf =
+            isSelfParticipant && currentUserRole !== "teacher"
+              ? `${participantRoleLabel} • Вы`
+              : participantRoleLabel;
           return (
             <article key={participant.userId} className="workbook-session__participant-card">
               <div className="workbook-session__participant-card-top">
                 <div className="workbook-session__participant-main">
-                  <Avatar src={participant.photo} alt={participant.displayName}>
+                  <Avatar
+                    src={participant.photo}
+                    alt={participant.displayName}
+                    className={`workbook-session__participant-avatar ${
+                      participant.isOnline ? "is-online" : "is-offline"
+                    }`}
+                  >
                     {participant.displayName.slice(0, 1)}
                   </Avatar>
                   <div className="workbook-session__participant-main-meta">
                     <strong>{participant.displayName}</strong>
-                    <span>
-                      {participant.roleInSession === "teacher" ? "Преподаватель" : "Студент"}
-                      {isSelfParticipant && currentUserRole !== "teacher" ? " • Вы" : ""}
-                    </span>
+                    <div className="workbook-session__participant-meta-row">
+                      <span className="workbook-session__participant-role">
+                        {participantRoleWithSelf}
+                      </span>
+                      <div className="workbook-session__participant-controls">
+                        {isSelfParticipant ? (
+                          <Tooltip
+                            title={micEnabled ? "Выключить микрофон" : "Включить микрофон"}
+                            arrow
+                          >
+                            <span>
+                              <IconButton
+                                size="small"
+                                className={`workbook-session__participant-control ${
+                                  micEnabled ? "is-enabled" : "is-disabled"
+                                }`}
+                                onClick={onToggleMic}
+                                disabled={!canUseMedia || isEnded}
+                              >
+                                {micEnabled ? (
+                                  <MicRoundedIcon fontSize="small" />
+                                ) : (
+                                  <MicOffRoundedIcon fontSize="small" />
+                                )}
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                        ) : null}
+
+                        {canManageSession && participant.roleInSession === "student" ? (
+                          <>
+                            <Tooltip
+                              title={
+                                boardToolsEnabled
+                                  ? "Отключить инструменты и личные настройки доски"
+                                  : "Включить инструменты и личные настройки доски"
+                              }
+                              arrow
+                            >
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  className={`workbook-session__participant-control ${
+                                    boardToolsEnabled ? "is-enabled" : "is-disabled"
+                                  }`}
+                                  onClick={() =>
+                                    onToggleParticipantBoardTools(participant, !boardToolsEnabled)
+                                  }
+                                  disabled={isEnded}
+                                >
+                                  {boardToolsEnabled ? (
+                                    <LockOpenRoundedIcon fontSize="small" />
+                                  ) : (
+                                    <LockRoundedIcon fontSize="small" />
+                                  )}
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                            <Tooltip
+                              title={
+                                participant.permissions.canUseChat
+                                  ? "Отключить чат"
+                                  : "Включить чат"
+                              }
+                              arrow
+                            >
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  className={`workbook-session__participant-control ${
+                                    participant.permissions.canUseChat
+                                      ? "is-enabled"
+                                      : "is-disabled"
+                                  }`}
+                                  onClick={() =>
+                                    onToggleParticipantChat(
+                                      participant,
+                                      !participant.permissions.canUseChat
+                                    )
+                                  }
+                                  disabled={isEnded}
+                                >
+                                  <ForumRoundedIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                            <Tooltip
+                              title={
+                                participant.permissions.canUseMedia
+                                  ? "Отключить микрофон"
+                                  : "Включить микрофон"
+                              }
+                              arrow
+                            >
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  className={`workbook-session__participant-control ${
+                                    participant.permissions.canUseMedia
+                                      ? "is-enabled"
+                                      : "is-disabled"
+                                  }`}
+                                  onClick={() =>
+                                    onToggleParticipantMic(
+                                      participant,
+                                      !participant.permissions.canUseMedia
+                                    )
+                                  }
+                                  disabled={isEnded}
+                                >
+                                  {participant.permissions.canUseMedia ? (
+                                    <MicRoundedIcon fontSize="small" />
+                                  ) : (
+                                    <MicOffRoundedIcon fontSize="small" />
+                                  )}
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <Tooltip
-                  title={participant.isOnline ? "Онлайн" : "Офлайн"}
-                  placement="top"
-                  arrow
-                >
-                  <span
-                    className={`workbook-session__presence-dot ${
-                      participant.isOnline ? "is-online" : "is-offline"
-                    }`}
-                    aria-label={participant.isOnline ? "Онлайн" : "Офлайн"}
-                  >
-                    <FiberManualRecordRoundedIcon fontSize="inherit" />
-                  </span>
-                </Tooltip>
-              </div>
-
-              <div className="workbook-session__participant-controls">
-                {isSelfParticipant ? (
-                  <Tooltip title={micEnabled ? "Выключить микрофон" : "Включить микрофон"} arrow>
-                    <span>
-                      <IconButton
-                        size="small"
-                        className={`workbook-session__participant-control ${
-                          micEnabled ? "is-enabled" : "is-disabled"
-                        }`}
-                        onClick={onToggleMic}
-                        disabled={!canUseMedia || isEnded}
-                      >
-                        {micEnabled ? (
-                          <MicRoundedIcon fontSize="small" />
-                        ) : (
-                          <MicOffRoundedIcon fontSize="small" />
-                        )}
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                ) : null}
-
-                {canManageSession && participant.roleInSession === "student" ? (
-                  <>
-                    <Tooltip
-                      title={
-                        boardToolsEnabled
-                          ? "Отключить инструменты и личные настройки доски"
-                          : "Включить инструменты и личные настройки доски"
-                      }
-                      arrow
-                    >
-                      <span>
-                        <IconButton
-                          size="small"
-                          className={`workbook-session__participant-control ${
-                            boardToolsEnabled ? "is-enabled" : "is-disabled"
-                          }`}
-                          onClick={() =>
-                            onToggleParticipantBoardTools(participant, !boardToolsEnabled)
-                          }
-                          disabled={isEnded}
-                        >
-                          {boardToolsEnabled ? (
-                            <LockOpenRoundedIcon fontSize="small" />
-                          ) : (
-                            <LockRoundedIcon fontSize="small" />
-                          )}
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    <Tooltip
-                      title={participant.permissions.canUseChat ? "Отключить чат" : "Включить чат"}
-                      arrow
-                    >
-                      <span>
-                        <IconButton
-                          size="small"
-                          className={`workbook-session__participant-control ${
-                            participant.permissions.canUseChat ? "is-enabled" : "is-disabled"
-                          }`}
-                          onClick={() =>
-                            onToggleParticipantChat(
-                              participant,
-                              !participant.permissions.canUseChat
-                            )
-                          }
-                          disabled={isEnded}
-                        >
-                          <ForumRoundedIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    <Tooltip
-                      title={
-                        participant.permissions.canUseMedia
-                          ? "Отключить микрофон"
-                          : "Включить микрофон"
-                      }
-                      arrow
-                    >
-                      <span>
-                        <IconButton
-                          size="small"
-                          className={`workbook-session__participant-control ${
-                            participant.permissions.canUseMedia ? "is-enabled" : "is-disabled"
-                          }`}
-                          onClick={() =>
-                            onToggleParticipantMic(
-                              participant,
-                              !participant.permissions.canUseMedia
-                            )
-                          }
-                          disabled={isEnded}
-                        >
-                          {participant.permissions.canUseMedia ? (
-                            <MicRoundedIcon fontSize="small" />
-                          ) : (
-                            <MicOffRoundedIcon fontSize="small" />
-                          )}
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                  </>
-                ) : null}
               </div>
             </article>
           );
