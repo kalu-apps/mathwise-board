@@ -107,6 +107,60 @@ export const useWorkbookHistoryOperationsApply = ({
     []
   );
 
+  const areStrokePointsEqual = useCallback(
+    (
+      left: Array<{ x: number; y: number }> | undefined,
+      right: Array<{ x: number; y: number }> | undefined
+    ) => {
+      if (!Array.isArray(left) || !Array.isArray(right)) return false;
+      if (left.length !== right.length) return false;
+      for (let index = 0; index < left.length; index += 1) {
+        const leftPoint = left[index];
+        const rightPoint = right[index];
+        if (!leftPoint || !rightPoint) return false;
+        if (
+          !Number.isFinite(leftPoint.x) ||
+          !Number.isFinite(leftPoint.y) ||
+          !Number.isFinite(rightPoint.x) ||
+          !Number.isFinite(rightPoint.y)
+        ) {
+          return false;
+        }
+        if (
+          Math.abs(leftPoint.x - rightPoint.x) > 1e-6 ||
+          Math.abs(leftPoint.y - rightPoint.y) > 1e-6
+        ) {
+          return false;
+        }
+      }
+      return true;
+    },
+    []
+  );
+
+  const isExpectedStrokeMatch = useCallback(
+    (
+      current: WorkbookStroke | undefined,
+      expected: WorkbookStroke | null | undefined
+    ) => {
+      if (expected === undefined) return true;
+      if (expected === null) return current === undefined;
+      if (!current) return false;
+      return (
+        current.id === expected.id &&
+        current.layer === expected.layer &&
+        current.tool === expected.tool &&
+        current.color === expected.color &&
+        current.width === expected.width &&
+        current.authorUserId === expected.authorUserId &&
+        Math.max(1, Math.round(current.page || 1)) ===
+          Math.max(1, Math.round(expected.page || 1)) &&
+        areStrokePointsEqual(current.points, expected.points)
+      );
+    },
+    [areStrokePointsEqual]
+  );
+
   const applyHistoryOperations = useCallback(
     (operations: WorkbookHistoryOperation[]) => {
       const strokeOpsByLayer = new Map<
@@ -135,7 +189,7 @@ export const useWorkbookHistoryOperationsApply = ({
           const currentStroke = currentLayerStrokes.find(
             (item) => item.id === operation.strokeId
           );
-          return !isExpectedStateMatch(currentStroke, operation.expectedCurrent);
+          return !isExpectedStrokeMatch(currentStroke, operation.expectedCurrent);
         });
         if (hasRemoveMismatch) {
           blockedStrokeLayers.add(layer);
@@ -149,7 +203,7 @@ export const useWorkbookHistoryOperationsApply = ({
           let applied = false;
           applyLocalStrokeCollection(operation.layer, (current) => {
             const currentStroke = current.find((item) => item.id === operation.stroke.id);
-            if (!isExpectedStateMatch(currentStroke, operation.expectedCurrent)) {
+            if (!isExpectedStrokeMatch(currentStroke, operation.expectedCurrent)) {
               return current;
             }
             const exists = Boolean(currentStroke);
@@ -171,7 +225,7 @@ export const useWorkbookHistoryOperationsApply = ({
           let applied = false;
           applyLocalStrokeCollection(operation.layer, (current) => {
             const currentStroke = current.find((item) => item.id === operation.strokeId);
-            if (!isExpectedStateMatch(currentStroke, operation.expectedCurrent)) {
+            if (!isExpectedStrokeMatch(currentStroke, operation.expectedCurrent)) {
               return current;
             }
             if (!currentStroke) return current;
@@ -363,6 +417,7 @@ export const useWorkbookHistoryOperationsApply = ({
       applyLocalStrokeCollection,
       boardStrokesRef,
       finalizeStrokePreview,
+      isExpectedStrokeMatch,
       isExpectedStateMatch,
       incomingPreviewQueuedPatchRef,
       incomingPreviewVersionByAuthorObjectRef,
