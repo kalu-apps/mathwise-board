@@ -130,6 +130,11 @@ import {
   remapAreaSelectionStroke,
   resolveBoundedAreaSelectionResizeRect,
 } from "../model/areaSelectionResize";
+import {
+  buildRealtimeObjectPatch,
+  REALTIME_PREVIEW_REPEAT_GUARD_MS,
+  toStableSignature,
+} from "../model/realtimePreview";
 
 export type { WorkbookEraserCommitPayload } from "./WorkbookCanvas.types";
 
@@ -332,6 +337,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const setAreaSelectionResize = areaSelectionResizeState.setImmediate;
   const scheduleAreaSelectionResize = areaSelectionResizeState.schedule;
   const flushAreaSelectionResize = areaSelectionResizeState.flush;
+  const liveObjectPreviewSentAtRef = useRef<Map<string, number>>(new Map());
+  const liveObjectPreviewSignatureRef = useRef<Map<string, string>>(new Map());
+  const liveStrokePreviewVersionRef = useRef<Map<string, number>>(new Map());
+  const liveStrokePreviewSentAtRef = useRef<Map<string, number>>(new Map());
+  const liveStrokePreviewSignatureRef = useRef<Map<string, string>>(new Map());
   const [erasing, setErasing] = useState(false);
   const eraserCursorPointState = useAnimationFrameState<WorkbookPoint | null>(null);
   const eraserCursorPoint = eraserCursorPointState.value;
@@ -934,6 +944,140 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       resizedStrokesBySelectionKey,
     };
   }, [areaSelectionResize, areaSelection, pageFrameBounds, objectById, strokeByKey]);
+
+  const emitLiveObjectPreviewPatch = useCallback(
+    (objectId: string, patch: Partial<WorkbookBoardObject>) => {
+      const now =
+        typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+      const signature = toStableSignature(patch);
+      const previousTs = liveObjectPreviewSentAtRef.current.get(objectId) ?? 0;
+      const previousSignature = liveObjectPreviewSignatureRef.current.get(objectId) ?? "";
+      if (
+        signature === previousSignature &&
+        now - previousTs < REALTIME_PREVIEW_REPEAT_GUARD_MS
+      ) {
+        return;
+      }
+      liveObjectPreviewSentAtRef.current.set(objectId, now);
+      liveObjectPreviewSignatureRef.current.set(objectId, signature);
+      onObjectUpdate(objectId, patch, {
+        trackHistory: false,
+        markDirty: false,
+      });
+    },
+    [onObjectUpdate]
+  );
+
+  const emitLiveStrokePreview = useCallback(
+    (stroke: WorkbookStroke) => {
+      if (!onStrokePreview) return;
+      const strokeId = stroke.id;
+      if (!strokeId) return;
+      const now =
+        typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+      const signature = toStableSignature(stroke.points);
+      const previousTs = liveStrokePreviewSentAtRef.current.get(strokeId) ?? 0;
+      const previousSignature = liveStrokePreviewSignatureRef.current.get(strokeId) ?? "";
+      if (
+        signature === previousSignature &&
+        now - previousTs < REALTIME_PREVIEW_REPEAT_GUARD_MS
+      ) {
+        return;
+      }
+      const nextPreviewVersion = (liveStrokePreviewVersionRef.current.get(strokeId) ?? 0) + 1;
+      liveStrokePreviewVersionRef.current.set(strokeId, nextPreviewVersion);
+      liveStrokePreviewSentAtRef.current.set(strokeId, now);
+      liveStrokePreviewSignatureRef.current.set(strokeId, signature);
+      onStrokePreview({
+        stroke,
+        previewVersion: nextPreviewVersion,
+      });
+    },
+    [onStrokePreview]
+  );
+
+  useEffect(() => {
+    if (!moving) return;
+    const deltaX = moving.current.x - moving.start.x;
+    const deltaY = moving.current.y - moving.start.y;
+    const hasMeaningfulMove = Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5;
+    const movingAreaSelection = moving.object.id === "__area-selection__";
+
+    if (hasMeaningfulMove && (movingAreaSelection || moving.groupObjects.length > 1)) {
+      const { objectPatches } = buildMoveCommitResult({
+        moving,
+        areaSelection,
+      });
+      const selectedObjectHandledBySinglePreview =
+        !movingAreaSelection &&
+        Boolean(selectedObjectId) &&
+        moving.object.id === selectedObjectId;
+      objectPatches.forEach(({ id, patch }) => {
+        if (!objectById.has(id)) return;
+        if (selectedObjectHandledBySinglePreview && id === selectedObjectId) return;
+        emitLiveObjectPreviewPatch(id, patch);
+      });
+    }
+
+    if (!hasMeaningfulMove || movingStrokeSelections.length === 0) return;
+    movingStrokeSelections.forEach((selection) => {
+      const selectionKey = buildWorkbookStrokeSelectionKey(selection);
+      const sourceStroke = strokeByKey.get(selectionKey) ?? null;
+      if (!sourceStroke) return;
+      const translatedPoints = translateWorkbookStrokePoints(sourceStroke.points, deltaX, deltaY);
+      if (translatedPoints.length === 0) return;
+      emitLiveStrokePreview({
+        ...sourceStroke,
+        points: translatedPoints,
+      });
+    });
+  }, [
+    areaSelection,
+    emitLiveObjectPreviewPatch,
+    emitLiveStrokePreview,
+    moving,
+    movingStrokeSelections,
+    objectById,
+    selectedObjectId,
+    strokeByKey,
+  ]);
+
+  useEffect(() => {
+    if (!areaSelection || !areaSelectionResizePreview) return;
+    areaSelection.objectIds.forEach((objectId) => {
+      const sourceObject = objectById.get(objectId);
+      const previewObject = areaSelectionResizePreview.resizedObjectsById.get(objectId);
+      if (!sourceObject || !previewObject) return;
+      const patch = buildRealtimeObjectPatch(sourceObject, previewObject);
+      if (!patch) return;
+      emitLiveObjectPreviewPatch(objectId, patch);
+    });
+    areaSelection.strokeIds.forEach((selection) => {
+      const selectionKey = buildWorkbookStrokeSelectionKey(selection);
+      const previewStroke =
+        areaSelectionResizePreview.resizedStrokesBySelectionKey.get(selectionKey) ?? null;
+      if (!previewStroke || previewStroke.points.length === 0) return;
+      emitLiveStrokePreview(previewStroke);
+    });
+  }, [
+    areaSelection,
+    areaSelectionResizePreview,
+    emitLiveObjectPreviewPatch,
+    emitLiveStrokePreview,
+    objectById,
+  ]);
+
+  useEffect(() => {
+    if (moving || areaSelectionResizePreview) return;
+    liveObjectPreviewSentAtRef.current.clear();
+    liveObjectPreviewSignatureRef.current.clear();
+    liveStrokePreviewSentAtRef.current.clear();
+    liveStrokePreviewSignatureRef.current.clear();
+  }, [areaSelectionResizePreview, moving]);
 
   const visibleBoardObjectsForDisplay = useMemo(() => {
     if (!areaSelectionResizePreview || areaSelectionResizePreview.resizedObjectsById.size === 0) {
