@@ -561,24 +561,42 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   const areaSelectionOverlay = useMemo(() => {
     if (!areaSelection) return null;
+    const nextRect = areaSelectionResize
+      ? resolveBoundedAreaSelectionResizeRect({
+          resize: areaSelectionResize,
+          bounds: pageFrameBounds,
+        })
+      : areaSelection.rect;
+    const hasResizeDelta = Boolean(
+      areaSelectionResize &&
+        hasMeaningfulAreaSelectionResizeChange(areaSelectionResize.initialRect, nextRect)
+    );
+
+    const baseRect = hasResizeDelta ? nextRect : areaSelection.rect;
     if (!moving || moving.object.id !== "__area-selection__") {
-      return areaSelection;
+      return {
+        ...areaSelection,
+        rect: baseRect,
+      };
     }
     const deltaX = moving.current.x - moving.start.x;
     const deltaY = moving.current.y - moving.start.y;
     if (Math.abs(deltaX) <= 0.01 && Math.abs(deltaY) <= 0.01) {
-      return areaSelection;
+      return {
+        ...areaSelection,
+        rect: baseRect,
+      };
     }
     return {
       ...areaSelection,
       rect: {
-        x: areaSelection.rect.x + deltaX,
-        y: areaSelection.rect.y + deltaY,
-        width: areaSelection.rect.width,
-        height: areaSelection.rect.height,
+        x: baseRect.x + deltaX,
+        y: baseRect.y + deltaY,
+        width: baseRect.width,
+        height: baseRect.height,
       },
     };
-  }, [areaSelection, moving]);
+  }, [areaSelection, areaSelectionResize, moving, pageFrameBounds]);
 
   const getObjectSceneLayerId = resolveWorkbookObjectSceneLayerId;
 
