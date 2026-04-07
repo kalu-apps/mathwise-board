@@ -1912,14 +1912,33 @@
   gap: 8px;
 }
 
+.workbook-session__participants-head--draggable {
+  cursor: grab;
+}
+
+.workbook-session__participants-head--draggable:active {
+  cursor: grabbing;
+}
+
 .workbook-session__participants-head-actions {
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 
+.workbook-session__participants-head-actions .MuiIconButton-root {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.workbook-session__participants-head-actions .MuiIconButton-root:hover {
+  border: none !important;
+  background: color-mix(in srgb, var(--surface-soft) 70%, transparent) !important;
+}
+
 .workbook-session__participants-head .MuiIconButton-root.is-active {
-  border: 1px solid color-mix(in srgb, var(--brand-solid) 58%, var(--border-strong));
+  border: none !important;
   background: color-mix(in srgb, var(--brand-soft) 18%, transparent);
 }
 

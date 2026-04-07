@@ -20,7 +20,6 @@ import {
   supportsTransformUtilityPanel,
 } from "./WorkbookSessionPage.geometry";
 import type {
-  WorkbookAreaSelection,
   WorkbookLineEndpointContextMenu,
   WorkbookObjectContextMenu,
   WorkbookShapeVertexContextMenu,
@@ -33,6 +32,8 @@ import type { Solid3dSectionState } from "@/features/workbook/model/solid3dState
 type Updater<T> = T | ((current: T) => T);
 type ContextMenuPoint = { x: number; y: number };
 type ShapeCatalogItem = { id: string; title: string; subtitle: string; icon: ReactNode; apply: () => void; tool: WorkbookTool };
+type DividerMetaPatch = Partial<{ lineStyle: "solid" | "dashed" }>;
+type DividerObjectPatch = Partial<{ color: string; strokeWidth: number }>;
 type WorkbookSessionOverlaysProps = {
   overlayContainer: Element | null | undefined;
   isClearSessionChatDialogOpen: boolean;
@@ -97,6 +98,14 @@ type WorkbookSessionOverlaysProps = {
   canSendContextMenuImageToBack: boolean;
   canRestoreContextMenuImage: boolean;
   restoreImageOriginalView: (objectId?: string) => void;
+  updateDividerObjectById?: (
+    objectId: string,
+    patch: DividerObjectPatch
+  ) => void | Promise<void>;
+  updateDividerMetaById?: (
+    objectId: string,
+    patch: DividerMetaPatch
+  ) => void | Promise<void>;
   areaSelectionContextMenu: ContextMenuPoint | null;
   areaSelectionHasContent: boolean;
   setAreaSelectionContextMenu: (value: Updater<ContextMenuPoint | null>) => void;
@@ -106,8 +115,6 @@ type WorkbookSessionOverlaysProps = {
   fillAreaSelection: (fillColor?: string) => void | Promise<void>;
   areaFillDefaultColor: string;
   canCropAreaSelectionImage: boolean;
-  createCompositionFromAreaSelection: () => void | Promise<void>;
-  areaSelection: WorkbookAreaSelection | null;
   deleteAreaSelectionObjects: () => void | Promise<void>;
   canSelect: boolean;
   isStereoDialogOpen: boolean;
@@ -167,6 +174,8 @@ export function WorkbookSessionOverlays({
   canSendContextMenuImageToBack,
   canRestoreContextMenuImage,
   restoreImageOriginalView,
+  updateDividerObjectById,
+  updateDividerMetaById,
   areaSelectionContextMenu,
   areaSelectionHasContent,
   setAreaSelectionContextMenu,
@@ -176,8 +185,6 @@ export function WorkbookSessionOverlays({
   fillAreaSelection,
   areaFillDefaultColor,
   canCropAreaSelectionImage,
-  createCompositionFromAreaSelection,
-  areaSelection,
   deleteAreaSelectionObjects,
   canSelect,
   isStereoDialogOpen,
@@ -193,6 +200,15 @@ export function WorkbookSessionOverlays({
     null
   );
   const [areaFillColorDraft, setAreaFillColorDraft] = useState("#2f4f7f");
+  const contextMenuDividerObject =
+    contextMenuObject?.type === "section_divider" ? contextMenuObject : null;
+  const dividerColorValue = contextMenuDividerObject?.color ?? "#2f4f7f";
+  const dividerWidthValue = Math.max(
+    1,
+    Math.min(18, Math.round(contextMenuDividerObject?.strokeWidth ?? 2))
+  );
+  const dividerLineStyle =
+    contextMenuDividerObject?.meta?.lineStyle === "solid" ? "solid" : "dashed";
   const contextMenuContainer =
     overlayContainer ??
     (typeof document !== "undefined" ? document.fullscreenElement ?? document.body : null);
@@ -607,6 +623,71 @@ export function WorkbookSessionOverlays({
             ) : null}
             {contextMenuObject && contextMenuObject.type !== "point" ? (
               <>
+                {contextMenuDividerObject ? (
+                  <div className="workbook-session__solid-menu">
+                    <div className="workbook-session__solid-menu-row">
+                      <span>Стиль</span>
+                      <div className="workbook-session__toggle-group">
+                        <button
+                          type="button"
+                          className={dividerLineStyle === "solid" ? "is-active" : ""}
+                          onClick={() =>
+                            void updateDividerMetaById?.(contextMenuDividerObject.id, {
+                              lineStyle: "solid",
+                            })
+                          }
+                        >
+                          Сплошной
+                        </button>
+                        <button
+                          type="button"
+                          className={dividerLineStyle === "dashed" ? "is-active" : ""}
+                          onClick={() =>
+                            void updateDividerMetaById?.(contextMenuDividerObject.id, {
+                              lineStyle: "dashed",
+                            })
+                          }
+                        >
+                          Пунктир
+                        </button>
+                      </div>
+                    </div>
+                    <label className="workbook-session__board-settings-color-inline-item">
+                      <span>Цвет</span>
+                      <input
+                        type="color"
+                        value={dividerColorValue}
+                        onChange={(event) =>
+                          void updateDividerObjectById?.(contextMenuDividerObject.id, {
+                            color: event.target.value || "#2f4f7f",
+                          })
+                        }
+                      />
+                    </label>
+                    <div className="workbook-session__solid-menu-row">
+                      <span>Толщина</span>
+                      <div className="workbook-session__line-range">
+                        <input
+                          type="range"
+                          min={1}
+                          max={18}
+                          step={1}
+                          value={dividerWidthValue}
+                          onChange={(event) => {
+                            const nextWidth = Math.max(
+                              1,
+                              Math.min(18, Number(event.target.value) || 1)
+                            );
+                            void updateDividerObjectById?.(contextMenuDividerObject.id, {
+                              strokeWidth: nextWidth,
+                            });
+                          }}
+                        />
+                        <span>{dividerWidthValue}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
                 <MenuItem
                   onClick={() => {
                     void scaleObject(1.1, contextMenuObject.id);
@@ -754,12 +835,6 @@ export function WorkbookSessionOverlays({
               disabled={!canSelect || !areaSelectionHasContent}
             >
               Залить выделенное
-            </MenuItem>
-            <MenuItem
-              onClick={() => void createCompositionFromAreaSelection()}
-              disabled={!canSelect || !areaSelection || areaSelection.objectIds.length < 2}
-            >
-              Объединить в композицию
             </MenuItem>
             <MenuItem
               onClick={() => void deleteAreaSelectionObjects()}

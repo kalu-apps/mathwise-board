@@ -1610,7 +1610,6 @@ export default function WorkbookSessionPage() {
   });
 
   const {
-    createCompositionFromAreaSelection,
     dissolveCompositionLayer,
   } = useWorkbookCompositionLayerHandlers({
     canSelect,
@@ -1693,6 +1692,32 @@ export default function WorkbookSessionPage() {
     commitObjectUpdate,
     appendEventsAndApply,
   });
+
+  const updateDividerObjectById = useCallback(
+    async (objectId: string, patch: Partial<{ color: string; strokeWidth: number }>) => {
+      const target = boardObjects.find((item) => item.id === objectId);
+      if (!target || target.type !== "section_divider") return;
+      await commitObjectUpdate(objectId, patch);
+    },
+    [boardObjects, commitObjectUpdate]
+  );
+
+  const updateDividerMetaById = useCallback(
+    async (
+      objectId: string,
+      patch: Partial<{ lineStyle: "solid" | "dashed" }>
+    ) => {
+      const target = boardObjects.find((item) => item.id === objectId);
+      if (!target || target.type !== "section_divider") return;
+      await commitObjectUpdate(objectId, {
+        meta: {
+          ...(target.meta ?? {}),
+          ...patch,
+        },
+      });
+    },
+    [boardObjects, commitObjectUpdate]
+  );
 
   const selectedShape2dActions = useWorkbookSelectedShape2dActions({
     selectedObjectId,
@@ -3184,6 +3209,8 @@ export default function WorkbookSessionPage() {
     canSendContextMenuImageToBack: selectionViewportState.canSendContextMenuImageToBack,
     canRestoreContextMenuImage: selectionViewportState.canRestoreContextMenuImage,
     restoreImageOriginalView,
+    updateDividerObjectById,
+    updateDividerMetaById,
     areaSelectionContextMenu,
     areaSelectionHasContent,
     setAreaSelectionContextMenu: workbookSessionActions.setAreaSelectionContextMenu,
@@ -3193,8 +3220,6 @@ export default function WorkbookSessionPage() {
     fillAreaSelection,
     areaFillDefaultColor: strokeColor,
     canCropAreaSelectionImage: selectionViewportState.canCropAreaSelectionImage,
-    createCompositionFromAreaSelection,
-    areaSelection,
     deleteAreaSelectionObjects,
     canSelect,
     isStereoDialogOpen,

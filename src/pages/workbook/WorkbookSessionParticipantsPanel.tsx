@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Avatar, IconButton, Tooltip } from "@mui/material";
 import ForumRoundedIcon from "@mui/icons-material/ForumRounded";
 import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
@@ -31,6 +31,20 @@ export type WorkbookSessionParticipantsPanelProps = {
   ) => void;
   onToggleParticipantChat: (participant: WorkbookSessionParticipant, enabled: boolean) => void;
   onToggleParticipantMic: (participant: WorkbookSessionParticipant, enabled: boolean) => void;
+  isCompactViewport?: boolean;
+};
+
+type ParticipantsFloatingPosition = {
+  x: number;
+  y: number;
+  width: number;
+};
+
+type ParticipantsDragState = {
+  pointerId: number;
+  offsetX: number;
+  offsetY: number;
+  width: number;
 };
 
 export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionParticipantsPanel({
@@ -51,10 +65,109 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
   onToggleParticipantBoardTools,
   onToggleParticipantChat,
   onToggleParticipantMic,
+  isCompactViewport = false,
 }: WorkbookSessionParticipantsPanelProps) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const dragStateRef = useRef<ParticipantsDragState | null>(null);
+  const [floatingPosition, setFloatingPosition] = useState<ParticipantsFloatingPosition | null>(
+    null
+  );
+
+  const clearDrag = useCallback(() => {
+    dragStateRef.current = null;
+  }, []);
+
+  const handleHeaderPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (isCompactViewport || event.button !== 0) return;
+      const target = event.target as HTMLElement;
+      if (target.closest(".workbook-session__participants-head-actions")) return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const rect = panel.getBoundingClientRect();
+      const width = Math.max(220, Math.round(rect.width));
+      setFloatingPosition((current) =>
+        current ?? {
+          x: rect.left,
+          y: rect.top,
+          width,
+        }
+      );
+      dragStateRef.current = {
+        pointerId: event.pointerId,
+        offsetX: event.clientX - rect.left,
+        offsetY: event.clientY - rect.top,
+        width,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    },
+    [isCompactViewport]
+  );
+
+  const handleHeaderPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const panelHeight = Math.max(220, Math.round(panel.getBoundingClientRect().height));
+    const margin = 12;
+    const minX = margin;
+    const minY = margin;
+    const maxX = Math.max(minX, window.innerWidth - dragState.width - margin);
+    const maxY = Math.max(minY, window.innerHeight - panelHeight - margin);
+    const nextX = Math.min(maxX, Math.max(minX, event.clientX - dragState.offsetX));
+    const nextY = Math.min(maxY, Math.max(minY, event.clientY - dragState.offsetY));
+    setFloatingPosition({
+      x: nextX,
+      y: nextY,
+      width: dragState.width,
+    });
+    event.preventDefault();
+  }, []);
+
+  const handleHeaderPointerEnd = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const dragState = dragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+      clearDrag();
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    [clearDrag]
+  );
+
+  const isFloating = !isCompactViewport && Boolean(floatingPosition);
+
   return (
-    <div className="workbook-session__card">
-      <div className="workbook-session__participants-head">
+    <div
+      ref={panelRef}
+      className={`workbook-session__card workbook-session__participants-card${
+        isFloating ? " is-floating" : ""
+      }`}
+      style={
+        isFloating && floatingPosition
+          ? {
+              position: "fixed",
+              left: floatingPosition.x,
+              top: floatingPosition.y,
+              width: floatingPosition.width,
+              zIndex: 90,
+              maxHeight: `calc(100vh - ${Math.max(12, floatingPosition.y + 12)}px)`,
+            }
+          : undefined
+      }
+    >
+      <div
+        className={`workbook-session__participants-head${
+          isCompactViewport ? "" : " workbook-session__participants-head--draggable"
+        }`}
+        onPointerDown={handleHeaderPointerDown}
+        onPointerMove={handleHeaderPointerMove}
+        onPointerUp={handleHeaderPointerEnd}
+        onPointerCancel={handleHeaderPointerEnd}
+      >
         <h3>
           <GroupRoundedIcon fontSize="small" />
           Участники

@@ -137,7 +137,6 @@ type BuildWorkbookSessionLayoutRuntimePropsInput = {
     cropImageByAreaSelection: OverlaysProps["cropImageByAreaSelection"];
     fillAreaSelection: OverlaysProps["fillAreaSelection"];
     areaFillDefaultColor: OverlaysProps["areaFillDefaultColor"];
-    createCompositionFromAreaSelection: OverlaysProps["createCompositionFromAreaSelection"];
     deleteAreaSelectionObjects: OverlaysProps["deleteAreaSelectionObjects"];
     createMathPresetObject: OverlaysProps["createMathPresetObject"];
     activateTool: OverlaysProps["activateTool"];
@@ -445,8 +444,6 @@ export const buildWorkbookSessionLayoutRuntimeProps = ({
     fillAreaSelection: handlers.fillAreaSelection,
     areaFillDefaultColor: "#2f4f7f",
     canCropAreaSelectionImage: derived.canCropAreaSelectionImage,
-    createCompositionFromAreaSelection: handlers.createCompositionFromAreaSelection,
-    areaSelection: page.areaSelection,
     deleteAreaSelectionObjects: handlers.deleteAreaSelectionObjects,
     canSelect: permissions.canSelect,
     isStereoDialogOpen: page.isStereoDialogOpen,
