@@ -51,6 +51,7 @@ type BuildWorkbookShapeObjectParams = {
   stickerText?: string;
   commentText?: string;
   lineStyle?: "solid" | "dashed";
+  dividerLineStyle?: "solid" | "dashed";
   solid3dInsertPreset?: {
     presetId: string;
     presetTitle?: string;
@@ -152,6 +153,7 @@ export const buildWorkbookShapeObject = (
     stickerText,
     commentText,
     lineStyle,
+    dividerLineStyle,
     solid3dInsertPreset,
   } = params;
 
@@ -378,7 +380,10 @@ export const buildWorkbookShapeObject = (
                           ),
                         }
                       : draft.tool === "divider"
-                        ? { dividerType: "manual", lineStyle: "dashed" }
+                        ? {
+                            dividerType: "manual",
+                            lineStyle: dividerLineStyle === "solid" ? "solid" : "dashed",
+                          }
                         : undefined,
   };
 };

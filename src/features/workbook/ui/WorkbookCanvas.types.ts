@@ -84,6 +84,7 @@ export type WorkbookCanvasProps = {
   stickerText?: string;
   commentText?: string;
   lineStyle?: "solid" | "dashed";
+  dividerLineStyle?: "solid" | "dashed";
   snapToGrid?: boolean;
   gridSize?: number;
   viewportZoom?: number;

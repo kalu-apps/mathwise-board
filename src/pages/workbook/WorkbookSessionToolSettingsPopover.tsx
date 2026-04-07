@@ -1,6 +1,6 @@
-import { Popover } from "@mui/material";
+import { Popover, Switch } from "@mui/material";
 
-export type WorkbookToolSettingsPopoverTool = "pen" | "highlighter" | "eraser";
+export type WorkbookToolSettingsPopoverTool = "pen" | "highlighter" | "eraser" | "divider";
 
 export type WorkbookToolSettingsPopoverState = {
   tool: WorkbookToolSettingsPopoverTool;
@@ -26,12 +26,19 @@ type WorkbookSessionToolSettingsPopoverProps = {
   onPenToolSettingsChange: (patch: Partial<ToolPaintSettings>) => void;
   onHighlighterToolSettingsChange: (patch: Partial<ToolPaintSettings>) => void;
   onEraserRadiusChange: (value: number) => void;
+  dividerColor: string;
+  dividerWidth: number;
+  dividerLineStyle: "solid" | "dashed";
+  onDividerColorChange: (value: string) => void;
+  onDividerWidthChange: (value: number) => void;
+  onDividerLineStyleChange: (value: "solid" | "dashed") => void;
 };
 
 const TOOL_TITLES: Record<WorkbookToolSettingsPopoverTool, string> = {
   pen: "Ручка",
   highlighter: "Маркер",
   eraser: "Ластик",
+  divider: "Разделитель",
 };
 
 export function WorkbookSessionToolSettingsPopover({
@@ -47,6 +54,12 @@ export function WorkbookSessionToolSettingsPopover({
   onPenToolSettingsChange,
   onHighlighterToolSettingsChange,
   onEraserRadiusChange,
+  dividerColor,
+  dividerWidth,
+  dividerLineStyle,
+  onDividerColorChange,
+  onDividerWidthChange,
+  onDividerLineStyleChange,
 }: WorkbookSessionToolSettingsPopoverProps) {
   const portalContainer =
     typeof document !== "undefined"
@@ -189,6 +202,57 @@ export function WorkbookSessionToolSettingsPopover({
                     onChange={(event) => onEraserRadiusChange(Number(event.target.value))}
                   />
                   <span>{eraserRadius} px</span>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {tool === "divider" ? (
+            <div className="workbook-session__tool-settings-cluster">
+              <div className="workbook-session__tool-settings-cluster-title">
+                Вид и толщина
+              </div>
+              <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
+                <div className="workbook-session__tool-settings-field-main">
+                  <strong>Цвет</strong>
+                  <label
+                    className="workbook-session__tool-settings-inline-switch"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                  >
+                    <span>Пунктир</span>
+                    <Switch
+                      size="small"
+                      checked={dividerLineStyle === "dashed"}
+                      onChange={(event) =>
+                        onDividerLineStyleChange(event.target.checked ? "dashed" : "solid")
+                      }
+                    />
+                  </label>
+                </div>
+                <label className="workbook-session__tool-settings-color">
+                  <input
+                    type="color"
+                    name="divider-color"
+                    value={dividerColor}
+                    onChange={(event) => onDividerColorChange(event.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
+                <div className="workbook-session__tool-settings-field-main">
+                  <strong>Толщина</strong>
+                </div>
+                <div className="workbook-session__tool-settings-range">
+                  <input
+                    type="range"
+                    name="divider-width"
+                    min={1}
+                    max={18}
+                    step={1}
+                    value={dividerWidth}
+                    onChange={(event) => onDividerWidthChange(Number(event.target.value))}
+                  />
+                  <span>{dividerWidth} px</span>
                 </div>
               </div>
             </div>

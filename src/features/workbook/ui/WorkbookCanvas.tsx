@@ -197,6 +197,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   stickerText = "",
   commentText = "",
   lineStyle = "solid",
+  dividerLineStyle = "dashed",
   snapToGrid = false,
   gridSize = 22,
   viewportZoom = 1,
@@ -1193,10 +1194,23 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       stickerText,
       commentText,
       lineStyle,
+      dividerLineStyle,
       solid3dInsertPreset,
     });
-    onObjectCreate(result.created);
-    onSelectedObjectChange(result.created.id);
+    const createdObject =
+      result.created.type === "section_divider"
+        ? {
+            ...result.created,
+            x: pageFrameBounds.minX,
+            width: pageFrameBounds.width,
+            y: Math.max(
+              pageFrameBounds.minY,
+              Math.min(pageFrameBounds.maxY - result.created.height, result.created.y)
+            ),
+          }
+        : result.created;
+    onObjectCreate(createdObject);
+    onSelectedObjectChange(createdObject.id);
     if (result.inlineTextEdit) {
       setInlineTextEdit(result.inlineTextEdit);
     }

@@ -52,6 +52,7 @@ interface UseWorkbookCanvasPropsParams {
   textPreset: string;
   graphDraftFunctions: GraphFunctionDraft[];
   lineStyle: "solid" | "dashed";
+  dividerLineStyle: "solid" | "dashed";
   boardSettings: Pick<
     WorkbookBoardSettings,
     | "snapToGrid"
@@ -135,6 +136,7 @@ export const buildWorkbookCanvasProps = ({
   textPreset,
   graphDraftFunctions,
   lineStyle,
+  dividerLineStyle,
   boardSettings,
   currentPage,
   viewportZoom,
@@ -202,6 +204,7 @@ export const buildWorkbookCanvasProps = ({
   textPreset,
   graphFunctions: getSanitizedGraphFunctions(graphDraftFunctions),
   lineStyle,
+  dividerLineStyle,
   snapToGrid: boardSettings.snapToGrid,
   gridSize: boardSettings.gridSize,
   viewportZoom,

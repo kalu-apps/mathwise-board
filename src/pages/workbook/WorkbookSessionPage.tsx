@@ -101,6 +101,7 @@ import {
   TAB_LOCK_HEARTBEAT_MS,
   WORKBOOK_CHAT_EMOJIS,
   MAIN_SCENE_LAYER_ID,
+  defaultColorByLayer,
   normalizeWorkbookPageOrder,
   resolveMaxKnownWorkbookPage,
   toSafeWorkbookPage,
@@ -298,6 +299,7 @@ export default function WorkbookSessionPage() {
     setPolygonSides,
     setPolygonMode,
     setPolygonPreset,
+    setDividerWidthDraft,
     setGraphExpressionDraft,
     setGraphDraftFunctions,
     setSelectedGraphPresetId,
@@ -733,6 +735,8 @@ export default function WorkbookSessionPage() {
     tool,
     penToolSettings,
     highlighterToolSettings,
+    dividerToolColor: strokeColor,
+    dividerWidthDraft,
     eraserRadius,
     strokeColor,
     strokeWidth,
@@ -747,13 +751,21 @@ export default function WorkbookSessionPage() {
   });
   const [toolSettingsPopoverState, setToolSettingsPopoverState] =
     useState<WorkbookToolSettingsPopoverState>(null);
+  const [dividerToolLineStyle, setDividerToolLineStyle] = useState<"solid" | "dashed">(
+    "dashed"
+  );
   const handleCloseToolSettingsPopover = useCallback(() => {
     setToolSettingsPopoverState(null);
   }, []);
   const handleToolContextMenu = useCallback(
     (event: ReactMouseEvent<HTMLButtonElement>, nextTool: WorkbookTool) => {
       let menuTool: WorkbookToolSettingsPopoverTool | null = null;
-      if (nextTool === "pen" || nextTool === "highlighter" || nextTool === "eraser") {
+      if (
+        nextTool === "pen" ||
+        nextTool === "highlighter" ||
+        nextTool === "eraser" ||
+        nextTool === "divider"
+      ) {
         menuTool = nextTool;
       }
       if (!menuTool) return;
@@ -766,6 +778,27 @@ export default function WorkbookSessionPage() {
     },
     []
   );
+  const handleDividerToolColorChange = useCallback(
+    (nextColor: string) => {
+      const safeColor =
+        typeof nextColor === "string" && nextColor ? nextColor : defaultColorByLayer.board;
+      setStrokeColor(safeColor);
+    },
+    [setStrokeColor]
+  );
+  const handleDividerToolWidthChange = useCallback(
+    (nextWidth: number) => {
+      const safeWidth = Math.max(1, Math.min(18, Math.round(nextWidth || 1)));
+      setDividerWidthDraft(safeWidth);
+      if (tool === "divider") {
+        setStrokeWidth(safeWidth);
+      }
+    },
+    [setDividerWidthDraft, setStrokeWidth, tool]
+  );
+  const handleDividerToolLineStyleChange = useCallback((nextStyle: "solid" | "dashed") => {
+    setDividerToolLineStyle(nextStyle === "solid" ? "solid" : "dashed");
+  }, []);
 
   const {
     scheduleLocalPreviewBoardObjectPatch,
@@ -2876,6 +2909,7 @@ export default function WorkbookSessionPage() {
     textPreset,
     graphFunctions: sanitizedGraphDraftFunctions,
     lineStyle,
+    dividerLineStyle: dividerToolLineStyle,
     snapToGrid: currentPageVisualSettings.snapToGrid,
     gridSize: currentPageVisualSettings.gridSize,
     viewportZoom,
@@ -3389,6 +3423,12 @@ export default function WorkbookSessionPage() {
         onPenToolSettingsChange={handlePenToolSettingsChange}
         onHighlighterToolSettingsChange={handleHighlighterToolSettingsChange}
         onEraserRadiusChange={handleEraserRadiusChange}
+        dividerColor={strokeColor}
+        dividerWidth={Math.max(1, Math.min(18, Math.round(dividerWidthDraft || 2)))}
+        dividerLineStyle={dividerToolLineStyle}
+        onDividerColorChange={handleDividerToolColorChange}
+        onDividerWidthChange={handleDividerToolWidthChange}
+        onDividerLineStyleChange={handleDividerToolLineStyleChange}
       />
     </section>
   );

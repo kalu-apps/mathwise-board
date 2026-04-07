@@ -113,6 +113,20 @@ export const clampWorkbookObjectToPageFrame = (
   object: WorkbookBoardObject,
   bounds: WorkbookPageFrameBounds
 ): WorkbookBoardObject => {
+  if (object.type === "section_divider") {
+    const safeHeight =
+      typeof object.height === "number" && Number.isFinite(object.height)
+        ? Math.max(1, object.height)
+        : 1;
+    const maxY = Math.max(bounds.minY, bounds.maxY - safeHeight);
+    return {
+      ...object,
+      x: bounds.minX,
+      width: bounds.width,
+      y: clampNumber(object.y, bounds.minY, maxY),
+    };
+  }
+
   const rect = getObjectRect(object);
   let deltaX = 0;
   let deltaY = 0;
