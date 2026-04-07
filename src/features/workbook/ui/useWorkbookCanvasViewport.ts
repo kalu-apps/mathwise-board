@@ -73,6 +73,7 @@ export const useWorkbookCanvasViewport = ({
   // Runtime semantics: 100% fits the whole working width into viewport.
   // Values above/below 100% zoom relative to that baseline.
   const safeZoom = Math.max(0.02, fitZoom * relativeZoom);
+  const pageSurfaceZoom = relativeZoom < 1 ? fitZoom : safeZoom;
   const visibleViewportWidth = Math.max(1, size.width / safeZoom);
   const visibleViewportHeight = Math.max(1, size.height / safeZoom);
   const allowHorizontalPan = pageFrameBounds.width > visibleViewportWidth + 1;
@@ -168,16 +169,35 @@ export const useWorkbookCanvasViewport = ({
       size.width,
     ]
   );
+  const pageSurfaceDisplayBias = useMemo(
+    () =>
+      resolveWorkbookDisplayBias({
+        viewportWidthPx: size.width,
+        viewportHeightPx: size.height,
+        pageFrameBounds,
+        viewportOffset: resolvedViewportOffset,
+        safeZoom: pageSurfaceZoom,
+      }),
+    [
+      pageFrameBounds,
+      pageSurfaceZoom,
+      resolvedViewportOffset,
+      size.height,
+      size.width,
+    ]
+  );
 
   return {
     size,
     safeZoom,
+    pageSurfaceZoom,
     allowHorizontalPan,
     pageFrameBounds,
     visibleViewportWidth,
     visibleViewportHeight,
     resolvedViewportOffset,
     displayBias,
+    pageSurfaceDisplayBias,
     effectiveFocusPoints,
     effectivePointerPoints,
     autoDividerLines,
