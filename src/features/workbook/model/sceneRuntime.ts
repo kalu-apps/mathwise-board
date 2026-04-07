@@ -1,6 +1,4 @@
 import { getAutoGraphGridStep, type GraphFunctionDraft } from "./functionGraph";
-import { readWorkbookImageAspectRatioMeta } from "./imageGeometry";
-import { resolveWorkbookImageCropState } from "./imageCrop";
 import {
   getObjectRect,
   getPointsBoundsFromPoints,
@@ -74,57 +72,6 @@ type Solid3dPreviewMetaById = Record<string, Record<string, unknown>>;
 
 const clampGraphOffsetValue = (value: number) =>
   Math.max(-999, Math.min(999, Number.isFinite(value) ? value : 0));
-
-const buildAspectLockedImageRectForSideResize = (params: {
-  mode: "n" | "s" | "e" | "w";
-  nextRect: { x: number; y: number; width: number; height: number };
-  baseRect: { x: number; y: number; width: number; height: number };
-  aspectRatio: number;
-}) => {
-  const ratio = Math.max(1e-6, params.aspectRatio);
-  const baseCenterX = params.baseRect.x + params.baseRect.width / 2;
-  const baseCenterY = params.baseRect.y + params.baseRect.height / 2;
-  if (params.mode === "e") {
-    const width = Math.max(1, params.nextRect.width);
-    const height = Math.max(1, width / ratio);
-    return {
-      x: params.baseRect.x,
-      y: baseCenterY - height / 2,
-      width,
-      height,
-    };
-  }
-  if (params.mode === "w") {
-    const width = Math.max(1, params.nextRect.width);
-    const height = Math.max(1, width / ratio);
-    const right = params.baseRect.x + params.baseRect.width;
-    return {
-      x: right - width,
-      y: baseCenterY - height / 2,
-      width,
-      height,
-    };
-  }
-  if (params.mode === "n") {
-    const height = Math.max(1, params.nextRect.height);
-    const width = Math.max(1, height * ratio);
-    const bottom = params.baseRect.y + params.baseRect.height;
-    return {
-      x: baseCenterX - width / 2,
-      y: bottom - height,
-      width,
-      height,
-    };
-  }
-  const height = Math.max(1, params.nextRect.height);
-  const width = Math.max(1, height * ratio);
-  return {
-    x: baseCenterX - width / 2,
-    y: params.baseRect.y,
-    width,
-    height,
-  };
-};
 
 export const collectMappedInteractionPoints = <T extends ClientPointLike>(params: {
   sourceEvents: T[];
@@ -483,10 +430,6 @@ export const buildResizeCommitPatch = (
     object.rotation && Number.isFinite(object.rotation)
       ? rotatePointAround(state.current, center, -(object.rotation ?? 0))
       : state.current;
-  const imageAspectRatio =
-    object.type === "image" && !resolveWorkbookImageCropState(object).hasCrop
-      ? readWorkbookImageAspectRatioMeta(object)
-      : null;
   if (state.mode === "n" || state.mode === "s" || state.mode === "e" || state.mode === "w") {
     let nextLeft = rect.x;
     let nextRight = rect.x + rect.width;
@@ -503,15 +446,10 @@ export const buildResizeCommitPatch = (
       nextLeft = Math.min(localCurrent.x, nextRight - 1);
     }
 
-    let nextRect = normalizeRect({ x: nextLeft, y: nextTop }, { x: nextRight, y: nextBottom });
-    if (imageAspectRatio) {
-      nextRect = buildAspectLockedImageRectForSideResize({
-        mode: state.mode,
-        nextRect,
-        baseRect: rect,
-        aspectRatio: imageAspectRatio,
-      });
-    }
+    const nextRect = normalizeRect(
+      { x: nextLeft, y: nextTop },
+      { x: nextRight, y: nextBottom }
+    );
     if (Array.isArray(object.points) && object.points.length > 0) {
       const safeWidth = Math.max(1e-6, rect.width);
       const safeHeight = Math.max(1e-6, rect.height);
