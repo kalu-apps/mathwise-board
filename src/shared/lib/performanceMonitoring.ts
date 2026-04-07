@@ -5,6 +5,9 @@ type MetricRating = "good" | "needs-improvement" | "poor";
 type LayoutShiftEntry = PerformanceEntry & {
   hadRecentInput?: boolean;
   value?: number;
+  sources?: Array<{
+    node?: Node | null;
+  }>;
 };
 type EventTimingEntry = PerformanceEntry & {
   duration: number;
@@ -61,6 +64,40 @@ const describeTarget = (target: EventTarget | null) => {
   const classes = Array.from(target.classList).slice(0, 2).join(".");
   const classSuffix = classes ? `.${classes}` : "";
   return `${tag}${id}${classSuffix}`;
+};
+
+const resolveLayoutShiftSourceElement = (node: Node | null | undefined): Element | null => {
+  if (!node) return null;
+  if (node instanceof Element) return node;
+  return node.parentElement ?? null;
+};
+
+const isWorkbookSessionCanvasLayoutShift = (entry: LayoutShiftEntry) => {
+  if (typeof window === "undefined") return false;
+  if (!window.location.pathname.startsWith("/workbook/session/")) return false;
+  const sources = Array.isArray(entry.sources) ? entry.sources : [];
+  if (sources.length === 0) return false;
+
+  let hasCanvasSource = false;
+  let hasOutsideSource = false;
+
+  for (const source of sources) {
+    const element = resolveLayoutShiftSourceElement(source?.node);
+    if (!element) continue;
+    const insideCanvas = Boolean(
+      element.closest(".workbook-session__canvas, .workbook-session__canvas-svg")
+    );
+    if (insideCanvas) {
+      hasCanvasSource = true;
+    } else {
+      hasOutsideSource = true;
+    }
+    if (hasCanvasSource && hasOutsideSource) {
+      return false;
+    }
+  }
+
+  return hasCanvasSource && !hasOutsideSource;
 };
 
 const emitMetric = (detail: PerformanceMetricEventDetail) => {
@@ -159,6 +196,7 @@ const createMonitoringSession = () => {
       for (const entry of list.getEntries() as LayoutShiftEntry[]) {
         if (entry.hadRecentInput) continue;
         if (typeof entry.value !== "number") continue;
+        if (isWorkbookSessionCanvasLayoutShift(entry)) continue;
         clsValue += entry.value;
       }
     },
