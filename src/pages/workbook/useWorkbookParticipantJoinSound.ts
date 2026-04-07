@@ -85,17 +85,32 @@ export function useWorkbookParticipantJoinSound({
 
     const emitTone = () => {
       try {
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-        oscillator.type = "sine";
-        oscillator.frequency.value = 920;
-        gain.gain.setValueAtTime(0.0001, context.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.012);
-        gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.14);
-        oscillator.connect(gain);
-        gain.connect(context.destination);
-        oscillator.start();
-        oscillator.stop(context.currentTime + 0.16);
+        const startAt = context.currentTime + 0.01;
+        const notes = [
+          { frequency: 740, offset: 0, duration: 0.17, peakGain: 0.06 },
+          { frequency: 980, offset: 0.24, duration: 0.19, peakGain: 0.068 },
+        ];
+
+        notes.forEach((note) => {
+          const noteStartAt = startAt + note.offset;
+          const noteEndAt = noteStartAt + note.duration;
+
+          const oscillator = context.createOscillator();
+          const gain = context.createGain();
+
+          oscillator.type = "sine";
+          oscillator.frequency.setValueAtTime(note.frequency, noteStartAt);
+
+          gain.gain.setValueAtTime(0.0001, noteStartAt);
+          gain.gain.exponentialRampToValueAtTime(note.peakGain, noteStartAt + 0.024);
+          gain.gain.exponentialRampToValueAtTime(0.0001, noteEndAt);
+
+          oscillator.connect(gain);
+          gain.connect(context.destination);
+
+          oscillator.start(noteStartAt);
+          oscillator.stop(noteEndAt + 0.01);
+        });
       } catch {
         // ignore playback failures
       }
