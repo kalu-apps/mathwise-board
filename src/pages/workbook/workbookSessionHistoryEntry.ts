@@ -24,10 +24,6 @@ import type {
   WorkbookHistoryOperation,
 } from "./WorkbookSessionPage.geometry";
 import { normalizeSceneLayersForBoard } from "./WorkbookSessionPage.geometry";
-import {
-  buildBoardSettingsPatchSemanticPayload,
-  buildObjectPatchSemanticPayload,
-} from "./workbookHistoryPatchSemantics";
 
 type BuildWorkbookHistoryEntryFromEventsArgs = {
   events: WorkbookClientEventInput[];
@@ -131,24 +127,12 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       const forwardPatch = buildBoardObjectDiffPatch(currentObject, nextObject);
       const inversePatch = buildBoardObjectDiffPatch(nextObject, currentObject);
       if (!forwardPatch || !inversePatch) return;
-      const forwardSemanticPayload = buildObjectPatchSemanticPayload(
-        currentObject,
-        nextObject,
-        forwardPatch
-      );
-      const inverseSemanticPayload = buildObjectPatchSemanticPayload(
-        nextObject,
-        currentObject,
-        inversePatch
-      );
       eventForward = [
         {
           kind: "patch_object",
           objectId,
           patch: forwardPatch,
           expectedCurrent: cloneSerializable(currentObject),
-          beforePatch: forwardSemanticPayload?.beforePatch,
-          afterPatch: forwardSemanticPayload?.afterPatch,
         },
       ];
       eventInverse = [
@@ -157,8 +141,6 @@ export const buildWorkbookHistoryEntryFromEvents = ({
           objectId,
           patch: inversePatch,
           expectedCurrent: cloneSerializable(nextObject),
-          beforePatch: inverseSemanticPayload?.beforePatch,
-          afterPatch: inverseSemanticPayload?.afterPatch,
         },
       ];
     } else if (event.type === "board.object.delete") {
@@ -194,24 +176,12 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       const forwardPatch = buildBoardObjectDiffPatch(currentObject, nextObject);
       const inversePatch = buildBoardObjectDiffPatch(nextObject, currentObject);
       if (!forwardPatch || !inversePatch) return;
-      const forwardSemanticPayload = buildObjectPatchSemanticPayload(
-        currentObject,
-        nextObject,
-        forwardPatch
-      );
-      const inverseSemanticPayload = buildObjectPatchSemanticPayload(
-        nextObject,
-        currentObject,
-        inversePatch
-      );
       eventForward = [
         {
           kind: "patch_object",
           objectId,
           patch: forwardPatch,
           expectedCurrent: cloneSerializable(currentObject),
-          beforePatch: forwardSemanticPayload?.beforePatch,
-          afterPatch: forwardSemanticPayload?.afterPatch,
         },
       ];
       eventInverse = [
@@ -220,8 +190,6 @@ export const buildWorkbookHistoryEntryFromEvents = ({
           objectId,
           patch: inversePatch,
           expectedCurrent: cloneSerializable(nextObject),
-          beforePatch: inverseSemanticPayload?.beforePatch,
-          afterPatch: inverseSemanticPayload?.afterPatch,
         },
       ];
     } else if (event.type === "board.object.reorder") {
@@ -235,24 +203,12 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       const forwardPatch = buildBoardObjectDiffPatch(currentObject, nextObject);
       const inversePatch = buildBoardObjectDiffPatch(nextObject, currentObject);
       if (!forwardPatch || !inversePatch) return;
-      const forwardSemanticPayload = buildObjectPatchSemanticPayload(
-        currentObject,
-        nextObject,
-        forwardPatch
-      );
-      const inverseSemanticPayload = buildObjectPatchSemanticPayload(
-        nextObject,
-        currentObject,
-        inversePatch
-      );
       eventForward = [
         {
           kind: "patch_object",
           objectId,
           patch: forwardPatch,
           expectedCurrent: cloneSerializable(currentObject),
-          beforePatch: forwardSemanticPayload?.beforePatch,
-          afterPatch: forwardSemanticPayload?.afterPatch,
         },
       ];
       eventInverse = [
@@ -261,8 +217,6 @@ export const buildWorkbookHistoryEntryFromEvents = ({
           objectId,
           patch: inversePatch,
           expectedCurrent: cloneSerializable(nextObject),
-          beforePatch: inverseSemanticPayload?.beforePatch,
-          afterPatch: inverseSemanticPayload?.afterPatch,
         },
       ];
     } else if (event.type === "board.clear") {
@@ -348,32 +302,8 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       const forwardPatch = buildBoardSettingsDiffPatch(currentBoardSettings, nextSettings);
       const inversePatch = buildBoardSettingsDiffPatch(nextSettings, currentBoardSettings);
       if (!forwardPatch || !inversePatch) return;
-      const forwardSemanticPayload = buildBoardSettingsPatchSemanticPayload(
-        currentBoardSettings,
-        nextSettings,
-        forwardPatch
-      );
-      const inverseSemanticPayload = buildBoardSettingsPatchSemanticPayload(
-        nextSettings,
-        currentBoardSettings,
-        inversePatch
-      );
-      eventForward = [
-        {
-          kind: "patch_board_settings",
-          patch: forwardPatch,
-          beforePatch: forwardSemanticPayload?.beforePatch,
-          afterPatch: forwardSemanticPayload?.afterPatch,
-        },
-      ];
-      eventInverse = [
-        {
-          kind: "patch_board_settings",
-          patch: inversePatch,
-          beforePatch: inverseSemanticPayload?.beforePatch,
-          afterPatch: inverseSemanticPayload?.afterPatch,
-        },
-      ];
+      eventForward = [{ kind: "patch_board_settings", patch: forwardPatch }];
+      eventInverse = [{ kind: "patch_board_settings", patch: inversePatch }];
     } else if (event.type === "document.asset.add") {
       const asset = normalizeDocumentAssetPayload((event.payload as { asset?: unknown })?.asset);
       if (!asset) return;
