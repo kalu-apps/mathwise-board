@@ -723,6 +723,10 @@ export default function WorkbookSessionPage() {
       lessonRecording.toggleMicrophone,
     ]
   );
+  const [dividerToolColor, setDividerToolColor] = useState<string>(defaultColorByLayer.board);
+  const [dividerToolLineStyle, setDividerToolLineStyle] = useState<"solid" | "dashed">(
+    "dashed"
+  );
   const {
     clampedEraserRadius,
     resetToolRuntimeToSelect,
@@ -735,7 +739,7 @@ export default function WorkbookSessionPage() {
     tool,
     penToolSettings,
     highlighterToolSettings,
-    dividerToolColor: strokeColor,
+    dividerToolColor,
     dividerWidthDraft,
     eraserRadius,
     strokeColor,
@@ -751,9 +755,6 @@ export default function WorkbookSessionPage() {
   });
   const [toolSettingsPopoverState, setToolSettingsPopoverState] =
     useState<WorkbookToolSettingsPopoverState>(null);
-  const [dividerToolLineStyle, setDividerToolLineStyle] = useState<"solid" | "dashed">(
-    "dashed"
-  );
   const handleCloseToolSettingsPopover = useCallback(() => {
     setToolSettingsPopoverState(null);
   }, []);
@@ -782,9 +783,12 @@ export default function WorkbookSessionPage() {
     (nextColor: string) => {
       const safeColor =
         typeof nextColor === "string" && nextColor ? nextColor : defaultColorByLayer.board;
-      setStrokeColor(safeColor);
+      setDividerToolColor(safeColor);
+      if (tool === "divider") {
+        setStrokeColor(safeColor);
+      }
     },
-    [setStrokeColor]
+    [setStrokeColor, setDividerToolColor, tool]
   );
   const handleDividerToolWidthChange = useCallback(
     (nextWidth: number) => {
@@ -3423,7 +3427,7 @@ export default function WorkbookSessionPage() {
         onPenToolSettingsChange={handlePenToolSettingsChange}
         onHighlighterToolSettingsChange={handleHighlighterToolSettingsChange}
         onEraserRadiusChange={handleEraserRadiusChange}
-        dividerColor={strokeColor}
+        dividerColor={dividerToolColor}
         dividerWidth={Math.max(1, Math.min(18, Math.round(dividerWidthDraft || 2)))}
         dividerLineStyle={dividerToolLineStyle}
         onDividerColorChange={handleDividerToolColorChange}

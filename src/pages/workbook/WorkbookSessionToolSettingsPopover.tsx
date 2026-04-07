@@ -212,13 +212,25 @@ export function WorkbookSessionToolSettingsPopover({
               <div className="workbook-session__tool-settings-cluster-title">
                 Вид и толщина
               </div>
-              <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
-                <div className="workbook-session__tool-settings-field-main">
-                  <strong>Цвет</strong>
-                  <label
-                    className="workbook-session__tool-settings-inline-switch"
-                    style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
-                  >
+              <div className="workbook-session__tool-settings-split workbook-session__tool-settings-split--divider">
+                <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact workbook-session__tool-settings-field--divider-color">
+                  <div className="workbook-session__tool-settings-field-main">
+                    <strong>Цвет</strong>
+                  </div>
+                  <label className="workbook-session__tool-settings-color workbook-session__tool-settings-color--divider">
+                    <input
+                      type="color"
+                      name="divider-color"
+                      value={dividerColor}
+                      onChange={(event) => onDividerColorChange(event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact workbook-session__tool-settings-field--divider-style">
+                  <div className="workbook-session__tool-settings-field-main">
+                    <strong>Линия</strong>
+                  </div>
+                  <label className="workbook-session__tool-settings-divider-switch">
                     <span>Пунктир</span>
                     <Switch
                       size="small"
@@ -229,16 +241,8 @@ export function WorkbookSessionToolSettingsPopover({
                     />
                   </label>
                 </div>
-                <label className="workbook-session__tool-settings-color">
-                  <input
-                    type="color"
-                    name="divider-color"
-                    value={dividerColor}
-                    onChange={(event) => onDividerColorChange(event.target.value)}
-                  />
-                </label>
               </div>
-              <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
+              <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact workbook-session__tool-settings-field--divider-width">
                 <div className="workbook-session__tool-settings-field-main">
                   <strong>Толщина</strong>
                 </div>
