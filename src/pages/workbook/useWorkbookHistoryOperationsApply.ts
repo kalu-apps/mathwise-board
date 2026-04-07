@@ -15,6 +15,7 @@ import type {
   WorkbookLayer,
 } from "@/features/workbook/model/types";
 import {
+  areSerializableValuesEqual,
   clampBoardObjectToPageFrame,
   cloneSerializable,
 } from "./WorkbookSessionPage.core";
@@ -92,25 +93,52 @@ export const useWorkbookHistoryOperationsApply = ({
     [setAnnotationStrokes, setBoardStrokes]
   );
 
+  const isExpectedStateMatch = useCallback(
+    <T,>(current: T | undefined, expected: T | null | undefined) => {
+      if (expected === undefined) return true;
+      if (expected === null) return current === undefined;
+      if (current === undefined) return false;
+      return areSerializableValuesEqual(current, expected);
+    },
+    []
+  );
+
   const applyHistoryOperations = useCallback(
     (operations: WorkbookHistoryOperation[]) => {
       operations.forEach((operation) => {
         if (operation.kind === "upsert_stroke") {
-          finalizeStrokePreview(operation.stroke.id);
+          let applied = false;
           applyLocalStrokeCollection(operation.layer, (current) => {
-            const exists = current.some((item) => item.id === operation.stroke.id);
+            const currentStroke = current.find((item) => item.id === operation.stroke.id);
+            if (!isExpectedStateMatch(currentStroke, operation.expectedCurrent)) {
+              return current;
+            }
+            const exists = Boolean(currentStroke);
+            applied = true;
             if (!exists) return [...current, cloneSerializable(operation.stroke)];
             return current.map((item) =>
               item.id === operation.stroke.id ? cloneSerializable(operation.stroke) : item
             );
           });
+          if (applied) {
+            finalizeStrokePreview(operation.stroke.id);
+          }
           return;
         }
         if (operation.kind === "remove_stroke") {
-          finalizeStrokePreview(operation.strokeId);
-          applyLocalStrokeCollection(operation.layer, (current) =>
-            current.filter((item) => item.id !== operation.strokeId)
-          );
+          let applied = false;
+          applyLocalStrokeCollection(operation.layer, (current) => {
+            const currentStroke = current.find((item) => item.id === operation.strokeId);
+            if (!isExpectedStateMatch(currentStroke, operation.expectedCurrent)) {
+              return current;
+            }
+            if (!currentStroke) return current;
+            applied = true;
+            return current.filter((item) => item.id !== operation.strokeId);
+          });
+          if (applied) {
+            finalizeStrokePreview(operation.strokeId);
+          }
           return;
         }
         if (operation.kind === "upsert_object") {
@@ -119,27 +147,47 @@ export const useWorkbookHistoryOperationsApply = ({
             boardSettingsRef.current.pageFrameWidth
           );
           applyLocalBoardObjects((current) => {
-            const exists = current.some((item) => item.id === nextObject.id);
+            const currentObject = current.find((item) => item.id === nextObject.id);
+            if (!isExpectedStateMatch(currentObject, operation.expectedCurrent)) {
+              return current;
+            }
+            const exists = Boolean(currentObject);
             if (!exists) return [...current, nextObject];
             return current.map((item) => (item.id === nextObject.id ? nextObject : item));
           });
           return;
         }
         if (operation.kind === "patch_object") {
-          applyLocalBoardObjects((current) =>
-            current.map((item) =>
+          applyLocalBoardObjects((current) => {
+            const currentObject = current.find((item) => item.id === operation.objectId);
+            if (!currentObject) return current;
+            if (!isExpectedStateMatch(currentObject, operation.expectedCurrent)) {
+              return current;
+            }
+            return current.map((item) =>
               item.id === operation.objectId
                 ? clampBoardObjectToPageFrame(
                     mergeBoardObjectWithPatch(item, cloneSerializable(operation.patch)),
                     boardSettingsRef.current.pageFrameWidth
                   )
                 : item
-            )
-          );
+            );
+          });
           return;
         }
         if (operation.kind === "remove_object") {
           const objectId = operation.objectId;
+          let removed = false;
+          applyLocalBoardObjects((current) => {
+            const currentObject = current.find((item) => item.id === objectId);
+            if (!isExpectedStateMatch(currentObject, operation.expectedCurrent)) {
+              return current;
+            }
+            if (!currentObject) return current;
+            removed = true;
+            return current.filter((item) => item.id !== objectId);
+          });
+          if (!removed) return;
           objectUpdateQueuedPatchRef.current.delete(objectId);
           objectUpdateDispatchOptionsRef.current.delete(objectId);
           objectUpdateHistoryBeforeRef.current.delete(objectId);
@@ -158,7 +206,6 @@ export const useWorkbookHistoryOperationsApply = ({
             window.clearTimeout(pendingUpdateTimer);
             objectUpdateTimersRef.current.delete(objectId);
           }
-          applyLocalBoardObjects((current) => current.filter((item) => item.id !== objectId));
           setConstraints((current) =>
             current.filter(
               (constraint) =>
@@ -272,6 +319,7 @@ export const useWorkbookHistoryOperationsApply = ({
       applyLocalBoardObjects,
       applyLocalStrokeCollection,
       finalizeStrokePreview,
+      isExpectedStateMatch,
       incomingPreviewQueuedPatchRef,
       incomingPreviewVersionByAuthorObjectRef,
       objectPreviewQueuedAtRef,

@@ -335,11 +335,34 @@ export type WorkbookSceneSnapshot = {
 };
 
 export type WorkbookHistoryOperation =
-  | { kind: "upsert_stroke"; layer: WorkbookLayer; stroke: WorkbookStroke }
-  | { kind: "remove_stroke"; layer: WorkbookLayer; strokeId: string }
-  | { kind: "upsert_object"; object: WorkbookBoardObject }
-  | { kind: "patch_object"; objectId: string; patch: Partial<WorkbookBoardObject> }
-  | { kind: "remove_object"; objectId: string }
+  | {
+      kind: "upsert_stroke";
+      layer: WorkbookLayer;
+      stroke: WorkbookStroke;
+      expectedCurrent?: WorkbookStroke | null;
+    }
+  | {
+      kind: "remove_stroke";
+      layer: WorkbookLayer;
+      strokeId: string;
+      expectedCurrent?: WorkbookStroke | null;
+    }
+  | {
+      kind: "upsert_object";
+      object: WorkbookBoardObject;
+      expectedCurrent?: WorkbookBoardObject | null;
+    }
+  | {
+      kind: "patch_object";
+      objectId: string;
+      patch: Partial<WorkbookBoardObject>;
+      expectedCurrent?: WorkbookBoardObject | null;
+    }
+  | {
+      kind: "remove_object";
+      objectId: string;
+      expectedCurrent?: WorkbookBoardObject | null;
+    }
   | { kind: "upsert_constraint"; constraint: WorkbookConstraint }
   | { kind: "remove_constraint"; constraintId: string }
   | { kind: "patch_board_settings"; patch: Partial<WorkbookBoardSettings> }

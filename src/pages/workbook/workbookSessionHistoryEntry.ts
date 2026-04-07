@@ -58,9 +58,21 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       const stroke = normalizeStrokePayload((event.payload as { stroke?: unknown })?.stroke);
       if (!stroke) return;
       eventForward = [
-        { kind: "upsert_stroke", layer: stroke.layer, stroke: cloneSerializable(stroke) },
+        {
+          kind: "upsert_stroke",
+          layer: stroke.layer,
+          stroke: cloneSerializable(stroke),
+          expectedCurrent: null,
+        },
       ];
-      eventInverse = [{ kind: "remove_stroke", layer: stroke.layer, strokeId: stroke.id }];
+      eventInverse = [
+        {
+          kind: "remove_stroke",
+          layer: stroke.layer,
+          strokeId: stroke.id,
+          expectedCurrent: cloneSerializable(stroke),
+        },
+      ];
     } else if (
       event.type === "board.stroke.delete" ||
       event.type === "annotations.stroke.delete"
@@ -72,13 +84,35 @@ export const buildWorkbookHistoryEntryFromEvents = ({
         (item) => item.id === strokeId
       );
       if (!source) return;
-      eventForward = [{ kind: "remove_stroke", layer, strokeId }];
-      eventInverse = [{ kind: "upsert_stroke", layer, stroke: cloneSerializable(source) }];
+      eventForward = [
+        {
+          kind: "remove_stroke",
+          layer,
+          strokeId,
+          expectedCurrent: cloneSerializable(source),
+        },
+      ];
+      eventInverse = [
+        {
+          kind: "upsert_stroke",
+          layer,
+          stroke: cloneSerializable(source),
+          expectedCurrent: null,
+        },
+      ];
     } else if (event.type === "board.object.create") {
       const object = normalizeObjectPayload((event.payload as { object?: unknown })?.object);
       if (!object) return;
-      eventForward = [{ kind: "upsert_object", object: cloneSerializable(object) }];
-      eventInverse = [{ kind: "remove_object", objectId: object.id }];
+      eventForward = [
+        { kind: "upsert_object", object: cloneSerializable(object), expectedCurrent: null },
+      ];
+      eventInverse = [
+        {
+          kind: "remove_object",
+          objectId: object.id,
+          expectedCurrent: cloneSerializable(object),
+        },
+      ];
     } else if (event.type === "board.object.update") {
       const payload = event.payload as { objectId?: unknown; patch?: unknown };
       const objectId = typeof payload.objectId === "string" ? payload.objectId : "";
@@ -93,8 +127,22 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       const forwardPatch = buildBoardObjectDiffPatch(currentObject, nextObject);
       const inversePatch = buildBoardObjectDiffPatch(nextObject, currentObject);
       if (!forwardPatch || !inversePatch) return;
-      eventForward = [{ kind: "patch_object", objectId, patch: forwardPatch }];
-      eventInverse = [{ kind: "patch_object", objectId, patch: inversePatch }];
+      eventForward = [
+        {
+          kind: "patch_object",
+          objectId,
+          patch: forwardPatch,
+          expectedCurrent: cloneSerializable(currentObject),
+        },
+      ];
+      eventInverse = [
+        {
+          kind: "patch_object",
+          objectId,
+          patch: inversePatch,
+          expectedCurrent: cloneSerializable(nextObject),
+        },
+      ];
     } else if (event.type === "board.object.delete") {
       const objectId = (event.payload as { objectId?: unknown })?.objectId;
       if (typeof objectId !== "string" || !objectId) return;
@@ -104,9 +152,15 @@ export const buildWorkbookHistoryEntryFromEvents = ({
         (constraint) =>
           constraint.sourceObjectId === objectId || constraint.targetObjectId === objectId
       );
-      eventForward = [{ kind: "remove_object", objectId }];
+      eventForward = [
+        {
+          kind: "remove_object",
+          objectId,
+          expectedCurrent: cloneSerializable(currentObject),
+        },
+      ];
       eventInverse = [
-        { kind: "upsert_object", object: cloneSerializable(currentObject) },
+        { kind: "upsert_object", object: cloneSerializable(currentObject), expectedCurrent: null },
         ...relatedConstraints.map((constraint) => ({
           kind: "upsert_constraint" as const,
           constraint: cloneSerializable(constraint),
@@ -122,8 +176,22 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       const forwardPatch = buildBoardObjectDiffPatch(currentObject, nextObject);
       const inversePatch = buildBoardObjectDiffPatch(nextObject, currentObject);
       if (!forwardPatch || !inversePatch) return;
-      eventForward = [{ kind: "patch_object", objectId, patch: forwardPatch }];
-      eventInverse = [{ kind: "patch_object", objectId, patch: inversePatch }];
+      eventForward = [
+        {
+          kind: "patch_object",
+          objectId,
+          patch: forwardPatch,
+          expectedCurrent: cloneSerializable(currentObject),
+        },
+      ];
+      eventInverse = [
+        {
+          kind: "patch_object",
+          objectId,
+          patch: inversePatch,
+          expectedCurrent: cloneSerializable(nextObject),
+        },
+      ];
     } else if (event.type === "board.object.reorder") {
       const payload = event.payload as { objectId?: unknown; zOrder?: unknown };
       const objectId = typeof payload.objectId === "string" ? payload.objectId : "";
@@ -135,8 +203,22 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       const forwardPatch = buildBoardObjectDiffPatch(currentObject, nextObject);
       const inversePatch = buildBoardObjectDiffPatch(nextObject, currentObject);
       if (!forwardPatch || !inversePatch) return;
-      eventForward = [{ kind: "patch_object", objectId, patch: forwardPatch }];
-      eventInverse = [{ kind: "patch_object", objectId, patch: inversePatch }];
+      eventForward = [
+        {
+          kind: "patch_object",
+          objectId,
+          patch: forwardPatch,
+          expectedCurrent: cloneSerializable(currentObject),
+        },
+      ];
+      eventInverse = [
+        {
+          kind: "patch_object",
+          objectId,
+          patch: inversePatch,
+          expectedCurrent: cloneSerializable(nextObject),
+        },
+      ];
     } else if (event.type === "board.clear") {
       eventForward = [
         ...currentConstraints.map((constraint) => ({
@@ -146,11 +228,13 @@ export const buildWorkbookHistoryEntryFromEvents = ({
         ...currentObjects.map((object) => ({
           kind: "remove_object" as const,
           objectId: object.id,
+          expectedCurrent: cloneSerializable(object),
         })),
         ...currentBoardStrokes.map((stroke) => ({
           kind: "remove_stroke" as const,
           layer: "board" as const,
           strokeId: stroke.id,
+          expectedCurrent: cloneSerializable(stroke),
         })),
       ];
       eventInverse = [
@@ -158,10 +242,12 @@ export const buildWorkbookHistoryEntryFromEvents = ({
           kind: "upsert_stroke" as const,
           layer: "board" as const,
           stroke: cloneSerializable(stroke),
+          expectedCurrent: null,
         })),
         ...currentObjects.map((object) => ({
           kind: "upsert_object" as const,
           object: cloneSerializable(object),
+          expectedCurrent: null,
         })),
         ...currentConstraints.map((constraint) => ({
           kind: "upsert_constraint" as const,
@@ -173,11 +259,13 @@ export const buildWorkbookHistoryEntryFromEvents = ({
         kind: "remove_stroke" as const,
         layer: "annotations" as const,
         strokeId: stroke.id,
+        expectedCurrent: cloneSerializable(stroke),
       }));
       eventInverse = currentAnnotationStrokes.map((stroke) => ({
         kind: "upsert_stroke" as const,
         layer: "annotations" as const,
         stroke: cloneSerializable(stroke),
+        expectedCurrent: null,
       }));
     } else if (event.type === "geometry.constraint.add") {
       const constraint = (event.payload as { constraint?: unknown })?.constraint;

@@ -83,8 +83,22 @@ export const useWorkbookObjectUpdateQueue = ({
                 const inversePatch = buildBoardObjectDiffPatch(historyAfter, historyBefore);
                 if (!forwardPatch || !inversePatch) return null;
                 return {
-                  forward: [{ kind: "patch_object" as const, objectId, patch: forwardPatch }],
-                  inverse: [{ kind: "patch_object" as const, objectId, patch: inversePatch }],
+                  forward: [
+                    {
+                      kind: "patch_object" as const,
+                      objectId,
+                      patch: forwardPatch,
+                      expectedCurrent: historyBefore,
+                    },
+                  ],
+                  inverse: [
+                    {
+                      kind: "patch_object" as const,
+                      objectId,
+                      patch: inversePatch,
+                      expectedCurrent: historyAfter,
+                    },
+                  ],
                   page: toSafePage(historyAfter.page),
                   createdAt: new Date().toISOString(),
                 } satisfies WorkbookHistoryEntry;
