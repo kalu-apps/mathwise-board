@@ -28,8 +28,6 @@ interface UseWorkbookCanvasDomHandlersParams {
   viewportOffset: WorkbookPoint;
   safeZoom: number;
   displayBias: WorkbookPoint;
-  pageSurfaceZoom: number;
-  pageSurfaceDisplayBias: WorkbookPoint;
   allowHorizontalPan: boolean;
   pageFrameBounds: WorkbookPageFrameBounds;
   onViewportOffsetChange?: (offset: WorkbookPoint) => void;
@@ -108,8 +106,6 @@ export const useWorkbookCanvasDomHandlers = ({
   viewportOffset,
   safeZoom,
   displayBias,
-  pageSurfaceZoom,
-  pageSurfaceDisplayBias,
   allowHorizontalPan,
   pageFrameBounds,
   onViewportOffsetChange,
@@ -147,34 +143,26 @@ export const useWorkbookCanvasDomHandlers = ({
   const canvasStyle = useMemo(
     () => {
       const safeGridSizeWorld = Math.max(8, Math.min(96, Math.floor(gridSize || 22)));
-      const safeContentZoom =
+      const safeRenderZoom =
         Number.isFinite(safeZoom) && safeZoom > 0 ? safeZoom : 1;
-      const safeSurfaceZoom =
-        Number.isFinite(pageSurfaceZoom) && pageSurfaceZoom > 0 ? pageSurfaceZoom : safeContentZoom;
-      const gridStepPx = Math.max(1, safeGridSizeWorld * safeContentZoom);
-      const contentBiasX = Number.isFinite(displayBias.x) ? displayBias.x : 0;
-      const contentBiasY = Number.isFinite(displayBias.y) ? displayBias.y : 0;
-      const surfaceBiasX = Number.isFinite(pageSurfaceDisplayBias.x)
-        ? pageSurfaceDisplayBias.x
-        : contentBiasX;
-      const surfaceBiasY = Number.isFinite(pageSurfaceDisplayBias.y)
-        ? pageSurfaceDisplayBias.y
-        : contentBiasY;
+      const gridStepPx = Math.max(1, safeGridSizeWorld * safeRenderZoom);
+      const displayBiasX = Number.isFinite(displayBias.x) ? displayBias.x : 0;
+      const displayBiasY = Number.isFinite(displayBias.y) ? displayBias.y : 0;
       // Align screen-space CSS grid phase with world-space viewport translation.
       const gridOffsetXPx = toPositiveModulo(
-        -viewportOffset.x * safeContentZoom + contentBiasX,
+        -viewportOffset.x * safeRenderZoom + displayBiasX,
         gridStepPx
       );
       const gridOffsetYPx = toPositiveModulo(
-        -viewportOffset.y * safeContentZoom + contentBiasY,
+        -viewportOffset.y * safeRenderZoom + displayBiasY,
         gridStepPx
       );
       const pageLeftPx =
-        (pageFrameBounds.minX - viewportOffset.x) * safeSurfaceZoom + surfaceBiasX;
+        (pageFrameBounds.minX - viewportOffset.x) * safeRenderZoom + displayBiasX;
       const pageTopPx =
-        (pageFrameBounds.minY - viewportOffset.y) * safeSurfaceZoom + surfaceBiasY;
-      const pageWidthPx = pageFrameBounds.width * safeSurfaceZoom;
-      const pageHeightPx = pageFrameBounds.height * safeSurfaceZoom;
+        (pageFrameBounds.minY - viewportOffset.y) * safeRenderZoom + displayBiasY;
+      const pageWidthPx = pageFrameBounds.width * safeRenderZoom;
+      const pageHeightPx = pageFrameBounds.height * safeRenderZoom;
       const pageGridOffsetXPx = toPositiveModulo(gridOffsetXPx - pageLeftPx, gridStepPx);
       const pageGridOffsetYPx = toPositiveModulo(gridOffsetYPx - pageTopPx, gridStepPx);
       return {
@@ -198,9 +186,6 @@ export const useWorkbookCanvasDomHandlers = ({
       displayBias.y,
       gridColor,
       gridSize,
-      pageSurfaceDisplayBias.x,
-      pageSurfaceDisplayBias.y,
-      pageSurfaceZoom,
       pageFrameBounds.height,
       pageFrameBounds.minX,
       pageFrameBounds.minY,
