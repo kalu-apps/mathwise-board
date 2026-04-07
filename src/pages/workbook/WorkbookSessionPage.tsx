@@ -477,7 +477,6 @@ export default function WorkbookSessionPage() {
     strokePreviewQueuedAtRef,
     eraserPreviewQueuedByGestureRef,
     eraserPreviewQueuedAtRef,
-    finalizedStrokePreviewIdsRef,
     localPreviewQueuedPatchRef,
     localPreviewFrameRef,
     workbookLiveSendRef,
@@ -1328,7 +1327,6 @@ export default function WorkbookSessionPage() {
     objectPreviewVersionRef,
     strokePreviewQueuedByIdRef,
     strokePreviewQueuedAtRef,
-    finalizedStrokePreviewIdsRef,
     eraserPreviewQueuedByGestureRef,
     eraserPreviewQueuedAtRef,
   });

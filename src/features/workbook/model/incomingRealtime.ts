@@ -319,7 +319,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     const payload = event.payload as { stroke?: unknown; previewVersion?: unknown };
     const stroke = normalizeStrokePayload(payload.stroke);
     if (!stroke) return true;
-    if (finalizedStrokePreviewIdsRef.current.has(stroke.id)) return true;
+    finalizedStrokePreviewIdsRef.current.delete(stroke.id);
     const previewVersion =
       typeof payload.previewVersion === "number" && Number.isFinite(payload.previewVersion)
         ? Math.max(1, Math.trunc(payload.previewVersion))

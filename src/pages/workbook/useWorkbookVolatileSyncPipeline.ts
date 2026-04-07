@@ -50,7 +50,6 @@ type UseWorkbookVolatileSyncPipelineParams = {
   objectPreviewVersionRef: MutableRefObject<Map<string, number>>;
   strokePreviewQueuedByIdRef: MutableRefObject<Map<string, QueuedStrokePreviewEntry>>;
   strokePreviewQueuedAtRef: MutableRefObject<Map<string, number>>;
-  finalizedStrokePreviewIdsRef: MutableRefObject<Set<string>>;
   eraserPreviewQueuedByGestureRef: MutableRefObject<Map<string, QueuedEraserPreviewEntry>>;
   eraserPreviewQueuedAtRef: MutableRefObject<Map<string, number>>;
 };
@@ -74,11 +73,11 @@ export const useWorkbookVolatileSyncPipeline = ({
   objectPreviewVersionRef,
   strokePreviewQueuedByIdRef,
   strokePreviewQueuedAtRef,
-  finalizedStrokePreviewIdsRef,
   eraserPreviewQueuedByGestureRef,
   eraserPreviewQueuedAtRef,
 }: UseWorkbookVolatileSyncPipelineParams) => {
   const flushQueuedVolatileSyncRef = useRef<() => void>(() => {});
+  const strokePreviewVersionByIdRef = useRef<Map<string, number>>(new Map());
 
   const flushQueuedVolatileSync = useCallback(() => {
     const droppedEventTypes = new Set<string>();
@@ -89,6 +88,7 @@ export const useWorkbookVolatileSyncPipeline = ({
       objectPreviewQueuedAtRef.current.clear();
       strokePreviewQueuedByIdRef.current.clear();
       strokePreviewQueuedAtRef.current.clear();
+      strokePreviewVersionByIdRef.current.clear();
       eraserPreviewQueuedByGestureRef.current.clear();
       eraserPreviewQueuedAtRef.current.clear();
       return;
@@ -180,16 +180,7 @@ export const useWorkbookVolatileSyncPipeline = ({
       }
       queuedStrokePreviews
         .sort((left, right) => left.queuedAt - right.queuedAt)
-        .forEach(({ entry, strokeId }) => {
-          if (finalizedStrokePreviewIdsRef.current.has(strokeId)) {
-            droppedCount += 1;
-            droppedEventTypes.add(
-              entry.stroke.layer === "annotations"
-                ? "annotations.stroke.preview"
-                : "board.stroke.preview"
-            );
-            return;
-          }
+        .forEach(({ entry }) => {
           events.push({
             type:
               entry.stroke.layer === "annotations"
@@ -240,6 +231,7 @@ export const useWorkbookVolatileSyncPipeline = ({
     } else {
       strokePreviewQueuedByIdRef.current.clear();
       strokePreviewQueuedAtRef.current.clear();
+      strokePreviewVersionByIdRef.current.clear();
       eraserPreviewQueuedByGestureRef.current.clear();
       eraserPreviewQueuedAtRef.current.clear();
     }
@@ -273,7 +265,6 @@ export const useWorkbookVolatileSyncPipeline = ({
     objectPreviewVersionRef,
     strokePreviewQueuedAtRef,
     strokePreviewQueuedByIdRef,
-    finalizedStrokePreviewIdsRef,
     eraserPreviewQueuedAtRef,
     eraserPreviewQueuedByGestureRef,
   ]);
@@ -303,9 +294,19 @@ export const useWorkbookVolatileSyncPipeline = ({
   const queueStrokePreview = useCallback(
     (payload: { stroke: WorkbookStroke; previewVersion: number }) => {
       const strokeId = payload.stroke.id;
-      if (!strokeId || finalizedStrokePreviewIdsRef.current.has(strokeId)) return;
+      if (!strokeId) return;
+      const incomingVersion =
+        typeof payload.previewVersion === "number" && Number.isFinite(payload.previewVersion)
+          ? Math.max(1, Math.trunc(payload.previewVersion))
+          : 1;
+      const previousVersion = strokePreviewVersionByIdRef.current.get(strokeId) ?? 0;
+      const nextVersion = Math.max(incomingVersion, previousVersion + 1);
+      strokePreviewVersionByIdRef.current.set(strokeId, nextVersion);
       const now = Date.now();
-      strokePreviewQueuedByIdRef.current.set(strokeId, payload);
+      strokePreviewQueuedByIdRef.current.set(strokeId, {
+        stroke: payload.stroke,
+        previewVersion: nextVersion,
+      });
       strokePreviewQueuedAtRef.current.set(strokeId, now);
       if (strokePreviewQueuedByIdRef.current.size > volatilePreviewQueueMax) {
         const overflow = strokePreviewQueuedByIdRef.current.size - volatilePreviewQueueMax;
@@ -329,9 +330,9 @@ export const useWorkbookVolatileSyncPipeline = ({
       scheduleVolatileSyncFlush();
     },
     [
-      finalizedStrokePreviewIdsRef,
       strokePreviewQueuedByIdRef,
       strokePreviewQueuedAtRef,
+      strokePreviewVersionByIdRef,
       volatilePreviewQueueMax,
       sessionId,
       realtimeBackpressureV2Enabled,

@@ -288,12 +288,10 @@ export const useWorkbookIncomingRuntimeController = (
       if (!strokeId) return;
       finalizedStrokePreviewIdsRef.current.add(strokeId);
       strokePreviewQueuedByIdRef.current.delete(strokeId);
-      incomingStrokePreviewVersionRef.current.delete(strokeId);
       queueIncomingStrokePreview(null, strokeId);
     },
     [
       finalizedStrokePreviewIdsRef,
-      incomingStrokePreviewVersionRef,
       queueIncomingStrokePreview,
       strokePreviewQueuedByIdRef,
     ]
