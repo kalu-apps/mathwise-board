@@ -91,11 +91,12 @@ export const useWorkbookHistoryHotkeys = ({
     (entries: HistoryEntryLike[], page: number, actorUserId: string) => {
       const safePage = toSafePage(page);
       const safeActorUserId = toSafeHistoryActorUserId(actorUserId);
-      return entries.reduce((count, entry) => {
+      const hasEntry = entries.some((entry) => {
         const entryPage = resolveEntryPage(entry);
         const entryActorUserId = resolveEntryActorUserId(entry, safeActorUserId);
-        return entryPage === safePage && entryActorUserId === safeActorUserId ? count + 1 : count;
-      }, 0);
+        return entryPage === safePage && entryActorUserId === safeActorUserId;
+      });
+      return hasEntry ? 1 : 0;
     },
     [resolveEntryActorUserId, resolveEntryPage, toSafeHistoryActorUserId, toSafePage]
   );
@@ -129,17 +130,22 @@ export const useWorkbookHistoryHotkeys = ({
     if (targetIndex < 0) return;
     const entry = undoStackRef.current[targetIndex];
     if (!entry) return;
+    const safePage = toSafePage(currentBoardPage);
+    const isCurrentScopeEntry = (candidate: HistoryEntryLike) =>
+      resolveEntryPage(candidate) === safePage &&
+      resolveEntryActorUserId(candidate, currentActorUserId) === currentActorUserId;
     const previousUndoStack = undoStackRef.current;
     const previousRedoStack = redoStackRef.current;
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
-    undoStackRef.current = [
-      ...undoStackRef.current.slice(0, targetIndex),
-      ...undoStackRef.current.slice(targetIndex + 1),
-    ];
-    redoStackRef.current = [...redoStackRef.current, entry].slice(-80);
-    const safePage = toSafePage(currentBoardPage);
+    undoStackRef.current = undoStackRef.current.filter(
+      (candidate, index) => index !== targetIndex && !isCurrentScopeEntry(candidate)
+    );
+    redoStackRef.current = [
+      ...redoStackRef.current.filter((candidate) => !isCurrentScopeEntry(candidate)),
+      entry,
+    ].slice(-80);
     setUndoDepth(countEntriesForPage(undoStackRef.current, safePage, currentActorUserId));
     setRedoDepth(countEntriesForPage(redoStackRef.current, safePage, currentActorUserId));
     applyHistoryOperations(entry.inverse);
@@ -179,6 +185,8 @@ export const useWorkbookHistoryHotkeys = ({
     currentBoardPage,
     findLastEntryIndexForPage,
     resolveCurrentActorUserId,
+    resolveEntryActorUserId,
+    resolveEntryPage,
     markDirty,
     redoStackRef,
     setError,
@@ -199,17 +207,22 @@ export const useWorkbookHistoryHotkeys = ({
     if (targetIndex < 0) return;
     const entry = redoStackRef.current[targetIndex];
     if (!entry) return;
+    const safePage = toSafePage(currentBoardPage);
+    const isCurrentScopeEntry = (candidate: HistoryEntryLike) =>
+      resolveEntryPage(candidate) === safePage &&
+      resolveEntryActorUserId(candidate, currentActorUserId) === currentActorUserId;
     const previousUndoStack = undoStackRef.current;
     const previousRedoStack = redoStackRef.current;
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
-    redoStackRef.current = [
-      ...redoStackRef.current.slice(0, targetIndex),
-      ...redoStackRef.current.slice(targetIndex + 1),
-    ];
-    undoStackRef.current = [...undoStackRef.current, entry].slice(-80);
-    const safePage = toSafePage(currentBoardPage);
+    redoStackRef.current = redoStackRef.current.filter(
+      (candidate, index) => index !== targetIndex && !isCurrentScopeEntry(candidate)
+    );
+    undoStackRef.current = [
+      ...undoStackRef.current.filter((candidate) => !isCurrentScopeEntry(candidate)),
+      entry,
+    ].slice(-80);
     setUndoDepth(countEntriesForPage(undoStackRef.current, safePage, currentActorUserId));
     setRedoDepth(countEntriesForPage(redoStackRef.current, safePage, currentActorUserId));
     applyHistoryOperations(entry.forward);
@@ -249,6 +262,8 @@ export const useWorkbookHistoryHotkeys = ({
     currentBoardPage,
     findLastEntryIndexForPage,
     resolveCurrentActorUserId,
+    resolveEntryActorUserId,
+    resolveEntryPage,
     markDirty,
     redoStackRef,
     setError,
