@@ -29,14 +29,12 @@ import {
 import { useWorkbookSceneAccess } from "./useWorkbookSceneAccess";
 import {
   getObjectRect,
-  getPointsBoundsFromPoints,
 } from "../model/sceneGeometry";
 import {
   isWorkbookObjectHit,
   isWorkbookStrokeHit,
 } from "../model/sceneHitTesting";
 import {
-  resizeAreaSelectionRect,
   type WorkbookAreaSelectionDraft,
 } from "../model/sceneSelection";
 import {
@@ -125,6 +123,13 @@ import {
   translateWorkbookStrokePoints,
   type WorkbookStrokeSelection,
 } from "../model/strokeSelection";
+import {
+  createAreaSelectionResizePointMapper,
+  hasMeaningfulAreaSelectionResizeChange,
+  remapAreaSelectionObject,
+  remapAreaSelectionStroke,
+  resolveBoundedAreaSelectionResizeRect,
+} from "../model/areaSelectionResize";
 
 export type { WorkbookEraserCommitPayload } from "./WorkbookCanvas.types";
 
@@ -132,6 +137,44 @@ type ActiveStrokeDraft = ReturnType<typeof buildWorkbookActiveStrokeDraft>;
 
 type AreaSelectionDraft = WorkbookAreaSelectionDraft;
 type AreaSelectionResizeState = WorkbookAreaSelectionResizeState;
+
+const replaceRenderedStrokesBySelection = (params: {
+  baseStrokes: WorkbookStroke[];
+  selections: WorkbookStrokeSelection[];
+  replacementBySelectionKey: Map<string, WorkbookStroke>;
+}) => {
+  if (params.selections.length === 0 || params.replacementBySelectionKey.size === 0) {
+    return params.baseStrokes;
+  }
+  const replacedSelectionKeys = new Set<string>();
+  const nextStrokes: WorkbookStroke[] = [];
+  params.baseStrokes.forEach((stroke) => {
+    const matchingSelection = params.selections.find(
+      (selection) =>
+        stroke.layer === selection.layer &&
+        (stroke.id === selection.id || stroke.id.startsWith(`${selection.id}::preview-`))
+    );
+    if (!matchingSelection) {
+      nextStrokes.push(stroke);
+      return;
+    }
+    const selectionKey = buildWorkbookStrokeSelectionKey(matchingSelection);
+    if (replacedSelectionKeys.has(selectionKey)) {
+      return;
+    }
+    replacedSelectionKeys.add(selectionKey);
+    const replacementStroke = params.replacementBySelectionKey.get(selectionKey);
+    if (replacementStroke) {
+      nextStrokes.push(replacementStroke);
+    }
+  });
+
+  params.replacementBySelectionKey.forEach((replacementStroke, selectionKey) => {
+    if (replacedSelectionKeys.has(selectionKey)) return;
+    nextStrokes.push(replacementStroke);
+  });
+  return nextStrokes;
+};
 
 export const WorkbookCanvas = memo(function WorkbookCanvas({
   boardStrokes,
@@ -833,62 +876,96 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     onObjectUpdate,
   });
 
-  const renderedStrokesForDisplay = useMemo(() => {
-    if (!moving || movingStrokeSelections.length === 0) {
-      return renderedStrokes;
-    }
-    const deltaX = moving.current.x - moving.start.x;
-    const deltaY = moving.current.y - moving.start.y;
-    if (Math.abs(deltaX) <= 0.01 && Math.abs(deltaY) <= 0.01) {
-      return renderedStrokes;
-    }
-
-    const translatedBySelectionKey = new Map<string, WorkbookStroke>();
-    movingStrokeSelections.forEach((selection) => {
-      const sourceStrokeKey = buildWorkbookStrokeSelectionKey(selection);
-      const sourceStroke = strokeByKey.get(sourceStrokeKey) ?? null;
-      if (!sourceStroke) return;
-      translatedBySelectionKey.set(sourceStrokeKey, {
-        ...sourceStroke,
-        points: translateWorkbookStrokePoints(sourceStroke.points, deltaX, deltaY),
-      });
+  const areaSelectionResizePreview = useMemo(() => {
+    if (!areaSelectionResize || !areaSelection) return null;
+    const nextRect = resolveBoundedAreaSelectionResizeRect({
+      resize: areaSelectionResize,
+      bounds: pageFrameBounds,
     });
-
-    if (translatedBySelectionKey.size === 0) {
-      return renderedStrokes;
+    if (
+      !hasMeaningfulAreaSelectionResizeChange(areaSelectionResize.initialRect, nextRect)
+    ) {
+      return null;
     }
-
-    const replacedSelectionKeys = new Set<string>();
-    const nextStrokes: WorkbookStroke[] = [];
-    renderedStrokes.forEach((stroke) => {
-      const matchingSelection = movingStrokeSelections.find(
-        (selection) =>
-          stroke.layer === selection.layer &&
-          (stroke.id === selection.id ||
-            stroke.id.startsWith(`${selection.id}::preview-`))
+    const remapPoint = createAreaSelectionResizePointMapper({
+      initialRect: areaSelectionResize.initialRect,
+      nextRect,
+    });
+    const resizedObjectsById = new Map<string, WorkbookBoardObject>();
+    areaSelection.objectIds.forEach((objectId) => {
+      const sourceObject = objectById.get(objectId);
+      if (!sourceObject) return;
+      resizedObjectsById.set(
+        objectId,
+        remapAreaSelectionObject(sourceObject, remapPoint)
       );
-      if (!matchingSelection) {
-        nextStrokes.push(stroke);
-        return;
-      }
-      const selectionKey = buildWorkbookStrokeSelectionKey(matchingSelection);
-      if (replacedSelectionKeys.has(selectionKey)) {
-        return;
-      }
-      replacedSelectionKeys.add(selectionKey);
-      const translated = translatedBySelectionKey.get(selectionKey);
-      if (translated) {
-        nextStrokes.push(translated);
-      }
     });
+    const resizedStrokesBySelectionKey = new Map<string, WorkbookStroke>();
+    areaSelection.strokeIds.forEach((selection) => {
+      const selectionKey = buildWorkbookStrokeSelectionKey(selection);
+      const sourceStroke = strokeByKey.get(selectionKey) ?? null;
+      if (!sourceStroke) return;
+      resizedStrokesBySelectionKey.set(
+        selectionKey,
+        remapAreaSelectionStroke(sourceStroke, remapPoint)
+      );
+    });
+    return {
+      resizedObjectsById,
+      resizedStrokesBySelectionKey,
+    };
+  }, [areaSelectionResize, areaSelection, pageFrameBounds, objectById, strokeByKey]);
 
-    translatedBySelectionKey.forEach((translated, selectionKey) => {
-      if (replacedSelectionKeys.has(selectionKey)) return;
-      nextStrokes.push(translated);
-    });
+  const visibleBoardObjectsForDisplay = useMemo(() => {
+    if (!areaSelectionResizePreview || areaSelectionResizePreview.resizedObjectsById.size === 0) {
+      return visibleBoardObjects;
+    }
+    return visibleBoardObjects.map(
+      (object) => areaSelectionResizePreview.resizedObjectsById.get(object.id) ?? object
+    );
+  }, [areaSelectionResizePreview, visibleBoardObjects]);
+
+  const renderedStrokesForDisplay = useMemo(() => {
+    let nextStrokes = renderedStrokes;
+    if (moving && movingStrokeSelections.length > 0) {
+      const deltaX = moving.current.x - moving.start.x;
+      const deltaY = moving.current.y - moving.start.y;
+      if (Math.abs(deltaX) > 0.01 || Math.abs(deltaY) > 0.01) {
+        const translatedBySelectionKey = new Map<string, WorkbookStroke>();
+        movingStrokeSelections.forEach((selection) => {
+          const sourceStrokeKey = buildWorkbookStrokeSelectionKey(selection);
+          const sourceStroke = strokeByKey.get(sourceStrokeKey) ?? null;
+          if (!sourceStroke) return;
+          translatedBySelectionKey.set(sourceStrokeKey, {
+            ...sourceStroke,
+            points: translateWorkbookStrokePoints(sourceStroke.points, deltaX, deltaY),
+          });
+        });
+        nextStrokes = replaceRenderedStrokesBySelection({
+          baseStrokes: nextStrokes,
+          selections: movingStrokeSelections,
+          replacementBySelectionKey: translatedBySelectionKey,
+        });
+      }
+    }
+
+    if (areaSelectionResizePreview && areaSelection?.strokeIds.length) {
+      nextStrokes = replaceRenderedStrokesBySelection({
+        baseStrokes: nextStrokes,
+        selections: areaSelection.strokeIds,
+        replacementBySelectionKey: areaSelectionResizePreview.resizedStrokesBySelectionKey,
+      });
+    }
 
     return nextStrokes;
-  }, [moving, movingStrokeSelections, renderedStrokes, strokeByKey]);
+  }, [
+    moving,
+    movingStrokeSelections,
+    renderedStrokes,
+    strokeByKey,
+    areaSelectionResizePreview,
+    areaSelection,
+  ]);
 
   const {
     selectedPreviewObject,
@@ -902,7 +979,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     areaSelectionDraftRect,
     areaSelectionResizeRect,
   } = useWorkbookCanvasSceneRuntime({
-    visibleBoardObjects,
+    visibleBoardObjects: visibleBoardObjectsForDisplay,
     objectById,
     selectedObjectId,
     moving,
@@ -1241,41 +1318,18 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   ) => {
     if (!nextAreaSelectionResize || !areaSelection) return;
 
-    const rawRect = resizeAreaSelectionRect(
-      nextAreaSelectionResize.initialRect,
-      nextAreaSelectionResize.mode,
-      nextAreaSelectionResize.current
-    );
-
-    const boundedLeft = Math.max(pageFrameBounds.minX, rawRect.x);
-    const boundedTop = Math.max(pageFrameBounds.minY, rawRect.y);
-    const boundedRight = Math.min(
-      pageFrameBounds.maxX,
-      rawRect.x + rawRect.width
-    );
-    const boundedBottom = Math.min(
-      pageFrameBounds.maxY,
-      rawRect.y + rawRect.height
-    );
-    const nextRect = {
-      x: boundedLeft,
-      y: boundedTop,
-      width: Math.max(1, boundedRight - boundedLeft),
-      height: Math.max(1, boundedBottom - boundedTop),
-    };
-    const initialRect = nextAreaSelectionResize.initialRect;
-    const hasMeaningfulResize =
-      Math.abs(nextRect.x - initialRect.x) > 0.5 ||
-      Math.abs(nextRect.y - initialRect.y) > 0.5 ||
-      Math.abs(nextRect.width - initialRect.width) > 0.5 ||
-      Math.abs(nextRect.height - initialRect.height) > 0.5;
-    if (!hasMeaningfulResize) return;
-
-    const safeWidth = Math.max(1e-6, initialRect.width);
-    const safeHeight = Math.max(1e-6, initialRect.height);
-    const remapPoint = (point: WorkbookPoint): WorkbookPoint => ({
-      x: nextRect.x + ((point.x - initialRect.x) / safeWidth) * nextRect.width,
-      y: nextRect.y + ((point.y - initialRect.y) / safeHeight) * nextRect.height,
+    const nextRect = resolveBoundedAreaSelectionResizeRect({
+      resize: nextAreaSelectionResize,
+      bounds: pageFrameBounds,
+    });
+    if (
+      !hasMeaningfulAreaSelectionResizeChange(nextAreaSelectionResize.initialRect, nextRect)
+    ) {
+      return;
+    }
+    const remapPoint = createAreaSelectionResizePointMapper({
+      initialRect: nextAreaSelectionResize.initialRect,
+      nextRect,
     });
 
     const objectUpdates: Array<{ objectId: string; patch: Partial<WorkbookBoardObject> }> = [];
@@ -1284,51 +1338,19 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       const object = objectById.get(objectId);
       if (!object) return;
       persistedObjectIds.push(object.id);
-      if (object.type === "line" || object.type === "arrow") {
-        const mappedStart = remapPoint({ x: object.x, y: object.y });
-        const mappedEnd = remapPoint({
-          x: object.x + object.width,
-          y: object.y + object.height,
-        });
-        objectUpdates.push({
-          objectId: object.id,
-          patch: {
-            x: mappedStart.x,
-            y: mappedStart.y,
-            width: mappedEnd.x - mappedStart.x,
-            height: mappedEnd.y - mappedStart.y,
-          },
-        });
-        return;
+      const nextObject = remapAreaSelectionObject(object, remapPoint);
+      const patch: Partial<WorkbookBoardObject> = {
+        x: nextObject.x,
+        y: nextObject.y,
+        width: nextObject.width,
+        height: nextObject.height,
+      };
+      if (Array.isArray(nextObject.points) && nextObject.points.length > 0) {
+        patch.points = nextObject.points;
       }
-      if (Array.isArray(object.points) && object.points.length > 0) {
-        const nextPoints = object.points.map(remapPoint);
-        const nextBounds = getPointsBoundsFromPoints(nextPoints);
-        objectUpdates.push({
-          objectId: object.id,
-          patch: {
-            x: nextBounds.minX,
-            y: nextBounds.minY,
-            width: nextBounds.width,
-            height: nextBounds.height,
-            points: nextPoints,
-          },
-        });
-        return;
-      }
-      const mappedStart = remapPoint({ x: object.x, y: object.y });
-      const mappedEnd = remapPoint({
-        x: object.x + object.width,
-        y: object.y + object.height,
-      });
       objectUpdates.push({
         objectId: object.id,
-        patch: {
-          x: mappedStart.x,
-          y: mappedStart.y,
-          width: mappedEnd.x - mappedStart.x,
-          height: mappedEnd.y - mappedStart.y,
-        },
+        patch,
       });
     });
 
@@ -1345,11 +1367,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         id: sourceStroke.id,
         layer: sourceStroke.layer,
       });
-      const nextPoints = sourceStroke.points.map(remapPoint);
-      if (nextPoints.length === 0) return;
+      const nextStroke = remapAreaSelectionStroke(sourceStroke, remapPoint);
+      if (nextStroke.points.length === 0) return;
       strokeReplacements.push({
         stroke: sourceStroke,
-        fragments: [nextPoints],
+        fragments: [nextStroke.points],
         preserveSourceId: true,
       });
     });
