@@ -1041,6 +1041,7 @@ export default function WorkbookSessionPage() {
     constraintsRef,
     boardSettingsRef,
     documentStateRef,
+    historyActorUserId: effectiveActorUserId,
   });
   const selectedObjectIdRef = useRef<string | null>(selectedObjectId);
   const awaitingClearRequestRef = useRef(awaitingClearRequest);
@@ -1839,6 +1840,7 @@ export default function WorkbookSessionPage() {
   const { handleUndo, handleRedo } = useWorkbookHistoryHotkeys({
     canUseUndo,
     currentBoardPage,
+    historyActorUserId: effectiveActorUserId,
     tool,
     areaSelectionHasContent,
     appendEventsAndApply,

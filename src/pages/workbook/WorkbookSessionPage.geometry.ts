@@ -353,6 +353,7 @@ export type WorkbookHistoryEntry = {
   inverse: WorkbookHistoryOperation[];
   page: number;
   createdAt: string;
+  authorUserId?: string;
 };
 
 export type ToolPaintSettings = {

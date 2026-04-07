@@ -54,6 +54,7 @@ type UseWorkbookSessionHistoryRuntimeParams = {
   constraintsRef: MutableRefObject<WorkbookConstraint[]>;
   boardSettingsRef: MutableRefObject<WorkbookBoardSettings>;
   documentStateRef: MutableRefObject<WorkbookDocumentState>;
+  historyActorUserId: string;
 };
 
 export const useWorkbookSessionHistoryRuntime = ({
@@ -85,21 +86,35 @@ export const useWorkbookSessionHistoryRuntime = ({
   constraintsRef,
   boardSettingsRef,
   documentStateRef,
+  historyActorUserId,
 }: UseWorkbookSessionHistoryRuntimeParams) => {
   const toSafePage = useCallback(
     (value: number | null | undefined) => Math.max(1, Math.round(value || 1)),
     []
   );
 
+  const toSafeHistoryActorUserId = useCallback((value: string | null | undefined) => {
+    const normalized = typeof value === "string" ? value.trim() : "";
+    return normalized.length > 0 ? normalized : "unknown";
+  }, []);
+
+  const resolveEntryActorUserId = useCallback(
+    (entry: WorkbookHistoryEntry, actorUserId: string) =>
+      toSafeHistoryActorUserId(entry.authorUserId ?? actorUserId),
+    [toSafeHistoryActorUserId]
+  );
+
   const countEntriesForPage = useCallback(
-    (entries: WorkbookHistoryEntry[], page: number) => {
+    (entries: WorkbookHistoryEntry[], page: number, actorUserId: string) => {
       const safePage = toSafePage(page);
+      const safeActorUserId = toSafeHistoryActorUserId(actorUserId);
       return entries.reduce((count, entry) => {
         const entryPage = toSafePage(entry.page);
-        return entryPage === safePage ? count + 1 : count;
+        const entryActorUserId = resolveEntryActorUserId(entry, safeActorUserId);
+        return entryPage === safePage && entryActorUserId === safeActorUserId ? count + 1 : count;
       }, 0);
     },
-    [toSafePage]
+    [resolveEntryActorUserId, toSafeHistoryActorUserId, toSafePage]
   );
 
   const restoreSceneSnapshot = useCallback((snapshot: WorkbookSceneSnapshot) => {
@@ -178,24 +193,29 @@ export const useWorkbookSessionHistoryRuntime = ({
   ]);
 
   const pushHistoryEntry = useCallback((entry: WorkbookHistoryEntry) => {
+    const activeActorUserId = toSafeHistoryActorUserId(historyActorUserId);
     const nextUndo = [
       ...undoStackRef.current,
       {
         ...entry,
         page: toSafePage(entry.page ?? currentBoardPageRef.current),
+        authorUserId: resolveEntryActorUserId(entry, activeActorUserId),
       },
     ];
     undoStackRef.current = nextUndo.slice(-80);
     redoStackRef.current = [];
     const activePage = toSafePage(currentBoardPageRef.current);
-    setUndoDepth(countEntriesForPage(undoStackRef.current, activePage));
+    setUndoDepth(countEntriesForPage(undoStackRef.current, activePage, activeActorUserId));
     setRedoDepth(0);
   }, [
     countEntriesForPage,
     currentBoardPageRef,
+    historyActorUserId,
     redoStackRef,
+    resolveEntryActorUserId,
     setRedoDepth,
     setUndoDepth,
+    toSafeHistoryActorUserId,
     toSafePage,
     undoStackRef,
   ]);
@@ -203,9 +223,18 @@ export const useWorkbookSessionHistoryRuntime = ({
   const rollbackHistoryEntry = useCallback(() => {
     if (undoStackRef.current.length === 0) return;
     undoStackRef.current = undoStackRef.current.slice(0, -1);
+    const activeActorUserId = toSafeHistoryActorUserId(historyActorUserId);
     const activePage = toSafePage(currentBoardPageRef.current);
-    setUndoDepth(countEntriesForPage(undoStackRef.current, activePage));
-  }, [countEntriesForPage, currentBoardPageRef, setUndoDepth, toSafePage, undoStackRef]);
+    setUndoDepth(countEntriesForPage(undoStackRef.current, activePage, activeActorUserId));
+  }, [
+    countEntriesForPage,
+    currentBoardPageRef,
+    historyActorUserId,
+    setUndoDepth,
+    toSafeHistoryActorUserId,
+    toSafePage,
+    undoStackRef,
+  ]);
 
   const buildHistoryEntryFromEvents = useCallback(
     (events: WorkbookClientEventInput[]) => {
@@ -219,9 +248,11 @@ export const useWorkbookSessionHistoryRuntime = ({
         currentDocumentState: documentStateRef.current,
       });
       if (!historyEntry) return null;
+      const activeActorUserId = toSafeHistoryActorUserId(historyActorUserId);
       return {
         ...historyEntry,
         page: toSafePage(currentBoardPageRef.current),
+        authorUserId: resolveEntryActorUserId(historyEntry, activeActorUserId),
       };
     },
     [
@@ -232,6 +263,9 @@ export const useWorkbookSessionHistoryRuntime = ({
       constraintsRef,
       currentBoardPageRef,
       documentStateRef,
+      historyActorUserId,
+      resolveEntryActorUserId,
+      toSafeHistoryActorUserId,
       toSafePage,
     ]
   );

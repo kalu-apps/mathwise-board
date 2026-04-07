@@ -6,11 +6,13 @@ type HistoryEntryLike = {
   inverse: unknown[];
   forward: unknown[];
   page?: number;
+  authorUserId?: string;
 };
 
 type UseWorkbookHistoryHotkeysParams = {
   canUseUndo: boolean;
   currentBoardPage: number;
+  historyActorUserId: string;
   tool: WorkbookTool;
   areaSelectionHasContent: boolean;
   appendEventsAndApply: (
@@ -40,6 +42,7 @@ type UseWorkbookHistoryHotkeysParams = {
 export const useWorkbookHistoryHotkeys = ({
   canUseUndo,
   currentBoardPage,
+  historyActorUserId,
   tool,
   areaSelectionHasContent,
   appendEventsAndApply,
@@ -63,40 +66,66 @@ export const useWorkbookHistoryHotkeys = ({
     []
   );
 
+  const toSafeHistoryActorUserId = useCallback((value: string | null | undefined) => {
+    const normalized = typeof value === "string" ? value.trim() : "";
+    return normalized.length > 0 ? normalized : "unknown";
+  }, []);
+
+  const resolveCurrentActorUserId = useCallback(
+    () => toSafeHistoryActorUserId(historyActorUserId),
+    [historyActorUserId, toSafeHistoryActorUserId]
+  );
+
   const resolveEntryPage = useCallback(
     (entry: HistoryEntryLike) => toSafePage(entry.page ?? currentBoardPage),
     [currentBoardPage, toSafePage]
   );
 
+  const resolveEntryActorUserId = useCallback(
+    (entry: HistoryEntryLike, actorUserId: string) =>
+      toSafeHistoryActorUserId(entry.authorUserId ?? actorUserId),
+    [toSafeHistoryActorUserId]
+  );
+
   const countEntriesForPage = useCallback(
-    (entries: HistoryEntryLike[], page: number) => {
+    (entries: HistoryEntryLike[], page: number, actorUserId: string) => {
       const safePage = toSafePage(page);
+      const safeActorUserId = toSafeHistoryActorUserId(actorUserId);
       return entries.reduce((count, entry) => {
         const entryPage = resolveEntryPage(entry);
-        return entryPage === safePage ? count + 1 : count;
+        const entryActorUserId = resolveEntryActorUserId(entry, safeActorUserId);
+        return entryPage === safePage && entryActorUserId === safeActorUserId ? count + 1 : count;
       }, 0);
     },
-    [resolveEntryPage, toSafePage]
+    [resolveEntryActorUserId, resolveEntryPage, toSafeHistoryActorUserId, toSafePage]
   );
 
   const findLastEntryIndexForPage = useCallback(
-    (entries: HistoryEntryLike[], page: number) => {
+    (entries: HistoryEntryLike[], page: number, actorUserId: string) => {
       const safePage = toSafePage(page);
+      const safeActorUserId = toSafeHistoryActorUserId(actorUserId);
       for (let index = entries.length - 1; index >= 0; index -= 1) {
         const entry = entries[index];
         if (!entry) continue;
-        if (resolveEntryPage(entry) === safePage) {
+        const entryPage = resolveEntryPage(entry);
+        const entryActorUserId = resolveEntryActorUserId(entry, safeActorUserId);
+        if (entryPage === safePage && entryActorUserId === safeActorUserId) {
           return index;
         }
       }
       return -1;
     },
-    [resolveEntryPage, toSafePage]
+    [resolveEntryActorUserId, resolveEntryPage, toSafeHistoryActorUserId, toSafePage]
   );
 
   const handleUndo = useCallback(async () => {
     if (!canUseUndo || undoStackRef.current.length === 0) return;
-    const targetIndex = findLastEntryIndexForPage(undoStackRef.current, currentBoardPage);
+    const currentActorUserId = resolveCurrentActorUserId();
+    const targetIndex = findLastEntryIndexForPage(
+      undoStackRef.current,
+      currentBoardPage,
+      currentActorUserId
+    );
     if (targetIndex < 0) return;
     const entry = undoStackRef.current[targetIndex];
     if (!entry) return;
@@ -109,8 +138,8 @@ export const useWorkbookHistoryHotkeys = ({
     ];
     redoStackRef.current = [...redoStackRef.current, entry].slice(-80);
     const safePage = toSafePage(currentBoardPage);
-    setUndoDepth(countEntriesForPage(undoStackRef.current, safePage));
-    setRedoDepth(countEntriesForPage(redoStackRef.current, safePage));
+    setUndoDepth(countEntriesForPage(undoStackRef.current, safePage, currentActorUserId));
+    setRedoDepth(countEntriesForPage(redoStackRef.current, safePage, currentActorUserId));
     applyHistoryOperations(entry.inverse);
     markDirty();
     try {
@@ -138,6 +167,7 @@ export const useWorkbookHistoryHotkeys = ({
     countEntriesForPage,
     currentBoardPage,
     findLastEntryIndexForPage,
+    resolveCurrentActorUserId,
     markDirty,
     redoStackRef,
     setError,
@@ -149,7 +179,12 @@ export const useWorkbookHistoryHotkeys = ({
 
   const handleRedo = useCallback(async () => {
     if (!canUseUndo || redoStackRef.current.length === 0) return;
-    const targetIndex = findLastEntryIndexForPage(redoStackRef.current, currentBoardPage);
+    const currentActorUserId = resolveCurrentActorUserId();
+    const targetIndex = findLastEntryIndexForPage(
+      redoStackRef.current,
+      currentBoardPage,
+      currentActorUserId
+    );
     if (targetIndex < 0) return;
     const entry = redoStackRef.current[targetIndex];
     if (!entry) return;
@@ -162,8 +197,8 @@ export const useWorkbookHistoryHotkeys = ({
     ];
     undoStackRef.current = [...undoStackRef.current, entry].slice(-80);
     const safePage = toSafePage(currentBoardPage);
-    setUndoDepth(countEntriesForPage(undoStackRef.current, safePage));
-    setRedoDepth(countEntriesForPage(redoStackRef.current, safePage));
+    setUndoDepth(countEntriesForPage(undoStackRef.current, safePage, currentActorUserId));
+    setRedoDepth(countEntriesForPage(redoStackRef.current, safePage, currentActorUserId));
     applyHistoryOperations(entry.forward);
     markDirty();
     try {
@@ -191,6 +226,7 @@ export const useWorkbookHistoryHotkeys = ({
     countEntriesForPage,
     currentBoardPage,
     findLastEntryIndexForPage,
+    resolveCurrentActorUserId,
     markDirty,
     redoStackRef,
     setError,
@@ -202,11 +238,13 @@ export const useWorkbookHistoryHotkeys = ({
 
   useEffect(() => {
     const safePage = toSafePage(currentBoardPage);
-    setUndoDepth(countEntriesForPage(undoStackRef.current, safePage));
-    setRedoDepth(countEntriesForPage(redoStackRef.current, safePage));
+    const currentActorUserId = resolveCurrentActorUserId();
+    setUndoDepth(countEntriesForPage(undoStackRef.current, safePage, currentActorUserId));
+    setRedoDepth(countEntriesForPage(redoStackRef.current, safePage, currentActorUserId));
   }, [
     countEntriesForPage,
     currentBoardPage,
+    resolveCurrentActorUserId,
     redoStackRef,
     setRedoDepth,
     setUndoDepth,
