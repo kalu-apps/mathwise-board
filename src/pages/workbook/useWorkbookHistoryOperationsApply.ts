@@ -105,8 +105,15 @@ export const useWorkbookHistoryOperationsApply = ({
 
   const applyHistoryOperations = useCallback(
     (operations: WorkbookHistoryOperation[]) => {
+      const strokeRemoveMismatchByLayer = new Set<WorkbookLayer>();
       operations.forEach((operation) => {
         if (operation.kind === "upsert_stroke") {
+          if (
+            operation.expectedCurrent === null &&
+            strokeRemoveMismatchByLayer.has(operation.layer)
+          ) {
+            return;
+          }
           let applied = false;
           applyLocalStrokeCollection(operation.layer, (current) => {
             const currentStroke = current.find((item) => item.id === operation.stroke.id);
@@ -127,15 +134,20 @@ export const useWorkbookHistoryOperationsApply = ({
         }
         if (operation.kind === "remove_stroke") {
           let applied = false;
+          let hadMismatch = false;
           applyLocalStrokeCollection(operation.layer, (current) => {
             const currentStroke = current.find((item) => item.id === operation.strokeId);
             if (!isExpectedStateMatch(currentStroke, operation.expectedCurrent)) {
+              hadMismatch = true;
               return current;
             }
             if (!currentStroke) return current;
             applied = true;
             return current.filter((item) => item.id !== operation.strokeId);
           });
+          if (!applied && hadMismatch) {
+            strokeRemoveMismatchByLayer.add(operation.layer);
+          }
           if (applied) {
             finalizeStrokePreview(operation.strokeId);
           }
