@@ -180,11 +180,17 @@ export const prepareWorkbookRenderObject = (params: {
       ? moving.groupObjects.find((entry) => entry.id === objectSource.id) ??
         (moving.object.id === objectSource.id ? moving.object : null)
       : null;
+  const sourceAlreadyIncludesMove =
+    Boolean(movingBaseObject && movingDelta) &&
+    Math.abs(objectSource.x - ((movingBaseObject?.x ?? 0) + (movingDelta?.x ?? 0))) <= 1e-6 &&
+    Math.abs(objectSource.y - ((movingBaseObject?.y ?? 0) + (movingDelta?.y ?? 0))) <= 1e-6 &&
+    Math.abs(objectSource.width - (movingBaseObject?.width ?? 0)) <= 1e-6 &&
+    Math.abs(objectSource.height - (movingBaseObject?.height ?? 0)) <= 1e-6;
   let object =
     previewMeta && objectSource.type === "solid3d"
       ? { ...objectSource, meta: previewMeta }
       : objectSource;
-  if (movingBaseObject && movingDelta) {
+  if (movingBaseObject && movingDelta && !sourceAlreadyIncludesMove) {
     const sourceForMove =
       previewMeta && movingBaseObject.type === "solid3d"
         ? { ...movingBaseObject, meta: previewMeta }
@@ -202,7 +208,7 @@ export const prepareWorkbookRenderObject = (params: {
     };
   }
   const rect =
-    activeMoveRect && activeMoveRect.id === object.id
+    !sourceAlreadyIncludesMove && activeMoveRect && activeMoveRect.id === object.id
       ? { ...activeMoveRect }
       : {
           id: object.id,
