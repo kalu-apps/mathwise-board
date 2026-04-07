@@ -14,7 +14,6 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import AutoStoriesRoundedIcon from "@mui/icons-material/AutoStoriesRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
@@ -802,56 +801,25 @@ export default function WorkbookHubPage() {
 
   return (
     <section className="workbook-hub">
-      <article className="workbook-hub__panel">
-        <div className="workbook-hub__hero">
-          <Avatar sx={{ bgcolor: "primary.main", width: 42, height: 42 }}>
-            <AutoStoriesRoundedIcon />
-          </Avatar>
-          <div className="workbook-hub__hero-main">
-            <h1>Рабочие тетради</h1>
-            <p>
-              Управляйте карточками индивидуальных занятий и личных тетрадей. Все действия на
-              досках сохраняются автоматически.
-            </p>
-          </div>
-          <div className="workbook-hub__hero-actions">
-            <Button
-              variant="contained"
-              className="workbook-hub__start-class-btn"
-              startIcon={<SchoolRoundedIcon />}
-              onClick={() => void handleCreateClassSession()}
-              disabled={creatingClass}
-            >
-              {creatingClass ? "Создаем..." : "Начать индивидуальное занятие"}
-            </Button>
-            <Button
-              variant="outlined"
-              startIcon={<MenuBookRoundedIcon />}
-              onClick={() => void handleCreatePersonalDraft()}
-              disabled={creatingPersonal}
-            >
-              {creatingPersonal ? "Создаем..." : "Новая личная тетрадь"}
-            </Button>
-          </div>
-        </div>
-      </article>
-
       <article className="workbook-hub__panel workbook-hub__panel--search">
-        <div className="workbook-hub__filters">
-          <button
-            type="button"
-            className={scope === "class" ? "is-active" : ""}
-            onClick={() => setScope("class")}
+        <div className="workbook-hub__primary-actions">
+          <Button
+            variant="contained"
+            className="workbook-hub__start-class-btn"
+            startIcon={<SchoolRoundedIcon />}
+            onClick={() => void handleCreateClassSession()}
+            disabled={creatingClass}
           >
-            Индивидуальные занятия ({classCards.length})
-          </button>
-          <button
-            type="button"
-            className={scope === "personal" ? "is-active" : ""}
-            onClick={() => setScope("personal")}
+            {creatingClass ? "Создаем..." : "Начать индивидуальное занятие"}
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<MenuBookRoundedIcon />}
+            onClick={() => void handleCreatePersonalDraft()}
+            disabled={creatingPersonal}
           >
-            Личные тетради ({personalCards.length})
-          </button>
+            {creatingPersonal ? "Создаем..." : "Новая личная тетрадь"}
+          </Button>
         </div>
         <div className="workbook-hub__search-strip" role="search" aria-label="Поиск карточек">
           <SearchRoundedIcon className="workbook-hub__search-icon" fontSize="small" />
@@ -894,10 +862,23 @@ export default function WorkbookHubPage() {
             </button>
           ) : null}
         </div>
+        <div className="workbook-hub__filters">
+          <button
+            type="button"
+            className={scope === "class" ? "is-active" : ""}
+            onClick={() => setScope("class")}
+          >
+            Индивидуальные занятия ({classCards.length})
+          </button>
+          <button
+            type="button"
+            className={scope === "personal" ? "is-active" : ""}
+            onClick={() => setScope("personal")}
+          >
+            Личные тетради ({personalCards.length})
+          </button>
+        </div>
         <div className="workbook-hub__search-meta">
-          <span>
-            Найдено: {filteredCards.length}
-          </span>
           {filteredCards.length > 0 ? (
             <span>
               Страница {currentPage} из {totalPages}

@@ -283,6 +283,12 @@
   display: grid;
   gap: 10px;
 }
+.workbook-hub__primary-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .workbook-hub__filters {
   display: flex;
   align-items: center;
@@ -6243,11 +6249,11 @@
     justify-content: center;
   }
 
-  .workbook-hub__hero-actions {
+  .workbook-hub__primary-actions {
     width: 100%;
   }
 
-  .workbook-hub__hero-actions > * {
+  .workbook-hub__primary-actions > * {
     flex: 1 1 auto;
   }
 
