@@ -54,7 +54,7 @@ export const useWorkbookHistoryHotkeys = ({
   clearIncomingEraserPreviewRuntime,
   setUndoDepth,
   setRedoDepth,
-  applyHistoryOperations,
+  applyHistoryOperations: _applyHistoryOperations,
   markDirty,
   deleteAreaSelectionObjects,
   copyAreaSelectionObjects,
@@ -129,21 +129,7 @@ export const useWorkbookHistoryHotkeys = ({
     if (targetIndex < 0) return;
     const entry = undoStackRef.current[targetIndex];
     if (!entry) return;
-    const previousUndoStack = undoStackRef.current;
-    const previousRedoStack = redoStackRef.current;
-    clearObjectSyncRuntime();
-    clearStrokePreviewRuntime();
-    clearIncomingEraserPreviewRuntime();
-    undoStackRef.current = [
-      ...undoStackRef.current.slice(0, targetIndex),
-      ...undoStackRef.current.slice(targetIndex + 1),
-    ];
-    redoStackRef.current = [...redoStackRef.current, entry].slice(-80);
     const safePage = toSafePage(currentBoardPage);
-    setUndoDepth(countEntriesForPage(undoStackRef.current, safePage, currentActorUserId));
-    setRedoDepth(countEntriesForPage(redoStackRef.current, safePage, currentActorUserId));
-    applyHistoryOperations(entry.inverse);
-    markDirty();
     try {
       await appendEventsAndApply(
         [
@@ -156,21 +142,22 @@ export const useWorkbookHistoryHotkeys = ({
         ],
         { trackHistory: false, markDirty: false }
       );
+      clearObjectSyncRuntime();
+      clearStrokePreviewRuntime();
+      clearIncomingEraserPreviewRuntime();
+      undoStackRef.current = [
+        ...undoStackRef.current.slice(0, targetIndex),
+        ...undoStackRef.current.slice(targetIndex + 1),
+      ];
+      redoStackRef.current = [...redoStackRef.current, entry].slice(-80);
+      setUndoDepth(countEntriesForPage(undoStackRef.current, safePage, currentActorUserId));
+      setRedoDepth(countEntriesForPage(redoStackRef.current, safePage, currentActorUserId));
+      markDirty();
     } catch {
-      applyHistoryOperations(entry.forward);
-      undoStackRef.current = previousUndoStack;
-      redoStackRef.current = previousRedoStack;
-      setUndoDepth(
-        countEntriesForPage(previousUndoStack, safePage, currentActorUserId)
-      );
-      setRedoDepth(
-        countEntriesForPage(previousRedoStack, safePage, currentActorUserId)
-      );
       setError("Не удалось выполнить отмену действия.");
     }
   }, [
     appendEventsAndApply,
-    applyHistoryOperations,
     canUseUndo,
     clearIncomingEraserPreviewRuntime,
     clearObjectSyncRuntime,
@@ -199,21 +186,7 @@ export const useWorkbookHistoryHotkeys = ({
     if (targetIndex < 0) return;
     const entry = redoStackRef.current[targetIndex];
     if (!entry) return;
-    const previousUndoStack = undoStackRef.current;
-    const previousRedoStack = redoStackRef.current;
-    clearObjectSyncRuntime();
-    clearStrokePreviewRuntime();
-    clearIncomingEraserPreviewRuntime();
-    redoStackRef.current = [
-      ...redoStackRef.current.slice(0, targetIndex),
-      ...redoStackRef.current.slice(targetIndex + 1),
-    ];
-    undoStackRef.current = [...undoStackRef.current, entry].slice(-80);
     const safePage = toSafePage(currentBoardPage);
-    setUndoDepth(countEntriesForPage(undoStackRef.current, safePage, currentActorUserId));
-    setRedoDepth(countEntriesForPage(redoStackRef.current, safePage, currentActorUserId));
-    applyHistoryOperations(entry.forward);
-    markDirty();
     try {
       await appendEventsAndApply(
         [
@@ -226,21 +199,22 @@ export const useWorkbookHistoryHotkeys = ({
         ],
         { trackHistory: false, markDirty: false }
       );
+      clearObjectSyncRuntime();
+      clearStrokePreviewRuntime();
+      clearIncomingEraserPreviewRuntime();
+      redoStackRef.current = [
+        ...redoStackRef.current.slice(0, targetIndex),
+        ...redoStackRef.current.slice(targetIndex + 1),
+      ];
+      undoStackRef.current = [...undoStackRef.current, entry].slice(-80);
+      setUndoDepth(countEntriesForPage(undoStackRef.current, safePage, currentActorUserId));
+      setRedoDepth(countEntriesForPage(redoStackRef.current, safePage, currentActorUserId));
+      markDirty();
     } catch {
-      applyHistoryOperations(entry.inverse);
-      undoStackRef.current = previousUndoStack;
-      redoStackRef.current = previousRedoStack;
-      setUndoDepth(
-        countEntriesForPage(previousUndoStack, safePage, currentActorUserId)
-      );
-      setRedoDepth(
-        countEntriesForPage(previousRedoStack, safePage, currentActorUserId)
-      );
       setError("Не удалось повторить действие.");
     }
   }, [
     appendEventsAndApply,
-    applyHistoryOperations,
     canUseUndo,
     clearIncomingEraserPreviewRuntime,
     clearObjectSyncRuntime,
