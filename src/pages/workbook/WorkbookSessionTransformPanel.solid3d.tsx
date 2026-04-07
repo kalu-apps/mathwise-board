@@ -293,12 +293,6 @@ export function WorkbookSessionTransformPanelSolid3d({
                     Отразить по Y
                   </Button>
                 </div>
-                {selectedSolidIsCurved ? (
-                  <p className="workbook-session__hint">
-                    Для тел с круговым основанием скрыты служебные mesh-точки: в учебной записи
-                    остаются контур, образующие, ось и сечения.
-                  </p>
-                ) : null}
               </article>
             ) : null}
 
@@ -322,10 +316,6 @@ export function WorkbookSessionTransformPanelSolid3d({
                     />
                   </div>
                 </div>
-                <p className="workbook-session__hint">
-                  Для тел с круговым основанием доступны управление поверхностью и служебными
-                  контурами.
-                </p>
               </article>
             ) : null}
 
@@ -620,43 +610,43 @@ export function WorkbookSessionTransformPanelSolid3d({
                       <span className="workbook-session__solid-card-title workbook-session__solid-card-title--segment">
                         {`Отрезок ${start?.name || "?"}-${end?.name || "?"}`}
                       </span>
-                      <div className="workbook-session__solid-card-controls workbook-session__solid-card-controls--segment-top">
+                      <IconButton
+                        size="small"
+                        className="workbook-session__solid-section-delete"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void onDeleteSolid3dHostedSegment?.(segment.id);
+                        }}
+                      >
+                        <CloseRoundedIcon />
+                      </IconButton>
+                    </div>
+                    <div className="workbook-session__solid-card-controls workbook-session__solid-card-controls--segment-top">
+                      <input
+                        type="color"
+                        className="workbook-session__solid-color"
+                        value={segment.color}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) =>
+                          void onUpdateSolid3dHostedSegment?.(segment.id, {
+                            color: event.target.value || segment.color,
+                          })
+                        }
+                      />
+                      <div className="workbook-session__solid-segment-thickness">
                         <input
-                          type="color"
-                          className="workbook-session__solid-color"
-                          value={segment.color}
+                          type="range"
+                          min={1}
+                          max={12}
+                          step={1}
+                          value={segment.thickness}
                           onClick={(event) => event.stopPropagation()}
                           onChange={(event) =>
                             void onUpdateSolid3dHostedSegment?.(segment.id, {
-                              color: event.target.value || segment.color,
+                              thickness: Math.max(1, Math.min(12, Number(event.target.value) || 1)),
                             })
                           }
                         />
-                        <div className="workbook-session__solid-segment-thickness">
-                          <input
-                            type="range"
-                            min={1}
-                            max={12}
-                            step={1}
-                            value={segment.thickness}
-                            onClick={(event) => event.stopPropagation()}
-                            onChange={(event) =>
-                              void onUpdateSolid3dHostedSegment?.(segment.id, {
-                                thickness: Math.max(1, Math.min(12, Number(event.target.value) || 1)),
-                              })
-                            }
-                          />
-                        </div>
-                        <IconButton
-                          size="small"
-                          className="workbook-session__solid-section-delete"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void onDeleteSolid3dHostedSegment?.(segment.id);
-                          }}
-                        >
-                          <CloseRoundedIcon />
-                        </IconButton>
                       </div>
                     </div>
                     <div className="workbook-session__solid-hosted-segment-toggles">
@@ -794,17 +784,12 @@ export function WorkbookSessionTransformPanelSolid3d({
                       </div>
                     </div>
                     <div className="workbook-session__solid-section-summary">
-                      {selectedSolidIsCurved ? (
+                      {!selectedSolidIsCurved && !summary?.isPolygonal ? (
                         <p className="workbook-session__hint">
-                          Для тел с круговым основанием вершины сечения не используются.
+                          Сечение сохранено как плоскость пересечения. Контур появится, когда
+                          фигура корректно пересечётся этой плоскостью.
                         </p>
-                      ) : (
-                        <p className="workbook-session__hint">
-                          {summary?.isPolygonal
-                            ? "Сечение построено по опорным точкам."
-                            : "Сечение сохранено как плоскость пересечения. Контур появится, когда фигура корректно пересечётся этой плоскостью."}
-                        </p>
-                      )}
+                      ) : null}
                       {!selectedSolidIsCurved ? (
                         <div className="workbook-session__solid-card-row workbook-session__solid-card-row--toggle">
                           <span>Скрыть названия вершин</span>

@@ -482,7 +482,6 @@ export const SOLID3D_PRESETS: Solid3dPreset[] = [
   { id: "truncated_cone", title: "Усеченный конус" },
   { id: "sphere", title: "Сфера" },
   { id: "hemisphere", title: "Полусфера" },
-  { id: "torus", title: "Тор" },
 ];
 
 export const resolveSolid3dPresetId = (presetId: string) =>
