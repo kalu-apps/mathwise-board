@@ -1479,8 +1479,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
-  min-height: 18px;
+  gap: 6px;
+  min-height: 20px;
   user-select: none;
 
   span {
@@ -1492,18 +1492,28 @@
   }
 
   .MuiSwitch-root {
-    width: 34px;
-    height: 22px;
+    width: 30px;
+    height: 18px;
     padding: 0;
+    overflow: visible;
+    flex-shrink: 0;
   }
 
   .MuiSwitch-switchBase {
     padding: 2px;
+
+    &.Mui-checked {
+      transform: translateX(12px);
+    }
   }
 
   .MuiSwitch-thumb {
-    width: 14px;
-    height: 14px;
+    width: 10px;
+    height: 10px;
+  }
+
+  .MuiSwitch-track {
+    border-radius: 999px;
   }
 }
 .workbook-session__tool-settings-range {
