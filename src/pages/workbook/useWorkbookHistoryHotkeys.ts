@@ -1,6 +1,7 @@
 import { useCallback, useEffect, type MutableRefObject } from "react";
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import type { WorkbookTool } from "@/features/workbook/model/types";
+import type { WorkbookHistoryApplyResult } from "./WorkbookSessionPage.geometry";
 
 type HistoryEntryLike = {
   inverse: unknown[];
@@ -31,7 +32,7 @@ type UseWorkbookHistoryHotkeysParams = {
   clearIncomingEraserPreviewRuntime: () => void;
   setUndoDepth: (value: number) => void;
   setRedoDepth: (value: number) => void;
-  applyHistoryOperations: (operations: unknown[]) => void;
+  applyHistoryOperations: (operations: unknown[]) => WorkbookHistoryApplyResult;
   markDirty: () => void;
   deleteAreaSelectionObjects: () => void | Promise<void>;
   copyAreaSelectionObjects: () => void | Promise<void>;
@@ -132,6 +133,15 @@ export const useWorkbookHistoryHotkeys = ({
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
+    const applyResult = applyHistoryOperations(entry.inverse);
+    if (applyResult.appliedCount === 0) {
+      setError(
+        applyResult.conflictCount > 0
+          ? "Не удалось отменить: состояние страницы уже изменилось."
+          : "Не удалось отменить действие."
+      );
+      return;
+    }
     undoStackRef.current = [
       ...undoStackRef.current.slice(0, targetIndex),
       ...undoStackRef.current.slice(targetIndex + 1),
@@ -140,7 +150,6 @@ export const useWorkbookHistoryHotkeys = ({
     const safePage = toSafePage(currentBoardPage);
     setUndoDepth(countEntriesForPage(undoStackRef.current, safePage, currentActorUserId));
     setRedoDepth(countEntriesForPage(redoStackRef.current, safePage, currentActorUserId));
-    applyHistoryOperations(entry.inverse);
     markDirty();
     try {
       await appendEventsAndApply(
@@ -191,6 +200,15 @@ export const useWorkbookHistoryHotkeys = ({
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
+    const applyResult = applyHistoryOperations(entry.forward);
+    if (applyResult.appliedCount === 0) {
+      setError(
+        applyResult.conflictCount > 0
+          ? "Не удалось повторить: состояние страницы уже изменилось."
+          : "Не удалось повторить действие."
+      );
+      return;
+    }
     redoStackRef.current = [
       ...redoStackRef.current.slice(0, targetIndex),
       ...redoStackRef.current.slice(targetIndex + 1),
@@ -199,7 +217,6 @@ export const useWorkbookHistoryHotkeys = ({
     const safePage = toSafePage(currentBoardPage);
     setUndoDepth(countEntriesForPage(undoStackRef.current, safePage, currentActorUserId));
     setRedoDepth(countEntriesForPage(redoStackRef.current, safePage, currentActorUserId));
-    applyHistoryOperations(entry.forward);
     markDirty();
     try {
       await appendEventsAndApply(

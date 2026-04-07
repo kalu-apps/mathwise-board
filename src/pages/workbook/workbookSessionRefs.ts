@@ -13,7 +13,11 @@ import type { WorkbookAreaSelectionClipboard } from "@/features/workbook/model/w
 import type { WorkbookRecoveryMode } from "@/features/workbook/model/workbookPerformance";
 import { generateId } from "@/shared/lib/id";
 import { DEFAULT_BOARD_SETTINGS } from "./WorkbookSessionPage.core";
-import type { WorkbookHistoryEntry, WorkbookHistoryOperation } from "./WorkbookSessionPage.geometry";
+import type {
+  WorkbookHistoryApplyResult,
+  WorkbookHistoryEntry,
+  WorkbookHistoryOperation,
+} from "./WorkbookSessionPage.geometry";
 
 export const useWorkbookSessionRefs = () => {
   const selectedTextDraftValueRef = useRef("");
@@ -57,9 +61,13 @@ export const useWorkbookSessionRefs = () => {
   const recoveryModeRef = useRef<WorkbookRecoveryMode>("bootstrapping");
   const lastAppliedBoardSettingsSeqRef = useRef(0);
   const processedEventIdsRef = useRef<Set<string>>(new Set());
-  const applyHistoryOperationsRef = useRef<(operations: WorkbookHistoryOperation[]) => void>(
-    () => {}
-  );
+  const applyHistoryOperationsRef = useRef<
+    (operations: WorkbookHistoryOperation[]) => WorkbookHistoryApplyResult
+  >(() => ({
+    appliedCount: 0,
+    skippedCount: 0,
+    conflictCount: 0,
+  }));
   const sessionChatListRef = useRef<HTMLDivElement | null>(null);
   const sessionChatRef = useRef<HTMLDivElement | null>(null);
   const contextbarRef = useRef<HTMLDivElement | null>(null);

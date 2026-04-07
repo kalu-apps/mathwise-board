@@ -357,6 +357,8 @@ export type WorkbookHistoryOperation =
       objectId: string;
       patch: Partial<WorkbookBoardObject>;
       expectedCurrent?: WorkbookBoardObject | null;
+      beforePatch?: Partial<WorkbookBoardObject>;
+      afterPatch?: Partial<WorkbookBoardObject>;
     }
   | {
       kind: "remove_object";
@@ -365,7 +367,12 @@ export type WorkbookHistoryOperation =
     }
   | { kind: "upsert_constraint"; constraint: WorkbookConstraint }
   | { kind: "remove_constraint"; constraintId: string }
-  | { kind: "patch_board_settings"; patch: Partial<WorkbookBoardSettings> }
+  | {
+      kind: "patch_board_settings";
+      patch: Partial<WorkbookBoardSettings>;
+      beforePatch?: Partial<WorkbookBoardSettings>;
+      afterPatch?: Partial<WorkbookBoardSettings>;
+    }
   | { kind: "upsert_document_asset"; asset: WorkbookDocumentAsset }
   | { kind: "remove_document_asset"; assetId: string }
   | { kind: "upsert_document_annotation"; annotation: WorkbookDocumentAnnotation }
@@ -377,6 +384,12 @@ export type WorkbookHistoryEntry = {
   page: number;
   createdAt: string;
   authorUserId?: string;
+};
+
+export type WorkbookHistoryApplyResult = {
+  appliedCount: number;
+  skippedCount: number;
+  conflictCount: number;
 };
 
 export type ToolPaintSettings = {
