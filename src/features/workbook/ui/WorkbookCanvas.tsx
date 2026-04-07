@@ -39,6 +39,7 @@ import type {
 } from "../model/sceneSelection";
 import {
   buildGraphPanState,
+  buildMovingCurrentPoint,
   buildMovingState,
   buildResizeState,
   buildSolid3dGestureState,
@@ -690,6 +691,104 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     [allStrokes, visibleHitStrokeCandidatesAtPoint, visibleHitStrokes]
   );
 
+  const resolveBoundedMoveDelta = useCallback(
+    (movingStateValue: MovingState, rawDeltaX: number, rawDeltaY: number) => {
+      if (!Number.isFinite(rawDeltaX) || !Number.isFinite(rawDeltaY)) {
+        return { x: 0, y: 0 };
+      }
+
+      const moveBounds = {
+        minX: Number.POSITIVE_INFINITY,
+        maxX: Number.NEGATIVE_INFINITY,
+        minY: Number.POSITIVE_INFINITY,
+        maxY: Number.NEGATIVE_INFINITY,
+        hasTargets: false,
+      };
+
+      const includeRect = (rect: { x: number; y: number; width: number; height: number }) => {
+        moveBounds.minX = Math.min(moveBounds.minX, rect.x);
+        moveBounds.maxX = Math.max(moveBounds.maxX, rect.x + rect.width);
+        moveBounds.minY = Math.min(moveBounds.minY, rect.y);
+        moveBounds.maxY = Math.max(moveBounds.maxY, rect.y + rect.height);
+        moveBounds.hasTargets = true;
+      };
+
+      const objectTargets =
+        movingStateValue.groupObjects.length > 0
+          ? movingStateValue.groupObjects
+          : movingStateValue.object.id === "__area-selection__"
+            ? []
+            : [movingStateValue.object];
+      objectTargets.forEach((target) => includeRect(getObjectRect(target)));
+
+      const strokeSelections = [...movingStateValue.groupStrokeSelections];
+      const singleStrokeSelection = resolveWorkbookStrokeMoveProxySelection(movingStateValue.object);
+      if (
+        singleStrokeSelection &&
+        !strokeSelections.some(
+          (entry) =>
+            entry.id === singleStrokeSelection.id && entry.layer === singleStrokeSelection.layer
+        )
+      ) {
+        strokeSelections.push(singleStrokeSelection);
+      }
+
+      strokeSelections.forEach((selection) => {
+        const sourceStroke = strokeByKey.get(buildWorkbookStrokeSelectionKey(selection));
+        if (!sourceStroke) return;
+        const rect = getStrokeRect(sourceStroke);
+        if (!rect) return;
+        includeRect(rect);
+      });
+
+      if (!moveBounds.hasTargets) {
+        return {
+          x: rawDeltaX,
+          y: rawDeltaY,
+        };
+      }
+
+      const minDeltaX = pageFrameBounds.minX - moveBounds.minX;
+      const maxDeltaX = pageFrameBounds.maxX - moveBounds.maxX;
+      const minDeltaY = pageFrameBounds.minY - moveBounds.minY;
+      const maxDeltaY = pageFrameBounds.maxY - moveBounds.maxY;
+
+      const boundedDeltaX =
+        minDeltaX <= maxDeltaX
+          ? Math.max(minDeltaX, Math.min(maxDeltaX, rawDeltaX))
+          : 0;
+      const boundedDeltaY =
+        minDeltaY <= maxDeltaY
+          ? Math.max(minDeltaY, Math.min(maxDeltaY, rawDeltaY))
+          : 0;
+
+      return {
+        x: boundedDeltaX,
+        y: boundedDeltaY,
+      };
+    },
+    [pageFrameBounds.maxX, pageFrameBounds.maxY, pageFrameBounds.minX, pageFrameBounds.minY, strokeByKey]
+  );
+
+  const resolveBoundedMovingCurrentPoint = useCallback(
+    (movingStateValue: MovingState, clientX: number, clientY: number, zoom: number) => {
+      const nextCurrent = buildMovingCurrentPoint(
+        movingStateValue,
+        clientX,
+        clientY,
+        zoom
+      );
+      const rawDeltaX = nextCurrent.x - movingStateValue.start.x;
+      const rawDeltaY = nextCurrent.y - movingStateValue.start.y;
+      const boundedDelta = resolveBoundedMoveDelta(movingStateValue, rawDeltaX, rawDeltaY);
+      return {
+        x: movingStateValue.start.x + boundedDelta.x,
+        y: movingStateValue.start.y + boundedDelta.y,
+      };
+    },
+    [resolveBoundedMoveDelta]
+  );
+
   const {
     renderedStrokes,
     eraserPreviewActive,
@@ -1031,9 +1130,22 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   const finishMoving = (nextMoving = movingState.ref.current) => {
     if (!nextMoving) return;
-    const deltaX = nextMoving.current.x - nextMoving.start.x;
-    const deltaY = nextMoving.current.y - nextMoving.start.y;
+    const rawDeltaX = nextMoving.current.x - nextMoving.start.x;
+    const rawDeltaY = nextMoving.current.y - nextMoving.start.y;
+    const boundedDelta = resolveBoundedMoveDelta(nextMoving, rawDeltaX, rawDeltaY);
+    const deltaX = boundedDelta.x;
+    const deltaY = boundedDelta.y;
     const hasMeaningfulMove = Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5;
+    const normalizedMoving =
+      Math.abs(rawDeltaX - deltaX) <= 1e-6 && Math.abs(rawDeltaY - deltaY) <= 1e-6
+        ? nextMoving
+        : {
+            ...nextMoving,
+            current: {
+              x: nextMoving.start.x + deltaX,
+              y: nextMoving.start.y + deltaY,
+            },
+          };
     const movingStrokeSelection = resolveWorkbookStrokeMoveProxySelection(nextMoving.object);
     if (movingStrokeSelection) {
       const sourceStrokeKey = buildWorkbookStrokeSelectionKey(movingStrokeSelection);
@@ -1093,7 +1205,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       );
 
     const { objectPatches, nextAreaSelection } = buildMoveCommitResult({
-      moving: nextMoving,
+      moving: normalizedMoving,
       areaSelection,
     });
 
@@ -1190,6 +1302,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         finishMoving,
         finishResizing,
         releasePointerCapture,
+        resolveBoundedMovingCurrentPoint,
         boardObjectCandidatesInRect,
         strokeCandidatesInRect,
         getObjectSceneLayerId,

@@ -230,6 +230,12 @@ type InteractionCallbacks = {
   finishMoving: (nextMoving?: MovingState | null) => void;
   finishResizing: (nextResizing?: ResizeState | null) => void;
   releasePointerCapture: (svg: SVGSVGElement, pointerId: number) => void;
+  resolveBoundedMovingCurrentPoint?: (
+    moving: MovingState,
+    clientX: number,
+    clientY: number,
+    safeZoom: number
+  ) => WorkbookPoint;
   boardObjectCandidatesInRect: (rect: WorkbookAreaSelection["rect"]) => WorkbookBoardObject[];
   strokeCandidatesInRect: (rect: WorkbookAreaSelection["rect"]) => WorkbookStroke[];
   getObjectSceneLayerId: (object: WorkbookBoardObject) => string;
@@ -890,12 +896,14 @@ export const useWorkbookCanvasInteractions = (
         return;
       }
       if (continueMode === "moving" && data.moving) {
-        const nextCurrent = buildMovingCurrentPoint(
-          data.moving,
-          event.clientX,
-          event.clientY,
-          data.safeZoom
-        );
+        const nextCurrent = callbacks.resolveBoundedMovingCurrentPoint
+          ? callbacks.resolveBoundedMovingCurrentPoint(
+              data.moving,
+              event.clientX,
+              event.clientY,
+              data.safeZoom
+            )
+          : buildMovingCurrentPoint(data.moving, event.clientX, event.clientY, data.safeZoom);
         setters.scheduleMoving((prev) => (prev ? { ...prev, current: nextCurrent } : prev));
       }
     },
