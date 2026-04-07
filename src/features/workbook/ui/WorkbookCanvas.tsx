@@ -29,13 +29,15 @@ import {
 import { useWorkbookSceneAccess } from "./useWorkbookSceneAccess";
 import {
   getObjectRect,
+  getPointsBoundsFromPoints,
 } from "../model/sceneGeometry";
 import {
   isWorkbookObjectHit,
   isWorkbookStrokeHit,
 } from "../model/sceneHitTesting";
-import type {
-  WorkbookAreaSelectionDraft,
+import {
+  resizeAreaSelectionRect,
+  type WorkbookAreaSelectionDraft,
 } from "../model/sceneSelection";
 import {
   buildGraphPanState,
@@ -1234,6 +1236,147 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     setResizing(null);
   };
 
+  const finishAreaSelectionResize = (
+    nextAreaSelectionResize = areaSelectionResizeState.ref.current
+  ) => {
+    if (!nextAreaSelectionResize || !areaSelection) return;
+
+    const rawRect = resizeAreaSelectionRect(
+      nextAreaSelectionResize.initialRect,
+      nextAreaSelectionResize.mode,
+      nextAreaSelectionResize.current
+    );
+
+    const boundedLeft = Math.max(pageFrameBounds.minX, rawRect.x);
+    const boundedTop = Math.max(pageFrameBounds.minY, rawRect.y);
+    const boundedRight = Math.min(
+      pageFrameBounds.maxX,
+      rawRect.x + rawRect.width
+    );
+    const boundedBottom = Math.min(
+      pageFrameBounds.maxY,
+      rawRect.y + rawRect.height
+    );
+    const nextRect = {
+      x: boundedLeft,
+      y: boundedTop,
+      width: Math.max(1, boundedRight - boundedLeft),
+      height: Math.max(1, boundedBottom - boundedTop),
+    };
+    const initialRect = nextAreaSelectionResize.initialRect;
+    const hasMeaningfulResize =
+      Math.abs(nextRect.x - initialRect.x) > 0.5 ||
+      Math.abs(nextRect.y - initialRect.y) > 0.5 ||
+      Math.abs(nextRect.width - initialRect.width) > 0.5 ||
+      Math.abs(nextRect.height - initialRect.height) > 0.5;
+    if (!hasMeaningfulResize) return;
+
+    const safeWidth = Math.max(1e-6, initialRect.width);
+    const safeHeight = Math.max(1e-6, initialRect.height);
+    const remapPoint = (point: WorkbookPoint): WorkbookPoint => ({
+      x: nextRect.x + ((point.x - initialRect.x) / safeWidth) * nextRect.width,
+      y: nextRect.y + ((point.y - initialRect.y) / safeHeight) * nextRect.height,
+    });
+
+    const objectUpdates: Array<{ objectId: string; patch: Partial<WorkbookBoardObject> }> = [];
+    const persistedObjectIds: string[] = [];
+    areaSelection.objectIds.forEach((objectId) => {
+      const object = objectById.get(objectId);
+      if (!object) return;
+      persistedObjectIds.push(object.id);
+      if (object.type === "line" || object.type === "arrow") {
+        const mappedStart = remapPoint({ x: object.x, y: object.y });
+        const mappedEnd = remapPoint({
+          x: object.x + object.width,
+          y: object.y + object.height,
+        });
+        objectUpdates.push({
+          objectId: object.id,
+          patch: {
+            x: mappedStart.x,
+            y: mappedStart.y,
+            width: mappedEnd.x - mappedStart.x,
+            height: mappedEnd.y - mappedStart.y,
+          },
+        });
+        return;
+      }
+      if (Array.isArray(object.points) && object.points.length > 0) {
+        const nextPoints = object.points.map(remapPoint);
+        const nextBounds = getPointsBoundsFromPoints(nextPoints);
+        objectUpdates.push({
+          objectId: object.id,
+          patch: {
+            x: nextBounds.minX,
+            y: nextBounds.minY,
+            width: nextBounds.width,
+            height: nextBounds.height,
+            points: nextPoints,
+          },
+        });
+        return;
+      }
+      const mappedStart = remapPoint({ x: object.x, y: object.y });
+      const mappedEnd = remapPoint({
+        x: object.x + object.width,
+        y: object.y + object.height,
+      });
+      objectUpdates.push({
+        objectId: object.id,
+        patch: {
+          x: mappedStart.x,
+          y: mappedStart.y,
+          width: mappedEnd.x - mappedStart.x,
+          height: mappedEnd.y - mappedStart.y,
+        },
+      });
+    });
+
+    const strokeReplacements: Array<{
+      stroke: WorkbookStroke;
+      fragments: WorkbookPoint[][];
+      preserveSourceId: true;
+    }> = [];
+    const persistedStrokeSelections: Array<{ id: string; layer: WorkbookStroke["layer"] }> = [];
+    areaSelection.strokeIds.forEach((selection) => {
+      const sourceStroke = strokeByKey.get(buildWorkbookStrokeSelectionKey(selection));
+      if (!sourceStroke) return;
+      persistedStrokeSelections.push({
+        id: sourceStroke.id,
+        layer: sourceStroke.layer,
+      });
+      const nextPoints = sourceStroke.points.map(remapPoint);
+      if (nextPoints.length === 0) return;
+      strokeReplacements.push({
+        stroke: sourceStroke,
+        fragments: [nextPoints],
+        preserveSourceId: true,
+      });
+    });
+
+    if (persistedObjectIds.length === 0 && persistedStrokeSelections.length === 0) {
+      onAreaSelectionChange?.(null);
+      return;
+    }
+
+    if (strokeReplacements.length > 0 && onEraserCommit) {
+      onEraserCommit({
+        strokeDeletes: [],
+        strokeReplacements,
+        objectUpdates,
+      });
+    } else {
+      objectUpdates.forEach((entry) => onObjectUpdate(entry.objectId, entry.patch));
+      strokeReplacements.forEach((entry) => onStrokeReplace(entry));
+    }
+
+    onAreaSelectionChange?.({
+      objectIds: persistedObjectIds,
+      strokeIds: persistedStrokeSelections,
+      rect: nextRect,
+    });
+  };
+
   const { startInteraction, continueInteraction, finishInteraction } =
     useWorkbookCanvasInteractions({
       refs: {
@@ -1301,6 +1444,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         finishShape,
         finishMoving,
         finishResizing,
+        finishAreaSelectionResize,
         releasePointerCapture,
         resolveBoundedMovingCurrentPoint,
         boardObjectCandidatesInRect,

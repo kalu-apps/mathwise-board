@@ -579,6 +579,19 @@ export const WorkbookDraftOverlayLayer = memo(function WorkbookDraftOverlayLayer
           strokeDasharray="7 5"
         />
       ) : null}
+
+      {tool === "select" && areaSelectionResizeRect ? (
+        <rect
+          x={areaSelectionResizeRect.x}
+          y={areaSelectionResizeRect.y}
+          width={areaSelectionResizeRect.width}
+          height={areaSelectionResizeRect.height}
+          fill="none"
+          stroke={WORKBOOK_LAYER_COLORS.primary}
+          strokeWidth={1.2}
+          strokeDasharray="7 5"
+        />
+      ) : null}
     </>
   );
 });
@@ -625,7 +638,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
             strokeWidth={1.2}
             strokeDasharray="7 5"
           />
-          {tool === "area_select"
+          {tool === "area_select" || tool === "select"
             ? getAreaSelectionHandlePoints(areaSelection.rect).map((handle) => (
                 <circle
                   key={`area-selection-handle-${handle.mode}`}
@@ -652,7 +665,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
             stroke={WORKBOOK_LAYER_COLORS.warning}
             strokeWidth={1.2}
             strokeDasharray="7 5"
-            opacity={0.78}
+            opacity={isStrokeDragging ? 0.62 : 0.78}
           />
         </>
       ) : null}

@@ -229,6 +229,9 @@ type InteractionCallbacks = {
   finishShape: (draft?: ShapeDraft | null) => void;
   finishMoving: (nextMoving?: MovingState | null) => void;
   finishResizing: (nextResizing?: ResizeState | null) => void;
+  finishAreaSelectionResize?: (
+    nextAreaSelectionResize?: WorkbookAreaSelectionResizeState | null
+  ) => void;
   releasePointerCapture: (svg: SVGSVGElement, pointerId: number) => void;
   resolveBoundedMovingCurrentPoint?: (
     moving: MovingState,
@@ -594,6 +597,20 @@ export const useWorkbookCanvasInteractions = (
       }
 
       if (startMode === "select") {
+        if (data.areaSelection) {
+          const areaResizeMode = resolveAreaSelectionResizeMode(data.areaSelection.rect, point);
+          if (areaResizeMode) {
+            pointerIdRef.current = event.pointerId;
+            api.onSelectedConstraintChange(null);
+            api.onSelectedObjectChange(null);
+            api.onSelectedStrokeChange(null);
+            setters.setAreaSelectionResize(
+              buildAreaSelectionResizeState(data.areaSelection.rect, areaResizeMode, point)
+            );
+            svg.setPointerCapture(event.pointerId);
+            return;
+          }
+        }
         const selected = data.selectedObjectId
           ? data.objectById.get(data.selectedObjectId) ?? null
           : null;
@@ -993,13 +1010,17 @@ export const useWorkbookCanvasInteractions = (
       } else if (finishMode === "shape" && latestShapeDraft) {
         callbacks.finishShape(latestShapeDraft);
       } else if (finishMode === "area_selection_resize" && latestAreaSelectionResize) {
-        api.onAreaSelectionChange?.(
-          finalizeAreaSelectionResizeWithQueries({
-            resize: latestAreaSelectionResize,
-            boardObjectCandidatesInRect: callbacks.boardObjectCandidatesInRect,
-            strokeCandidatesInRect: callbacks.strokeCandidatesInRect,
-          })
-        );
+        if (data.tool === "select" && callbacks.finishAreaSelectionResize) {
+          callbacks.finishAreaSelectionResize(latestAreaSelectionResize);
+        } else {
+          api.onAreaSelectionChange?.(
+            finalizeAreaSelectionResizeWithQueries({
+              resize: latestAreaSelectionResize,
+              boardObjectCandidatesInRect: callbacks.boardObjectCandidatesInRect,
+              strokeCandidatesInRect: callbacks.strokeCandidatesInRect,
+            })
+          );
+        }
         setters.setAreaSelectionResize(null);
       } else if (finishMode === "area_selection_draft" && latestAreaSelectionDraft) {
         api.onAreaSelectionChange?.(
