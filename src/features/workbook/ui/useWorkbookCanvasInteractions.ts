@@ -12,14 +12,12 @@ import { buildWorkbookPointObject } from "../model/sceneCreation";
 import {
   buildAreaSelectionProxyObject,
   collectAreaSelectionObjects,
-  resolveAreaSelectionResizeMode,
   type WorkbookAreaSelection,
   type WorkbookAreaSelectionDraft,
 } from "../model/sceneSelection";
 import { getStrokeRect } from "../model/stroke";
 import {
   buildAreaSelectionDraftState,
-  buildAreaSelectionResizeState,
   buildPanState,
   buildPanningOffset,
   buildMovingCurrentPoint,
@@ -523,19 +521,6 @@ export const useWorkbookCanvasInteractions = (
       }
 
       if (startMode === "area_select") {
-        if (data.areaSelection) {
-          const resizeMode = resolveAreaSelectionResizeMode(data.areaSelection.rect, point);
-          if (resizeMode) {
-            pointerIdRef.current = event.pointerId;
-            api.onSelectedConstraintChange(null);
-            api.onSelectedObjectChange(null);
-            setters.setAreaSelectionResize(
-              buildAreaSelectionResizeState(data.areaSelection.rect, resizeMode, point)
-            );
-            svg.setPointerCapture(event.pointerId);
-            return;
-          }
-        }
         pointerIdRef.current = event.pointerId;
         api.onSelectedConstraintChange(null);
         api.onSelectedObjectChange(null);
@@ -598,20 +583,6 @@ export const useWorkbookCanvasInteractions = (
       }
 
       if (startMode === "select") {
-        if (data.areaSelection) {
-          const areaResizeMode = resolveAreaSelectionResizeMode(data.areaSelection.rect, point);
-          if (areaResizeMode) {
-            pointerIdRef.current = event.pointerId;
-            api.onSelectedConstraintChange(null);
-            api.onSelectedObjectChange(null);
-            api.onSelectedStrokeChange(null);
-            setters.setAreaSelectionResize(
-              buildAreaSelectionResizeState(data.areaSelection.rect, areaResizeMode, point)
-            );
-            svg.setPointerCapture(event.pointerId);
-            return;
-          }
-        }
         const selected = data.selectedObjectId
           ? data.objectById.get(data.selectedObjectId) ?? null
           : null;
