@@ -73,6 +73,34 @@ type Solid3dPreviewMetaById = Record<string, Record<string, unknown>>;
 const clampGraphOffsetValue = (value: number) =>
   Math.max(-999, Math.min(999, Number.isFinite(value) ? value : 0));
 
+const resolveCornerResizeRect = (params: {
+  mode: "nw" | "ne" | "se" | "sw";
+  rect: { x: number; y: number; width: number; height: number };
+  current: WorkbookPoint;
+}) => {
+  let nextLeft = params.rect.x;
+  let nextRight = params.rect.x + params.rect.width;
+  let nextTop = params.rect.y;
+  let nextBottom = params.rect.y + params.rect.height;
+  if (params.mode === "nw") {
+    nextLeft = Math.min(params.current.x, nextRight - 1);
+    nextTop = Math.min(params.current.y, nextBottom - 1);
+  } else if (params.mode === "ne") {
+    nextRight = Math.max(params.current.x, nextLeft + 1);
+    nextTop = Math.min(params.current.y, nextBottom - 1);
+  } else if (params.mode === "se") {
+    nextRight = Math.max(params.current.x, nextLeft + 1);
+    nextBottom = Math.max(params.current.y, nextTop + 1);
+  } else {
+    nextLeft = Math.min(params.current.x, nextRight - 1);
+    nextBottom = Math.max(params.current.y, nextTop + 1);
+  }
+  return normalizeRect(
+    { x: nextLeft, y: nextTop },
+    { x: nextRight, y: nextBottom }
+  );
+};
+
 export const collectMappedInteractionPoints = <T extends ClientPointLike>(params: {
   sourceEvents: T[];
   mapPoint: (sourceEvent: T) => WorkbookPoint;
@@ -487,6 +515,25 @@ export const buildResizeCommitPatch = (
       height: nextRect.height,
     };
   }
+  if (
+    (state.mode === "nw" ||
+      state.mode === "ne" ||
+      state.mode === "se" ||
+      state.mode === "sw") &&
+    object.type === "image"
+  ) {
+    const nextRect = resolveCornerResizeRect({
+      mode: state.mode,
+      rect,
+      current: localCurrent,
+    });
+    return {
+      x: nextRect.x,
+      y: nextRect.y,
+      width: nextRect.width,
+      height: nextRect.height,
+    };
+  }
 
   const startVector = {
     x: localStart.x - center.x,
@@ -663,6 +710,36 @@ export const resolveSelectedPreviewObject = (params: {
                 : nextLocal;
             })
           : preview.points,
+      };
+    } else if (
+      (resizing.mode === "nw" ||
+        resizing.mode === "ne" ||
+        resizing.mode === "se" ||
+        resizing.mode === "sw") &&
+      preview.type === "image"
+    ) {
+      const rect = normalizeRect(
+        { x: preview.x, y: preview.y },
+        { x: preview.x + preview.width, y: preview.y + preview.height }
+      );
+      const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      const rotationDeg =
+        preview.rotation && Number.isFinite(preview.rotation) ? preview.rotation : 0;
+      const localCurrent =
+        rotationDeg !== 0
+          ? rotatePointAround(resizing.current, center, -rotationDeg)
+          : resizing.current;
+      const nextRect = resolveCornerResizeRect({
+        mode: resizing.mode,
+        rect,
+        current: localCurrent,
+      });
+      preview = {
+        ...preview,
+        x: nextRect.x,
+        y: nextRect.y,
+        width: nextRect.width,
+        height: nextRect.height,
       };
     } else if (
       (resizing.mode === "nw" ||
