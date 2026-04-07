@@ -13,7 +13,6 @@ import type { WorkbookSessionTransformPanelProps } from "./WorkbookSessionTransf
 type WorkbookSessionTransformPanelShape2dProps = Pick<
   WorkbookSessionTransformPanelProps,
   | "selectedShape2dObject"
-  | "selectedObjectLabel"
   | "shape2dInspectorTab"
   | "setShape2dInspectorTab"
   | "selectedShape2dHasAngles"
@@ -51,7 +50,6 @@ type WorkbookSessionTransformPanelShape2dProps = Pick<
 
 export function WorkbookSessionTransformPanelShape2d({
   selectedShape2dObject,
-  selectedObjectLabel,
   shape2dInspectorTab,
   setShape2dInspectorTab,
   selectedShape2dHasAngles,
@@ -124,7 +122,7 @@ export function WorkbookSessionTransformPanelShape2d({
       return `#${r}${r}${g}${g}${b}${b}`;
     }
     return WORKBOOK_SYSTEM_COLORS.white;
-  }, [selectedShape2dObject?.fill]);
+  }, [selectedShape2dObject]);
 
   if (!selectedShape2dObject) {
     return null;
@@ -170,7 +168,6 @@ export function WorkbookSessionTransformPanelShape2d({
             <div className="workbook-session__solid-card-head">
               <span className="workbook-session__solid-card-title">Фигура</span>
             </div>
-            <p className="workbook-session__hint">{selectedObjectLabel}</p>
             <div className="workbook-session__settings-row">
               <span>Толщина контура</span>
               <div className="workbook-session__line-range">
@@ -204,9 +201,6 @@ export function WorkbookSessionTransformPanelShape2d({
                 }
               />
             </div>
-            <p className="workbook-session__hint">
-              Геометрические значения и обозначения вынесены в профильные вкладки.
-            </p>
           </article>
         ) : null}
 

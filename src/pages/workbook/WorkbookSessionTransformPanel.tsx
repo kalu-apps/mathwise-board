@@ -578,9 +578,11 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
           </div>
         ) : selectedLineObject || tool === "line" ? (
           <div className="workbook-session__settings">
-            <p className="workbook-session__hint">
-              Объект: {selectedLineObject ? selectedObjectLabel : "Новая линия"}
-            </p>
+            {!(selectedLineObject && selectedLineKind === "segment") ? (
+              <p className="workbook-session__hint">
+                Объект: {selectedLineObject ? selectedObjectLabel : "Новая линия"}
+              </p>
+            ) : null}
             <div className="workbook-session__settings-row">
               <span>Тип линии</span>
               <div className="workbook-session__toggle-group">
@@ -644,6 +646,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
               <span>Цвет линии</span>
               <input
                 type="color"
+                className="workbook-session__line-color"
                 value={selectedLineColor}
                 disabled={!selectedLineObject}
                 onChange={(event) =>
@@ -738,7 +741,6 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
         ) : selectedShape2dObject ? (
           <WorkbookSessionTransformPanelShape2d
             selectedShape2dObject={selectedShape2dObject}
-            selectedObjectLabel={selectedObjectLabel}
             shape2dInspectorTab={shape2dInspectorTab}
             setShape2dInspectorTab={setShape2dInspectorTab}
             selectedShape2dHasAngles={selectedShape2dHasAngles}

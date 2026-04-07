@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Alert, Button, IconButton, Switch, TextField, Tooltip } from "@mui/material";
+import { Alert, Button, IconButton, Switch, Tooltip } from "@mui/material";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import SwapHorizRoundedIcon from "@mui/icons-material/SwapHorizRounded";
@@ -204,13 +204,6 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                               }
                             />
                           </label>
-                          <TextField
-                            size="small"
-                            value={item.expression}
-                            placeholder="f(x)"
-                            className="workbook-session__graph-expression-readonly"
-                            inputProps={{ title: item.expression, readOnly: true }}
-                          />
                           <label className="workbook-session__graph-dashed-toggle">
                             <Switch
                               size="small"
@@ -222,6 +215,12 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                             />
                             <span>Пунктир</span>
                           </label>
+                          <span
+                            className="workbook-session__graph-expression-badge"
+                            title={item.expression}
+                          >
+                            {item.expression}
+                          </span>
                         </div>
                         <div className="workbook-session__graph-card-actions">
                           <Tooltip
@@ -264,26 +263,20 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                             </button>
                           </Tooltip>
                           <Tooltip title="Удалить функцию" arrow>
-                            <span>
-                              <button
-                                type="button"
-                                className="workbook-session__graph-inline-action workbook-session__graph-inline-action--danger"
-                                onClick={() => onRemoveGraphFunction(item.id)}
-                                disabled={graphTabFunctions.length <= 1}
-                                aria-label="Удалить функцию"
-                              >
-                                <DeleteOutlineRoundedIcon fontSize="small" />
-                              </button>
-                            </span>
+                            <button
+                              type="button"
+                              className="workbook-session__graph-inline-action workbook-session__graph-inline-action--danger"
+                              onClick={() => onRemoveGraphFunction(item.id)}
+                              aria-label="Удалить функцию"
+                            >
+                              <DeleteOutlineRoundedIcon fontSize="small" />
+                            </button>
                           </Tooltip>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
-                <p className="workbook-session__hint">
-                  Координатная сетка и оси отображаются прямо на доске в границах плоскости.
-                </p>
               </>
             )}
           </>
