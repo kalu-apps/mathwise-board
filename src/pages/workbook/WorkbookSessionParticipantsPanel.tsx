@@ -7,6 +7,8 @@ import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
 import MicRoundedIcon from "@mui/icons-material/MicRounded";
 import MicOffRoundedIcon from "@mui/icons-material/MicOffRounded";
 import UnfoldLessRoundedIcon from "@mui/icons-material/UnfoldLessRounded";
+import VolumeOffRoundedIcon from "@mui/icons-material/VolumeOffRounded";
+import VolumeUpRoundedIcon from "@mui/icons-material/VolumeUpRounded";
 import type { WorkbookSessionParticipant } from "@/features/workbook/model/types";
 
 export type WorkbookSessionParticipantsPanelProps = {
@@ -18,6 +20,8 @@ export type WorkbookSessionParticipantsPanelProps = {
   isSessionChatOpen: boolean;
   sessionChatUnreadCount: number;
   onToggleSessionChat: () => void;
+  participantJoinSoundEnabled?: boolean;
+  onToggleParticipantJoinSound?: () => void;
   onCollapseParticipants: () => void;
   micEnabled: boolean;
   onToggleMic: () => void;
@@ -55,6 +59,8 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
   isSessionChatOpen,
   sessionChatUnreadCount,
   onToggleSessionChat,
+  participantJoinSoundEnabled = true,
+  onToggleParticipantJoinSound,
   onCollapseParticipants,
   micEnabled,
   onToggleMic,
@@ -172,6 +178,27 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
           Участники
         </h3>
         <div className="workbook-session__participants-head-actions">
+          {onToggleParticipantJoinSound ? (
+            <Tooltip
+              title={
+                participantJoinSoundEnabled
+                  ? "Отключить сигнал входа участников"
+                  : "Включить сигнал входа участников"
+              }
+              placement="left"
+              arrow
+            >
+              <span>
+                <IconButton size="small" onClick={onToggleParticipantJoinSound}>
+                  {participantJoinSoundEnabled ? (
+                    <VolumeUpRoundedIcon fontSize="small" />
+                  ) : (
+                    <VolumeOffRoundedIcon fontSize="small" />
+                  )}
+                </IconButton>
+              </span>
+            </Tooltip>
+          ) : null}
           <Tooltip title="Открыть чат сессии" placement="left" arrow>
             <span className="workbook-session__participants-chat-button">
               <IconButton

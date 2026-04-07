@@ -139,6 +139,7 @@ import { captureWorkbookSessionPreviewDataUrl } from "./workbookHubPreviewCaptur
 import { useWorkbookPageTransitionOverlay } from "./useWorkbookPageTransitionOverlay";
 import { useWorkbookPageZoomPersistence } from "./useWorkbookPageZoomPersistence";
 import { useWorkbookPageViewportPersistence } from "./useWorkbookPageViewportPersistence";
+import { useWorkbookParticipantJoinSound } from "./useWorkbookParticipantJoinSound";
 import {
   WORKBOOK_HUB_PREVIEW_BRIDGE_EVENT,
   queueWorkbookHubPreviewRefreshHint,
@@ -897,6 +898,13 @@ export default function WorkbookSessionPage() {
         : "",
     [effectiveActorUserId, sessionId]
   );
+  const participantJoinSoundStorageKey = useMemo(
+    () =>
+      sessionId && effectiveActorUserId
+        ? `workbook:participant-join-sound:${sessionId}:${effectiveActorUserId}`
+        : "",
+    [effectiveActorUserId, sessionId]
+  );
 
   useEffect(() => {
     if (!bootstrapReady || !sessionId || !session) return;
@@ -939,6 +947,16 @@ export default function WorkbookSessionPage() {
     sessionId,
     setCurrentBoardPage,
   ]);
+
+  const { participantJoinSoundEnabled, toggleParticipantJoinSound } =
+    useWorkbookParticipantJoinSound({
+      storageKey: participantJoinSoundStorageKey,
+      participants: session?.participants,
+      bootstrapReady,
+      effectiveActorUserId,
+      isSessionTabPassive,
+      isRealtimeConnected: isWorkbookLiveConnected || isWorkbookStreamConnected,
+    });
 
   const {
     applyZoomForPage: applyPageZoomForPage,
@@ -3041,6 +3059,8 @@ export default function WorkbookSessionPage() {
     isSessionChatOpen,
     sessionChatUnreadCount,
     onToggleSessionChat: canvasHandlers.handleToggleSessionChat,
+    participantJoinSoundEnabled,
+    onToggleParticipantJoinSound: toggleParticipantJoinSound,
     onCollapseParticipants: canvasHandlers.handleCollapseParticipants,
     micEnabled,
     onToggleMic: canvasHandlers.handleToggleOwnMic,
