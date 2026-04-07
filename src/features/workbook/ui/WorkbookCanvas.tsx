@@ -150,7 +150,7 @@ const replaceRenderedStrokesBySelection = (params: {
   selections: WorkbookStrokeSelection[];
   replacementBySelectionKey: Map<string, WorkbookStroke>;
 }) => {
-  if (params.selections.length === 0 || params.replacementBySelectionKey.size === 0) {
+  if (params.selections.length === 0) {
     return params.baseStrokes;
   }
   const replacedSelectionKeys = new Set<string>();
