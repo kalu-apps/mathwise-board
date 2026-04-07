@@ -23,6 +23,7 @@ import {
   resolveMaxKnownWorkbookPage,
   toSafeWorkbookPage,
 } from "./WorkbookSessionPage.core";
+import { buildBoardSettingsPatchSemanticPayload } from "./workbookHistoryPatchSemantics";
 import { normalizeSceneLayersForBoard } from "./WorkbookSessionPage.geometry";
 
 type StateUpdater<T> = T | ((current: T) => T);
@@ -95,13 +96,39 @@ export const useWorkbookBoardSettingsPages = ({
       ? buildBoardSettingsDiffPatch(nextSettings, historyBefore)
       : null;
     const historyEntry =
-      forwardPatch && inversePatch
-        ? {
-            forward: [{ kind: "patch_board_settings", patch: forwardPatch }],
-            inverse: [{ kind: "patch_board_settings", patch: inversePatch }],
-            page: toSafeWorkbookPage(currentBoardPage),
-            createdAt: new Date().toISOString(),
-          }
+      forwardPatch && inversePatch && historyBefore
+        ? (() => {
+            const forwardSemanticPayload = buildBoardSettingsPatchSemanticPayload(
+              historyBefore,
+              nextSettings,
+              forwardPatch
+            );
+            const inverseSemanticPayload = buildBoardSettingsPatchSemanticPayload(
+              nextSettings,
+              historyBefore,
+              inversePatch
+            );
+            return {
+              forward: [
+                {
+                  kind: "patch_board_settings" as const,
+                  patch: forwardPatch,
+                  beforePatch: forwardSemanticPayload?.beforePatch,
+                  afterPatch: forwardSemanticPayload?.afterPatch,
+                },
+              ],
+              inverse: [
+                {
+                  kind: "patch_board_settings" as const,
+                  patch: inversePatch,
+                  beforePatch: inverseSemanticPayload?.beforePatch,
+                  afterPatch: inverseSemanticPayload?.afterPatch,
+                },
+              ],
+              page: toSafeWorkbookPage(currentBoardPage),
+              createdAt: new Date().toISOString(),
+            };
+          })()
         : null;
     const isNavigationOnlyCommit = isBoardSettingsPageNavigationPatch(forwardPatch);
     let deferNavigationRetry = false;
