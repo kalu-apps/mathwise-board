@@ -1,10 +1,11 @@
 import { useCallback, useEffect, type MutableRefObject } from "react";
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import type { WorkbookTool } from "@/features/workbook/model/types";
+import type { WorkbookHistoryOperation } from "./WorkbookSessionPage.geometry";
 
 type HistoryEntryLike = {
-  inverse: unknown[];
-  forward: unknown[];
+  inverse: WorkbookHistoryOperation[];
+  forward: WorkbookHistoryOperation[];
   page?: number;
   authorUserId?: string;
 };
@@ -30,7 +31,10 @@ type UseWorkbookHistoryHotkeysParams = {
   clearIncomingEraserPreviewRuntime: () => void;
   setUndoDepth: (value: number) => void;
   setRedoDepth: (value: number) => void;
-  applyHistoryOperations: (operations: unknown[]) => void;
+  applyHistoryOperations: (
+    operations: WorkbookHistoryOperation[],
+    options?: { ignoreExpectedCurrent?: boolean }
+  ) => number;
   markDirty: () => void;
   deleteAreaSelectionObjects: () => void | Promise<void>;
   copyAreaSelectionObjects: () => void | Promise<void>;
@@ -124,6 +128,7 @@ export const useWorkbookHistoryHotkeys = ({
             type: "board.undo",
             payload: {
               operations: entry.inverse,
+              page: safePage,
             },
           },
         ],
@@ -184,6 +189,7 @@ export const useWorkbookHistoryHotkeys = ({
             type: "board.redo",
             payload: {
               operations: entry.forward,
+              page: safePage,
             },
           },
         ],

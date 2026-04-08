@@ -2272,11 +2272,22 @@ const sanitizeWorkbookLiveEvents = (
         payload && typeof payload === "object"
           ? (payload as { operations?: unknown }).operations
           : null;
+      const pageRaw =
+        payload && typeof payload === "object"
+          ? (payload as { page?: unknown }).page
+          : undefined;
+      const page =
+        typeof pageRaw === "number" && Number.isFinite(pageRaw)
+          ? Math.max(1, Math.trunc(pageRaw))
+          : undefined;
       if (!Array.isArray(operations)) continue;
       sanitized.push({
         ...(clientEventId ? { clientEventId } : {}),
         type,
-        payload: { operations },
+        payload: {
+          operations,
+          ...(page !== undefined ? { page } : {}),
+        },
       });
       continue;
     }

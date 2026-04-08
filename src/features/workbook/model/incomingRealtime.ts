@@ -78,7 +78,10 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
     current: WorkbookSessionParticipant[],
     next: WorkbookSessionParticipant[]
   ) => boolean;
-  applyHistoryOperations: (operations: unknown[]) => void;
+  applyHistoryOperations: (
+    operations: unknown[],
+    options?: { ignoreExpectedCurrent?: boolean }
+  ) => number;
   restoreSceneSnapshot: (payload: RestoreSceneSnapshotPayload) => void;
   clearObjectSyncRuntime: () => void;
   clearStrokePreviewRuntime: (options?: { clearFinalized?: boolean }) => void;
@@ -226,7 +229,9 @@ export const applyWorkbookIncomingRealtimeEvent = (
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
     if (Array.isArray(payload.operations)) {
-      applyHistoryOperations(payload.operations);
+      applyHistoryOperations(payload.operations, {
+        ignoreExpectedCurrent: event.authorUserId !== userId,
+      });
       return true;
     }
     if (!payload.scene || typeof payload.scene !== "object") return true;

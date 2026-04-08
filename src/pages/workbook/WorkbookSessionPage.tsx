@@ -1027,6 +1027,8 @@ export default function WorkbookSessionPage() {
     pushHistoryEntry,
     rollbackHistoryEntry,
     buildHistoryEntryFromEvents,
+    pushIncomingHistoryEntryFromEvent,
+    syncHistoryStacksFromIncomingUndoRedoEvent,
   } = useWorkbookSessionHistoryRuntime({
     boardObjectsRef,
     boardObjectIndexByIdRef,
@@ -1056,7 +1058,6 @@ export default function WorkbookSessionPage() {
     constraintsRef,
     boardSettingsRef,
     documentStateRef,
-    historyActorUserId: effectiveActorUserId,
   });
   const selectedObjectIdRef = useRef<string | null>(selectedObjectId);
   const awaitingClearRequestRef = useRef(awaitingClearRequest);
@@ -1081,6 +1082,8 @@ export default function WorkbookSessionPage() {
         actions: workbookSessionActions,
         areParticipantsEqual,
         restoreSceneSnapshot,
+        pushIncomingHistoryEntryFromEvent,
+        syncHistoryStacksFromIncomingUndoRedoEvent,
         clearObjectSyncRuntime,
         clearStrokePreviewRuntime,
         clearIncomingEraserPreviewRuntime,
@@ -1098,6 +1101,8 @@ export default function WorkbookSessionPage() {
       workbookSessionActions,
       areParticipantsEqual,
       restoreSceneSnapshot,
+      pushIncomingHistoryEntryFromEvent,
+      syncHistoryStacksFromIncomingUndoRedoEvent,
       clearObjectSyncRuntime,
       clearStrokePreviewRuntime,
       clearIncomingEraserPreviewRuntime,

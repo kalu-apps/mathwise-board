@@ -1,11 +1,15 @@
 import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { buildWorkbookBoardObjectIndex } from "@/features/workbook/model/boardObjectStore";
-import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
+import {
+  isHistoryTrackedWorkbookEventType,
+  type WorkbookClientEventInput,
+} from "@/features/workbook/model/events";
 import type {
   WorkbookBoardObject,
   WorkbookBoardSettings,
   WorkbookConstraint,
   WorkbookDocumentState,
+  WorkbookEvent,
   WorkbookStroke,
 } from "@/features/workbook/model/types";
 import {
@@ -22,6 +26,40 @@ import {
   normalizeSceneLayersForBoard,
 } from "./WorkbookSessionPage.geometry";
 import { buildWorkbookHistoryEntryFromEvents } from "./workbookSessionHistoryEntry";
+
+const isPlainSerializableObject = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const areSerializableValuesStructurallyEqual = (left: unknown, right: unknown): boolean => {
+  if (Object.is(left, right)) return true;
+  if (left === null || right === null) return left === right;
+  if (typeof left !== typeof right) return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right)) return false;
+    if (left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index += 1) {
+      if (!areSerializableValuesStructurallyEqual(left[index], right[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (!isPlainSerializableObject(left) || !isPlainSerializableObject(right)) {
+    return false;
+  }
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (let index = 0; index < leftKeys.length; index += 1) {
+    const leftKey = leftKeys[index];
+    const rightKey = rightKeys[index];
+    if (leftKey !== rightKey) return false;
+    if (!areSerializableValuesStructurallyEqual(left[leftKey], right[rightKey])) {
+      return false;
+    }
+  }
+  return true;
+};
 
 type UseWorkbookSessionHistoryRuntimeParams = {
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
@@ -54,7 +92,6 @@ type UseWorkbookSessionHistoryRuntimeParams = {
   constraintsRef: MutableRefObject<WorkbookConstraint[]>;
   boardSettingsRef: MutableRefObject<WorkbookBoardSettings>;
   documentStateRef: MutableRefObject<WorkbookDocumentState>;
-  historyActorUserId: string;
 };
 
 export const useWorkbookSessionHistoryRuntime = ({
@@ -86,33 +123,41 @@ export const useWorkbookSessionHistoryRuntime = ({
   constraintsRef,
   boardSettingsRef,
   documentStateRef,
-  historyActorUserId,
 }: UseWorkbookSessionHistoryRuntimeParams) => {
   const toSafePage = useCallback(
     (value: number | null | undefined) => Math.max(1, Math.round(value || 1)),
     []
   );
 
-  const toSafeHistoryActorUserId = useCallback((value: string | null | undefined) => {
-    const normalized = typeof value === "string" ? value.trim() : "";
-    return normalized.length > 0 ? normalized : "unknown";
-  }, []);
-
-  const resolveEntryActorUserId = useCallback(
-    (entry: WorkbookHistoryEntry, actorUserId: string) =>
-      toSafeHistoryActorUserId(entry.authorUserId ?? actorUserId),
-    [toSafeHistoryActorUserId]
+  const resolveEntryPage = useCallback(
+    (entry: WorkbookHistoryEntry) => toSafePage(entry.page ?? currentBoardPageRef.current),
+    [currentBoardPageRef, toSafePage]
   );
 
   const countEntriesForPage = useCallback(
     (entries: WorkbookHistoryEntry[], page: number) => {
       const safePage = toSafePage(page);
       return entries.reduce((count, entry) => {
-        const entryPage = toSafePage(entry.page);
+        const entryPage = resolveEntryPage(entry);
         return entryPage === safePage ? count + 1 : count;
       }, 0);
     },
-    [toSafePage]
+    [resolveEntryPage, toSafePage]
+  );
+
+  const findLastEntryIndexForPage = useCallback(
+    (entries: WorkbookHistoryEntry[], page: number) => {
+      const safePage = toSafePage(page);
+      for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const entry = entries[index];
+        if (!entry) continue;
+        if (resolveEntryPage(entry) === safePage) {
+          return index;
+        }
+      }
+      return -1;
+    },
+    [resolveEntryPage, toSafePage]
   );
 
   const restoreSceneSnapshot = useCallback((snapshot: WorkbookSceneSnapshot) => {
@@ -190,33 +235,121 @@ export const useWorkbookSessionHistoryRuntime = ({
     setSaveState,
   ]);
 
-  const pushHistoryEntry = useCallback((entry: WorkbookHistoryEntry) => {
-    const activeActorUserId = toSafeHistoryActorUserId(historyActorUserId);
-    const nextUndo = [
-      ...undoStackRef.current,
-      {
-        ...entry,
-        page: toSafePage(entry.page ?? currentBoardPageRef.current),
-        authorUserId: resolveEntryActorUserId(entry, activeActorUserId),
-      },
-    ];
-    undoStackRef.current = nextUndo.slice(-80);
-    redoStackRef.current = [];
-    const activePage = toSafePage(currentBoardPageRef.current);
-    setUndoDepth(countEntriesForPage(undoStackRef.current, activePage));
-    setRedoDepth(0);
-  }, [
-    countEntriesForPage,
-    currentBoardPageRef,
-    historyActorUserId,
-    redoStackRef,
-    resolveEntryActorUserId,
-    setRedoDepth,
-    setUndoDepth,
-    toSafeHistoryActorUserId,
-    toSafePage,
-    undoStackRef,
-  ]);
+  const pushHistoryEntry = useCallback(
+    (entry: WorkbookHistoryEntry, options?: { clearRedo?: boolean }) => {
+      const safeEntryPage = toSafePage(entry.page ?? currentBoardPageRef.current);
+      const shouldClearRedo = options?.clearRedo !== false;
+      const nextUndo = [
+        ...undoStackRef.current,
+        {
+          ...entry,
+          page: safeEntryPage,
+        },
+      ];
+      undoStackRef.current = nextUndo.slice(-80);
+      if (shouldClearRedo) {
+        redoStackRef.current = [];
+      }
+      const activePage = toSafePage(currentBoardPageRef.current);
+      setUndoDepth(countEntriesForPage(undoStackRef.current, activePage));
+      setRedoDepth(countEntriesForPage(redoStackRef.current, activePage));
+    },
+    [
+      countEntriesForPage,
+      currentBoardPageRef,
+      redoStackRef,
+      setRedoDepth,
+      setUndoDepth,
+      toSafePage,
+      undoStackRef,
+    ]
+  );
+
+  const findMatchingEntryIndexForPage = useCallback(
+    (
+      entries: WorkbookHistoryEntry[],
+      page: number,
+      operations: unknown[] | null,
+      mode: "undo" | "redo"
+    ) => {
+      const fallbackIndex = findLastEntryIndexForPage(entries, page);
+      if (!operations || operations.length === 0) {
+        return fallbackIndex;
+      }
+      const safePage = toSafePage(page);
+      for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const entry = entries[index];
+        if (!entry) continue;
+        if (resolveEntryPage(entry) !== safePage) continue;
+        const expectedOperations = mode === "undo" ? entry.inverse : entry.forward;
+        if (areSerializableValuesStructurallyEqual(expectedOperations, operations)) {
+          return index;
+        }
+      }
+      return fallbackIndex;
+    },
+    [findLastEntryIndexForPage, resolveEntryPage, toSafePage]
+  );
+
+  const syncHistoryStacksFromIncomingUndoRedoEvent = useCallback(
+    (event: WorkbookEvent, localUserId?: string) => {
+      if (event.type !== "board.undo" && event.type !== "board.redo") return;
+      if (localUserId && event.authorUserId === localUserId) return;
+      const payload =
+        event.payload && typeof event.payload === "object"
+          ? (event.payload as { operations?: unknown; page?: unknown })
+          : {};
+      const targetPage =
+        typeof payload.page === "number" && Number.isFinite(payload.page)
+          ? toSafePage(payload.page)
+          : toSafePage(currentBoardPageRef.current);
+      const operations = Array.isArray(payload.operations) ? payload.operations : null;
+      if (event.type === "board.undo") {
+        const targetIndex = findMatchingEntryIndexForPage(
+          undoStackRef.current,
+          targetPage,
+          operations,
+          "undo"
+        );
+        if (targetIndex < 0) return;
+        const entry = undoStackRef.current[targetIndex];
+        if (!entry) return;
+        undoStackRef.current = [
+          ...undoStackRef.current.slice(0, targetIndex),
+          ...undoStackRef.current.slice(targetIndex + 1),
+        ];
+        redoStackRef.current = [...redoStackRef.current, entry].slice(-80);
+      } else {
+        const targetIndex = findMatchingEntryIndexForPage(
+          redoStackRef.current,
+          targetPage,
+          operations,
+          "redo"
+        );
+        if (targetIndex < 0) return;
+        const entry = redoStackRef.current[targetIndex];
+        if (!entry) return;
+        redoStackRef.current = [
+          ...redoStackRef.current.slice(0, targetIndex),
+          ...redoStackRef.current.slice(targetIndex + 1),
+        ];
+        undoStackRef.current = [...undoStackRef.current, entry].slice(-80);
+      }
+      const activePage = toSafePage(currentBoardPageRef.current);
+      setUndoDepth(countEntriesForPage(undoStackRef.current, activePage));
+      setRedoDepth(countEntriesForPage(redoStackRef.current, activePage));
+    },
+    [
+      countEntriesForPage,
+      currentBoardPageRef,
+      findMatchingEntryIndexForPage,
+      redoStackRef,
+      setRedoDepth,
+      setUndoDepth,
+      toSafePage,
+      undoStackRef,
+    ]
+  );
 
   const rollbackHistoryEntry = useCallback(() => {
     if (undoStackRef.current.length === 0) return;
@@ -243,11 +376,9 @@ export const useWorkbookSessionHistoryRuntime = ({
         currentDocumentState: documentStateRef.current,
       });
       if (!historyEntry) return null;
-      const activeActorUserId = toSafeHistoryActorUserId(historyActorUserId);
       return {
         ...historyEntry,
         page: toSafePage(currentBoardPageRef.current),
-        authorUserId: resolveEntryActorUserId(historyEntry, activeActorUserId),
       };
     },
     [
@@ -258,11 +389,23 @@ export const useWorkbookSessionHistoryRuntime = ({
       constraintsRef,
       currentBoardPageRef,
       documentStateRef,
-      historyActorUserId,
-      resolveEntryActorUserId,
-      toSafeHistoryActorUserId,
       toSafePage,
     ]
+  );
+
+  const pushIncomingHistoryEntryFromEvent = useCallback(
+    (event: WorkbookEvent, localUserId?: string) => {
+      if (!isHistoryTrackedWorkbookEventType(event.type)) return;
+      if (localUserId && event.authorUserId === localUserId) return;
+      const historyEvent = {
+        type: event.type,
+        payload: event.payload,
+      } as WorkbookClientEventInput;
+      const entry = buildHistoryEntryFromEvents([historyEvent]);
+      if (!entry) return;
+      pushHistoryEntry(entry, { clearRedo: true });
+    },
+    [buildHistoryEntryFromEvents, pushHistoryEntry]
   );
 
   return {
@@ -272,5 +415,7 @@ export const useWorkbookSessionHistoryRuntime = ({
     pushHistoryEntry,
     rollbackHistoryEntry,
     buildHistoryEntryFromEvents,
+    pushIncomingHistoryEntryFromEvent,
+    syncHistoryStacksFromIncomingUndoRedoEvent,
   };
 };

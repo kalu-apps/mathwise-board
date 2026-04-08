@@ -45,8 +45,8 @@ export type WorkbookKnownEventPayloadMap = {
   "board.object.delete": { objectId: string };
   "board.object.pin": { objectId: string; pinned: boolean };
   "board.object.reorder": { objectId: string; zOrder: number };
-  "board.undo": { operations?: unknown[]; scene?: unknown };
-  "board.redo": { operations?: unknown[]; scene?: unknown };
+  "board.undo": { operations?: unknown[]; scene?: unknown; page?: number };
+  "board.redo": { operations?: unknown[]; scene?: unknown; page?: number };
   "annotations.stroke": { stroke: WorkbookStroke };
   "annotations.stroke.preview": {
     stroke: WorkbookStroke;
