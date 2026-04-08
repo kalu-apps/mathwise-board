@@ -105,16 +105,14 @@ export const useWorkbookSessionHistoryRuntime = ({
   );
 
   const countEntriesForPage = useCallback(
-    (entries: WorkbookHistoryEntry[], page: number, actorUserId: string) => {
+    (entries: WorkbookHistoryEntry[], page: number) => {
       const safePage = toSafePage(page);
-      const safeActorUserId = toSafeHistoryActorUserId(actorUserId);
       return entries.reduce((count, entry) => {
         const entryPage = toSafePage(entry.page);
-        const entryActorUserId = resolveEntryActorUserId(entry, safeActorUserId);
-        return entryPage === safePage && entryActorUserId === safeActorUserId ? count + 1 : count;
+        return entryPage === safePage ? count + 1 : count;
       }, 0);
     },
-    [resolveEntryActorUserId, toSafeHistoryActorUserId, toSafePage]
+    [toSafePage]
   );
 
   const restoreSceneSnapshot = useCallback((snapshot: WorkbookSceneSnapshot) => {
@@ -205,7 +203,7 @@ export const useWorkbookSessionHistoryRuntime = ({
     undoStackRef.current = nextUndo.slice(-80);
     redoStackRef.current = [];
     const activePage = toSafePage(currentBoardPageRef.current);
-    setUndoDepth(countEntriesForPage(undoStackRef.current, activePage, activeActorUserId));
+    setUndoDepth(countEntriesForPage(undoStackRef.current, activePage));
     setRedoDepth(0);
   }, [
     countEntriesForPage,
@@ -223,15 +221,12 @@ export const useWorkbookSessionHistoryRuntime = ({
   const rollbackHistoryEntry = useCallback(() => {
     if (undoStackRef.current.length === 0) return;
     undoStackRef.current = undoStackRef.current.slice(0, -1);
-    const activeActorUserId = toSafeHistoryActorUserId(historyActorUserId);
     const activePage = toSafePage(currentBoardPageRef.current);
-    setUndoDepth(countEntriesForPage(undoStackRef.current, activePage, activeActorUserId));
+    setUndoDepth(countEntriesForPage(undoStackRef.current, activePage));
   }, [
     countEntriesForPage,
     currentBoardPageRef,
-    historyActorUserId,
     setUndoDepth,
-    toSafeHistoryActorUserId,
     toSafePage,
     undoStackRef,
   ]);
