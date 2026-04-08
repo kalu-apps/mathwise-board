@@ -94,12 +94,12 @@ export const useWorkbookHistoryHotkeys = ({
   );
 
   const handleUndo = useCallback(async () => {
-    if (!canUseUndo || undoStackRef.current.length === 0) return;
+    if (!canUseUndo) return;
     const safePage = toSafePage(currentBoardPage);
     const targetIndex = findLastEntryIndexForPage(undoStackRef.current, safePage);
-    if (targetIndex < 0) return;
-    const entry = undoStackRef.current[targetIndex];
-    if (!entry || !Array.isArray(entry.inverse) || entry.inverse.length === 0) return;
+    const entry = targetIndex >= 0 ? undoStackRef.current[targetIndex] : null;
+    const operations =
+      entry && Array.isArray(entry.inverse) && entry.inverse.length > 0 ? entry.inverse : null;
     clearLocalPreviewPatchRuntime();
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
@@ -110,7 +110,7 @@ export const useWorkbookHistoryHotkeys = ({
           {
             type: "board.undo",
             payload: {
-              operations: entry.inverse,
+              ...(operations ? { operations } : {}),
               page: safePage,
             },
           },
@@ -135,12 +135,12 @@ export const useWorkbookHistoryHotkeys = ({
   ]);
 
   const handleRedo = useCallback(async () => {
-    if (!canUseUndo || redoStackRef.current.length === 0) return;
+    if (!canUseUndo) return;
     const safePage = toSafePage(currentBoardPage);
     const targetIndex = findLastEntryIndexForPage(redoStackRef.current, safePage);
-    if (targetIndex < 0) return;
-    const entry = redoStackRef.current[targetIndex];
-    if (!entry || !Array.isArray(entry.forward) || entry.forward.length === 0) return;
+    const entry = targetIndex >= 0 ? redoStackRef.current[targetIndex] : null;
+    const operations =
+      entry && Array.isArray(entry.forward) && entry.forward.length > 0 ? entry.forward : null;
     clearLocalPreviewPatchRuntime();
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
@@ -151,7 +151,7 @@ export const useWorkbookHistoryHotkeys = ({
           {
             type: "board.redo",
             payload: {
-              operations: entry.forward,
+              ...(operations ? { operations } : {}),
               page: safePage,
             },
           },

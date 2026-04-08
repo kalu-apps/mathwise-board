@@ -109,8 +109,6 @@ export function WorkbookSessionContextbar({
   onAddBoardPage,
   onDeleteBoardPage,
   canUseUndo,
-  undoDepth,
-  redoDepth,
   onUndo,
   onRedo,
   onZoomOut,
@@ -300,7 +298,7 @@ export function WorkbookSessionContextbar({
               size="small"
               className="workbook-session__toolbar-icon"
               onClick={() => void onUndo()}
-              disabled={!canUseUndo || undoDepth === 0}
+              disabled={!canUseUndo}
             >
               <UndoRoundedIcon />
             </IconButton>
@@ -312,7 +310,7 @@ export function WorkbookSessionContextbar({
               size="small"
               className="workbook-session__toolbar-icon"
               onClick={() => void onRedo()}
-              disabled={!canUseUndo || redoDepth === 0}
+              disabled={!canUseUndo}
             >
               <RedoRoundedIcon />
             </IconButton>
