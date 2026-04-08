@@ -9,6 +9,7 @@ import type {
   WorkbookConstraintRenderSegment,
   WorkbookMaskedObjectSceneEntry,
 } from "../model/sceneRender";
+import { canResizeWorkbookObjectInSelect } from "../model/sceneInteraction";
 import { getAreaSelectionHandlePoints, type WorkbookAreaSelection } from "../model/sceneSelection";
 import { createPolygonPath, normalizeRect } from "../model/sceneGeometry";
 import type { WorkbookPolygonPreset } from "../model/shapeGeometry";
@@ -623,6 +624,9 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
   tool: WorkbookTool;
 }) {
   if (!areaSelection && !selectedRect && !selectedStrokeRect) return null;
+  const selectedCanResize = Boolean(
+    selectedPreviewObject && canResizeWorkbookObjectInSelect(selectedPreviewObject)
+  );
 
   return (
     <>
@@ -687,17 +691,19 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                   strokeOpacity={0.72}
                 />
               ) : null}
-              {selectedSolidResizeHandles.map((handle, index) => (
-                <circle
-                  key={`solid3d-resize-handle-${selectedPreviewObject.id}-${handle.mode}-${index}`}
-                  cx={handle.x}
-                  cy={handle.y}
-                  r={3.5}
-                  fill={WORKBOOK_LAYER_COLORS.primary}
-                  stroke={WORKBOOK_LAYER_COLORS.white}
-                  strokeWidth={1}
-                />
-              ))}
+              {selectedCanResize
+                ? selectedSolidResizeHandles.map((handle, index) => (
+                    <circle
+                      key={`solid3d-resize-handle-${selectedPreviewObject.id}-${handle.mode}-${index}`}
+                      cx={handle.x}
+                      cy={handle.y}
+                      r={3.5}
+                      fill={WORKBOOK_LAYER_COLORS.primary}
+                      stroke={WORKBOOK_LAYER_COLORS.white}
+                      strokeWidth={1}
+                    />
+                  ))
+                : null}
             </g>
           ) : selectedPreviewObject?.type === "section_divider" ? (
             <line
@@ -727,30 +733,34 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                   selectedPreviewObject.meta?.lineKind === "segment" ? "segment" : "line";
                 return (
                   <>
-                    <line
-                      x1={selectedPreviewObject.x}
-                      y1={selectedPreviewObject.y}
-                      x2={selectedLineControls?.c1.x ?? selectedPreviewObject.x}
-                      y2={selectedLineControls?.c1.y ?? selectedPreviewObject.y}
-                      stroke={WORKBOOK_LAYER_COLORS.primary}
-                      strokeWidth={1}
-                      strokeDasharray="4 3"
-                    />
-                    <line
-                      x1={selectedPreviewObject.x + selectedPreviewObject.width}
-                      y1={selectedPreviewObject.y + selectedPreviewObject.height}
-                      x2={
-                        selectedLineControls?.c2.x ??
-                        selectedPreviewObject.x + selectedPreviewObject.width
-                      }
-                      y2={
-                        selectedLineControls?.c2.y ??
-                        selectedPreviewObject.y + selectedPreviewObject.height
-                      }
-                      stroke={WORKBOOK_LAYER_COLORS.primary}
-                      strokeWidth={1}
-                      strokeDasharray="4 3"
-                    />
+                    {selectedCanResize ? (
+                      <>
+                        <line
+                          x1={selectedPreviewObject.x}
+                          y1={selectedPreviewObject.y}
+                          x2={selectedLineControls?.c1.x ?? selectedPreviewObject.x}
+                          y2={selectedLineControls?.c1.y ?? selectedPreviewObject.y}
+                          stroke={WORKBOOK_LAYER_COLORS.primary}
+                          strokeWidth={1}
+                          strokeDasharray="4 3"
+                        />
+                        <line
+                          x1={selectedPreviewObject.x + selectedPreviewObject.width}
+                          y1={selectedPreviewObject.y + selectedPreviewObject.height}
+                          x2={
+                            selectedLineControls?.c2.x ??
+                            selectedPreviewObject.x + selectedPreviewObject.width
+                          }
+                          y2={
+                            selectedLineControls?.c2.y ??
+                            selectedPreviewObject.y + selectedPreviewObject.height
+                          }
+                          stroke={WORKBOOK_LAYER_COLORS.primary}
+                          strokeWidth={1}
+                          strokeDasharray="4 3"
+                        />
+                      </>
+                    ) : null}
                     <rect
                       x={selectedRect.x}
                       y={selectedRect.y}
@@ -761,7 +771,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                       strokeWidth={1.5}
                       strokeDasharray="6 4"
                     />
-                    {!selectedPreviewObject.pinned ? (
+                    {!selectedPreviewObject.pinned && selectedCanResize ? (
                       <>
                         {[
                           { key: "nw", x: selectedRect.x, y: selectedRect.y },
@@ -858,7 +868,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                 strokeWidth={1.5}
                 strokeDasharray="6 4"
               />
-              {!selectedPreviewObject.pinned ? (
+              {!selectedPreviewObject.pinned && selectedCanResize ? (
                 <>
                   {[
                     { key: "nw", x: selectedRect.x, y: selectedRect.y },
