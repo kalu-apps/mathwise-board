@@ -1142,16 +1142,19 @@ export const resolveWorkbookUndoRedoEvents = async ({
       flushPendingClientBatch();
       const payload =
         event.payload && typeof event.payload === "object"
-          ? (event.payload as { page?: unknown })
+          ? (event.payload as { page?: unknown; operations?: unknown })
           : {};
       const targetPage =
         typeof payload.page === "number" && Number.isFinite(payload.page)
           ? toSafePage(payload.page)
           : toSafePage(historyState.scene.boardSettings.currentPage);
+      const requestedOperations = Array.isArray(payload.operations)
+        ? cloneSerializable(payload.operations as WorkbookHistoryOperation[])
+        : [];
 
       if (event.type === "board.undo") {
         const entry = popLastHistoryEntryForPage(historyState.undoByPage, targetPage);
-        const operations = entry ? cloneSerializable(entry.inverse) : [];
+        const operations = entry ? cloneSerializable(entry.inverse) : requestedOperations;
         if (entry) {
           const redoStack = historyState.redoByPage.get(targetPage) ?? [];
           redoStack.push(entry);
@@ -1172,7 +1175,7 @@ export const resolveWorkbookUndoRedoEvents = async ({
         });
       } else {
         const entry = popLastHistoryEntryForPage(historyState.redoByPage, targetPage);
-        const operations = entry ? cloneSerializable(entry.forward) : [];
+        const operations = entry ? cloneSerializable(entry.forward) : requestedOperations;
         if (entry) {
           const undoStack = historyState.undoByPage.get(targetPage) ?? [];
           undoStack.push(entry);

@@ -79,10 +79,27 @@ export const useWorkbookHistoryHotkeys = ({
     [resolveEntryPage, toSafePage]
   );
 
+  const findLastEntryIndexForPage = useCallback(
+    (entries: HistoryEntryLike[], page: number) => {
+      const safePage = toSafePage(page);
+      for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const entry = entries[index];
+        if (!entry) continue;
+        if (resolveEntryPage(entry) !== safePage) continue;
+        return index;
+      }
+      return -1;
+    },
+    [resolveEntryPage, toSafePage]
+  );
+
   const handleUndo = useCallback(async () => {
     if (!canUseUndo || undoStackRef.current.length === 0) return;
     const safePage = toSafePage(currentBoardPage);
-    if (countEntriesForPage(undoStackRef.current, safePage) <= 0) return;
+    const targetIndex = findLastEntryIndexForPage(undoStackRef.current, safePage);
+    if (targetIndex < 0) return;
+    const entry = undoStackRef.current[targetIndex];
+    if (!entry || !Array.isArray(entry.inverse) || entry.inverse.length === 0) return;
     clearLocalPreviewPatchRuntime();
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
@@ -93,6 +110,7 @@ export const useWorkbookHistoryHotkeys = ({
           {
             type: "board.undo",
             payload: {
+              operations: entry.inverse,
               page: safePage,
             },
           },
@@ -109,8 +127,8 @@ export const useWorkbookHistoryHotkeys = ({
     clearIncomingEraserPreviewRuntime,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
-    countEntriesForPage,
     currentBoardPage,
+    findLastEntryIndexForPage,
     setError,
     toSafePage,
     undoStackRef,
@@ -119,7 +137,10 @@ export const useWorkbookHistoryHotkeys = ({
   const handleRedo = useCallback(async () => {
     if (!canUseUndo || redoStackRef.current.length === 0) return;
     const safePage = toSafePage(currentBoardPage);
-    if (countEntriesForPage(redoStackRef.current, safePage) <= 0) return;
+    const targetIndex = findLastEntryIndexForPage(redoStackRef.current, safePage);
+    if (targetIndex < 0) return;
+    const entry = redoStackRef.current[targetIndex];
+    if (!entry || !Array.isArray(entry.forward) || entry.forward.length === 0) return;
     clearLocalPreviewPatchRuntime();
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
@@ -130,6 +151,7 @@ export const useWorkbookHistoryHotkeys = ({
           {
             type: "board.redo",
             payload: {
+              operations: entry.forward,
               page: safePage,
             },
           },
@@ -146,8 +168,8 @@ export const useWorkbookHistoryHotkeys = ({
     clearIncomingEraserPreviewRuntime,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
-    countEntriesForPage,
     currentBoardPage,
+    findLastEntryIndexForPage,
     redoStackRef,
     setError,
     toSafePage,
