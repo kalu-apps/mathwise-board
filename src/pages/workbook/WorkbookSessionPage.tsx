@@ -159,6 +159,7 @@ const WorkbookImportModal = lazy(() =>
 );
 
 const AUTO_PAGE_FRAME_GROW_DELAY_MS = 2_500;
+const DEFAULT_BROWSER_TAB_TITLE = "Умная доска";
 
 export default function WorkbookSessionPage() {
   const { user, isAuthReady, openAuthModal } = useAuth();
@@ -246,6 +247,21 @@ export default function WorkbookSessionPage() {
     () => resolveWorkbookBoardPageVisualSettings(boardSettings, currentBoardPage),
     [boardSettings, currentBoardPage]
   );
+  const rawSessionBrowserTitle = typeof session?.title === "string" ? session.title.trim() : "";
+  const sessionBrowserTabTitle =
+    rawSessionBrowserTitle.length > 0 ? rawSessionBrowserTitle : DEFAULT_BROWSER_TAB_TITLE;
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.title = sessionBrowserTabTitle;
+  }, [sessionBrowserTabTitle]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof document === "undefined") return;
+      document.title = DEFAULT_BROWSER_TAB_TITLE;
+    };
+  }, []);
   const refs = useWorkbookSessionRefs();
   const {
     tool,
