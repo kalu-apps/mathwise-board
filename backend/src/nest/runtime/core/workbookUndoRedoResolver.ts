@@ -615,23 +615,29 @@ const buildHistoryEntryFromEventBatch = (
   if (events.length === 0) return null;
   const forward: WorkbookHistoryOperation[] = [];
   let inverse: WorkbookHistoryOperation[] = [];
+  const eventPages: number[] = [];
+  const fallbackPage = toSafePage(state.boardSettings.currentPage);
 
   events.forEach((event) => {
     const entry = buildHistoryEntryFromEvent(state, event);
     if (!entry) return;
     forward.push(...entry.forward);
     inverse = [...entry.inverse, ...inverse];
+    eventPages.push(toSafePage(entry.page));
   });
 
   if (forward.length === 0 || inverse.length === 0) {
     return null;
   }
+  const entryPage =
+    eventPages.length > 0 && eventPages.every((page) => page === eventPages[0])
+      ? eventPages[0]
+      : fallbackPage;
 
   return {
     forward,
     inverse,
-    // Client history groups events by current board page for one user action.
-    page: toSafePage(state.boardSettings.currentPage),
+    page: entryPage,
     createdAt: new Date().toISOString(),
   };
 };

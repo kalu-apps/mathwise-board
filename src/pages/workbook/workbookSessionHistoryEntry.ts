@@ -49,14 +49,18 @@ export const buildWorkbookHistoryEntryFromEvents = ({
 }: BuildWorkbookHistoryEntryFromEventsArgs): WorkbookHistoryEntry | null => {
   const forward: WorkbookHistoryOperation[] = [];
   let inverse: WorkbookHistoryOperation[] = [];
+  const eventPages: number[] = [];
+  const fallbackPage = toSafePage(currentBoardSettings.currentPage);
 
   events.forEach((event) => {
     let eventForward: WorkbookHistoryOperation[] = [];
     let eventInverse: WorkbookHistoryOperation[] = [];
+    let eventPage: number | null = null;
 
     if (event.type === "board.stroke" || event.type === "annotations.stroke") {
       const stroke = normalizeStrokePayload((event.payload as { stroke?: unknown })?.stroke);
       if (!stroke) return;
+      eventPage = toSafePage(stroke.page);
       eventForward = [
         {
           kind: "upsert_stroke",
@@ -84,6 +88,7 @@ export const buildWorkbookHistoryEntryFromEvents = ({
         (item) => item.id === strokeId
       );
       if (!source) return;
+      eventPage = toSafePage(source.page);
       eventForward = [
         {
           kind: "remove_stroke",
@@ -103,6 +108,7 @@ export const buildWorkbookHistoryEntryFromEvents = ({
     } else if (event.type === "board.object.create") {
       const object = normalizeObjectPayload((event.payload as { object?: unknown })?.object);
       if (!object) return;
+      eventPage = toSafePage(object.page);
       eventForward = [
         { kind: "upsert_object", object: cloneSerializable(object), expectedCurrent: null },
       ];
@@ -124,6 +130,7 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       const currentObject = currentObjects.find((item) => item.id === objectId);
       if (!currentObject) return;
       const nextObject = mergeBoardObjectWithPatch(currentObject, patch);
+      eventPage = toSafePage(nextObject.page ?? currentObject.page);
       const forwardPatch = buildBoardObjectDiffPatch(currentObject, nextObject);
       const inversePatch = buildBoardObjectDiffPatch(nextObject, currentObject);
       if (!forwardPatch || !inversePatch) return;
@@ -148,6 +155,7 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       if (typeof objectId !== "string" || !objectId) return;
       const currentObject = currentObjects.find((item) => item.id === objectId);
       if (!currentObject) return;
+      eventPage = toSafePage(currentObject.page);
       const relatedConstraints = currentConstraints.filter(
         (constraint) =>
           constraint.sourceObjectId === objectId || constraint.targetObjectId === objectId
@@ -172,6 +180,7 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       if (!objectId) return;
       const currentObject = currentObjects.find((item) => item.id === objectId);
       if (!currentObject) return;
+      eventPage = toSafePage(currentObject.page);
       const nextObject = { ...currentObject, pinned: Boolean(payload.pinned) };
       const forwardPatch = buildBoardObjectDiffPatch(currentObject, nextObject);
       const inversePatch = buildBoardObjectDiffPatch(nextObject, currentObject);
@@ -199,6 +208,7 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       if (!objectId || zOrder === undefined) return;
       const currentObject = currentObjects.find((item) => item.id === objectId);
       if (!currentObject) return;
+      eventPage = toSafePage(currentObject.page);
       const nextObject = { ...currentObject, zOrder };
       const forwardPatch = buildBoardObjectDiffPatch(currentObject, nextObject);
       const inversePatch = buildBoardObjectDiffPatch(nextObject, currentObject);
@@ -220,6 +230,7 @@ export const buildWorkbookHistoryEntryFromEvents = ({
         },
       ];
     } else if (event.type === "board.clear") {
+      eventPage = fallbackPage;
       eventForward = [
         ...currentConstraints.map((constraint) => ({
           kind: "remove_constraint" as const,
@@ -255,6 +266,7 @@ export const buildWorkbookHistoryEntryFromEvents = ({
         })),
       ];
     } else if (event.type === "annotations.clear") {
+      eventPage = fallbackPage;
       eventForward = currentAnnotationStrokes.map((stroke) => ({
         kind: "remove_stroke" as const,
         layer: "annotations" as const,
@@ -272,6 +284,9 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       if (!constraint || typeof constraint !== "object") return;
       const typed = constraint as WorkbookConstraint;
       if (!typed.id) return;
+      const sourceObject = currentObjects.find((item) => item.id === typed.sourceObjectId);
+      const targetObject = currentObjects.find((item) => item.id === typed.targetObjectId);
+      eventPage = toSafePage(sourceObject?.page ?? targetObject?.page ?? fallbackPage);
       eventForward = [{ kind: "upsert_constraint", constraint: cloneSerializable(typed) }];
       eventInverse = [{ kind: "remove_constraint", constraintId: typed.id }];
     } else if (event.type === "geometry.constraint.remove") {
@@ -279,6 +294,13 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       if (typeof constraintId !== "string" || !constraintId) return;
       const currentConstraint = currentConstraints.find((item) => item.id === constraintId);
       if (!currentConstraint) return;
+      const sourceObject = currentObjects.find(
+        (item) => item.id === currentConstraint.sourceObjectId
+      );
+      const targetObject = currentObjects.find(
+        (item) => item.id === currentConstraint.targetObjectId
+      );
+      eventPage = toSafePage(sourceObject?.page ?? targetObject?.page ?? fallbackPage);
       eventForward = [{ kind: "remove_constraint", constraintId }];
       eventInverse = [
         { kind: "upsert_constraint", constraint: cloneSerializable(currentConstraint) },
@@ -302,11 +324,13 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       const forwardPatch = buildBoardSettingsDiffPatch(currentBoardSettings, nextSettings);
       const inversePatch = buildBoardSettingsDiffPatch(nextSettings, currentBoardSettings);
       if (!forwardPatch || !inversePatch) return;
+      eventPage = toSafePage(nextSettings.currentPage);
       eventForward = [{ kind: "patch_board_settings", patch: forwardPatch }];
       eventInverse = [{ kind: "patch_board_settings", patch: inversePatch }];
     } else if (event.type === "document.asset.add") {
       const asset = normalizeDocumentAssetPayload((event.payload as { asset?: unknown })?.asset);
       if (!asset) return;
+      eventPage = fallbackPage;
       eventForward = [{ kind: "upsert_document_asset", asset: cloneSerializable(asset) }];
       eventInverse = [{ kind: "remove_document_asset", assetId: asset.id }];
     } else if (event.type === "document.annotation.add") {
@@ -314,6 +338,7 @@ export const buildWorkbookHistoryEntryFromEvents = ({
         (event.payload as { annotation?: unknown })?.annotation
       );
       if (!annotation) return;
+      eventPage = toSafePage(annotation.page);
       eventForward = [
         {
           kind: "upsert_document_annotation",
@@ -322,6 +347,7 @@ export const buildWorkbookHistoryEntryFromEvents = ({
       ];
       eventInverse = [{ kind: "remove_document_annotation", annotationId: annotation.id }];
     } else if (event.type === "document.annotation.clear") {
+      eventPage = fallbackPage;
       eventForward = currentDocumentState.annotations.map((annotation) => ({
         kind: "remove_document_annotation" as const,
         annotationId: annotation.id,
@@ -335,15 +361,20 @@ export const buildWorkbookHistoryEntryFromEvents = ({
     if (eventForward.length === 0 || eventInverse.length === 0) return;
     forward.push(...eventForward);
     inverse = [...eventInverse, ...inverse];
+    eventPages.push(toSafePage(eventPage ?? fallbackPage));
   });
 
   if (forward.length === 0 || inverse.length === 0) {
     return null;
   }
+  const entryPage =
+    eventPages.length > 0 && eventPages.every((page) => page === eventPages[0])
+      ? eventPages[0]
+      : fallbackPage;
   return {
     forward,
     inverse,
-    page: toSafePage(currentBoardSettings.currentPage),
+    page: entryPage,
     createdAt: new Date().toISOString(),
   } satisfies WorkbookHistoryEntry;
 };

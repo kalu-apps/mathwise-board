@@ -375,9 +375,13 @@ export const useWorkbookSessionHistoryRuntime = ({
         currentDocumentState: documentStateRef.current,
       });
       if (!historyEntry) return null;
+      const historyEntryPage =
+        typeof historyEntry.page === "number" && Number.isFinite(historyEntry.page)
+          ? historyEntry.page
+          : currentBoardPageRef.current;
       return {
         ...historyEntry,
-        page: toSafePage(currentBoardPageRef.current),
+        page: toSafePage(historyEntryPage),
       };
     },
     [
