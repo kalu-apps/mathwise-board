@@ -1162,7 +1162,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     resolveGraphFunctionHit,
     objectSceneEntries,
     selectedRect,
-    selectedLineControls,
     selectedSolidResizeHandles,
     constraintRenderSegments,
     solid3dMarkerNodes,
@@ -1945,7 +1944,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           selectedStroke={selectedStroke}
           selectedStrokeRect={selectedStrokeRect}
           isStrokeDragging={movingStrokeSelections.length > 0}
-          selectedLineControls={selectedLineControls}
           selectedSolidResizeHandles={selectedSolidResizeHandles}
           tool={tool}
         />

@@ -27,7 +27,6 @@ import {
   buildSolid3dResizeState,
   finalizeAreaSelectionDraftWithQueries,
   finalizeAreaSelectionResizeWithQueries,
-  resolveObjectResizeMode,
   shouldKeepObjectSelectedInsideArea,
   type PanState,
   type Solid3dGestureState,
@@ -343,7 +342,7 @@ export const useWorkbookCanvasInteractions = (
   } = refs;
   const canResizeAreaSelection = useCallback(
     (selection: WorkbookAreaSelection | null) =>
-      Boolean(selection && selection.objectIds.length + selection.strokeIds.length === 1),
+      Boolean(selection && selection.objectIds.length === 0 && selection.strokeIds.length === 1),
     []
   );
 
@@ -620,14 +619,8 @@ export const useWorkbookCanvasInteractions = (
         const selected = data.selectedObjectId
           ? data.objectById.get(data.selectedObjectId) ?? null
           : null;
-        const solid3dResizeHit =
-          selected && !selected.pinned && selected.type === "solid3d"
-            ? callbacks.resolveSolid3dResizeHandleHit(selected, point)
-            : null;
-        const resizeMode =
-          selected && !selected.pinned && selected.type !== "solid3d"
-            ? resolveObjectResizeMode(selected, point)
-            : null;
+        const solid3dResizeHit = null;
+        const resizeMode = null;
         const keepInsideArea = shouldKeepObjectSelectedInsideArea(point, data.areaSelection);
         const groupedTargets = keepInsideArea
           ? collectAreaSelectionObjects(data.areaSelection, data.objectById)

@@ -603,7 +603,6 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
   selectedStroke,
   selectedStrokeRect,
   isStrokeDragging,
-  selectedLineControls,
   selectedSolidResizeHandles,
   tool,
 }: {
@@ -613,12 +612,6 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
   selectedStroke: WorkbookStroke | null;
   selectedStrokeRect: { x: number; y: number; width: number; height: number } | null;
   isStrokeDragging: boolean;
-  selectedLineControls:
-    | {
-        c1: WorkbookPoint;
-        c2: WorkbookPoint;
-      }
-    | null;
   selectedSolidResizeHandles: Array<{ mode: string; x: number; y: number }>;
   tool: WorkbookTool;
 }) {
@@ -639,7 +632,8 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
             strokeDasharray="7 5"
           />
           {(tool === "area_select" || tool === "select") &&
-          areaSelection.objectIds.length + areaSelection.strokeIds.length === 1
+          areaSelection.objectIds.length === 0 &&
+          areaSelection.strokeIds.length === 1
             ? getAreaSelectionHandlePoints(areaSelection.rect).map((handle) => (
                 <circle
                   key={`area-selection-handle-${handle.mode}`}
@@ -687,17 +681,6 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                   strokeOpacity={0.72}
                 />
               ) : null}
-              {selectedSolidResizeHandles.map((handle, index) => (
-                <circle
-                  key={`solid3d-resize-handle-${selectedPreviewObject.id}-${handle.mode}-${index}`}
-                  cx={handle.x}
-                  cy={handle.y}
-                  r={3.5}
-                  fill={WORKBOOK_LAYER_COLORS.primary}
-                  stroke={WORKBOOK_LAYER_COLORS.white}
-                  strokeWidth={1}
-                />
-              ))}
             </g>
           ) : selectedPreviewObject?.type === "section_divider" ? (
             <line
@@ -721,123 +704,16 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
             />
           ) : selectedPreviewObject &&
             (selectedPreviewObject.type === "line" || selectedPreviewObject.type === "arrow") ? (
-            <>
-              {(() => {
-                const lineKind =
-                  selectedPreviewObject.meta?.lineKind === "segment" ? "segment" : "line";
-                return (
-                  <>
-                    <line
-                      x1={selectedPreviewObject.x}
-                      y1={selectedPreviewObject.y}
-                      x2={selectedLineControls?.c1.x ?? selectedPreviewObject.x}
-                      y2={selectedLineControls?.c1.y ?? selectedPreviewObject.y}
-                      stroke={WORKBOOK_LAYER_COLORS.primary}
-                      strokeWidth={1}
-                      strokeDasharray="4 3"
-                    />
-                    <line
-                      x1={selectedPreviewObject.x + selectedPreviewObject.width}
-                      y1={selectedPreviewObject.y + selectedPreviewObject.height}
-                      x2={
-                        selectedLineControls?.c2.x ??
-                        selectedPreviewObject.x + selectedPreviewObject.width
-                      }
-                      y2={
-                        selectedLineControls?.c2.y ??
-                        selectedPreviewObject.y + selectedPreviewObject.height
-                      }
-                      stroke={WORKBOOK_LAYER_COLORS.primary}
-                      strokeWidth={1}
-                      strokeDasharray="4 3"
-                    />
-                    <rect
-                      x={selectedRect.x}
-                      y={selectedRect.y}
-                      width={selectedRect.width}
-                      height={selectedRect.height}
-                      fill="none"
-                      stroke={WORKBOOK_LAYER_COLORS.warning}
-                      strokeWidth={1.5}
-                      strokeDasharray="6 4"
-                    />
-                    {!selectedPreviewObject.pinned ? (
-                      <>
-                        {[
-                          { key: "nw", x: selectedRect.x, y: selectedRect.y },
-                          { key: "ne", x: selectedRect.x + selectedRect.width, y: selectedRect.y },
-                          {
-                            key: "se",
-                            x: selectedRect.x + selectedRect.width,
-                            y: selectedRect.y + selectedRect.height,
-                          },
-                          { key: "sw", x: selectedRect.x, y: selectedRect.y + selectedRect.height },
-                        ].map((handle) => (
-                          <rect
-                            key={`line-handle-${selectedPreviewObject.id}-${handle.key}`}
-                            x={handle.x - 3}
-                            y={handle.y - 3}
-                            width={6}
-                            height={6}
-                            rx={1.5}
-                            ry={1.5}
-                            fill={WORKBOOK_LAYER_COLORS.warning}
-                            stroke={WORKBOOK_LAYER_COLORS.white}
-                            strokeWidth={1}
-                          />
-                        ))}
-                        <circle
-                          cx={selectedLineControls?.c1.x ?? selectedPreviewObject.x}
-                          cy={selectedLineControls?.c1.y ?? selectedPreviewObject.y}
-                          r={3.2}
-                          fill={WORKBOOK_LAYER_COLORS.primary}
-                          stroke={WORKBOOK_LAYER_COLORS.white}
-                          strokeWidth={1}
-                        />
-                        <circle
-                          cx={
-                            selectedLineControls?.c2.x ??
-                            selectedPreviewObject.x + selectedPreviewObject.width
-                          }
-                          cy={
-                            selectedLineControls?.c2.y ??
-                            selectedPreviewObject.y + selectedPreviewObject.height
-                          }
-                          r={3.3}
-                          fill={WORKBOOK_LAYER_COLORS.primary}
-                          stroke={WORKBOOK_LAYER_COLORS.white}
-                          strokeWidth={1}
-                        />
-                        <circle
-                          cx={selectedPreviewObject.x}
-                          cy={selectedPreviewObject.y}
-                          r={3.5}
-                          fill={lineKind === "segment" ? WORKBOOK_LAYER_COLORS.white : WORKBOOK_LAYER_COLORS.warning}
-                          stroke={WORKBOOK_LAYER_COLORS.warning}
-                          strokeWidth={1.2}
-                        />
-                        <circle
-                          cx={selectedPreviewObject.x + selectedPreviewObject.width}
-                          cy={selectedPreviewObject.y + selectedPreviewObject.height}
-                          r={3.5}
-                          fill={lineKind === "segment" ? WORKBOOK_LAYER_COLORS.white : WORKBOOK_LAYER_COLORS.warning}
-                          stroke={WORKBOOK_LAYER_COLORS.warning}
-                          strokeWidth={1.2}
-                        />
-                        <circle
-                          cx={selectedRect.x + selectedRect.width / 2}
-                          cy={selectedRect.y - 18}
-                          r={3.5}
-                          fill={WORKBOOK_LAYER_COLORS.primary}
-                          stroke={WORKBOOK_LAYER_COLORS.white}
-                          strokeWidth={1}
-                        />
-                      </>
-                    ) : null}
-                  </>
-                );
-              })()}
-            </>
+            <rect
+              x={selectedRect.x}
+              y={selectedRect.y}
+              width={selectedRect.width}
+              height={selectedRect.height}
+              fill="none"
+              stroke={WORKBOOK_LAYER_COLORS.warning}
+              strokeWidth={1.5}
+              strokeDasharray="6 4"
+            />
           ) : selectedPreviewObject ? (
             <g
               transform={
@@ -858,62 +734,6 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                 strokeWidth={1.5}
                 strokeDasharray="6 4"
               />
-              {!selectedPreviewObject.pinned ? (
-                <>
-                  {[
-                    { key: "nw", x: selectedRect.x, y: selectedRect.y },
-                    { key: "ne", x: selectedRect.x + selectedRect.width, y: selectedRect.y },
-                    {
-                      key: "se",
-                      x: selectedRect.x + selectedRect.width,
-                      y: selectedRect.y + selectedRect.height,
-                    },
-                    { key: "sw", x: selectedRect.x, y: selectedRect.y + selectedRect.height },
-                    { key: "n", x: selectedRect.x + selectedRect.width / 2, y: selectedRect.y },
-                    {
-                      key: "e",
-                      x: selectedRect.x + selectedRect.width,
-                      y: selectedRect.y + selectedRect.height / 2,
-                    },
-                    {
-                      key: "s",
-                      x: selectedRect.x + selectedRect.width / 2,
-                      y: selectedRect.y + selectedRect.height,
-                    },
-                    { key: "w", x: selectedRect.x, y: selectedRect.y + selectedRect.height / 2 },
-                  ].map((handle) => (
-                    <rect
-                      key={`handle-${selectedPreviewObject.id}-${handle.key}`}
-                      x={handle.x - 3}
-                      y={handle.y - 3}
-                      width={6}
-                      height={6}
-                      rx={1.5}
-                      ry={1.5}
-                      fill={WORKBOOK_LAYER_COLORS.warning}
-                      stroke={WORKBOOK_LAYER_COLORS.white}
-                      strokeWidth={1}
-                    />
-                  ))}
-                  <line
-                    x1={selectedRect.x + selectedRect.width / 2}
-                    y1={selectedRect.y}
-                    x2={selectedRect.x + selectedRect.width / 2}
-                    y2={selectedRect.y - 14}
-                    stroke={WORKBOOK_LAYER_COLORS.primary}
-                    strokeWidth={1.2}
-                    strokeDasharray="4 3"
-                  />
-                  <circle
-                    cx={selectedRect.x + selectedRect.width / 2}
-                    cy={selectedRect.y - 18}
-                    r={3.5}
-                    fill={WORKBOOK_LAYER_COLORS.primary}
-                    stroke={WORKBOOK_LAYER_COLORS.white}
-                    strokeWidth={1}
-                  />
-                </>
-              ) : null}
             </g>
           ) : null}
         </>
