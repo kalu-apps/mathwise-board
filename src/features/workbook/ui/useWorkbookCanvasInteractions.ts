@@ -23,7 +23,6 @@ import {
   buildPanState,
   buildPanningOffset,
   buildMovingCurrentPoint,
-  canResizeWorkbookObjectInSelect,
   buildSolid3dGesturePreviewMeta,
   buildSolid3dResizeState,
   finalizeAreaSelectionDraftWithQueries,
@@ -622,10 +621,7 @@ export const useWorkbookCanvasInteractions = (
           ? data.objectById.get(data.selectedObjectId) ?? null
           : null;
         const solid3dResizeHit =
-          selected &&
-          !selected.pinned &&
-          selected.type === "solid3d" &&
-          canResizeWorkbookObjectInSelect(selected)
+          selected && !selected.pinned && selected.type === "solid3d"
             ? callbacks.resolveSolid3dResizeHandleHit(selected, point)
             : null;
         const resizeMode =

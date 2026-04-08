@@ -19,7 +19,6 @@ import {
 import { readSolid3dState, writeSolid3dState } from "./solid3dState";
 import type {
   WorkbookBoardObject,
-  WorkbookBoardObjectType,
   WorkbookLayer,
   WorkbookPoint,
   WorkbookStroke,
@@ -107,28 +106,11 @@ export const buildMovingCurrentPoint = (
   };
 };
 
-const WORKBOOK_SELECT_RESIZE_DISABLED_TYPES = new Set<WorkbookBoardObjectType>([
-  "point",
-  "line",
-  "arrow",
-  "rectangle",
-  "ellipse",
-  "triangle",
-  "polygon",
-  "section_divider",
-  "solid3d",
-  "section3d",
-  "net3d",
-]);
-
-export const canResizeWorkbookObjectInSelect = (object: WorkbookBoardObject) =>
-  !WORKBOOK_SELECT_RESIZE_DISABLED_TYPES.has(object.type);
-
 export const resolveObjectResizeMode = (
   object: WorkbookBoardObject,
   point: WorkbookPoint
 ): ResizeState["mode"] | null => {
-  if (!canResizeWorkbookObjectInSelect(object)) {
+  if (object.type === "section_divider" || object.type === "point") {
     return null;
   }
   if (object.type === "line" || object.type === "arrow") {
