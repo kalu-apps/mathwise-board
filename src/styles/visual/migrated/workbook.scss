@@ -6073,12 +6073,15 @@
 
   .workbook-session__board-shell {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    min-height: 0;
+    height: 100%;
     gap: 8px;
   }
 
   .workbook-session__canvas {
-    min-height: 52vh;
-    height: 52vh;
+    min-height: 0;
+    height: 100%;
   }
 
   .workbook-session__tools {
@@ -6290,16 +6293,19 @@
   }
 
   .workbook-session__canvas {
-    min-height: clamp(280px, 56dvh, 620px);
-    height: clamp(280px, 56dvh, 620px);
+    min-height: 0;
+    height: 100%;
   }
 
   .workbook-session__board-shell {
     position: relative;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
     align-items: stretch;
     gap: 8px;
+    min-height: 0;
+    height: 100%;
     padding-right: 0;
     padding-bottom: 0;
     min-width: 0;
@@ -6537,8 +6543,8 @@
 
 @media (max-width: 760px) and (orientation: landscape) {
   .workbook-session__canvas {
-    min-height: clamp(220px, 50dvh, 420px);
-    height: clamp(220px, 50dvh, 420px);
+    min-height: 0;
+    height: 100%;
   }
 
   .workbook-session__session-chat {
