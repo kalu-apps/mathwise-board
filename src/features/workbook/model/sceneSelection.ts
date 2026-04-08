@@ -12,6 +12,7 @@ export type WorkbookAreaSelection = {
   objectIds: string[];
   strokeIds: Array<{ id: string; layer: WorkbookLayer }>;
   rect: WorkbookSceneRect;
+  resizeEnabled?: boolean;
 };
 
 export type WorkbookAreaSelectionResizeMode =

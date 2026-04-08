@@ -1599,6 +1599,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       objectIds: persistedObjectIds,
       strokeIds: persistedStrokeSelections,
       rect: nextRect,
+      resizeEnabled: areaSelection.resizeEnabled,
     });
   };
 

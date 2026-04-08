@@ -22,7 +22,6 @@ import {
   buildAreaSelectionResizeState,
   buildPanState,
   buildPanningOffset,
-  canResizeObjectInSelectMode,
   buildMovingCurrentPoint,
   resolveObjectResizeMode,
   buildSolid3dGesturePreviewMeta,
@@ -344,7 +343,12 @@ export const useWorkbookCanvasInteractions = (
   } = refs;
   const canResizeAreaSelection = useCallback(
     (selection: WorkbookAreaSelection | null) =>
-      Boolean(selection && selection.objectIds.length === 0 && selection.strokeIds.length === 1),
+      Boolean(
+        selection &&
+          selection.resizeEnabled === true &&
+          selection.objectIds.length === 0 &&
+          selection.strokeIds.length === 1
+      ),
     []
   );
 
@@ -621,11 +625,11 @@ export const useWorkbookCanvasInteractions = (
         const selected = data.selectedObjectId
           ? data.objectById.get(data.selectedObjectId) ?? null
           : null;
-        const solid3dResizeHit = null;
-        const resizeMode =
-          selected && canResizeObjectInSelectMode(selected)
-            ? resolveObjectResizeMode(selected, point)
+        const solid3dResizeHit =
+          selected?.type === "solid3d"
+            ? callbacks.resolveSolid3dResizeHandleHit(selected, point)
             : null;
+        const resizeMode = selected ? resolveObjectResizeMode(selected, point) : null;
         const keepInsideArea = shouldKeepObjectSelectedInsideArea(point, data.areaSelection);
         const groupedTargets = keepInsideArea
           ? collectAreaSelectionObjects(data.areaSelection, data.objectById)
@@ -711,6 +715,7 @@ export const useWorkbookCanvasInteractions = (
               objectIds: [],
               strokeIds: [strokeSelection],
               rect: strokeRect,
+              resizeEnabled: true,
             };
             api.onAreaSelectionChange?.(singleStrokeAreaSelection);
             api.onSelectedObjectChange(null);
@@ -1053,12 +1058,19 @@ export const useWorkbookCanvasInteractions = (
         }
         setters.setAreaSelectionResize(null);
       } else if (finishMode === "area_selection_draft" && latestAreaSelectionDraft) {
+        const nextSelection = finalizeAreaSelectionDraftWithQueries({
+          draft: latestAreaSelectionDraft,
+          boardObjectCandidatesInRect: callbacks.boardObjectCandidatesInRect,
+          strokeCandidatesInRect: callbacks.strokeCandidatesInRect,
+        });
         api.onAreaSelectionChange?.(
-          finalizeAreaSelectionDraftWithQueries({
-            draft: latestAreaSelectionDraft,
-            boardObjectCandidatesInRect: callbacks.boardObjectCandidatesInRect,
-            strokeCandidatesInRect: callbacks.strokeCandidatesInRect,
-          })
+          nextSelection
+            ? {
+                ...nextSelection,
+                // Marquee selection in "select"/"area_select" is move-only by design.
+                resizeEnabled: false,
+              }
+            : null
         );
         setters.setAreaSelectionDraft(null);
       } else if (finishMode === "panning" && data.panning) {

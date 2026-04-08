@@ -306,6 +306,7 @@ export const buildMoveCommitResult = (params: {
             width: areaSelection.rect.width,
             height: areaSelection.rect.height,
           },
+          resizeEnabled: areaSelection.resizeEnabled,
         }
       : null;
   return {

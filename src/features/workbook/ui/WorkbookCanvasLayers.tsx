@@ -11,7 +11,6 @@ import type {
 } from "../model/sceneRender";
 import { getAreaSelectionHandlePoints, type WorkbookAreaSelection } from "../model/sceneSelection";
 import { createPolygonPath, normalizeRect } from "../model/sceneGeometry";
-import { canResizeObjectInSelectMode } from "../model/sceneInteraction";
 import type { WorkbookPolygonPreset } from "../model/shapeGeometry";
 import {
   resolveWorkbookStrokeOpacity,
@@ -633,6 +632,7 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
             strokeDasharray="7 5"
           />
           {(tool === "area_select" || tool === "select") &&
+          areaSelection.resizeEnabled === true &&
           areaSelection.objectIds.length === 0 &&
           areaSelection.strokeIds.length === 1
             ? getAreaSelectionHandlePoints(areaSelection.rect).map((handle) => (
@@ -670,6 +670,16 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
         <>
           {selectedPreviewObject?.type === "solid3d" ? (
             <g>
+              <rect
+                x={selectedRect.x}
+                y={selectedRect.y}
+                width={selectedRect.width}
+                height={selectedRect.height}
+                fill="none"
+                stroke={WORKBOOK_LAYER_COLORS.warning}
+                strokeWidth={1.5}
+                strokeDasharray="6 4"
+              />
               {selectedSolidResizeHandles.length >= 2 ? (
                 <path
                   d={`${toPath(
@@ -682,6 +692,17 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                   strokeOpacity={0.72}
                 />
               ) : null}
+              {selectedSolidResizeHandles.map((handle) => (
+                <circle
+                  key={`solid3d-resize-handle-${handle.mode}`}
+                  cx={handle.x}
+                  cy={handle.y}
+                  r={4}
+                  fill={WORKBOOK_LAYER_COLORS.warning}
+                  stroke={WORKBOOK_LAYER_COLORS.white}
+                  strokeWidth={1}
+                />
+              ))}
             </g>
           ) : selectedPreviewObject?.type === "section_divider" ? (
             <line
@@ -705,16 +726,37 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
             />
           ) : selectedPreviewObject &&
             (selectedPreviewObject.type === "line" || selectedPreviewObject.type === "arrow") ? (
-            <rect
-              x={selectedRect.x}
-              y={selectedRect.y}
-              width={selectedRect.width}
-              height={selectedRect.height}
-              fill="none"
-              stroke={WORKBOOK_LAYER_COLORS.warning}
-              strokeWidth={1.5}
-              strokeDasharray="6 4"
-            />
+            <>
+              <rect
+                x={selectedRect.x}
+                y={selectedRect.y}
+                width={selectedRect.width}
+                height={selectedRect.height}
+                fill="none"
+                stroke={WORKBOOK_LAYER_COLORS.warning}
+                strokeWidth={1.5}
+                strokeDasharray="6 4"
+              />
+              {getAreaSelectionHandlePoints(selectedRect).map((handle) => (
+                <circle
+                  key={`line-selection-handle-${handle.mode}`}
+                  cx={handle.x}
+                  cy={handle.y}
+                  r={4}
+                  fill={WORKBOOK_LAYER_COLORS.warning}
+                  stroke={WORKBOOK_LAYER_COLORS.white}
+                  strokeWidth={1}
+                />
+              ))}
+              <circle
+                cx={selectedRect.x + selectedRect.width / 2}
+                cy={selectedRect.y - 18}
+                r={4}
+                fill={WORKBOOK_LAYER_COLORS.warning}
+                stroke={WORKBOOK_LAYER_COLORS.white}
+                strokeWidth={1}
+              />
+            </>
           ) : selectedPreviewObject ? (
             <g
               transform={
@@ -735,31 +777,25 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                 strokeWidth={1.5}
                 strokeDasharray="6 4"
               />
-              {canResizeObjectInSelectMode(selectedPreviewObject)
-                ? (
-                  <>
-                    {getAreaSelectionHandlePoints(selectedRect).map((handle) => (
-                      <circle
-                        key={`selection-handle-${handle.mode}`}
-                        cx={handle.x}
-                        cy={handle.y}
-                        r={4}
-                        fill={WORKBOOK_LAYER_COLORS.warning}
-                        stroke={WORKBOOK_LAYER_COLORS.white}
-                        strokeWidth={1}
-                      />
-                    ))}
-                    <circle
-                      cx={selectedRect.x + selectedRect.width / 2}
-                      cy={selectedRect.y - 18}
-                      r={4}
-                      fill={WORKBOOK_LAYER_COLORS.warning}
-                      stroke={WORKBOOK_LAYER_COLORS.white}
-                      strokeWidth={1}
-                    />
-                  </>
-                )
-                : null}
+              {getAreaSelectionHandlePoints(selectedRect).map((handle) => (
+                <circle
+                  key={`selection-handle-${handle.mode}`}
+                  cx={handle.x}
+                  cy={handle.y}
+                  r={4}
+                  fill={WORKBOOK_LAYER_COLORS.warning}
+                  stroke={WORKBOOK_LAYER_COLORS.white}
+                  strokeWidth={1}
+                />
+              ))}
+              <circle
+                cx={selectedRect.x + selectedRect.width / 2}
+                cy={selectedRect.y - 18}
+                r={4}
+                fill={WORKBOOK_LAYER_COLORS.warning}
+                stroke={WORKBOOK_LAYER_COLORS.white}
+                strokeWidth={1}
+              />
             </g>
           ) : null}
         </>

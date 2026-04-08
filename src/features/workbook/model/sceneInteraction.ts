@@ -193,19 +193,6 @@ export const resolveObjectResizeMode = (
   return null;
 };
 
-const SELECT_MODE_RESIZE_ALLOWED_TYPES = new Set<WorkbookBoardObject["type"]>([
-  "text",
-  "formula",
-  "frame",
-  "sticker",
-  "comment",
-  "image",
-]);
-
-export const canResizeObjectInSelectMode = (
-  object: WorkbookBoardObject | null
-) => Boolean(object && SELECT_MODE_RESIZE_ALLOWED_TYPES.has(object.type));
-
 export const buildResizeState = (
   object: WorkbookBoardObject,
   mode: ResizeState["mode"],
