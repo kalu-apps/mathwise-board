@@ -670,28 +670,28 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
         <>
           {selectedPreviewObject?.type === "solid3d" ? (
             <g>
-              <rect
-                x={selectedRect.x}
-                y={selectedRect.y}
-                width={selectedRect.width}
-                height={selectedRect.height}
-                fill="none"
-                stroke={WORKBOOK_LAYER_COLORS.warning}
-                strokeWidth={1.5}
-                strokeDasharray="6 4"
-              />
               {selectedSolidResizeHandles.length >= 2 ? (
                 <path
                   d={`${toPath(
                     selectedSolidResizeHandles.map((handle) => ({ x: handle.x, y: handle.y }))
                   )} Z`}
                   fill="none"
-                  stroke={WORKBOOK_LAYER_COLORS.primary}
-                  strokeWidth={1}
-                  strokeDasharray="4 4"
-                  strokeOpacity={0.72}
+                  stroke={WORKBOOK_LAYER_COLORS.warning}
+                  strokeWidth={1.5}
+                  strokeDasharray="6 4"
                 />
-              ) : null}
+              ) : (
+                <rect
+                  x={selectedRect.x}
+                  y={selectedRect.y}
+                  width={selectedRect.width}
+                  height={selectedRect.height}
+                  fill="none"
+                  stroke={WORKBOOK_LAYER_COLORS.warning}
+                  strokeWidth={1.5}
+                  strokeDasharray="6 4"
+                />
+              )}
               {selectedSolidResizeHandles.map((handle) => (
                 <circle
                   key={`solid3d-resize-handle-${handle.mode}`}
