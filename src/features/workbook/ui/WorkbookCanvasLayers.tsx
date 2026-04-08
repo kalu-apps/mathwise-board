@@ -11,6 +11,7 @@ import type {
 } from "../model/sceneRender";
 import { getAreaSelectionHandlePoints, type WorkbookAreaSelection } from "../model/sceneSelection";
 import { createPolygonPath, normalizeRect } from "../model/sceneGeometry";
+import { canResizeObjectInSelectMode } from "../model/sceneInteraction";
 import type { WorkbookPolygonPreset } from "../model/shapeGeometry";
 import {
   resolveWorkbookStrokeOpacity,
@@ -734,6 +735,31 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                 strokeWidth={1.5}
                 strokeDasharray="6 4"
               />
+              {canResizeObjectInSelectMode(selectedPreviewObject)
+                ? (
+                  <>
+                    {getAreaSelectionHandlePoints(selectedRect).map((handle) => (
+                      <circle
+                        key={`selection-handle-${handle.mode}`}
+                        cx={handle.x}
+                        cy={handle.y}
+                        r={4}
+                        fill={WORKBOOK_LAYER_COLORS.warning}
+                        stroke={WORKBOOK_LAYER_COLORS.white}
+                        strokeWidth={1}
+                      />
+                    ))}
+                    <circle
+                      cx={selectedRect.x + selectedRect.width / 2}
+                      cy={selectedRect.y - 18}
+                      r={4}
+                      fill={WORKBOOK_LAYER_COLORS.warning}
+                      stroke={WORKBOOK_LAYER_COLORS.white}
+                      strokeWidth={1}
+                    />
+                  </>
+                )
+                : null}
             </g>
           ) : null}
         </>
