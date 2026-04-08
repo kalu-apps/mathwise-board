@@ -3,9 +3,15 @@ import type {
   MutableRefObject,
 } from "react";
 import {
+  useEffect,
+  useState,
+} from "react";
+import {
   Alert,
   Button,
 } from "@mui/material";
+
+const REALTIME_WARNING_SHOW_DELAY_MS = 900;
 
 interface WorkbookSessionTopScaffoldProps {
   boardFileInputRef: MutableRefObject<HTMLInputElement | null>;
@@ -46,6 +52,21 @@ export function WorkbookSessionTopScaffold({
   onConfirmClear,
   awaitingClearRequest,
 }: WorkbookSessionTopScaffoldProps) {
+  const [visibleRealtimeSyncWarning, setVisibleRealtimeSyncWarning] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!realtimeSyncWarning) {
+      setVisibleRealtimeSyncWarning(null);
+      return;
+    }
+    const timerId = window.setTimeout(() => {
+      setVisibleRealtimeSyncWarning(realtimeSyncWarning);
+    }, REALTIME_WARNING_SHOW_DELAY_MS);
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [realtimeSyncWarning]);
+
   return (
     <>
       <input
@@ -87,7 +108,7 @@ export function WorkbookSessionTopScaffold({
         </Alert>
       ) : null}
 
-      {realtimeSyncWarning ? (
+      {visibleRealtimeSyncWarning ? (
         <Alert
           severity="warning"
           onClose={() => setRealtimeSyncWarning(null)}
@@ -95,7 +116,7 @@ export function WorkbookSessionTopScaffold({
             isFullscreen ? " workbook-session__alert--floating" : ""
           }`}
         >
-          {realtimeSyncWarning}
+          {visibleRealtimeSyncWarning}
         </Alert>
       ) : null}
 
