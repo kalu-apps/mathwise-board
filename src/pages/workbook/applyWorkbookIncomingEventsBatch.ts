@@ -55,6 +55,12 @@ type ApplyWorkbookIncomingEventsBatchParams = {
   restoreSceneSnapshot: RestoreSceneSnapshot;
   pushIncomingHistoryEntryFromEvent: PushIncomingHistoryEntryFromEvent;
   syncHistoryStacksFromIncomingUndoRedoEvent: SyncHistoryStacksFromIncomingUndoRedoEvent;
+  onUndoRedoApplyMismatch: (payload: {
+    eventType: "board.undo" | "board.redo";
+    expectedOperations: number;
+    appliedOperations: number;
+  }) => void;
+  clearLocalPreviewPatchRuntime: () => void;
   clearObjectSyncRuntime: (options?: { cancelIncomingFrame?: boolean }) => void;
   clearStrokePreviewRuntime: (options?: {
     clearFinalized?: boolean;
@@ -82,6 +88,8 @@ export const applyWorkbookIncomingEventsBatch = ({
   restoreSceneSnapshot,
   pushIncomingHistoryEntryFromEvent,
   syncHistoryStacksFromIncomingUndoRedoEvent,
+  onUndoRedoApplyMismatch,
+  clearLocalPreviewPatchRuntime,
   clearObjectSyncRuntime,
   clearStrokePreviewRuntime,
   clearIncomingEraserPreviewRuntime,
@@ -174,7 +182,9 @@ export const applyWorkbookIncomingEventsBatch = ({
               operations as WorkbookHistoryOperation[],
               options
             ),
+          onUndoRedoApplyMismatch,
           restoreSceneSnapshot,
+          clearLocalPreviewPatchRuntime,
           clearObjectSyncRuntime,
           clearStrokePreviewRuntime,
           clearIncomingEraserPreviewRuntime,

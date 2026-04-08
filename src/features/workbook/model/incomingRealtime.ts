@@ -82,7 +82,13 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
     operations: unknown[],
     options?: { ignoreExpectedCurrent?: boolean }
   ) => number;
+  onUndoRedoApplyMismatch?: (payload: {
+    eventType: "board.undo" | "board.redo";
+    expectedOperations: number;
+    appliedOperations: number;
+  }) => void;
   restoreSceneSnapshot: (payload: RestoreSceneSnapshotPayload) => void;
+  clearLocalPreviewPatchRuntime: () => void;
   clearObjectSyncRuntime: () => void;
   clearStrokePreviewRuntime: (options?: { clearFinalized?: boolean }) => void;
   clearIncomingEraserPreviewRuntime: () => void;
@@ -152,7 +158,9 @@ export const applyWorkbookIncomingRealtimeEvent = (
     awaitingClearRequest,
     areParticipantsEqual,
     applyHistoryOperations,
+    onUndoRedoApplyMismatch,
     restoreSceneSnapshot,
+    clearLocalPreviewPatchRuntime,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
     clearIncomingEraserPreviewRuntime,
@@ -225,13 +233,46 @@ export const applyWorkbookIncomingRealtimeEvent = (
 
   if (event.type === "board.undo" || event.type === "board.redo") {
     const payload = event.payload as { scene?: unknown; operations?: unknown };
+    clearLocalPreviewPatchRuntime();
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
     if (Array.isArray(payload.operations)) {
-      applyHistoryOperations(payload.operations, {
+      const appliedOperations = applyHistoryOperations(payload.operations, {
         ignoreExpectedCurrent: event.authorUserId !== userId,
       });
+      const expectedOperations = payload.operations.length;
+      const isRemoteEvent = !userId || event.authorUserId !== userId;
+      const hasScenePayload = Boolean(payload.scene && typeof payload.scene === "object");
+      if (
+        isRemoteEvent &&
+        expectedOperations > 0 &&
+        appliedOperations < expectedOperations &&
+        hasScenePayload
+      ) {
+        const normalized = normalizeScenePayload(payload.scene);
+        restoreSceneSnapshot({
+          boardStrokes: normalized.strokes.filter((stroke) => stroke.layer === "board"),
+          boardObjects: normalized.objects,
+          constraints: normalized.constraints,
+          annotationStrokes: normalized.strokes.filter(
+            (stroke) => stroke.layer === "annotations"
+          ),
+          chatMessages: normalized.chat,
+          comments: normalized.comments,
+          timerState: normalized.timer,
+          boardSettings: normalized.boardSettings,
+          libraryState: normalized.library,
+          documentState: normalized.document,
+        });
+      }
+      if (isRemoteEvent && expectedOperations > 0 && appliedOperations < expectedOperations) {
+        onUndoRedoApplyMismatch?.({
+          eventType: event.type,
+          expectedOperations,
+          appliedOperations,
+        });
+      }
       return true;
     }
     if (!payload.scene || typeof payload.scene !== "object") return true;

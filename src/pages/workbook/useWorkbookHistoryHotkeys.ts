@@ -26,6 +26,7 @@ type UseWorkbookHistoryHotkeysParams = {
   setError: (value: string | null) => void;
   undoStackRef: MutableRefObject<HistoryEntryLike[]>;
   redoStackRef: MutableRefObject<HistoryEntryLike[]>;
+  clearLocalPreviewPatchRuntime: () => void;
   clearObjectSyncRuntime: () => void;
   clearStrokePreviewRuntime: () => void;
   clearIncomingEraserPreviewRuntime: () => void;
@@ -51,6 +52,7 @@ export const useWorkbookHistoryHotkeys = ({
   setError,
   undoStackRef,
   redoStackRef,
+  clearLocalPreviewPatchRuntime,
   clearObjectSyncRuntime,
   clearStrokePreviewRuntime,
   clearIncomingEraserPreviewRuntime,
@@ -109,6 +111,7 @@ export const useWorkbookHistoryHotkeys = ({
     const safePage = toSafePage(currentBoardPage);
     const previousUndoStack = undoStackRef.current;
     const previousRedoStack = redoStackRef.current;
+    clearLocalPreviewPatchRuntime();
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
@@ -146,6 +149,7 @@ export const useWorkbookHistoryHotkeys = ({
     appendEventsAndApply,
     applyHistoryOperations,
     canUseUndo,
+    clearLocalPreviewPatchRuntime,
     clearIncomingEraserPreviewRuntime,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
@@ -170,6 +174,7 @@ export const useWorkbookHistoryHotkeys = ({
     const safePage = toSafePage(currentBoardPage);
     const previousUndoStack = undoStackRef.current;
     const previousRedoStack = redoStackRef.current;
+    clearLocalPreviewPatchRuntime();
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
@@ -207,6 +212,7 @@ export const useWorkbookHistoryHotkeys = ({
     appendEventsAndApply,
     applyHistoryOperations,
     canUseUndo,
+    clearLocalPreviewPatchRuntime,
     clearIncomingEraserPreviewRuntime,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,

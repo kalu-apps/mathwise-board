@@ -1061,6 +1061,7 @@ export default function WorkbookSessionPage() {
   });
   const selectedObjectIdRef = useRef<string | null>(selectedObjectId);
   const awaitingClearRequestRef = useRef(awaitingClearRequest);
+  const incomingUndoRedoMismatchHandlerRef = useRef<() => void>(() => {});
   useEffect(() => {
     selectedObjectIdRef.current = selectedObjectId;
   }, [selectedObjectId]);
@@ -1084,6 +1085,10 @@ export default function WorkbookSessionPage() {
         restoreSceneSnapshot,
         pushIncomingHistoryEntryFromEvent,
         syncHistoryStacksFromIncomingUndoRedoEvent,
+        onUndoRedoApplyMismatch: () => {
+          incomingUndoRedoMismatchHandlerRef.current();
+        },
+        clearLocalPreviewPatchRuntime,
         clearObjectSyncRuntime,
         clearStrokePreviewRuntime,
         clearIncomingEraserPreviewRuntime,
@@ -1103,6 +1108,7 @@ export default function WorkbookSessionPage() {
       restoreSceneSnapshot,
       pushIncomingHistoryEntryFromEvent,
       syncHistoryStacksFromIncomingUndoRedoEvent,
+      clearLocalPreviewPatchRuntime,
       clearObjectSyncRuntime,
       clearStrokePreviewRuntime,
       clearIncomingEraserPreviewRuntime,
@@ -1290,6 +1296,12 @@ export default function WorkbookSessionPage() {
       autosaveIntervalMs: AUTOSAVE_INTERVAL_MS,
     },
   });
+
+  useEffect(() => {
+    incomingUndoRedoMismatchHandlerRef.current = () => {
+      handleRealtimeConflict();
+    };
+  }, [handleRealtimeConflict]);
 
   useWorkbookSessionCleanupEffects({
     focusResetTimersByUserRef,
@@ -1867,6 +1879,7 @@ export default function WorkbookSessionPage() {
     setError,
     undoStackRef,
     redoStackRef,
+    clearLocalPreviewPatchRuntime,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
     clearIncomingEraserPreviewRuntime,

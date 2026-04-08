@@ -192,7 +192,13 @@ export const useWorkbookIncomingRuntimeController = (
       window.cancelAnimationFrame(incomingPreviewFrameRef.current);
       incomingPreviewFrameRef.current = null;
     }
+    if (boardObjectsFrameRef.current !== null && typeof window !== "undefined") {
+      window.cancelAnimationFrame(boardObjectsFrameRef.current);
+      boardObjectsFrameRef.current = null;
+    }
+    queuedBoardObjectsRef.current = null;
   }, [
+    boardObjectsFrameRef,
     incomingPreviewFrameRef,
     incomingPreviewQueuedPatchRef,
     incomingPreviewVersionByAuthorObjectRef,
@@ -204,6 +210,7 @@ export const useWorkbookIncomingRuntimeController = (
     objectUpdateInFlightRef,
     objectUpdateQueuedPatchRef,
     objectUpdateTimersRef,
+    queuedBoardObjectsRef,
   ]);
 
   const clearIncomingEraserPreviewRuntime = useCallback(() => {
