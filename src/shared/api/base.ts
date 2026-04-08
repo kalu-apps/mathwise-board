@@ -8,9 +8,20 @@ const normalizeApiRoot = (raw: string | undefined) => {
   return `${normalized}/api`;
 };
 
-const ENV_API_ROOT = normalizeApiRoot(import.meta.env.VITE_API_BASE_URL);
+const importMetaEnv =
+  ((import.meta as ImportMeta & { env?: Record<string, unknown> }).env ?? {}) as Record<
+    string,
+    unknown
+  >;
+
+const ENV_API_ROOT = normalizeApiRoot(
+  typeof importMetaEnv.VITE_API_BASE_URL === "string"
+    ? (importMetaEnv.VITE_API_BASE_URL as string)
+    : undefined
+);
 const FORCE_CROSS_ORIGIN_API =
-  String(import.meta.env.VITE_FORCE_CROSS_ORIGIN_API ?? "").trim() === "1";
+  String(importMetaEnv.VITE_FORCE_CROSS_ORIGIN_API ?? "").trim() === "1";
+const IS_PROD_BUILD = importMetaEnv.PROD === true;
 
 const resolveApiRoot = () => {
   if (!ENV_API_ROOT) return "/api";
@@ -18,7 +29,7 @@ const resolveApiRoot = () => {
 
   // In production prefer same-origin API to avoid CORS/realtime failures when
   // a dedicated api subdomain is temporarily misconfigured or unavailable.
-  if (!import.meta.env.PROD || FORCE_CROSS_ORIGIN_API) {
+  if (!IS_PROD_BUILD || FORCE_CROSS_ORIGIN_API) {
     return ENV_API_ROOT;
   }
 
