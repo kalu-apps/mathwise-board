@@ -83,6 +83,9 @@ export const useWorkbookHistoryOperationsApply = ({
   incomingPreviewVersionByAuthorObjectRef,
   objectUpdateTimersRef,
 }: UseWorkbookHistoryOperationsApplyParams) => {
+  void boardStrokesRef;
+  void annotationStrokesRef;
+
   const applyLocalStrokeCollection = useCallback(
     (
       targetLayer: WorkbookLayer,
@@ -107,103 +110,14 @@ export const useWorkbookHistoryOperationsApply = ({
     []
   );
 
-  const areStrokePointsEqual = useCallback(
-    (
-      left: Array<{ x: number; y: number }> | undefined,
-      right: Array<{ x: number; y: number }> | undefined
-    ) => {
-      if (!Array.isArray(left) || !Array.isArray(right)) return false;
-      if (left.length !== right.length) return false;
-      for (let index = 0; index < left.length; index += 1) {
-        const leftPoint = left[index];
-        const rightPoint = right[index];
-        if (!leftPoint || !rightPoint) return false;
-        if (
-          !Number.isFinite(leftPoint.x) ||
-          !Number.isFinite(leftPoint.y) ||
-          !Number.isFinite(rightPoint.x) ||
-          !Number.isFinite(rightPoint.y)
-        ) {
-          return false;
-        }
-        if (
-          Math.abs(leftPoint.x - rightPoint.x) > 1e-6 ||
-          Math.abs(leftPoint.y - rightPoint.y) > 1e-6
-        ) {
-          return false;
-        }
-      }
-      return true;
-    },
-    []
-  );
-
-  const isExpectedStrokeMatch = useCallback(
-    (
-      current: WorkbookStroke | undefined,
-      expected: WorkbookStroke | null | undefined
-    ) => {
-      if (expected === undefined) return true;
-      if (expected === null) return current === undefined;
-      if (!current) return false;
-      return (
-        current.id === expected.id &&
-        current.layer === expected.layer &&
-        current.tool === expected.tool &&
-        current.color === expected.color &&
-        current.width === expected.width &&
-        current.authorUserId === expected.authorUserId &&
-        Math.max(1, Math.round(current.page || 1)) ===
-          Math.max(1, Math.round(expected.page || 1)) &&
-        areStrokePointsEqual(current.points, expected.points)
-      );
-    },
-    [areStrokePointsEqual]
-  );
-
   const applyHistoryOperations = useCallback(
     (operations: WorkbookHistoryOperation[]) => {
-      const strokeOpsByLayer = new Map<
-        WorkbookLayer,
-        Array<
-          Extract<WorkbookHistoryOperation, { kind: "upsert_stroke" | "remove_stroke" }>
-        >
-      >();
-      operations.forEach((operation) => {
-        if (operation.kind !== "upsert_stroke" && operation.kind !== "remove_stroke") {
-          return;
-        }
-        const layerOps = strokeOpsByLayer.get(operation.layer) ?? [];
-        layerOps.push(operation);
-        strokeOpsByLayer.set(operation.layer, layerOps);
-      });
-      const blockedStrokeLayers = new Set<WorkbookLayer>();
-      strokeOpsByLayer.forEach((layerOps, layer) => {
-        const hasUpsert = layerOps.some((operation) => operation.kind === "upsert_stroke");
-        const hasRemove = layerOps.some((operation) => operation.kind === "remove_stroke");
-        if (!hasUpsert || !hasRemove) return;
-        const currentLayerStrokes =
-          layer === "annotations" ? annotationStrokesRef.current : boardStrokesRef.current;
-        const hasRemoveMismatch = layerOps.some((operation) => {
-          if (operation.kind !== "remove_stroke") return false;
-          const currentStroke = currentLayerStrokes.find(
-            (item) => item.id === operation.strokeId
-          );
-          return !isExpectedStrokeMatch(currentStroke, operation.expectedCurrent);
-        });
-        if (hasRemoveMismatch) {
-          blockedStrokeLayers.add(layer);
-        }
-      });
       operations.forEach((operation) => {
         if (operation.kind === "upsert_stroke") {
-          if (blockedStrokeLayers.has(operation.layer)) {
-            return;
-          }
           let applied = false;
           applyLocalStrokeCollection(operation.layer, (current) => {
             const currentStroke = current.find((item) => item.id === operation.stroke.id);
-            if (!isExpectedStrokeMatch(currentStroke, operation.expectedCurrent)) {
+            if (!isExpectedStateMatch(currentStroke, operation.expectedCurrent)) {
               return current;
             }
             const exists = Boolean(currentStroke);
@@ -219,13 +133,10 @@ export const useWorkbookHistoryOperationsApply = ({
           return;
         }
         if (operation.kind === "remove_stroke") {
-          if (blockedStrokeLayers.has(operation.layer)) {
-            return;
-          }
           let applied = false;
           applyLocalStrokeCollection(operation.layer, (current) => {
             const currentStroke = current.find((item) => item.id === operation.strokeId);
-            if (!isExpectedStrokeMatch(currentStroke, operation.expectedCurrent)) {
+            if (!isExpectedStateMatch(currentStroke, operation.expectedCurrent)) {
               return current;
             }
             if (!currentStroke) return current;
@@ -412,12 +323,9 @@ export const useWorkbookHistoryOperationsApply = ({
       });
     },
     [
-      annotationStrokesRef,
       applyLocalBoardObjects,
       applyLocalStrokeCollection,
-      boardStrokesRef,
       finalizeStrokePreview,
-      isExpectedStrokeMatch,
       isExpectedStateMatch,
       incomingPreviewQueuedPatchRef,
       incomingPreviewVersionByAuthorObjectRef,
