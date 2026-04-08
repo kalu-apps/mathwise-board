@@ -1190,6 +1190,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     constraints,
     selectedConstraintId,
     renderViewportRect,
+    pageFrameBounds,
     solid3dSectionMarkers,
     solid3dPreviewMetaById,
     areaSelectionDraft,

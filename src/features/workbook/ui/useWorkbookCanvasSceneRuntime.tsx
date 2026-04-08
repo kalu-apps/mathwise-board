@@ -31,6 +31,7 @@ import type {
   Solid3dGestureState,
   WorkbookAreaSelectionResizeState,
 } from "../model/sceneInteraction";
+import type { WorkbookPageFrameBounds } from "../model/pageFrame";
 import { resolveFunctionGraphPlotHit } from "../model/sceneHitTesting";
 import type { Solid3dSectionPoint } from "../model/solid3dState";
 import type {
@@ -85,6 +86,7 @@ interface UseWorkbookCanvasSceneRuntimeParams {
   constraints: WorkbookConstraint[];
   selectedConstraintId: string | null;
   renderViewportRect: Rect;
+  pageFrameBounds: WorkbookPageFrameBounds;
   solid3dSectionMarkers: {
     objectId: string;
     sectionId: string;
@@ -126,6 +128,7 @@ export const useWorkbookCanvasSceneRuntime = ({
   constraints,
   selectedConstraintId,
   renderViewportRect,
+  pageFrameBounds,
   solid3dSectionMarkers,
   solid3dPreviewMetaById,
   areaSelectionDraft,
@@ -213,6 +216,7 @@ export const useWorkbookCanvasSceneRuntime = ({
         setInlineTextEdit,
         cancelInlineTextEdit,
         functionGraphRenderStateById,
+        pageFrameBounds,
       });
       if (renderedPrimaryObject) {
         return renderedPrimaryObject;
@@ -244,6 +248,7 @@ export const useWorkbookCanvasSceneRuntime = ({
       inlineTextEditInputRef,
       moving,
       onInlineTextDraftChange,
+      pageFrameBounds,
       setInlineTextEdit,
       solid3dPreviewMetaById,
     ]

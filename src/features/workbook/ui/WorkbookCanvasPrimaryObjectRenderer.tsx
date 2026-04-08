@@ -2,6 +2,7 @@ import type { Dispatch, ReactNode, RefObject, SetStateAction } from "react";
 import type { WorkbookBoardObject, WorkbookPoint } from "../model/types";
 import type { FunctionGraphPlot } from "../model/functionGraph";
 import type { PreparedFunctionGraphRenderState } from "../model/sceneRender";
+import type { WorkbookPageFrameBounds } from "../model/pageFrame";
 import { resolveBoardObjectImageAssetId } from "../model/scene";
 import {
   isWorkbookAssetContentUrl,
@@ -69,6 +70,43 @@ type PrimaryObjectRendererParams = {
   onInlineTextDraftChange?: (objectId: string, text: string) => void;
   commitInlineTextEdit: () => void;
   functionGraphRenderStateById: Map<string, PreparedFunctionGraphRenderState>;
+  pageFrameBounds: WorkbookPageFrameBounds;
+};
+
+const clampNumber = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, value));
+
+const clampVertexLabelPlacementToPage = (params: {
+  placement: { x: number; y: number; textAnchor: "start" | "end" | "middle" };
+  label: string;
+  pageFrameBounds: WorkbookPageFrameBounds;
+}) => {
+  const { placement, label, pageFrameBounds } = params;
+  const padding = 10;
+  const fontSize = WORKBOOK_VERTEX_LABEL_FONT_SIZE;
+  const approxWidth = Math.max(fontSize, Math.max(1, label.length) * fontSize * 0.62);
+  const halfHeight = fontSize * 0.58;
+  const minY = pageFrameBounds.minY + padding + halfHeight;
+  const maxY = pageFrameBounds.maxY - padding - halfHeight;
+  const minX = pageFrameBounds.minX + padding;
+  const maxX = pageFrameBounds.maxX - padding;
+  const y = clampNumber(placement.y, minY, maxY);
+  let textAnchor: "start" | "end" | "middle" = placement.textAnchor;
+  if (textAnchor === "start" && placement.x + approxWidth > maxX) {
+    textAnchor = "end";
+  } else if (textAnchor === "end" && placement.x - approxWidth < minX) {
+    textAnchor = "start";
+  }
+  let x = placement.x;
+  if (textAnchor === "start") {
+    x = clampNumber(x, minX, maxX - approxWidth);
+  } else if (textAnchor === "end") {
+    x = clampNumber(x, minX + approxWidth, maxX);
+  } else {
+    const halfWidth = approxWidth / 2;
+    x = clampNumber(x, minX + halfWidth, maxX - halfWidth);
+  }
+  return { x, y, textAnchor };
 };
 
 export const renderWorkbookCanvasPrimaryObject = ({
@@ -84,6 +122,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
   onInlineTextDraftChange,
   commitInlineTextEdit,
   functionGraphRenderStateById,
+  pageFrameBounds,
 }: PrimaryObjectRendererParams): ReactNode | null => {
     const WORKBOOK_RENDER_COLORS = {
       primary: WORKBOOK_BOARD_PRIMARY_COLOR,
@@ -110,6 +149,13 @@ export const renderWorkbookCanvasPrimaryObject = ({
           center: figureCenter,
           polygon: isClosed ? vertices : [],
           baseOffset: 14,
+        })
+      );
+      const safeLabelPlacements = labelPlacements.map((placement, index) =>
+        clampVertexLabelPlacementToPage({
+          placement,
+          label: labels[index] ?? "",
+          pageFrameBounds,
         })
       );
       const angleMarks = normalizeShapeAngleMarks(
@@ -170,12 +216,12 @@ export const renderWorkbookCanvasPrimaryObject = ({
               />
               {showLabels ? (
                 <text
-                  x={labelPlacements[index]?.x ?? vertex.x + 4}
-                  y={labelPlacements[index]?.y ?? vertex.y - 4}
+                  x={safeLabelPlacements[index]?.x ?? vertex.x + 4}
+                  y={safeLabelPlacements[index]?.y ?? vertex.y - 4}
                   fill={vertexColor}
                   fontSize={WORKBOOK_VERTEX_LABEL_FONT_SIZE}
                   fontWeight={700}
-                  textAnchor={labelPlacements[index]?.textAnchor ?? "start"}
+                  textAnchor={safeLabelPlacements[index]?.textAnchor ?? "start"}
                   dominantBaseline="central"
                   paintOrder="stroke"
                   stroke={WORKBOOK_RENDER_COLORS.softStroke}
