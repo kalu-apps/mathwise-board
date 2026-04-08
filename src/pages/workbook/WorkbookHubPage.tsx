@@ -88,6 +88,7 @@ const areDraftCardsEqual = (left: WorkbookDraftCard[], right: WorkbookDraftCard[
       current.updatedAt === next.updatedAt &&
       current.durationMinutes === next.durationMinutes &&
       current.participantsCount === next.participantsCount &&
+      current.onlineParticipantsCount === next.onlineParticipantsCount &&
       current.statusForCard === next.statusForCard &&
       current.canDelete === next.canDelete &&
       current.isOwner === next.isOwner &&
@@ -1019,7 +1020,9 @@ export default function WorkbookHubPage() {
                         <span>•</span>
                         <span>
                           {card.kind === "CLASS"
-                            ? `Участников: ${card.participantsCount}`
+                            ? `Участников онлайн: ${
+                                card.onlineParticipantsCount ?? card.participantsCount
+                              }`
                             : "Персональная база знаний"}
                         </span>
                       </div>

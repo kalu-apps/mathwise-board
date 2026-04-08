@@ -379,6 +379,7 @@ export type WorkbookDraftCard = {
   canInvite: boolean;
   canDelete: boolean;
   participantsCount: number;
+  onlineParticipantsCount?: number;
   isOwner: boolean;
   previewUrl?: string | null;
   previewAlt?: string | null;

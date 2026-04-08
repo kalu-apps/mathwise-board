@@ -1696,6 +1696,10 @@ const serializeDraft = (
   const session = getWorkbookSessionById(db, draft.sessionId);
   if (!session) return null;
   const participants = getWorkbookParticipants(db, session.id);
+  const onlineParticipantsCount = participants.reduce(
+    (count, participant) => count + (isParticipantOnline(participant) ? 1 : 0),
+    0
+  );
   const actorParticipant = participants.find((item) => item.userId === actorUserId);
   if (!actorParticipant) return null;
   const preview = params?.previewBySessionId?.get(session.id) ?? null;
@@ -1716,6 +1720,7 @@ const serializeDraft = (
     canInvite: actorParticipant.permissions.canInvite,
     canDelete: actorParticipant.permissions.canManageSession,
     participantsCount: participants.length,
+    onlineParticipantsCount,
     isOwner: session.createdBy === actorUserId,
     previewUrl: preview?.previewUrl ?? null,
     previewAlt: preview?.previewAlt ?? null,
