@@ -292,9 +292,8 @@ export const useWorkbookSessionHistoryRuntime = ({
   );
 
   const syncHistoryStacksFromIncomingUndoRedoEvent = useCallback(
-    (event: WorkbookEvent, localUserId?: string) => {
+    (event: WorkbookEvent) => {
       if (event.type !== "board.undo" && event.type !== "board.redo") return;
-      if (localUserId && event.authorUserId === localUserId) return;
       const payload =
         event.payload && typeof event.payload === "object"
           ? (event.payload as { operations?: unknown; page?: unknown })

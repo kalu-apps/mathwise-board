@@ -239,7 +239,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     clearIncomingEraserPreviewRuntime();
     if (Array.isArray(payload.operations)) {
       const appliedOperations = applyHistoryOperations(payload.operations, {
-        ignoreExpectedCurrent: event.authorUserId !== userId,
+        ignoreExpectedCurrent: true,
       });
       const expectedOperations = payload.operations.length;
       const isRemoteEvent = !userId || event.authorUserId !== userId;

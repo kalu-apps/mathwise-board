@@ -230,7 +230,7 @@ export const applyWorkbookIncomingEventsBatch = ({
           viewportSyncEpsilon: VIEWPORT_SYNC_EPSILON,
         })
       ) {
-        syncHistoryStacksFromIncomingUndoRedoEvent(event, userId);
+        syncHistoryStacksFromIncomingUndoRedoEvent(event);
         realtimeEventsApplied += 1;
         if (eventSeq !== null) {
           maxAppliedSeq = Math.max(maxAppliedSeq, eventSeq);

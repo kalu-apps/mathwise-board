@@ -1885,8 +1885,6 @@ export default function WorkbookSessionPage() {
     clearIncomingEraserPreviewRuntime,
     setUndoDepth,
     setRedoDepth,
-    applyHistoryOperations,
-    markDirty,
     deleteAreaSelectionObjects,
     copyAreaSelectionObjects,
     cutAreaSelectionObjects,

@@ -65,6 +65,7 @@ import {
   workbookEventStore,
   workbookSnapshotStore,
 } from "./core/workbookStores";
+import { resolveWorkbookUndoRedoEvents } from "./core/workbookUndoRedoResolver";
 import {
   getDbIndex,
   getSessionOwnerKey,
@@ -2271,7 +2272,7 @@ const sanitizeWorkbookLiveEvents = (
       const operations =
         payload && typeof payload === "object"
           ? (payload as { operations?: unknown }).operations
-          : null;
+          : undefined;
       const pageRaw =
         payload && typeof payload === "object"
           ? (payload as { page?: unknown }).page
@@ -2280,12 +2281,11 @@ const sanitizeWorkbookLiveEvents = (
         typeof pageRaw === "number" && Number.isFinite(pageRaw)
           ? Math.max(1, Math.trunc(pageRaw))
           : undefined;
-      if (!Array.isArray(operations)) continue;
       sanitized.push({
         ...(clientEventId ? { clientEventId } : {}),
         type,
         payload: {
-          operations,
+          ...(Array.isArray(operations) ? { operations } : {}),
           ...(page !== undefined ? { page } : {}),
         },
       });
@@ -2613,6 +2613,7 @@ export const handleWorkbookApiRequestByDomains = async (
             sanitizeWorkbookLiveEvents,
             appendWorkbookEvents,
             workbookEventStore,
+            resolveWorkbookUndoRedoEvents,
             collectUrgentWorkbookLiveEvents,
             publishWorkbookLiveEvents,
             publishWorkbookStreamEvents,
