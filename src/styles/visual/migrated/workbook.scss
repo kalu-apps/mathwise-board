@@ -3799,6 +3799,29 @@
   cursor: pointer;
 }
 
+.workbook-session__color-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.workbook-session__color-reset-btn.MuiIconButton-root {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-secondary);
+}
+
+.workbook-session__color-reset-btn.MuiIconButton-root:hover {
+  border: none !important;
+  background: transparent !important;
+  color: var(--text-primary);
+}
+
 .workbook-session__solid-points {
   display: grid;
   gap: 6px;

@@ -541,16 +541,31 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
             </div>
             <div className="workbook-session__settings-row">
               <span>Цвет</span>
-              <input
-                type="color"
-                value={selectedDividerColor}
-                disabled={!selectedDividerObject}
-                onChange={(event) =>
-                  void onUpdateSelectedDividerObject({
-                    color: event.target.value || WORKBOOK_BOARD_PRIMARY_COLOR,
-                  })
-                }
-              />
+              <div className="workbook-session__color-control">
+                <input
+                  type="color"
+                  value={selectedDividerColor}
+                  disabled={!selectedDividerObject}
+                  onChange={(event) =>
+                    void onUpdateSelectedDividerObject({
+                      color: event.target.value || WORKBOOK_BOARD_PRIMARY_COLOR,
+                    })
+                  }
+                />
+                <IconButton
+                  size="small"
+                  className="workbook-session__color-reset-btn"
+                  aria-label="Сбросить цвет разделителя"
+                  disabled={!selectedDividerObject}
+                  onClick={() =>
+                    void onUpdateSelectedDividerObject({
+                      color: WORKBOOK_BOARD_PRIMARY_COLOR,
+                    })
+                  }
+                >
+                  <CloseRoundedIcon fontSize="small" />
+                </IconButton>
+              </div>
             </div>
             <div className="workbook-session__settings-row">
               <span>Толщина</span>
@@ -644,17 +659,32 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
             </div>
             <div className="workbook-session__settings-row">
               <span>Цвет линии</span>
-              <input
-                type="color"
-                className="workbook-session__line-color"
-                value={selectedLineColor}
-                disabled={!selectedLineObject}
-                onChange={(event) =>
-                  void onUpdateSelectedLineObject({
-                    color: event.target.value || WORKBOOK_BOARD_PRIMARY_COLOR,
-                  })
-                }
-              />
+              <div className="workbook-session__color-control">
+                <input
+                  type="color"
+                  className="workbook-session__line-color"
+                  value={selectedLineColor}
+                  disabled={!selectedLineObject}
+                  onChange={(event) =>
+                    void onUpdateSelectedLineObject({
+                      color: event.target.value || WORKBOOK_BOARD_PRIMARY_COLOR,
+                    })
+                  }
+                />
+                <IconButton
+                  size="small"
+                  className="workbook-session__color-reset-btn"
+                  aria-label="Сбросить цвет линии"
+                  disabled={!selectedLineObject}
+                  onClick={() =>
+                    void onUpdateSelectedLineObject({
+                      color: WORKBOOK_BOARD_PRIMARY_COLOR,
+                    })
+                  }
+                >
+                  <CloseRoundedIcon fontSize="small" />
+                </IconButton>
+              </div>
             </div>
             <div className="workbook-session__settings-row">
               <span>Толщина линии</span>

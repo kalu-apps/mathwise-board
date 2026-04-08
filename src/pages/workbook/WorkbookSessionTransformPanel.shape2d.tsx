@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { MenuItem, Switch, TextField } from "@mui/material";
+import { IconButton, MenuItem, Switch, TextField } from "@mui/material";
+import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import {
   SHAPE_ANGLE_MARK_STYLE_OPTIONS,
   type WorkbookShapeAngleMarkStyle,
@@ -85,6 +86,7 @@ export function WorkbookSessionTransformPanelShape2d({
   onUpdateSelectedShape2dSegmentColor,
 }: WorkbookSessionTransformPanelShape2dProps) {
   const [activeShapeAngleKey, setActiveShapeAngleKey] = useState<string | null>(null);
+  const isEllipseSelected = selectedShape2dObject?.type === "ellipse";
 
   const shapeAngleItems = useMemo(
     () =>
@@ -111,6 +113,7 @@ export function WorkbookSessionTransformPanelShape2d({
 
   const activeShapeAngleItem =
     shapeAngleItems.find((item) => item.key === activeShapeAngleKey) ?? shapeAngleItems[0] ?? null;
+  const shape2dStrokeFallback = selectedShape2dObject?.color || WORKBOOK_BOARD_PRIMARY_COLOR;
   const shape2dFillPickerValue = useMemo(() => {
     const rawFill =
       typeof selectedShape2dObject?.fill === "string"
@@ -138,14 +141,16 @@ export function WorkbookSessionTransformPanelShape2d({
         >
           Вид
         </button>
-        <button
-          type="button"
-          className={shape2dInspectorTab === "vertices" ? "is-active" : ""}
-          onClick={() => setShape2dInspectorTab("vertices")}
-        >
-          Вершины
-        </button>
-        {selectedShape2dHasAngles ? (
+        {!isEllipseSelected ? (
+          <button
+            type="button"
+            className={shape2dInspectorTab === "vertices" ? "is-active" : ""}
+            onClick={() => setShape2dInspectorTab("vertices")}
+          >
+            Вершины
+          </button>
+        ) : null}
+        {!isEllipseSelected && selectedShape2dHasAngles ? (
           <button
             type="button"
             className={shape2dInspectorTab === "angles" ? "is-active" : ""}
@@ -154,13 +159,15 @@ export function WorkbookSessionTransformPanelShape2d({
             Углы
           </button>
         ) : null}
-        <button
-          type="button"
-          className={shape2dInspectorTab === "segments" ? "is-active" : ""}
-          onClick={() => setShape2dInspectorTab("segments")}
-        >
-          Отрезки
-        </button>
+        {!isEllipseSelected ? (
+          <button
+            type="button"
+            className={shape2dInspectorTab === "segments" ? "is-active" : ""}
+            onClick={() => setShape2dInspectorTab("segments")}
+          >
+            Отрезки
+          </button>
+        ) : null}
       </div>
       <div className="workbook-session__solid-card-list workbook-session__solid-card-list--figure">
         {shape2dInspectorTab === "display" ? (
@@ -189,17 +196,58 @@ export function WorkbookSessionTransformPanelShape2d({
               </div>
             </div>
             <div className="workbook-session__settings-row">
+              <span>Цвет контура</span>
+              <div className="workbook-session__color-control">
+                <input
+                  type="color"
+                  className="workbook-session__solid-color"
+                  value={selectedShape2dObject.color || WORKBOOK_BOARD_PRIMARY_COLOR}
+                  onChange={(event) =>
+                    void onUpdateSelectedShape2dObject({
+                      color: event.target.value || WORKBOOK_BOARD_PRIMARY_COLOR,
+                    })
+                  }
+                />
+                <IconButton
+                  size="small"
+                  className="workbook-session__color-reset-btn"
+                  aria-label="Сбросить цвет контура"
+                  onClick={() =>
+                    void onUpdateSelectedShape2dObject({
+                      color: WORKBOOK_BOARD_PRIMARY_COLOR,
+                    })
+                  }
+                >
+                  <CloseRoundedIcon fontSize="small" />
+                </IconButton>
+              </div>
+            </div>
+            <div className="workbook-session__settings-row">
               <span>Заливка фигуры</span>
-              <input
-                type="color"
-                className="workbook-session__solid-color"
-                value={shape2dFillPickerValue}
-                onChange={(event) =>
-                  void onUpdateSelectedShape2dObject({
-                    fill: event.target.value || WORKBOOK_SYSTEM_COLORS.white,
-                  })
-                }
-              />
+              <div className="workbook-session__color-control">
+                <input
+                  type="color"
+                  className="workbook-session__solid-color"
+                  value={shape2dFillPickerValue}
+                  onChange={(event) =>
+                    void onUpdateSelectedShape2dObject({
+                      fill: event.target.value || WORKBOOK_SYSTEM_COLORS.white,
+                    })
+                  }
+                />
+                <IconButton
+                  size="small"
+                  className="workbook-session__color-reset-btn"
+                  aria-label="Сбросить цвет заливки фигуры"
+                  onClick={() =>
+                    void onUpdateSelectedShape2dObject({
+                      fill: WORKBOOK_SYSTEM_COLORS.white,
+                    })
+                  }
+                >
+                  <CloseRoundedIcon fontSize="small" />
+                </IconButton>
+              </div>
             </div>
           </article>
         ) : null}
@@ -252,14 +300,26 @@ export function WorkbookSessionTransformPanelShape2d({
                       event.currentTarget.blur();
                     }}
                   />
-                  <input
-                    type="color"
-                    className="workbook-session__solid-color"
-                    value={selectedShape2dVertexColors[index] ?? WORKBOOK_BOARD_PRIMARY_COLOR}
-                    onChange={(event) =>
-                      void onUpdateSelectedShape2dVertexColor(index, event.target.value)
-                    }
-                  />
+                  <div className="workbook-session__color-control">
+                    <input
+                      type="color"
+                      className="workbook-session__solid-color"
+                      value={selectedShape2dVertexColors[index] ?? WORKBOOK_BOARD_PRIMARY_COLOR}
+                      onChange={(event) =>
+                        void onUpdateSelectedShape2dVertexColor(index, event.target.value)
+                      }
+                    />
+                    <IconButton
+                      size="small"
+                      className="workbook-session__color-reset-btn"
+                      aria-label={`Сбросить цвет вершины ${label}`}
+                      onClick={() =>
+                        void onUpdateSelectedShape2dVertexColor(index, shape2dStrokeFallback)
+                      }
+                    >
+                      <CloseRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </div>
                 </div>
               ))}
             </div>
@@ -309,17 +369,35 @@ export function WorkbookSessionTransformPanelShape2d({
                           ∠{activeShapeAngleItem.label}
                         </span>
                       </div>
-                      <input
-                        type="color"
-                        className="workbook-session__solid-color workbook-session__shape-angle-color"
-                        value={selectedShape2dAngleColors[activeShapeAngleItem.index] ?? WORKBOOK_BOARD_PRIMARY_COLOR}
-                        onChange={(event) =>
-                          void onUpdateSelectedShape2dAngleColor(
-                            activeShapeAngleItem.index,
-                            event.target.value
-                          )
-                        }
-                      />
+                      <div className="workbook-session__color-control">
+                        <input
+                          type="color"
+                          className="workbook-session__solid-color workbook-session__shape-angle-color"
+                          value={
+                            selectedShape2dAngleColors[activeShapeAngleItem.index] ??
+                            WORKBOOK_BOARD_PRIMARY_COLOR
+                          }
+                          onChange={(event) =>
+                            void onUpdateSelectedShape2dAngleColor(
+                              activeShapeAngleItem.index,
+                              event.target.value
+                            )
+                          }
+                        />
+                        <IconButton
+                          size="small"
+                          className="workbook-session__color-reset-btn"
+                          aria-label={`Сбросить цвет угла ${activeShapeAngleItem.label}`}
+                          onClick={() =>
+                            void onUpdateSelectedShape2dAngleColor(
+                              activeShapeAngleItem.index,
+                              shape2dStrokeFallback
+                            )
+                          }
+                        >
+                          <CloseRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </div>
                     </div>
                     <div className="workbook-session__shape-angle-fields">
                       <TextField
@@ -419,14 +497,26 @@ export function WorkbookSessionTransformPanelShape2d({
                       event.currentTarget.blur();
                     }}
                   />
-                  <input
-                    type="color"
-                    className="workbook-session__solid-color"
-                    value={selectedShape2dSegmentColors[index] ?? WORKBOOK_BOARD_PRIMARY_COLOR}
-                    onChange={(event) =>
-                      void onUpdateSelectedShape2dSegmentColor(index, event.target.value)
-                    }
-                  />
+                  <div className="workbook-session__color-control">
+                    <input
+                      type="color"
+                      className="workbook-session__solid-color"
+                      value={selectedShape2dSegmentColors[index] ?? WORKBOOK_BOARD_PRIMARY_COLOR}
+                      onChange={(event) =>
+                        void onUpdateSelectedShape2dSegmentColor(index, event.target.value)
+                      }
+                    />
+                    <IconButton
+                      size="small"
+                      className="workbook-session__color-reset-btn"
+                      aria-label={`Сбросить цвет отрезка ${segment}`}
+                      onClick={() =>
+                        void onUpdateSelectedShape2dSegmentColor(index, shape2dStrokeFallback)
+                      }
+                    >
+                      <CloseRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </div>
                 </div>
               ))}
             </div>

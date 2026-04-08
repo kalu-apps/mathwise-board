@@ -36,7 +36,10 @@ export const TEXT_FONT_OPTIONS = [
 export const is2dFigureObject = (object: WorkbookBoardObject | null) =>
   Boolean(
     object &&
-      (object.type === "rectangle" || object.type === "triangle" || object.type === "polygon")
+      (object.type === "rectangle" ||
+        object.type === "triangle" ||
+        object.type === "polygon" ||
+        object.type === "ellipse")
   );
 
 export const TRANSFORM_PANEL_OBJECT_TYPES = new Set<WorkbookBoardObject["type"]>([
