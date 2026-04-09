@@ -538,12 +538,12 @@
   }
 
   .workbook-session__graph-builder-item-main--inline {
-    grid-template-columns: minmax(22px, max-content) minmax(0, 1fr) max-content;
+    grid-template-columns: minmax(22px, max-content) minmax(64px, 112px) max-content;
   }
 
   .workbook-session__graph-expression-badge {
-    width: min(100%, 112px);
-    max-width: 112px;
+    width: 100%;
+    max-width: none;
   }
 
   .workbook-session__graph-card-actions {

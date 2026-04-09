@@ -6,7 +6,8 @@
 }
 
 .workbook-session__graph-builder-item-main--inline {
-  grid-template-columns: minmax(22px, max-content) minmax(0, 1fr) max-content;
+  grid-template-columns: minmax(22px, max-content) minmax(64px, 132px) max-content;
+  justify-content: start;
   gap: 12px;
 }
 
@@ -21,7 +22,7 @@
 
 .workbook-session__graph-builder-item-main--inline .workbook-session__graph-dashed-toggle {
   grid-column: 3;
-  justify-self: end;
+  justify-self: start;
 }
 
 .workbook-session__graph-builder-item-main--inline
@@ -113,9 +114,9 @@
   min-height: 28px;
   display: inline-flex;
   align-items: center;
-  width: min(100%, 132px);
-  max-width: 132px;
-  min-width: 64px;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
   justify-self: start;
   padding: 4px 8px;
   border-radius: 11px;
