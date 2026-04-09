@@ -414,7 +414,10 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                             border: "1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent)",
                           },
                           "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
-                            backgroundColor: "var(--surface-base)",
+                            backgroundColor:
+                              "color-mix(in srgb, var(--brand-soft) 36%, var(--surface-base))",
+                            border:
+                              "1px solid color-mix(in srgb, var(--brand-solid) 52%, var(--border-subtle))",
                             opacity: 1,
                           },
                         }}
