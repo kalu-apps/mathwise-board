@@ -391,6 +391,27 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                             event.target.checked ? "dashed" : "solid"
                           )
                         }
+                        sx={{
+                          width: 32,
+                          height: 20,
+                          padding: 0,
+                          overflow: "hidden",
+                          flexShrink: 0,
+                          "& .MuiSwitch-switchBase": {
+                            padding: "2px",
+                            "&.Mui-checked": {
+                              transform: "translateX(12px)",
+                            },
+                          },
+                          "& .MuiSwitch-thumb": {
+                            width: 16,
+                            height: 16,
+                          },
+                          "& .MuiSwitch-track": {
+                            borderRadius: "999px",
+                            opacity: 1,
+                          },
+                        }}
                       />
                     </label>
                   </div>

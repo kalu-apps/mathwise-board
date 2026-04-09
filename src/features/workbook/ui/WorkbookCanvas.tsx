@@ -1739,6 +1739,95 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       },
     });
 
+  const touchTapStartRef = useRef<{
+    pointerId: number;
+    x: number;
+    y: number;
+    time: number;
+  } | null>(null);
+  const lastTouchTapRef = useRef<{
+    objectId: string;
+    x: number;
+    y: number;
+    time: number;
+  } | null>(null);
+  const handlePointerDown = useCallback(
+    (event: PointerEvent<SVGSVGElement>) => {
+      if (event.pointerType !== "mouse" && event.button === 0) {
+        touchTapStartRef.current = {
+          pointerId: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          time: Date.now(),
+        };
+      } else {
+        touchTapStartRef.current = null;
+      }
+      startInteraction(event);
+    },
+    [startInteraction]
+  );
+  const handlePointerMove = useCallback(
+    (event: PointerEvent<SVGSVGElement>) => {
+      const touchStart = touchTapStartRef.current;
+      if (touchStart && touchStart.pointerId === event.pointerId) {
+        const distance = Math.hypot(event.clientX - touchStart.x, event.clientY - touchStart.y);
+        if (distance > 10) {
+          touchTapStartRef.current = null;
+        }
+      }
+      continueInteraction(event);
+    },
+    [continueInteraction]
+  );
+  const handlePointerUp = useCallback(
+    (event: PointerEvent<SVGSVGElement>) => {
+      const touchStart = touchTapStartRef.current;
+      const isTouchTap =
+        event.pointerType !== "mouse" &&
+        Boolean(touchStart) &&
+        touchStart?.pointerId === event.pointerId &&
+        Math.hypot(event.clientX - touchStart.x, event.clientY - touchStart.y) <= 10 &&
+        Date.now() - touchStart.time <= 500;
+      if (touchStart?.pointerId === event.pointerId) {
+        touchTapStartRef.current = null;
+      }
+
+      finishInteraction(event);
+
+      if (!isTouchTap || !onObjectDoubleClick || disabled || tool !== "select") {
+        return;
+      }
+      const svg = event.currentTarget ?? null;
+      if (!svg) return;
+      const point = mapPointer(svg, event.clientX, event.clientY, true);
+      const target = resolveTopObject(point);
+      if (!target) {
+        lastTouchTapRef.current = null;
+        return;
+      }
+      const now = Date.now();
+      const previousTap = lastTouchTapRef.current;
+      const isDoubleTap =
+        previousTap &&
+        previousTap.objectId === target.id &&
+        now - previousTap.time <= 360 &&
+        Math.hypot(previousTap.x - point.x, previousTap.y - point.y) <= 18;
+      if (isDoubleTap) {
+        lastTouchTapRef.current = null;
+        onObjectDoubleClick(target);
+        return;
+      }
+      lastTouchTapRef.current = {
+        objectId: target.id,
+        x: point.x,
+        y: point.y,
+        time: now,
+      };
+    },
+    [disabled, finishInteraction, mapPointer, onObjectDoubleClick, resolveTopObject, tool]
+  );
+
   useWorkbookCanvasToolLifecycle({
     selectedObjectId,
     disabled,
@@ -1853,9 +1942,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           WebkitUserSelect: "none",
           cursor: eraserModeEnabled ? "none" : undefined,
         }}
-        onPointerDown={startInteraction}
-        onPointerMove={continueInteraction}
-        onPointerUp={finishInteraction}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
         onPointerCancel={finishInteraction}
         onDoubleClick={handleDoubleClick}
         onWheel={handleWheel}
