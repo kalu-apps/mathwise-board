@@ -261,6 +261,12 @@ export function WorkbookSessionToolSettingsPopover({
                         "& .MuiSwitch-track": {
                           borderRadius: "999px",
                           opacity: 1,
+                          backgroundColor: "var(--surface-base)",
+                          border: "1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent)",
+                        },
+                        "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
+                          backgroundColor: "var(--surface-base)",
+                          opacity: 1,
                         },
                       }}
                     />
