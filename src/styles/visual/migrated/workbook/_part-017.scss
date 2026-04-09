@@ -1,0 +1,222 @@
+.workbook-session__solid-tool-btn {
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
+  background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
+}
+
+.workbook-session__solid-tool-btn.is-active {
+  border-color: color-mix(in srgb, var(--brand-solid) 62%, var(--border-strong));
+  background: color-mix(in srgb, var(--brand-soft) 20%, var(--surface-elevated));
+  color: var(--brand-solid);
+}
+
+.workbook-session__solid-card-list {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+}
+
+.workbook-session__solid-card {
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 86%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-soft) 72%, transparent);
+  padding: 7px;
+  display: grid;
+  gap: 7px;
+}
+
+.workbook-session__solid-card.is-selected {
+  border-color: color-mix(in srgb, var(--brand-solid) 56%, var(--border-strong));
+  background: color-mix(in srgb, var(--brand-soft) 12%, var(--surface-elevated));
+}
+
+.workbook-session__solid-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workbook-session__solid-card-head--segment {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.workbook-session__solid-card-head--segment .workbook-session__solid-section-delete {
+  justify-self: end;
+}
+
+.workbook-session__solid-card-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbook-session__solid-card-title--segment {
+  min-width: 0;
+}
+
+.workbook-session__solid-card-controls {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.workbook-session__solid-card-controls--segment-top {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr);
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.workbook-session__solid-section-summary {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workbook-session__solid-section-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.workbook-session__solid-section-badge {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand-soft) 22%, var(--border-subtle));
+  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+  color: var(--text-primary);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.workbook-session__solid-section-badge.is-muted {
+  border-color: color-mix(in srgb, var(--border-subtle) 84%, transparent);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.workbook-session__solid-section-preview {
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 84%, transparent);
+  background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workbook-session__layer-subcards {
+  display: grid;
+  gap: 6px;
+}
+
+.workbook-session__layer-subcard {
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workbook-session__layer-subcard-main {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+
+  strong {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  span {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.workbook-session__solid-card-row {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  font-size: 11px;
+}
+
+.workbook-session__solid-card-toggle-stack {
+  display: grid;
+  gap: 6px;
+}
+
+.workbook-session__solid-card-row--toggle {
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  text-align: left;
+}
+
+.workbook-session__solid-card-row--toggle > :last-child {
+  justify-self: end;
+}
+
+.workbook-session__solid-hosted-segment-toggles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.workbook-session__solid-hosted-segment-toggles .workbook-session__solid-card-row--toggle {
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 84%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+  padding: 4px 8px;
+}
+
+.workbook-session__solid-hosted-point-fields {
+  display: grid;
+  gap: 6px;
+}
+
+.workbook-session__solid-segment-thickness {
+  min-width: 0;
+}
+
+.workbook-session__solid-segment-thickness input[type="range"] {
+  width: 100%;
+  min-width: 0;
+}
+
+.workbook-session__solid-mirror-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}

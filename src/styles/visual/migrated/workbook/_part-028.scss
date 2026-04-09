@@ -1,0 +1,575 @@
+
+.workbook-entry-shell {
+  width: 100%;
+  position: relative;
+  overflow: clip;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  border-radius: clamp(26px, 2vw, 38px);
+  background:
+    radial-gradient(circle at 16% 18%, var(--auth-shell-orb-a), transparent 30%),
+    radial-gradient(circle at 84% 14%, var(--auth-shell-orb-b), transparent 32%),
+    radial-gradient(circle at 54% 88%, var(--auth-shell-orb-c), transparent 36%),
+    linear-gradient(160deg, var(--auth-shell-bg-start) 0%, var(--auth-shell-bg-end) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--auth-shell-veil) 88%, transparent), transparent 28%),
+      radial-gradient(circle at center, transparent 26%, color-mix(in srgb, var(--auth-shell-veil) 72%, transparent) 100%);
+    pointer-events: none;
+    z-index: 1;
+  }
+}
+
+.workbook-entry-shell--launch {
+  min-height: max(540px, calc(100vh - 168px));
+}
+
+.workbook-entry-shell--invite {
+  min-height: max(500px, calc(100vh - 168px));
+}
+
+.auth-ambient {
+  position: absolute;
+  inset: -2%;
+  pointer-events: none;
+  z-index: 0;
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    opacity: 0.98;
+    filter: saturate(118%);
+  }
+}
+
+.workbook-launch__card,
+.workbook-invite__card {
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
+  border-radius: 24px;
+  border: 1px solid var(--auth-shell-card-border);
+  background: var(--auth-shell-card-bg);
+  box-shadow: var(--auth-shell-card-shadow);
+  backdrop-filter: blur(18px) saturate(130%);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--auth-shell-card-highlight) 82%, transparent), transparent 18%),
+      linear-gradient(90deg, transparent, color-mix(in srgb, var(--auth-shell-card-highlight) 38%, transparent), transparent);
+    pointer-events: none;
+    opacity: 0.66;
+  }
+
+  > * {
+    position: relative;
+    z-index: 1;
+  }
+}
+
+.workbook-launch__card {
+  width: min(720px, 100%);
+  padding: 22px;
+  gap: 14px;
+}
+
+.workbook-invite__card {
+  width: min(580px, 100%);
+  padding: 18px;
+}
+
+@media (max-width: 1024px) {
+  .workbook-session__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbook-session__layout--sidebar-overlay .workbook-session__sidebar {
+    position: static;
+    width: 100%;
+  }
+
+  .workbook-session__board-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    min-height: 0;
+    height: 100%;
+    gap: 8px;
+  }
+
+  .workbook-session__canvas {
+    min-height: 0;
+    height: 100%;
+  }
+
+  .workbook-session__tools {
+    position: static;
+    flex-direction: row;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    width: 100%;
+    padding: 6px;
+    gap: 6px;
+    border-radius: 14px;
+    scrollbar-width: none;
+  }
+
+  .workbook-entry-shell {
+    border-radius: 24px;
+  }
+
+  .workbook-entry-shell--launch,
+  .workbook-entry-shell--invite {
+    min-height: max(460px, calc(100vh - 144px));
+  }
+
+  .workbook-session__tools::-webkit-scrollbar {
+    display: none;
+  }
+
+  .workbook-session__tool-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+  }
+
+  .workbook-session__contextbar-dock {
+    position: static;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    bottom: auto !important;
+    width: 100%;
+    max-width: 100%;
+    align-items: stretch;
+    z-index: 20;
+    cursor: default;
+    user-select: auto;
+  }
+
+  .workbook-session__workspace-head .workbook-session__session-back.MuiIconButton-root {
+    width: 36px;
+    height: 36px;
+  }
+
+  .workbook-session__contextbar {
+    width: 100%;
+    flex-direction: row;
+    align-items: stretch;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 6px;
+    padding: 6px;
+    border-radius: 14px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    box-shadow: 0 10px 24px color-mix(in srgb, var(--brand-solid) 16%, transparent);
+  }
+
+  .workbook-session__contextbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .workbook-session__contextbar-inline {
+    width: max-content;
+    min-width: 0;
+    max-width: none;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+  }
+
+  .workbook-session__contextbar-inline--column {
+    min-width: min(280px, 100%);
+    width: max-content;
+    flex: 0 0 auto;
+  }
+
+  .workbook-session__sidebar {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+
+  .workbook-session__participants-scroll {
+    max-height: min(40vh, 360px);
+  }
+}
+
+@media (max-width: 760px) {
+  .workbook-hub,
+  .workbook-session,
+  .workbook-invite {
+    width: 100%;
+    padding-top: 8px;
+    overflow-x: clip;
+  }
+
+  .workbook-launch__student-alert-content {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 12px;
+  }
+
+  .workbook-launch__student-alert-button {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .workbook-session__workspace,
+  .workbook-session__card {
+    border-radius: 16px;
+    padding: 10px;
+  }
+
+  .workbook-hub__list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbook-hub__card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbook-hub__card-title-row h3 {
+    font-size: 14px;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .workbook-hub__card-timeline-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .workbook-hub__card-actions {
+    justify-content: flex-end;
+    align-items: center;
+    width: fit-content;
+    flex-wrap: nowrap;
+  }
+
+  .workbook-hub__card-actions-row {
+    width: 100%;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .workbook-hub__card-actions-row > .MuiButton-root {
+    min-width: 0;
+  }
+
+  .workbook-hub__card-action-btn.MuiButton-root {
+    padding: 3px 7px;
+    font-size: 0.72rem;
+  }
+
+  .workbook-hub__search-strip {
+    min-height: 40px;
+    padding-left: 10px;
+  }
+
+  .workbook-hub__search-input {
+    font-size: 13px;
+  }
+
+  .workbook-hub__search-meta {
+    justify-content: flex-start;
+  }
+
+  .workbook-hub__pagination {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .workbook-hub__pagination-pages {
+    justify-content: center;
+  }
+
+  .workbook-hub__primary-actions {
+    width: 100%;
+  }
+
+  .workbook-hub__primary-actions > * {
+    flex: 1 1 auto;
+  }
+
+  .workbook-session__contextbar-inline--column {
+    min-width: 320px;
+  }
+
+  .workbook-session__docs-window {
+    position: relative;
+    top: 0;
+    right: 0;
+    width: 100%;
+    max-height: none;
+  }
+
+  .workbook-hub__invite {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .workbook-session__canvas {
+    min-height: 0;
+    height: 100%;
+  }
+
+  .workbook-session__board-shell {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-items: stretch;
+    gap: 8px;
+    min-height: 0;
+    height: 100%;
+    padding-right: 0;
+    padding-bottom: 0;
+    min-width: 0;
+    overflow: visible;
+  }
+
+  .workbook-session__tools {
+    position: static;
+    width: 100%;
+    max-height: none;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 4px 6px;
+    gap: 5px;
+    z-index: 7;
+    scrollbar-width: none;
+    border-radius: 14px;
+    justify-content: flex-start;
+  }
+
+  .workbook-session__tools::-webkit-scrollbar {
+    display: none;
+  }
+
+  .workbook-session__tool-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
+
+  .workbook-session__chat-form {
+    flex-direction: column;
+  }
+
+  .workbook-session__board-settings-field {
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px 11px;
+  }
+
+  .workbook-session__board-settings-select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .workbook-session__board-settings-range {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .workbook-session__board-settings-grid-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .workbook-session__board-settings-color-inline {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .workbook-session__board-settings-color-inline-item {
+    width: min(100%, 180px);
+  }
+
+  .workbook-session__board-settings-page-actions {
+    width: 100%;
+  }
+
+  .workbook-session__board-settings-page-select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .workbook-session__board-settings-range input[type="range"] {
+    width: 100%;
+  }
+
+  .workbook-session__board-settings-two-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbook-session__utility-float {
+    left: 8px !important;
+    right: 8px !important;
+    width: auto !important;
+    max-height: min(80dvh, 680px);
+    top: auto !important;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    height: auto;
+    border-radius: 20px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .workbook-session__utility-float.is-settings {
+    height: auto;
+    max-height: min(78dvh, 640px);
+  }
+
+  .workbook-session__utility-float.is-collapsed {
+    height: auto;
+    max-height: min(42dvh, 260px);
+    min-height: 0;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    top: auto !important;
+  }
+
+  .workbook-session__utility-float-head {
+    margin: 0;
+    padding-top: 4px;
+  }
+
+  .workbook-session__utility-tabs {
+    flex-wrap: wrap;
+    overflow: visible;
+    padding-bottom: 0;
+  }
+
+  .workbook-session__utility-tabs button {
+    flex: 0 1 auto;
+    white-space: nowrap;
+  }
+
+  .workbook-session__board-settings-card {
+    padding: 12px;
+    gap: 10px;
+    border-radius: 18px;
+  }
+
+  .workbook-session__board-settings-card-head p {
+    display: block;
+    font-size: 10px;
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  .workbook-session__board-settings-field-main strong {
+    font-size: 12px;
+  }
+
+  .workbook-session__board-settings-field-main small {
+    font-size: 10px;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  .workbook-session__board-settings-head {
+    padding: 13px;
+    border-radius: 18px;
+  }
+
+  .workbook-session__board-settings-head h3 {
+    font-size: 16px;
+  }
+
+  .workbook-session__board-settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .workbook-session__board-settings-card-title {
+    align-items: flex-start;
+  }
+
+  .workbook-session__board-settings-range,
+  .workbook-session__board-settings-grid-row,
+  .workbook-session__board-settings-color-inline {
+    width: 100%;
+  }
+
+  .workbook-session__utility-float > * {
+    min-width: 0;
+  }
+
+  .workbook-session__utility-float-body > * {
+    min-width: 0;
+  }
+
+  .workbook-session__graph-builder,
+  .workbook-session__card,
+  .workbook-session__solid-inspector {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .workbook-session__graph-appearance {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbook-session__graph-builder-item-main {
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: 6px;
+  }
+
+  .workbook-session__graph-builder-item-main--inline {
+    grid-template-columns: minmax(22px, max-content) minmax(0, 1fr) max-content;
+  }
+
+  .workbook-session__graph-expression-badge {
+    width: min(100%, 112px);
+    max-width: 112px;
+  }
+
+  .workbook-session__graph-card-actions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .workbook-session__sidebar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbook-session__session-chat {
+    left: 8px !important;
+    right: 8px !important;
+    top: 56px;
+    width: auto !important;
+    max-width: none;
+    max-height: calc(100vh - 64px);
+  }
+
+  .workbook-session__session-chat.is-maximized {
+    top: 8px !important;
+    left: 8px !important;
+    right: 8px !important;
+    width: auto !important;
+    height: calc(100vh - 16px);
+    transform: none;
+  }
+}

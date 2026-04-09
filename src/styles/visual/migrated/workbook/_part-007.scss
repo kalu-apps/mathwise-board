@@ -1,0 +1,231 @@
+.workbook-session__tool-special {
+  border-color: color-mix(in srgb, var(--card-border) 84%, transparent) !important;
+  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent) !important;
+  color: var(--text-primary) !important;
+}
+.workbook-session__tool-btn:hover {
+  border-color: color-mix(in srgb, var(--brand-soft) 54%, var(--border-strong));
+  box-shadow: 0 8px 14px color-mix(in srgb, var(--brand-solid) 14%, transparent);
+}
+.workbook-session__tool-btn.is-active {
+  border-color: color-mix(in srgb, var(--brand-solid) 64%, var(--border-strong));
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--brand-soft) 24%, var(--surface-elevated)),
+      color-mix(in srgb, var(--brand-mint) 14%, var(--surface-elevated))
+    );
+  color: var(--accent-text);
+  box-shadow: 0 8px 16px color-mix(in srgb, var(--brand-solid) 18%, transparent);
+}
+.workbook-session__tool-btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+.workbook-session__tool-settings-popover {
+  width: min(248px, calc(100vw - 14px));
+  border: 1px solid color-mix(in srgb, var(--brand-soft) 30%, var(--border-subtle));
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 90% 10%, color-mix(in srgb, var(--brand-soft) 10%, transparent), transparent 62%),
+    color-mix(in srgb, var(--surface-soft) 96%, transparent);
+  box-shadow: 0 12px 22px color-mix(in srgb, var(--brand-solid) 19%, transparent);
+}
+.workbook-session__tool-settings-panel {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+}
+.workbook-session__tool-settings-head {
+  display: grid;
+  gap: 1px;
+
+  h4 {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-primary);
+  }
+
+  p {
+    margin: 0;
+    font-size: 10px;
+    color: var(--text-secondary);
+  }
+}
+.workbook-session__tool-settings-cluster {
+  display: grid;
+  gap: 5px;
+  padding: 6px;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--brand-soft) 18%, var(--border-subtle));
+  background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
+}
+.workbook-session__tool-settings-cluster-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+}
+.workbook-session__tool-settings-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.workbook-session__tool-settings-split--divider {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.workbook-session__tool-settings-field {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--brand-soft) 24%, var(--border-subtle));
+  background: color-mix(in srgb, var(--surface-elevated) 90%, transparent);
+}
+.workbook-session__tool-settings-field--compact {
+  gap: 4px;
+  padding: 6px 7px;
+  border-radius: 8px;
+}
+
+.workbook-session__tool-settings-field--divider-color,
+.workbook-session__tool-settings-field--divider-style {
+  min-height: 56px;
+  align-content: space-between;
+}
+
+.workbook-session__tool-settings-field--divider-width {
+  gap: 3px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.workbook-session__tool-settings-field-main {
+  strong {
+    font-size: 10px;
+    line-height: 1.2;
+    color: var(--text-primary);
+  }
+}
+.workbook-session__tool-settings-color input[type="color"] {
+  width: 100%;
+  height: 20px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.workbook-session__tool-settings-color--divider input[type="color"] {
+  height: 18px;
+}
+
+.workbook-session__tool-settings-divider-switch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 20px;
+  user-select: none;
+
+  .workbook-session__tool-settings-divider-switch-label {
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--text-secondary);
+    letter-spacing: 0.01em;
+  }
+
+  .MuiSwitch-root {
+    width: 32px;
+    height: 20px;
+    padding: 0;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .MuiSwitch-switchBase {
+    padding: 2px;
+
+    &.Mui-checked {
+      transform: translateX(12px);
+    }
+  }
+
+  .MuiSwitch-thumb {
+    width: 16px;
+    height: 16px;
+  }
+
+  .MuiSwitch-track {
+    border-radius: 999px;
+    opacity: 1;
+  }
+}
+.workbook-session__tool-settings-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+
+  input[type="range"] {
+    width: 100%;
+    margin: 0;
+  }
+
+  span {
+    min-width: 36px;
+    text-align: right;
+    font-size: 10px;
+    color: var(--text-secondary);
+    font-weight: 700;
+  }
+}
+.workbook-session__tool-settings-select {
+  width: 100%;
+}
+.workbook-session__tool-settings-select .MuiSelect-select {
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  min-height: 18px;
+}
+.workbook-session__tool-settings-value {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 94%, transparent);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+.workbook-session__toolbar-icon {
+  width: 32px !important;
+  height: 32px !important;
+  border: 1px solid color-mix(in srgb, var(--card-border) 82%, transparent) !important;
+  border-radius: 8px !important;
+  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent) !important;
+}
+.workbook-session__toolbar-icon.is-active {
+  border-color: color-mix(in srgb, var(--brand-solid) 60%, var(--border-strong)) !important;
+  background: color-mix(in srgb, var(--brand-soft) 20%, var(--surface-elevated)) !important;
+  color: var(--accent-text) !important;
+}
+.workbook-session__canvas {
+  width: 100%;
+  max-width: 100%;
+  min-height: 0;
+  height: 100%;
+  max-height: none;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--brand-soft) 34%, var(--border-subtle));
+  background: color-mix(in srgb, var(--surface-elevated) 86%, var(--surface-base));
+  overflow: hidden;
+  position: relative;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-solid) 7%, transparent);
+  box-sizing: border-box;
+}

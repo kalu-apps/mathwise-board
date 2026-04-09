@@ -1,0 +1,224 @@
+.workbook-session__solid-point-row {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.workbook-session__solid-section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.workbook-session__solid-face-grid {
+  display: grid;
+  gap: 6px;
+}
+
+.workbook-session__solid-face-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+
+  span {
+    flex: 1 1 auto;
+    min-width: 0;
+    line-height: 1.35;
+  }
+}
+
+.workbook-session__solid-face-row--bulk {
+  margin-bottom: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.workbook-session__solid-angle-list {
+  display: grid;
+  gap: 6px;
+}
+
+.workbook-session__solid-angle-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--brand-soft) 14%, var(--border-subtle));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+}
+
+.workbook-session__solid-angle-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workbook-session__solid-angle-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.workbook-session__solid-angle-grid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    "face vertex"
+    "value style";
+  align-items: center;
+}
+
+.workbook-session__solid-angle-field {
+  min-width: 0;
+}
+
+.workbook-session__solid-angle-field--face {
+  grid-area: face;
+}
+
+.workbook-session__solid-angle-field--vertex {
+  grid-area: vertex;
+}
+
+.workbook-session__solid-angle-field--value {
+  grid-area: value;
+}
+
+.workbook-session__solid-angle-field--style {
+  grid-area: style;
+}
+
+.workbook-session__solid-angle-delete {
+  width: 24px;
+  height: 24px;
+  justify-self: end;
+}
+
+.workbook-session__solid-section-delete {
+  width: 24px;
+  height: 24px;
+}
+
+.workbook-session__solid-angle-delete.MuiIconButton-root,
+.workbook-session__solid-section-delete.MuiIconButton-root {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.workbook-session__solid-angle-delete.MuiIconButton-root:hover,
+.workbook-session__solid-section-delete.MuiIconButton-root:hover {
+  border: none !important;
+  background: transparent !important;
+}
+
+.workbook-session__solid-angle-visibility {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.workbook-session__solid-angle-grid .MuiFormControl-root,
+.workbook-session__solid-angle-grid .MuiInputBase-root {
+  min-height: 32px;
+  width: 100%;
+  min-width: 0;
+}
+
+.workbook-session__solid-angle-grid .MuiSelect-select,
+.workbook-session__solid-angle-grid .MuiInputBase-input {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1200px) {
+  .workbook-session__line-endpoints-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbook-session__shape-angle-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbook-session__solid-angle-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "face"
+      "vertex"
+      "style"
+      "value";
+  }
+
+  .workbook-session__line-range input[type="range"] {
+    width: 96px;
+  }
+
+  .workbook-session__line-rotate-controls {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .workbook-session__solid-card-head--segment {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .workbook-session__solid-card-controls--segment-top {
+    grid-template-columns: auto minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .workbook-session__solid-hosted-segment-toggles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .workbook-session__shape-angle-head {
+    align-items: stretch;
+  }
+
+  .workbook-session__shape-angle-meta {
+    width: 100%;
+  }
+
+  .workbook-session__shape-angle-preview {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .workbook-session__shape-angle-color {
+    align-self: flex-start;
+  }
+
+  .workbook-session__shape-angle-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workbook-session__solid-angle-card-head,
+  .workbook-session__solid-angle-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+.workbook-session__solid-menu {
+  width: min(280px, 72vw);
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+}
