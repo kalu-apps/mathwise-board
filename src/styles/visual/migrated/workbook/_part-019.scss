@@ -217,8 +217,8 @@
 }
 
 .workbook-session__solid-menu {
-  width: min(280px, 72vw);
+  width: min(236px, calc(100vw - 20px));
   display: grid;
-  gap: 8px;
-  padding: 8px;
+  gap: 6px;
+  padding: 6px;
 }

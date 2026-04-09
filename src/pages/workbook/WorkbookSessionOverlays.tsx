@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Button,
   Dialog,
@@ -191,6 +191,35 @@ export function WorkbookSessionOverlays({
   shapeCatalog,
   activateTool,
 }: WorkbookSessionOverlaysProps) {
+  const compactRenameFieldSx = useMemo(
+    () => ({
+      "& .MuiOutlinedInput-root": {
+        borderRadius: "8px",
+        boxShadow: "none !important",
+      },
+      "& .MuiOutlinedInput-root .MuiOutlinedInput-notchedOutline": {
+        borderColor: "var(--input-border)",
+      },
+      "& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline": {
+        borderColor: "var(--input-border)",
+      },
+      "& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline": {
+        borderColor: "var(--input-border)",
+        borderWidth: "1px",
+      },
+      "& .MuiInputBase-input": {
+        fontSize: "12px",
+        lineHeight: 1.2,
+        padding: "6px 8px",
+      },
+      "& .MuiInputBase-input:focus, & .MuiInputBase-input:focus-visible": {
+        outline: "none",
+        boxShadow: "none",
+      },
+    }),
+    []
+  );
+
   const [pointRenameTargetId, setPointRenameTargetId] = useState<string | null>(null);
   const [areaFillMenuAnchor, setAreaFillMenuAnchor] = useState<ContextMenuPoint | null>(
     null
@@ -258,6 +287,7 @@ export function WorkbookSessionOverlays({
                 size="small"
                 placeholder="Название вершины"
                 inputProps={{ "aria-label": "Название вершины" }}
+                sx={compactRenameFieldSx}
                 value={solid3dVertexContextMenu?.label ?? ""}
                 onChange={(event) => {
                   const nextLabel = event.target.value.slice(0, 12);
@@ -291,6 +321,7 @@ export function WorkbookSessionOverlays({
                 size="small"
                 placeholder="Название вершины сечения"
                 inputProps={{ "aria-label": "Название вершины сечения" }}
+                sx={compactRenameFieldSx}
                 value={solid3dSectionVertexContextMenu?.label ?? ""}
                 onChange={(event) => {
                   const nextLabel = event.target.value.slice(0, 12);
@@ -406,6 +437,7 @@ export function WorkbookSessionOverlays({
                   size="small"
                   placeholder="Название вершины"
                   inputProps={{ "aria-label": "Название вершины" }}
+                  sx={compactRenameFieldSx}
                   value={shapeVertexLabelDraft}
                   onChange={(event) => {
                     const nextLabel = event.target.value.slice(0, 12);
@@ -642,8 +674,8 @@ export function WorkbookSessionOverlays({
             className="workbook-session__confirm-dialog"
             PaperProps={{
               sx: {
-                width: "min(320px, calc(100vw - 24px))",
-                margin: "12px",
+                width: "min(280px, calc(100vw - 20px))",
+                margin: "10px",
               },
             }}
           >
@@ -665,6 +697,7 @@ export function WorkbookSessionOverlays({
                 autoFocus
                 placeholder="Название точки"
                 inputProps={{ "aria-label": "Название точки" }}
+                sx={compactRenameFieldSx}
                 value={pointLabelDraft}
                 onChange={(event) => setPointLabelDraft(event.target.value.slice(0, 12))}
                 onKeyDown={(event) => {
