@@ -3153,7 +3153,7 @@
 
 .workbook-session__graph-builder-item-main--inline {
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
+  gap: 8px;
 }
 
 .workbook-session__graph-builder-item-main--inline .workbook-session__graph-swatch {
@@ -3168,6 +3168,13 @@
 .workbook-session__graph-builder-item-main--inline .workbook-session__graph-dashed-toggle {
   grid-column: 3;
   justify-self: start;
+}
+
+.workbook-session__graph-builder-item-main--inline
+  .workbook-session__graph-dashed-toggle
+  .MuiSwitch-root {
+  margin-left: 0;
+  margin-right: 0;
 }
 
 .workbook-session__graph-swatch {
@@ -3251,8 +3258,8 @@
   min-height: 28px;
   display: inline-flex;
   align-items: center;
-  width: clamp(72px, 26vw, 128px);
-  max-width: 128px;
+  width: clamp(64px, 20vw, 104px);
+  max-width: 104px;
   justify-self: start;
   padding: 4px 8px;
   border-radius: 11px;
@@ -6566,8 +6573,8 @@
   }
 
   .workbook-session__graph-expression-badge {
-    width: clamp(68px, 32vw, 116px);
-    max-width: 116px;
+    width: clamp(64px, 30vw, 96px);
+    max-width: 96px;
   }
 
   .workbook-session__graph-card-actions {
