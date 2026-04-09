@@ -1162,6 +1162,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     resolveGraphFunctionHit,
     objectSceneEntries,
     selectedRect,
+    selectedLineControls,
     selectedSolidResizeHandles,
     constraintRenderSegments,
     solid3dMarkerNodes,
@@ -1942,6 +1943,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         <WorkbookSelectionOverlayLayer
           areaSelection={areaSelectionOverlay}
           selectedRect={selectedRect}
+          selectedLineControls={selectedLineControls}
           selectedPreviewObject={selectedPreviewObject}
           selectedStroke={selectedStroke}
           selectedStrokeRect={selectedStrokeRect}

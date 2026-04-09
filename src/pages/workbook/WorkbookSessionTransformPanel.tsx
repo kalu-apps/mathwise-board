@@ -504,7 +504,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
             </p>
             <div className="workbook-session__settings-row">
               <span>Стиль разделителя</span>
-              <div className="workbook-session__toggle-group">
+              <div className="workbook-session__toggle-group workbook-session__toggle-group--divider">
                 <button
                   type="button"
                   className={

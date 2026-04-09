@@ -231,7 +231,9 @@ export function WorkbookSessionToolSettingsPopover({
                     <strong>Линия</strong>
                   </div>
                   <label className="workbook-session__tool-settings-divider-switch">
-                    <span>Пунктир</span>
+                    <span className="workbook-session__tool-settings-divider-switch-label">
+                      Пунктир
+                    </span>
                     <Switch
                       size="small"
                       checked={dividerLineStyle === "dashed"}

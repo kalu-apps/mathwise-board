@@ -1483,7 +1483,7 @@
   min-height: 20px;
   user-select: none;
 
-  span {
+  .workbook-session__tool-settings-divider-switch-label {
     font-size: 10px;
     font-weight: 700;
     line-height: 1.1;
@@ -1492,10 +1492,10 @@
   }
 
   .MuiSwitch-root {
-    width: 30px;
-    height: 18px;
+    width: 32px;
+    height: 20px;
     padding: 0;
-    overflow: visible;
+    overflow: hidden;
     flex-shrink: 0;
   }
 
@@ -1508,12 +1508,13 @@
   }
 
   .MuiSwitch-thumb {
-    width: 10px;
-    height: 10px;
+    width: 16px;
+    height: 16px;
   }
 
   .MuiSwitch-track {
     border-radius: 999px;
+    opacity: 1;
   }
 }
 .workbook-session__tool-settings-range {
@@ -2734,6 +2735,18 @@
   border-color: color-mix(in srgb, var(--brand-solid) 56%, var(--border-strong));
   background: color-mix(in srgb, var(--brand-soft) 18%, var(--surface-elevated));
   color: var(--text-primary);
+}
+
+.workbook-session__toggle-group--divider {
+  gap: 3px;
+}
+
+.workbook-session__toggle-group--divider button {
+  padding: 3px 7px;
+  border-radius: 7px;
+  font-size: 11px;
+  line-height: 1.15;
+  white-space: nowrap;
 }
 
 .workbook-session__line-range {

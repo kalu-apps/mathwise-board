@@ -599,6 +599,7 @@ export const WorkbookDraftOverlayLayer = memo(function WorkbookDraftOverlayLayer
 export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOverlayLayer({
   areaSelection,
   selectedRect,
+  selectedLineControls,
   selectedPreviewObject,
   selectedStroke,
   selectedStrokeRect,
@@ -608,6 +609,12 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
 }: {
   areaSelection: WorkbookAreaSelection | null;
   selectedRect: { x: number; y: number; width: number; height: number } | null;
+  selectedLineControls: {
+    start: WorkbookPoint;
+    end: WorkbookPoint;
+    c1: WorkbookPoint;
+    c2: WorkbookPoint;
+  } | null;
   selectedPreviewObject: WorkbookBoardObject | null;
   selectedStroke: WorkbookStroke | null;
   selectedStrokeRect: { x: number; y: number; width: number; height: number } | null;
@@ -737,6 +744,46 @@ export const WorkbookSelectionOverlayLayer = memo(function WorkbookSelectionOver
                 strokeWidth={1.5}
                 strokeDasharray="6 4"
               />
+              {selectedLineControls ? (
+                <g>
+                  <line
+                    x1={selectedLineControls.start.x}
+                    y1={selectedLineControls.start.y}
+                    x2={selectedLineControls.c1.x}
+                    y2={selectedLineControls.c1.y}
+                    stroke={WORKBOOK_LAYER_COLORS.warning}
+                    strokeWidth={1.2}
+                    strokeDasharray="4 3"
+                    opacity={0.72}
+                  />
+                  <line
+                    x1={selectedLineControls.end.x}
+                    y1={selectedLineControls.end.y}
+                    x2={selectedLineControls.c2.x}
+                    y2={selectedLineControls.c2.y}
+                    stroke={WORKBOOK_LAYER_COLORS.warning}
+                    strokeWidth={1.2}
+                    strokeDasharray="4 3"
+                    opacity={0.72}
+                  />
+                  <circle
+                    cx={selectedLineControls.c1.x}
+                    cy={selectedLineControls.c1.y}
+                    r={4}
+                    fill={WORKBOOK_LAYER_COLORS.warning}
+                    stroke={WORKBOOK_LAYER_COLORS.white}
+                    strokeWidth={1}
+                  />
+                  <circle
+                    cx={selectedLineControls.c2.x}
+                    cy={selectedLineControls.c2.y}
+                    r={4}
+                    fill={WORKBOOK_LAYER_COLORS.warning}
+                    stroke={WORKBOOK_LAYER_COLORS.white}
+                    strokeWidth={1}
+                  />
+                </g>
+              ) : null}
               {getAreaSelectionHandlePoints(selectedRect).map((handle) => (
                 <circle
                   key={`line-selection-handle-${handle.mode}`}

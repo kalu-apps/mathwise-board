@@ -283,6 +283,7 @@ export function WorkbookSessionPagePreview({
             /* preview-only noop */
           },
           functionGraphRenderStateById,
+          pageFrameBounds,
         });
 
         if (renderedPrimary) {
