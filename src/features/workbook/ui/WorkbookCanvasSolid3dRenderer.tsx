@@ -334,7 +334,11 @@ export const renderWorkbookCanvasSolid3dObject = ({
       hostedPointRenderEntries.map((entry) => [entry.point.id, entry] as const)
     );
 
-    const visibleHostedSegments = solidState.hostedSegments.filter(
+    const hostedSegments = solidState.hostedSegments.filter(
+      (segment) => segment.hostObjectId === object.id
+    );
+
+    const visibleHostedSegments = hostedSegments.filter(
       (segment) => segment.hostObjectId === object.id && segment.visible !== false
     );
 
@@ -369,6 +373,24 @@ export const renderWorkbookCanvasSolid3dObject = ({
           faceVisible: boolean;
         } => Boolean(entry)
       );
+
+    const hostedSegmentsByPointId = hostedSegments.reduce<
+      Map<string, Array<(typeof hostedSegments)[number]>>
+    >((acc, segment) => {
+      const startSegments = acc.get(segment.startPointId);
+      if (startSegments) {
+        startSegments.push(segment);
+      } else {
+        acc.set(segment.startPointId, [segment]);
+      }
+      const endSegments = acc.get(segment.endPointId);
+      if (endSegments) {
+        endSegments.push(segment);
+      } else {
+        acc.set(segment.endPointId, [segment]);
+      }
+      return acc;
+    }, new Map());
 
     const hostedVisibleSegmentsByPointId = visibleHostedSegments.reduce<
       Map<string, Array<(typeof visibleHostedSegments)[number]>>
@@ -1323,6 +1345,16 @@ export const renderWorkbookCanvasSolid3dObject = ({
             const pointColor = entry.point.color || "#c4872f";
             const shouldHide = hideHiddenEdges && !entry.faceVisible;
             if (shouldHide) return null;
+            const connectedSegments = hostedSegmentsByPointId.get(entry.point.id) ?? [];
+            const visibleConnectedSegments =
+              hostedVisibleSegmentsByPointId.get(entry.point.id) ?? [];
+            const isSegmentEndpoint = connectedSegments.length > 0;
+            if (isSegmentEndpoint && visibleConnectedSegments.length === 0) {
+              return null;
+            }
+            const canShowEndpointLabel = isSegmentEndpoint
+              ? visibleConnectedSegments.some((segment) => segment.showEndpointLabels !== false)
+              : true;
             return (
               <g key={`${object.id}-hosted-point-${entry.point.id}`}>
                 <circle
@@ -1336,10 +1368,7 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 />
                 {object.meta?.showLabels !== false &&
                 entry.point.labelVisible !== false &&
-                (hostedVisibleSegmentsByPointId.get(entry.point.id)?.some(
-                  (segment) => segment.showEndpointLabels !== false
-                ) ??
-                  true) &&
+                canShowEndpointLabel &&
                 entry.point.name.trim().length > 0 ? (
                   <text
                     x={entry.projected.x + 5}

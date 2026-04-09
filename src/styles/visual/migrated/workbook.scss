@@ -3152,8 +3152,22 @@
 }
 
 .workbook-session__graph-builder-item-main--inline {
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
+}
+
+.workbook-session__graph-builder-item-main--inline .workbook-session__graph-swatch {
+  grid-column: 1;
+  justify-self: start;
+}
+
+.workbook-session__graph-builder-item-main--inline .workbook-session__graph-expression-badge {
+  grid-column: 2;
+}
+
+.workbook-session__graph-builder-item-main--inline .workbook-session__graph-dashed-toggle {
+  grid-column: 3;
+  justify-self: start;
 }
 
 .workbook-session__graph-swatch {
@@ -6548,7 +6562,7 @@
   }
 
   .workbook-session__graph-builder-item-main--inline {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .workbook-session__graph-expression-badge {
