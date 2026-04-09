@@ -192,7 +192,8 @@ const buildBoardObjectDiffPatch = (
   ).filter((key) => !areSerializableValuesStructurallyEqual(previousMeta[key], nextMeta[key]));
   if (changedMetaKeys.length > 0) {
     patch.meta = changedMetaKeys.reduce<Record<string, unknown>>((acc, key) => {
-      acc[key] = cloneSerializable(nextMeta[key]);
+      const hasNextValue = Object.prototype.hasOwnProperty.call(nextMeta, key);
+      acc[key] = hasNextValue ? cloneSerializable(nextMeta[key]) : null;
       return acc;
     }, {});
   }
@@ -236,10 +237,14 @@ const mergeBoardObjectWithPatch = (
     current.meta && typeof current.meta === "object" && !Array.isArray(current.meta)
       ? (current.meta as Record<string, unknown>)
       : {};
-  const nextMeta = {
-    ...currentMeta,
-    ...(patchMeta as Record<string, unknown>),
-  };
+  const nextMeta = { ...currentMeta };
+  Object.entries(patchMeta as Record<string, unknown>).forEach(([key, value]) => {
+    if (value === null || value === undefined) {
+      delete nextMeta[key];
+      return;
+    }
+    nextMeta[key] = value;
+  });
   return {
     ...current,
     ...patch,

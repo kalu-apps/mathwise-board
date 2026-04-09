@@ -73,6 +73,11 @@ type PrimaryObjectRendererParams = {
   pageFrameBounds: WorkbookPageFrameBounds;
 };
 
+export type WorkbookPrimaryRenderedObjectParts = {
+  maskedObject: ReactNode;
+  unmaskedOverlay?: ReactNode | null;
+};
+
 const clampNumber = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 
@@ -123,7 +128,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
   commitInlineTextEdit,
   functionGraphRenderStateById,
   pageFrameBounds,
-}: PrimaryObjectRendererParams): ReactNode | null => {
+}: PrimaryObjectRendererParams): ReactNode | WorkbookPrimaryRenderedObjectParts | null => {
     const WORKBOOK_RENDER_COLORS = {
       primary: WORKBOOK_BOARD_PRIMARY_COLOR,
       warning: WORKBOOK_SELECTION_HELPER_COLOR,
@@ -135,19 +140,17 @@ export const renderWorkbookCanvasPrimaryObject = ({
       lightSurfaceFill: "rgba(238, 243, 248, 0.94)",
       primaryFillSoft: "rgba(47, 79, 127, 0.14)",
     } as const;
-    const render2dFigureOverlay = (vertices: WorkbookPoint[]) => {
+    const render2dFigureVertexLabels = (vertices: WorkbookPoint[]) => {
       if (vertices.length < 2) return null;
-      const labels = resolve2dFigureVertexLabels(object, vertices.length);
       const showLabels = object.meta?.showLabels !== false;
-      const showAngles = Boolean(object.meta?.showAngles);
-      const isClosed = is2dFigureClosed(object);
-      const segments = get2dFigureSegments(vertices, isClosed);
+      if (!showLabels) return null;
+      const labels = resolve2dFigureVertexLabels(object, vertices.length);
       const figureCenter = getPointsCentroid(vertices);
       const labelPlacements = vertices.map((vertex) =>
         resolveOutsideVertexLabelPlacement({
           vertex,
           center: figureCenter,
-          polygon: isClosed ? vertices : [],
+          polygon: is2dFigureClosed(object) ? vertices : [],
           baseOffset: 14,
         })
       );
@@ -158,6 +161,44 @@ export const renderWorkbookCanvasPrimaryObject = ({
           pageFrameBounds,
         })
       );
+      const vertexColorsRaw = Array.isArray(object.meta?.vertexColors)
+        ? object.meta.vertexColors
+        : [];
+      return (
+        <>
+          {vertices.map((vertex, index) => {
+            const vertexColor =
+              typeof vertexColorsRaw[index] === "string" && vertexColorsRaw[index]
+                ? vertexColorsRaw[index]
+                : object.color ?? WORKBOOK_RENDER_COLORS.primary;
+            return (
+              <text
+                key={`${object.id}-vertex-label-detached-${index}`}
+                x={safeLabelPlacements[index]?.x ?? vertex.x + 4}
+                y={safeLabelPlacements[index]?.y ?? vertex.y - 4}
+                fill={vertexColor}
+                fontSize={WORKBOOK_VERTEX_LABEL_FONT_SIZE}
+                fontWeight={700}
+                textAnchor={safeLabelPlacements[index]?.textAnchor ?? "start"}
+                dominantBaseline="central"
+                paintOrder="stroke"
+                stroke={WORKBOOK_RENDER_COLORS.softStroke}
+                strokeWidth={2}
+                strokeLinejoin="round"
+              >
+                {labels[index]}
+              </text>
+            );
+          })}
+        </>
+      );
+    };
+
+    const render2dFigureOverlay = (vertices: WorkbookPoint[]) => {
+      if (vertices.length < 2) return null;
+      const showAngles = Boolean(object.meta?.showAngles);
+      const isClosed = is2dFigureClosed(object);
+      const segments = get2dFigureSegments(vertices, isClosed);
       const angleMarks = normalizeShapeAngleMarks(
         object,
         vertices.length,
@@ -206,31 +247,14 @@ export const renderWorkbookCanvasPrimaryObject = ({
                     : object.color ?? WORKBOOK_RENDER_COLORS.primary;
                 return (
                   <>
-              <circle
-                cx={vertex.x}
-                cy={vertex.y}
-                r={1.9}
-                fill={WORKBOOK_RENDER_COLORS.white}
-                stroke={vertexColor}
-                strokeWidth={1}
-              />
-              {showLabels ? (
-                <text
-                  x={safeLabelPlacements[index]?.x ?? vertex.x + 4}
-                  y={safeLabelPlacements[index]?.y ?? vertex.y - 4}
-                  fill={vertexColor}
-                  fontSize={WORKBOOK_VERTEX_LABEL_FONT_SIZE}
-                  fontWeight={700}
-                  textAnchor={safeLabelPlacements[index]?.textAnchor ?? "start"}
-                  dominantBaseline="central"
-                  paintOrder="stroke"
-                  stroke={WORKBOOK_RENDER_COLORS.softStroke}
-                  strokeWidth={2}
-                  strokeLinejoin="round"
-                >
-                  {labels[index]}
-                </text>
-              ) : null}
+                    <circle
+                      cx={vertex.x}
+                      cy={vertex.y}
+                      r={1.9}
+                      fill={WORKBOOK_RENDER_COLORS.white}
+                      stroke={vertexColor}
+                      strokeWidth={1}
+                    />
                   </>
                 );
               })()}
@@ -506,20 +530,27 @@ export const renderWorkbookCanvasPrimaryObject = ({
 
     if (object.type === "rectangle") {
       const vertices = resolve2dFigureVertices(object, normalized);
-      return (
-        <g transform={transform}>
-          <rect
-            {...commonProps}
-            x={normalized.x}
-            y={normalized.y}
-            width={normalized.width}
-            height={normalized.height}
-            rx={0}
-            ry={0}
-          />
-          {render2dFigureOverlay(vertices)}
-        </g>
-      );
+      return {
+        maskedObject: (
+          <g transform={transform}>
+            <rect
+              {...commonProps}
+              x={normalized.x}
+              y={normalized.y}
+              width={normalized.width}
+              height={normalized.height}
+              rx={0}
+              ry={0}
+            />
+            {render2dFigureOverlay(vertices)}
+          </g>
+        ),
+        unmaskedOverlay: (
+          <g transform={transform}>
+            {render2dFigureVertexLabels(vertices)}
+          </g>
+        ),
+      };
     }
 
     if (object.type === "ellipse") {
@@ -542,12 +573,19 @@ export const renderWorkbookCanvasPrimaryObject = ({
       } ${normalized.y + normalized.height} L ${normalized.x + normalized.width} ${
         normalized.y + normalized.height
       } Z`;
-      return (
-        <g transform={transform}>
-          <path {...commonProps} d={path} />
-          {render2dFigureOverlay(vertices)}
-        </g>
-      );
+      return {
+        maskedObject: (
+          <g transform={transform}>
+            <path {...commonProps} d={path} />
+            {render2dFigureOverlay(vertices)}
+          </g>
+        ),
+        unmaskedOverlay: (
+          <g transform={transform}>
+            {render2dFigureVertexLabels(vertices)}
+          </g>
+        ),
+      };
     }
 
     if (object.type === "polygon") {
@@ -561,22 +599,36 @@ export const renderWorkbookCanvasPrimaryObject = ({
           ? object.meta.polygonPreset
           : "regular";
       if (Array.isArray(object.points) && object.points.length >= 2) {
-        return (
+        return {
+          maskedObject: (
+            <g transform={transform}>
+              <path {...commonProps} d={`${toPath(object.points)}${isClosed ? " Z" : ""}`} />
+              {render2dFigureOverlay(vertices)}
+            </g>
+          ),
+          unmaskedOverlay: (
+            <g transform={transform}>
+              {render2dFigureVertexLabels(vertices)}
+            </g>
+          ),
+        };
+      }
+      return {
+        maskedObject: (
           <g transform={transform}>
-            <path {...commonProps} d={`${toPath(object.points)}${isClosed ? " Z" : ""}`} />
+            <path
+              {...commonProps}
+              d={createPolygonPath(normalized, object.sides ?? 5, objectPreset)}
+            />
             {render2dFigureOverlay(vertices)}
           </g>
-        );
-      }
-      return (
-        <g transform={transform}>
-          <path
-            {...commonProps}
-            d={createPolygonPath(normalized, object.sides ?? 5, objectPreset)}
-          />
-          {render2dFigureOverlay(vertices)}
-        </g>
-      );
+        ),
+        unmaskedOverlay: (
+          <g transform={transform}>
+            {render2dFigureVertexLabels(vertices)}
+          </g>
+        ),
+      };
     }
 
     if (object.type === "text") {

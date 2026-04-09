@@ -480,7 +480,8 @@ export const buildBoardObjectDiffPatch = (
   ).filter((key) => !areSerializableValuesEqual(previousMeta[key], nextMeta[key]));
   if (changedMetaKeys.length > 0) {
     patch.meta = changedMetaKeys.reduce<Record<string, unknown>>((acc, key) => {
-      acc[key] = cloneSerializable(nextMeta[key]);
+      const hasNextValue = Object.prototype.hasOwnProperty.call(nextMeta, key);
+      acc[key] = hasNextValue ? cloneSerializable(nextMeta[key]) : null;
       return acc;
     }, {});
   }

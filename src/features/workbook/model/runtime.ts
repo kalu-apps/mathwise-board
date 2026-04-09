@@ -136,10 +136,14 @@ export const mergeBoardObjectWithPatch = (
     current.meta && typeof current.meta === "object" && !Array.isArray(current.meta)
       ? (current.meta as Record<string, unknown>)
       : {};
-  const nextMeta = {
-    ...currentMeta,
-    ...(patchMeta as Record<string, unknown>),
-  };
+  const nextMeta = { ...currentMeta };
+  Object.entries(patchMeta as Record<string, unknown>).forEach(([key, value]) => {
+    if (value === null || value === undefined) {
+      delete nextMeta[key];
+      return;
+    }
+    nextMeta[key] = value;
+  });
   return {
     ...current,
     ...patch,

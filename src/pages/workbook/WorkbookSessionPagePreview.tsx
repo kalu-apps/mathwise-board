@@ -11,7 +11,10 @@ import {
   WORKBOOK_BOARD_GRID_COLOR,
   WORKBOOK_BOARD_PRIMARY_COLOR,
 } from "@/features/workbook/model/workbookVisualColors";
-import { renderWorkbookCanvasPrimaryObject } from "@/features/workbook/ui/WorkbookCanvasPrimaryObjectRenderer";
+import {
+  renderWorkbookCanvasPrimaryObject,
+  type WorkbookPrimaryRenderedObjectParts,
+} from "@/features/workbook/ui/WorkbookCanvasPrimaryObjectRenderer";
 import { renderWorkbookCanvasSecondaryObject } from "@/features/workbook/ui/WorkbookCanvasSecondaryObjectRenderer";
 import { renderWorkbookCanvasSolid3dObject } from "@/features/workbook/ui/WorkbookCanvasSolid3dRenderer";
 import {
@@ -52,6 +55,13 @@ const normalizeStrokeWidth = (value: number | undefined) => {
   if (!Number.isFinite(value)) return 2;
   return clampNumber(Number(value), 1, 28);
 };
+
+const isPrimaryRenderedObjectParts = (
+  value: unknown
+): value is WorkbookPrimaryRenderedObjectParts =>
+  Boolean(value) &&
+  typeof value === "object" &&
+  Object.prototype.hasOwnProperty.call(value, "maskedObject");
 
 type ViewBounds = {
   minX: number;
@@ -287,7 +297,18 @@ export function WorkbookSessionPagePreview({
         });
 
         if (renderedPrimary) {
-          return <g key={`preview-object-${object.id}`}>{renderedPrimary}</g>;
+          const maskedObject = isPrimaryRenderedObjectParts(renderedPrimary)
+            ? renderedPrimary.maskedObject
+            : renderedPrimary;
+          const unmaskedOverlay = isPrimaryRenderedObjectParts(renderedPrimary)
+            ? renderedPrimary.unmaskedOverlay ?? null
+            : null;
+          return (
+            <g key={`preview-object-${object.id}`}>
+              {maskedObject}
+              {unmaskedOverlay ? <g>{unmaskedOverlay}</g> : null}
+            </g>
+          );
         }
 
         const renderedSolid3d = renderWorkbookCanvasSolid3dObject({

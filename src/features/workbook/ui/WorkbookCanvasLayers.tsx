@@ -241,7 +241,12 @@ export const WorkbookObjectSceneLayer = memo(function WorkbookObjectSceneLayer({
           entry.maskPaths.length === 0 &&
           !entry.maskBounds
         ) {
-          return <g key={entry.id}>{entry.renderedObject}</g>;
+          return (
+            <g key={entry.id}>
+              {entry.renderedObject}
+              {entry.unmaskedOverlay ? <g>{entry.unmaskedOverlay}</g> : null}
+            </g>
+          );
         }
         const safeMaskId = `workbook-object-mask-${entry.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
         return (
@@ -285,6 +290,7 @@ export const WorkbookObjectSceneLayer = memo(function WorkbookObjectSceneLayer({
               </mask>
             </defs>
             <g mask={`url(#${safeMaskId})`}>{entry.renderedObject}</g>
+            {entry.unmaskedOverlay ? <g>{entry.unmaskedOverlay}</g> : null}
           </g>
         );
       })}
