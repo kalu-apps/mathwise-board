@@ -3152,8 +3152,8 @@
 }
 
 .workbook-session__graph-builder-item-main--inline {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: minmax(22px, max-content) minmax(0, 1fr) max-content;
+  gap: 12px;
 }
 
 .workbook-session__graph-builder-item-main--inline .workbook-session__graph-swatch {
@@ -3167,7 +3167,7 @@
 
 .workbook-session__graph-builder-item-main--inline .workbook-session__graph-dashed-toggle {
   grid-column: 3;
-  justify-self: start;
+  justify-self: end;
 }
 
 .workbook-session__graph-builder-item-main--inline
@@ -3240,13 +3240,14 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  min-width: 74px;
+  min-width: 92px;
   justify-self: start;
   color: color-mix(in srgb, var(--text-secondary) 92%, transparent);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.02em;
   user-select: none;
+  white-space: nowrap;
 }
 
 .workbook-session__graph-dashed-toggle .MuiSwitch-root {
@@ -3258,8 +3259,9 @@
   min-height: 28px;
   display: inline-flex;
   align-items: center;
-  width: clamp(64px, 20vw, 104px);
-  max-width: 104px;
+  width: min(100%, 132px);
+  max-width: 132px;
+  min-width: 64px;
   justify-self: start;
   padding: 4px 8px;
   border-radius: 11px;
@@ -6569,12 +6571,12 @@
   }
 
   .workbook-session__graph-builder-item-main--inline {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: minmax(22px, max-content) minmax(0, 1fr) max-content;
   }
 
   .workbook-session__graph-expression-badge {
-    width: clamp(64px, 30vw, 96px);
-    max-width: 96px;
+    width: min(100%, 112px);
+    max-width: 112px;
   }
 
   .workbook-session__graph-card-actions {
