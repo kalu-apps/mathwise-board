@@ -29,6 +29,7 @@ import type {
 } from "@/features/workbook/model/workbookSessionUiTypes";
 import { SolidPresetPreview } from "@/features/workbook/ui/WorkbookCatalogPreviews";
 import type { Solid3dSectionState } from "@/features/workbook/model/solid3dState";
+import { toColorInputValue } from "@/shared/lib/colorInput";
 type Updater<T> = T | ((current: T) => T);
 type ContextMenuPoint = { x: number; y: number };
 type ShapeCatalogItem = { id: string; title: string; subtitle: string; icon: ReactNode; apply: () => void; tool: WorkbookTool };
@@ -202,7 +203,7 @@ export function WorkbookSessionOverlays({
   const [areaFillColorDraft, setAreaFillColorDraft] = useState("#2f4f7f");
   const contextMenuDividerObject =
     contextMenuObject?.type === "section_divider" ? contextMenuObject : null;
-  const dividerColorValue = contextMenuDividerObject?.color ?? "#2f4f7f";
+  const dividerColorValue = toColorInputValue(contextMenuDividerObject?.color, "#2f4f7f");
   const dividerWidthValue = Math.max(
     1,
     Math.min(18, Math.round(contextMenuDividerObject?.strokeWidth ?? 2))
@@ -381,7 +382,7 @@ export function WorkbookSessionOverlays({
                   <input
                     type="color"
                     className="workbook-session__solid-color"
-                    value={contextMenuSection.color}
+                    value={toColorInputValue(contextMenuSection.color, "#c4872f")}
                     onChange={(event) =>
                       void updateSolid3dSection(contextMenuSection.id, {
                         color: event.target.value || "#c4872f",
@@ -825,10 +826,7 @@ export function WorkbookSessionOverlays({
                   : null;
                 setAreaSelectionContextMenu(null);
                 setAreaFillColorDraft(
-                  typeof areaFillDefaultColor === "string" &&
-                    areaFillDefaultColor.trim().length > 0
-                    ? areaFillDefaultColor
-                    : "#2f4f7f"
+                  toColorInputValue(areaFillDefaultColor, "#2f4f7f")
                 );
                 setAreaFillMenuAnchor(nextAnchor);
               }}
@@ -859,7 +857,7 @@ export function WorkbookSessionOverlays({
                 <span>Цвет заливки</span>
                 <input
                   type="color"
-                  value={areaFillColorDraft}
+                  value={toColorInputValue(areaFillColorDraft, "#2f4f7f")}
                   onChange={(event) => {
                     const nextColor = event.target.value || "#2f4f7f";
                     setAreaFillColorDraft(nextColor);

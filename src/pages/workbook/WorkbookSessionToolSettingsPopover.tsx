@@ -1,4 +1,5 @@
 import { Popover, Switch } from "@mui/material";
+import { toColorInputValue } from "@/shared/lib/colorInput";
 
 export type WorkbookToolSettingsPopoverTool = "pen" | "highlighter" | "eraser" | "divider";
 
@@ -108,7 +109,7 @@ export function WorkbookSessionToolSettingsPopover({
                       <input
                         type="color"
                         name="pen-color"
-                        value={penToolSettings.color}
+                        value={toColorInputValue(penToolSettings.color, "#2f4f7f")}
                         onChange={(event) =>
                           onPenToolSettingsChange({ color: event.target.value })
                         }
@@ -152,7 +153,7 @@ export function WorkbookSessionToolSettingsPopover({
                     <input
                       type="color"
                       name="highlighter-color"
-                      value={highlighterToolSettings.color}
+                      value={toColorInputValue(highlighterToolSettings.color, "#d9c16f")}
                       onChange={(event) =>
                         onHighlighterToolSettingsChange({ color: event.target.value })
                       }
@@ -221,7 +222,7 @@ export function WorkbookSessionToolSettingsPopover({
                     <input
                       type="color"
                       name="divider-color"
-                      value={dividerColor}
+                      value={toColorInputValue(dividerColor, "#2f4f7f")}
                       onChange={(event) => onDividerColorChange(event.target.value)}
                     />
                   </label>

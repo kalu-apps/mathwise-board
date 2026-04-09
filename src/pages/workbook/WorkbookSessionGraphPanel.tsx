@@ -10,6 +10,7 @@ import {
   FUNCTION_GRAPH_PRESETS,
   type GraphFunctionDraft,
 } from "@/features/workbook/model/functionGraph";
+import { toColorInputValue } from "@/shared/lib/colorInput";
 
 export type WorkbookSessionGraphPanelProps = {
   graphTabUsesSelectedObject: boolean;
@@ -110,7 +111,7 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                 <span>Цвет осей</span>
                 <input
                   type="color"
-                  value={selectedFunctionGraphAxisColor}
+                  value={toColorInputValue(selectedFunctionGraphAxisColor, "#c4872f")}
                   onChange={(event) => onAxisColorChange(event.target.value || "#c4872f")}
                 />
               </label>
@@ -119,7 +120,7 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                 <span className="workbook-session__graph-appearance-tools">
                   <input
                     type="color"
-                    value={selectedFunctionGraphPlaneColor}
+                    value={toColorInputValue(selectedFunctionGraphPlaneColor, "#5f6f86")}
                     onChange={(event) => onPlaneColorChange(event.target.value || "#5f6f86")}
                   />
                   <Tooltip title="Убрать фон" arrow>
@@ -198,7 +199,7 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                           <label className="workbook-session__graph-swatch" title="Цвет графика">
                             <input
                               type="color"
-                              value={item.color}
+                              value={toColorInputValue(item.color, "#2f4f7f")}
                               onChange={(event) =>
                                 onGraphFunctionColorChange(item.id, event.target.value || item.color)
                               }

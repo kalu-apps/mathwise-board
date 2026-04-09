@@ -14,6 +14,7 @@ import {
   WORKBOOK_SELECTION_HELPER_COLOR,
   WORKBOOK_SYSTEM_COLORS,
 } from "@/features/workbook/model/workbookVisualColors";
+import { toColorInputValue } from "@/shared/lib/colorInput";
 import type { WorkbookSessionTransformPanelProps } from "./WorkbookSessionTransformPanel.types";
 
 type WorkbookSessionTransformPanelSolid3dProps = Pick<
@@ -309,7 +310,7 @@ export function WorkbookSessionTransformPanelSolid3d({
                       <input
                         type="color"
                         className="workbook-session__solid-color"
-                        value={selectedSolidSurfaceColor}
+                        value={toColorInputValue(selectedSolidSurfaceColor, solidSurfaceFallback)}
                         onChange={(event) =>
                           void onUpdateSelectedSolid3dSurfaceColor(
                             event.target.value || solidSurfaceFallback
@@ -357,9 +358,10 @@ export function WorkbookSessionTransformPanelSolid3d({
                         <input
                           type="color"
                           className="workbook-session__solid-color"
-                          value={
-                            selectedSolidFaceColors[String(faceIndex)] || selectedSolidSurfaceColor
-                          }
+                          value={toColorInputValue(
+                            selectedSolidFaceColors[String(faceIndex)] || selectedSolidSurfaceColor,
+                            solidSurfaceFallback
+                          )}
                           onChange={(event) =>
                             void onSetSolid3dFaceColor(faceIndex, event.target.value || "")
                           }
@@ -400,7 +402,10 @@ export function WorkbookSessionTransformPanelSolid3d({
                         <input
                           type="color"
                           className="workbook-session__solid-color"
-                          value={selectedSolidEdgeColors[edge.key] || solidEdgeFallback}
+                          value={toColorInputValue(
+                            selectedSolidEdgeColors[edge.key] || solidEdgeFallback,
+                            solidEdgeFallback
+                          )}
                           onChange={(event) =>
                             void onSetSolid3dEdgeColor(edge.key, event.target.value || "")
                           }
@@ -482,7 +487,10 @@ export function WorkbookSessionTransformPanelSolid3d({
                                 <input
                                   type="color"
                                   className="workbook-session__solid-color"
-                                  value={mark.color || solidAngleFallback}
+                                  value={toColorInputValue(
+                                    mark.color || solidAngleFallback,
+                                    solidAngleFallback
+                                  )}
                                   onChange={(event) =>
                                     void onUpdateSolid3dAngleMark(mark.id, {
                                       color: event.target.value || solidAngleFallback,
@@ -669,7 +677,7 @@ export function WorkbookSessionTransformPanelSolid3d({
                         <input
                           type="color"
                           className="workbook-session__solid-color"
-                          value={segment.color}
+                          value={toColorInputValue(segment.color, solidAngleFallback)}
                           onClick={(event) => event.stopPropagation()}
                           onChange={(event) =>
                             void onUpdateSolid3dHostedSegment?.(segment.id, {
@@ -822,7 +830,7 @@ export function WorkbookSessionTransformPanelSolid3d({
                           <input
                             type="color"
                             className="workbook-session__solid-color"
-                            value={section.color}
+                            value={toColorInputValue(section.color, solidAngleFallback)}
                             onClick={(event) => event.stopPropagation()}
                             onChange={(event) =>
                               void onUpdateSolid3dSection(section.id, {

@@ -9,6 +9,7 @@ import {
   WORKBOOK_BOARD_PRIMARY_COLOR,
   WORKBOOK_SYSTEM_COLORS,
 } from "@/features/workbook/model/workbookVisualColors";
+import { toColorInputValue } from "@/shared/lib/colorInput";
 import type { WorkbookSessionTransformPanelProps } from "./WorkbookSessionTransformPanel.types";
 
 type WorkbookSessionTransformPanelShape2dProps = Pick<
@@ -214,7 +215,10 @@ export function WorkbookSessionTransformPanelShape2d({
                 <input
                   type="color"
                   className="workbook-session__solid-color"
-                  value={selectedShape2dObject.color || WORKBOOK_BOARD_PRIMARY_COLOR}
+                  value={toColorInputValue(
+                    selectedShape2dObject.color,
+                    WORKBOOK_BOARD_PRIMARY_COLOR
+                  )}
                   onChange={(event) =>
                     void onUpdateSelectedShape2dObject({
                       color: event.target.value || shape2dBaseStrokeColor,
@@ -241,7 +245,7 @@ export function WorkbookSessionTransformPanelShape2d({
                 <input
                   type="color"
                   className="workbook-session__solid-color"
-                  value={shape2dFillPickerValue}
+                  value={toColorInputValue(shape2dFillPickerValue, WORKBOOK_SYSTEM_COLORS.white)}
                   onChange={(event) =>
                     void onUpdateSelectedShape2dObject({
                       fill: event.target.value || shape2dBaseFillColor,
@@ -317,7 +321,10 @@ export function WorkbookSessionTransformPanelShape2d({
                     <input
                       type="color"
                       className="workbook-session__solid-color"
-                      value={selectedShape2dVertexColors[index] ?? WORKBOOK_BOARD_PRIMARY_COLOR}
+                      value={toColorInputValue(
+                        selectedShape2dVertexColors[index],
+                        WORKBOOK_BOARD_PRIMARY_COLOR
+                      )}
                       onChange={(event) =>
                         void onUpdateSelectedShape2dVertexColor(index, event.target.value)
                       }
@@ -386,10 +393,10 @@ export function WorkbookSessionTransformPanelShape2d({
                         <input
                           type="color"
                           className="workbook-session__solid-color workbook-session__shape-angle-color"
-                          value={
-                            selectedShape2dAngleColors[activeShapeAngleItem.index] ??
+                          value={toColorInputValue(
+                            selectedShape2dAngleColors[activeShapeAngleItem.index],
                             WORKBOOK_BOARD_PRIMARY_COLOR
-                          }
+                          )}
                           onChange={(event) =>
                             void onUpdateSelectedShape2dAngleColor(
                               activeShapeAngleItem.index,
@@ -514,7 +521,10 @@ export function WorkbookSessionTransformPanelShape2d({
                     <input
                       type="color"
                       className="workbook-session__solid-color"
-                      value={selectedShape2dSegmentColors[index] ?? WORKBOOK_BOARD_PRIMARY_COLOR}
+                      value={toColorInputValue(
+                        selectedShape2dSegmentColors[index],
+                        WORKBOOK_BOARD_PRIMARY_COLOR
+                      )}
                       onChange={(event) =>
                         void onUpdateSelectedShape2dSegmentColor(index, event.target.value)
                       }

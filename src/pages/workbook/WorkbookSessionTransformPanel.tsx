@@ -14,6 +14,7 @@ import {
   WORKBOOK_SYSTEM_COLORS,
   WORKBOOK_TEXT_FALLBACK_COLOR,
 } from "@/features/workbook/model/workbookVisualColors";
+import { toColorInputValue } from "@/shared/lib/colorInput";
 import { WorkbookSessionTransformPanelShape2d } from "./WorkbookSessionTransformPanel.shape2d";
 import { WorkbookSessionTransformPanelSolid3d } from "./WorkbookSessionTransformPanel.solid3d";
 import type { WorkbookSessionTransformPanelProps } from "./WorkbookSessionTransformPanel.types";
@@ -450,7 +451,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                     <FormatColorTextRoundedIcon fontSize="small" />
                     <input
                       type="color"
-                      value={selectedTextColor}
+                      value={toColorInputValue(selectedTextColor, WORKBOOK_TEXT_FALLBACK_COLOR)}
                       disabled={!selectedTextObject}
                       onChange={(event) =>
                         void onUpdateSelectedTextFormatting(
@@ -466,11 +467,12 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                     <FormatColorFillRoundedIcon fontSize="small" />
                     <input
                       type="color"
-                      value={
+                      value={toColorInputValue(
                         selectedTextBackground === "transparent"
                           ? WORKBOOK_SYSTEM_COLORS.white
-                          : selectedTextBackground
-                      }
+                          : selectedTextBackground,
+                        WORKBOOK_SYSTEM_COLORS.white
+                      )}
                       disabled={!selectedTextObject}
                       onChange={(event) =>
                         void onUpdateSelectedTextFormatting(
@@ -544,7 +546,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
               <div className="workbook-session__color-control">
                 <input
                   type="color"
-                  value={selectedDividerColor}
+                  value={toColorInputValue(selectedDividerColor, WORKBOOK_BOARD_PRIMARY_COLOR)}
                   disabled={!selectedDividerObject}
                   onChange={(event) =>
                     void onUpdateSelectedDividerObject({
@@ -663,7 +665,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                 <input
                   type="color"
                   className="workbook-session__line-color"
-                  value={selectedLineColor}
+                  value={toColorInputValue(selectedLineColor, WORKBOOK_BOARD_PRIMARY_COLOR)}
                   disabled={!selectedLineObject}
                   onChange={(event) =>
                     void onUpdateSelectedLineObject({

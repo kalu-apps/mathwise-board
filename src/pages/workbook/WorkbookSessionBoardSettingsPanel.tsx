@@ -3,6 +3,7 @@ import { Switch, TextField, useMediaQuery } from "@mui/material";
 import CropFreeRoundedIcon from "@mui/icons-material/CropFreeRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import type { WorkbookBoardSettings } from "@/features/workbook/model/types";
+import { toColorInputValue } from "@/shared/lib/colorInput";
 
 export type WorkbookBoardPageOption = {
   page: number;
@@ -162,7 +163,7 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                   <span>Фон доски</span>
                   <input
                     type="color"
-                    value={sharedBoardSettings.backgroundColor}
+                    value={toColorInputValue(sharedBoardSettings.backgroundColor, "#ffffff")}
                     onChange={(event) =>
                       onSharedBoardSettingsChange({
                         backgroundColor: event.target.value,
@@ -174,11 +175,7 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
                   <span>Цвет сетки</span>
                   <input
                     type="color"
-                    value={
-                      sharedBoardSettings.gridColor.startsWith("#")
-                        ? sharedBoardSettings.gridColor
-                        : "#6d88ad"
-                    }
+                    value={toColorInputValue(sharedBoardSettings.gridColor, "#6d88ad")}
                     onChange={(event) =>
                       onSharedBoardSettingsChange({
                         gridColor: event.target.value,
