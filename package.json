@@ -34,6 +34,7 @@
     "maintenance:status": "node scripts/maintenance-mode.mjs status",
     "maintenance:on": "node scripts/maintenance-mode.mjs on",
     "maintenance:off": "node scripts/maintenance-mode.mjs off",
+    "deploy:safe-restart": "node scripts/deploy-safe-restart.mjs",
     "guard:nest-runtime": "node scripts/guard-nest-runtime-imports.mjs",
     "hygiene:deps": "knip --no-progress --include files,dependencies,unlisted --treat-config-hints-as-errors",
     "hygiene:cycles": "madge --circular --extensions ts,tsx src backend/src",

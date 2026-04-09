@@ -184,14 +184,16 @@ curl -si -X POST \
 - нет HTML-страницы `413 Request Entity Too Large` от nginx;
 - ответ приходит от backend (`application/json` и/или `x-powered-by: Express`).
 
-### 3.1) Maintenance-страница на время релиза (рекомендуется)
-Цель: если backend перезапускается/недоступен, пользователю показывается фирменная страница обслуживания, а не `502/504`.
+### 3.1) Maintenance-режим на время релиза (рекомендуется)
+Цель: если backend перезапускается/недоступен, пользователь видит контролируемый maintenance-ответ, а не случайные `502/504`.
 
 1. В nginx-конфиг server-блока `board.mathwise.ru` добавить сниппет из:
    - [`docs/nginx/board-maintenance.conf.example`](./docs/nginx/board-maintenance.conf.example)
-2. Убедиться, что файл существует в собранном фронте:
+2. В nginx-конфиг server-блока `api.board.mathwise.ru` добавить сниппет из:
+   - [`docs/nginx/board-api-maintenance.conf.example`](./docs/nginx/board-api-maintenance.conf.example)
+3. Убедиться, что файл существует в собранном фронте:
    - `/opt/mathwise/board/dist/maintenance.html` (берётся из [`public/maintenance.html`](./public/maintenance.html))
-3. Перезагрузить nginx:
+4. Перезагрузить nginx:
 ```bash
 sudo nginx -t && sudo systemctl reload nginx
 ```
@@ -213,8 +215,9 @@ npm run maintenance:on
 
 Смысл режима:
 - `maintenance:on` => принудительно отдаётся `maintenance.html` на `board.mathwise.ru`.
+- `maintenance:on` => `api.board.mathwise.ru` отдаёт JSON c `503` + `Retry-After` вместо `502`.
 - `maintenance:off` => возврат обычного трафика.
-- Даже без флага, при `502/503/504` upstream nginx отдаст `maintenance.html` как fallback.
+- Даже без флага, при `502/503/504` upstream nginx отдаст maintenance fallback (HTML для board, JSON для API).
 
 Проверки:
 ```bash
@@ -238,6 +241,26 @@ curl -s -b /tmp/board.cookies \
 - `diagnostics.workbookServerTracesBuffered`
 - `workbookServerTraces`
 - `rumEvents`
+
+### 3.2) Безопасный restart деплоя (рекомендуется)
+В репозитории есть оркестратор restart-окна, который:
+- включает maintenance;
+- рестартует `mathwise-board`;
+- ждёт readiness (`/healthz` + `/api/runtime/infra`);
+- выключает maintenance только после готовности.
+
+Запуск на `mw-app-01` (из `/opt/mathwise/board`):
+```bash
+DEPLOY_API_BASE_URL=https://api.board.your-domain.tld \
+DEPLOY_RESTART_CMD='systemctl restart mathwise-board' \
+DEPLOY_POST_CHECK_CMD='PHASE6_BASE_URL=https://api.board.your-domain.tld npm run phase6:infra' \
+npm run deploy:safe-restart
+```
+
+Полезные параметры:
+- `DEPLOY_WAIT_TIMEOUT_MS=240000` — общее ожидание готовности.
+- `DEPLOY_POLL_INTERVAL_MS=2500` — шаг опроса readiness.
+- `DEPLOY_DRY_RUN=1` — показать действия без выполнения.
 
 ## 4) coturn на `mw-media-01`
 Ключевые параметры `/etc/turnserver.conf`:

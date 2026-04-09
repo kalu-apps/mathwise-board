@@ -1,0 +1,25 @@
+# Include this snippet inside the `server` block that handles `api.board.mathwise.ru`.
+# Goal:
+# 1) Return explicit API maintenance JSON when `/opt/mathwise/board/MAINTENANCE_MODE` exists.
+# 2) Return the same payload automatically when upstream is unavailable (502/503/504).
+
+set $mw_api_maintenance 0;
+if (-f /opt/mathwise/board/MAINTENANCE_MODE) {
+  set $mw_api_maintenance 1;
+}
+
+proxy_intercept_errors on;
+error_page 502 503 504 = @mw_api_maintenance;
+
+if ($mw_api_maintenance = 1) {
+  return 503;
+}
+
+location @mw_api_maintenance {
+  default_type application/json;
+  add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+  add_header Pragma "no-cache" always;
+  add_header Expires "0" always;
+  add_header Retry-After "60" always;
+  return 503 '{"ok":false,"error":"service_maintenance","message":"Service is temporarily unavailable. Please retry in 1 minute."}';
+}
