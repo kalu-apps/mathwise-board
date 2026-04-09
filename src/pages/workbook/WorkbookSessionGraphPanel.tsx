@@ -204,6 +204,12 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                               }
                             />
                           </label>
+                          <span
+                            className="workbook-session__graph-expression-badge"
+                            title={item.expression}
+                          >
+                            {item.expression}
+                          </span>
                           <label className="workbook-session__graph-dashed-toggle">
                             <Switch
                               size="small"
@@ -215,12 +221,6 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                             />
                             <span>Пунктир</span>
                           </label>
-                          <span
-                            className="workbook-session__graph-expression-badge"
-                            title={item.expression}
-                          >
-                            {item.expression}
-                          </span>
                         </div>
                         <div className="workbook-session__graph-card-actions">
                           <Tooltip

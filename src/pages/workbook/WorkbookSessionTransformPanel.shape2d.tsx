@@ -114,6 +114,19 @@ export function WorkbookSessionTransformPanelShape2d({
   const activeShapeAngleItem =
     shapeAngleItems.find((item) => item.key === activeShapeAngleKey) ?? shapeAngleItems[0] ?? null;
   const shape2dStrokeFallback = selectedShape2dObject?.color || WORKBOOK_BOARD_PRIMARY_COLOR;
+  const shape2dBaseStrokeColor =
+    (typeof selectedShape2dObject?.meta?.shape2dBaseStrokeColor === "string" &&
+    selectedShape2dObject.meta.shape2dBaseStrokeColor.trim()
+      ? selectedShape2dObject.meta.shape2dBaseStrokeColor.trim()
+      : "") || selectedShape2dObject?.color || WORKBOOK_BOARD_PRIMARY_COLOR;
+  const shape2dBaseFillColor =
+    (typeof selectedShape2dObject?.meta?.shape2dBaseFillColor === "string" &&
+    selectedShape2dObject.meta.shape2dBaseFillColor.trim()
+      ? selectedShape2dObject.meta.shape2dBaseFillColor.trim()
+      : "") ||
+    (typeof selectedShape2dObject?.fill === "string" && selectedShape2dObject.fill.trim()
+      ? selectedShape2dObject.fill
+      : "transparent");
   const shape2dFillPickerValue = useMemo(() => {
     const rawFill =
       typeof selectedShape2dObject?.fill === "string"
@@ -204,7 +217,7 @@ export function WorkbookSessionTransformPanelShape2d({
                   value={selectedShape2dObject.color || WORKBOOK_BOARD_PRIMARY_COLOR}
                   onChange={(event) =>
                     void onUpdateSelectedShape2dObject({
-                      color: event.target.value || WORKBOOK_BOARD_PRIMARY_COLOR,
+                      color: event.target.value || shape2dBaseStrokeColor,
                     })
                   }
                 />
@@ -214,7 +227,7 @@ export function WorkbookSessionTransformPanelShape2d({
                   aria-label="Сбросить цвет контура"
                   onClick={() =>
                     void onUpdateSelectedShape2dObject({
-                      color: WORKBOOK_BOARD_PRIMARY_COLOR,
+                      color: shape2dBaseStrokeColor,
                     })
                   }
                 >
@@ -231,7 +244,7 @@ export function WorkbookSessionTransformPanelShape2d({
                   value={shape2dFillPickerValue}
                   onChange={(event) =>
                     void onUpdateSelectedShape2dObject({
-                      fill: event.target.value || WORKBOOK_SYSTEM_COLORS.white,
+                      fill: event.target.value || shape2dBaseFillColor,
                     })
                   }
                 />
@@ -241,7 +254,7 @@ export function WorkbookSessionTransformPanelShape2d({
                   aria-label="Сбросить цвет заливки фигуры"
                   onClick={() =>
                     void onUpdateSelectedShape2dObject({
-                      fill: WORKBOOK_SYSTEM_COLORS.white,
+                      fill: shape2dBaseFillColor,
                     })
                   }
                 >

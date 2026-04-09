@@ -215,6 +215,8 @@ export const buildWorkbookShapeObject = (
             color,
             style: "arc_single" as const,
           })),
+          shape2dBaseStrokeColor: color,
+          shape2dBaseFillColor: "transparent",
         }
       : undefined;
   const polygonFigureKind =
@@ -366,6 +368,11 @@ export const buildWorkbookShapeObject = (
                   }
                 : draft.tool === "rectangle" || draft.tool === "triangle"
                   ? defaultFigureMeta
+                  : draft.tool === "ellipse"
+                    ? {
+                        shape2dBaseStrokeColor: color,
+                        shape2dBaseFillColor: "transparent",
+                      }
                   : draft.tool === "frame"
                     ? {
                         title: textPreset.trim() || "Фрейм",
