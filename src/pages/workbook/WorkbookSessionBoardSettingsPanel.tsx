@@ -2,6 +2,7 @@ import { memo } from "react";
 import { Switch, TextField, useMediaQuery } from "@mui/material";
 import CropFreeRoundedIcon from "@mui/icons-material/CropFreeRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
+import DrawRoundedIcon from "@mui/icons-material/DrawRounded";
 import type { WorkbookBoardSettings } from "@/features/workbook/model/types";
 import { toColorInputValue } from "@/shared/lib/colorInput";
 
@@ -19,12 +20,35 @@ export type WorkbookBoardPageOption = {
   };
 };
 
+type ToolPaintSettings = {
+  color: string;
+  width: number;
+};
+
+export type WorkbookSessionBoardCompactToolSettings = {
+  penToolSettings: ToolPaintSettings;
+  highlighterToolSettings: ToolPaintSettings;
+  eraserRadius: number;
+  eraserRadiusMin: number;
+  eraserRadiusMax: number;
+  onPenToolSettingsChange: (patch: Partial<ToolPaintSettings>) => void;
+  onHighlighterToolSettingsChange: (patch: Partial<ToolPaintSettings>) => void;
+  onEraserRadiusChange: (value: number) => void;
+  dividerColor: string;
+  dividerWidth: number;
+  dividerLineStyle: "solid" | "dashed";
+  onDividerColorChange: (value: string) => void;
+  onDividerWidthChange: (value: number) => void;
+  onDividerLineStyleChange: (value: "solid" | "dashed") => void;
+};
+
 export type WorkbookSessionBoardSettingsPanelProps = {
   sharedBoardSettings: WorkbookBoardSettings;
   currentBoardPage: number;
   onSharedBoardSettingsChange: (patch: Partial<WorkbookBoardSettings>) => void;
   pageOptions: WorkbookBoardPageOption[];
   canManageSharedBoardSettings: boolean;
+  compactToolSettings?: WorkbookSessionBoardCompactToolSettings;
 };
 
 export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBoardSettingsPanel({
@@ -33,8 +57,10 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
   onSharedBoardSettingsChange,
   pageOptions,
   canManageSharedBoardSettings,
+  compactToolSettings,
 }: WorkbookSessionBoardSettingsPanelProps) {
   const isCompactViewport = useMediaQuery("(max-width: 760px)");
+  const mobileToolSettings = compactToolSettings ?? null;
   const safePageOptions =
     pageOptions.length > 0
       ? pageOptions
@@ -208,6 +234,190 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
             </div>
           </section>
         )}
+
+        {mobileToolSettings ? (
+          <section className="workbook-session__board-settings-card">
+            <div className="workbook-session__board-settings-card-head">
+              <div className="workbook-session__board-settings-card-title">
+                <h4>
+                  <DrawRoundedIcon fontSize="small" />
+                  Инструменты рисования
+                </h4>
+              </div>
+              <p>Локальные параметры ручки, маркера, ластика и разделителя.</p>
+            </div>
+
+            <div className="workbook-session__tool-settings-panel">
+              <div className="workbook-session__tool-settings-cluster">
+                <div className="workbook-session__tool-settings-cluster-title">Ручка</div>
+                <div className="workbook-session__tool-settings-split">
+                  <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
+                    <div className="workbook-session__tool-settings-field-main">
+                      <strong>Цвет</strong>
+                    </div>
+                    <label className="workbook-session__tool-settings-color">
+                      <input
+                        type="color"
+                        name="board-settings-pen-color"
+                        value={toColorInputValue(mobileToolSettings.penToolSettings.color, "#2f4f7f")}
+                        onChange={(event) =>
+                          mobileToolSettings.onPenToolSettingsChange({ color: event.target.value })
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
+                    <div className="workbook-session__tool-settings-field-main">
+                      <strong>Радиус</strong>
+                    </div>
+                    <div className="workbook-session__tool-settings-range">
+                      <input
+                        type="range"
+                        name="board-settings-pen-width"
+                        min={1}
+                        max={18}
+                        value={mobileToolSettings.penToolSettings.width}
+                        onChange={(event) =>
+                          mobileToolSettings.onPenToolSettingsChange({
+                            width: Number(event.target.value),
+                          })
+                        }
+                      />
+                      <span>{mobileToolSettings.penToolSettings.width} px</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="workbook-session__tool-settings-cluster">
+                <div className="workbook-session__tool-settings-cluster-title">Маркер</div>
+                <div className="workbook-session__tool-settings-split">
+                  <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
+                    <div className="workbook-session__tool-settings-field-main">
+                      <strong>Цвет</strong>
+                    </div>
+                    <label className="workbook-session__tool-settings-color">
+                      <input
+                        type="color"
+                        name="board-settings-highlighter-color"
+                        value={toColorInputValue(
+                          mobileToolSettings.highlighterToolSettings.color,
+                          "#d9c16f"
+                        )}
+                        onChange={(event) =>
+                          mobileToolSettings.onHighlighterToolSettingsChange({
+                            color: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
+                    <div className="workbook-session__tool-settings-field-main">
+                      <strong>Радиус</strong>
+                    </div>
+                    <div className="workbook-session__tool-settings-range">
+                      <input
+                        type="range"
+                        name="board-settings-highlighter-width"
+                        min={6}
+                        max={32}
+                        value={mobileToolSettings.highlighterToolSettings.width}
+                        onChange={(event) =>
+                          mobileToolSettings.onHighlighterToolSettingsChange({
+                            width: Number(event.target.value),
+                          })
+                        }
+                      />
+                      <span>{mobileToolSettings.highlighterToolSettings.width} px</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="workbook-session__tool-settings-cluster">
+                <div className="workbook-session__tool-settings-cluster-title">Ластик</div>
+                <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact">
+                  <div className="workbook-session__tool-settings-field-main">
+                    <strong>Радиус</strong>
+                  </div>
+                  <div className="workbook-session__tool-settings-range">
+                    <input
+                      type="range"
+                      name="board-settings-eraser-radius"
+                      min={mobileToolSettings.eraserRadiusMin}
+                      max={mobileToolSettings.eraserRadiusMax}
+                      value={mobileToolSettings.eraserRadius}
+                      onChange={(event) =>
+                        mobileToolSettings.onEraserRadiusChange(Number(event.target.value))
+                      }
+                    />
+                    <span>{mobileToolSettings.eraserRadius} px</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="workbook-session__tool-settings-cluster">
+                <div className="workbook-session__tool-settings-cluster-title">Разделитель</div>
+                <div className="workbook-session__tool-settings-split workbook-session__tool-settings-split--divider">
+                  <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact workbook-session__tool-settings-field--divider-color">
+                    <div className="workbook-session__tool-settings-field-main">
+                      <strong>Цвет</strong>
+                    </div>
+                    <label className="workbook-session__tool-settings-color workbook-session__tool-settings-color--divider">
+                      <input
+                        type="color"
+                        name="board-settings-divider-color"
+                        value={toColorInputValue(mobileToolSettings.dividerColor, "#2f4f7f")}
+                        onChange={(event) =>
+                          mobileToolSettings.onDividerColorChange(event.target.value)
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact workbook-session__tool-settings-field--divider-style">
+                    <div className="workbook-session__tool-settings-field-main">
+                      <strong>Линия</strong>
+                    </div>
+                    <label className="workbook-session__tool-settings-divider-switch">
+                      <span className="workbook-session__tool-settings-divider-switch-label">
+                        Пунктир
+                      </span>
+                      <Switch
+                        size="small"
+                        checked={mobileToolSettings.dividerLineStyle === "dashed"}
+                        onChange={(event) =>
+                          mobileToolSettings.onDividerLineStyleChange(
+                            event.target.checked ? "dashed" : "solid"
+                          )
+                        }
+                      />
+                    </label>
+                  </div>
+                </div>
+                <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact workbook-session__tool-settings-field--divider-width">
+                  <div className="workbook-session__tool-settings-field-main">
+                    <strong>Толщина</strong>
+                  </div>
+                  <div className="workbook-session__tool-settings-range">
+                    <input
+                      type="range"
+                      name="board-settings-divider-width"
+                      min={1}
+                      max={18}
+                      step={1}
+                      value={mobileToolSettings.dividerWidth}
+                      onChange={(event) =>
+                        mobileToolSettings.onDividerWidthChange(Number(event.target.value))
+                      }
+                    />
+                    <span>{mobileToolSettings.dividerWidth} px</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : null}
       </div>
     </div>
   );

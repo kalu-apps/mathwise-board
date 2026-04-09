@@ -34,6 +34,7 @@ import {
   startWorkbookPerformanceSession,
 } from "@/features/workbook/model/workbookPerformance";
 import type {
+  WorkbookBoardObject,
   WorkbookEvent,
   WorkbookLayer,
   WorkbookTool,
@@ -819,6 +820,10 @@ export default function WorkbookSessionPage() {
   const handleDividerToolLineStyleChange = useCallback((nextStyle: "solid" | "dashed") => {
     setDividerToolLineStyle(nextStyle === "solid" ? "solid" : "dashed");
   }, []);
+  const clampedDividerToolWidth = useMemo(
+    () => Math.max(1, Math.min(18, Math.round(dividerWidthDraft || 2))),
+    [dividerWidthDraft]
+  );
 
   const {
     scheduleLocalPreviewBoardObjectPatch,
@@ -2451,6 +2456,13 @@ export default function WorkbookSessionPage() {
     },
     [boardObjects, openUtilityPanel, setSelectedConstraintId, setSelectedObjectId]
   );
+  const handleCanvasObjectDoubleClick = useCallback(
+    (targetObject: WorkbookBoardObject) => {
+      if (!isCompactViewport) return;
+      handleOpenObjectEditorFromContextMenu(targetObject.id);
+    },
+    [handleOpenObjectEditorFromContextMenu, isCompactViewport]
+  );
 
   const transformPanelBaseProps: WorkbookSessionTransformPanelProps =
     buildWorkbookSessionTransformPanelRuntimeProps({
@@ -2686,6 +2698,25 @@ export default function WorkbookSessionPage() {
         onSharedBoardSettingsChange: handleSharedBoardSettingsChange,
         boardPageOptions: selectionViewportState.boardPageOptions,
         canManageSharedBoardSettings,
+        compactToolSettings:
+          isCompactViewport && canDraw
+            ? {
+                penToolSettings,
+                highlighterToolSettings,
+                eraserRadius: clampedEraserRadius,
+                eraserRadiusMin: ERASER_RADIUS_MIN,
+                eraserRadiusMax: ERASER_RADIUS_MAX,
+                onPenToolSettingsChange: handlePenToolSettingsChange,
+                onHighlighterToolSettingsChange: handleHighlighterToolSettingsChange,
+                onEraserRadiusChange: handleEraserRadiusChange,
+                dividerColor: dividerToolColor,
+                dividerWidth: clampedDividerToolWidth,
+                dividerLineStyle: dividerToolLineStyle,
+                onDividerColorChange: handleDividerToolColorChange,
+                onDividerWidthChange: handleDividerToolWidthChange,
+                onDividerLineStyleChange: handleDividerToolLineStyleChange,
+              }
+            : undefined,
       },
       graph: {
         graphTabUsesSelectedObject: selectionViewportState.graphTabUsesSelectedObject,
@@ -3020,6 +3051,7 @@ export default function WorkbookSessionPage() {
     onObjectPinToggle: commitObjectPin,
     onObjectDelete: canvasHandlers.handleCanvasObjectDelete,
     onObjectContextMenu: handleObjectContextMenu,
+    onObjectDoubleClick: isCompactViewport ? handleCanvasObjectDoubleClick : undefined,
     onShapeVertexContextMenu: handleShapeVertexContextMenu,
     onLineEndpointContextMenu: handleLineEndpointContextMenu,
     onSolid3dVertexContextMenu: handleSolid3dVertexContextMenu,
@@ -3481,7 +3513,7 @@ export default function WorkbookSessionPage() {
         onHighlighterToolSettingsChange={handleHighlighterToolSettingsChange}
         onEraserRadiusChange={handleEraserRadiusChange}
         dividerColor={dividerToolColor}
-        dividerWidth={Math.max(1, Math.min(18, Math.round(dividerWidthDraft || 2)))}
+        dividerWidth={clampedDividerToolWidth}
         dividerLineStyle={dividerToolLineStyle}
         onDividerColorChange={handleDividerToolColorChange}
         onDividerWidthChange={handleDividerToolWidthChange}

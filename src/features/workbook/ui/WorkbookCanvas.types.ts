@@ -148,6 +148,7 @@ export type WorkbookCanvasProps = {
   onObjectPinToggle: (objectId: string, pinned: boolean) => void;
   onObjectDelete: (objectId: string) => void;
   onObjectContextMenu?: (objectId: string, anchor: { x: number; y: number }) => void;
+  onObjectDoubleClick?: (object: WorkbookBoardObject) => void;
   onShapeVertexContextMenu?: (payload: {
     objectId: string;
     vertexIndex: number;

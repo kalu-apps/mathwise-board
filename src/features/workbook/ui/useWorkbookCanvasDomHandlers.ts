@@ -47,6 +47,7 @@ interface UseWorkbookCanvasDomHandlersParams {
   roundSolidPresets: Set<string>;
   onLaserClear?: () => void;
   onObjectContextMenu?: (objectId: string, anchor: { x: number; y: number }) => void;
+  onObjectDoubleClick?: (object: WorkbookBoardObject) => void;
   onShapeVertexContextMenu?: (payload: {
     objectId: string;
     vertexIndex: number;
@@ -118,6 +119,7 @@ export const useWorkbookCanvasDomHandlers = ({
   roundSolidPresets,
   onLaserClear,
   onObjectContextMenu,
+  onObjectDoubleClick,
   onShapeVertexContextMenu,
   onLineEndpointContextMenu,
   onSolid3dVertexContextMenu,
@@ -283,6 +285,12 @@ export const useWorkbookCanvasDomHandlers = ({
       if (!svg) return;
       const point = mapPointer(svg, event.clientX, event.clientY, true);
       const target = resolveTopObject(point);
+      if (target && onObjectDoubleClick) {
+        event.preventDefault();
+        event.stopPropagation();
+        onObjectDoubleClick(target);
+        return;
+      }
       if (!target && tool === "select") {
         event.preventDefault();
         event.stopPropagation();
@@ -293,7 +301,7 @@ export const useWorkbookCanvasDomHandlers = ({
       event.stopPropagation();
       startInlineTextEdit(target.id);
     },
-    [disabled, mapPointer, resolveTopObject, startInlineTextEdit, tool]
+    [disabled, mapPointer, onObjectDoubleClick, resolveTopObject, startInlineTextEdit, tool]
   );
 
   const handleContextMenu = useCallback(

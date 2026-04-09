@@ -9,6 +9,7 @@ type BuildWorkbookSessionUtilityPanelPropsInput = {
     onSharedBoardSettingsChange: (patch: Partial<WorkbookBoardSettings>) => void;
     boardPageOptions: WorkbookSessionBoardSettingsPanelProps["pageOptions"];
     canManageSharedBoardSettings: boolean;
+    compactToolSettings?: WorkbookSessionBoardSettingsPanelProps["compactToolSettings"];
   };
   graph: {
     graphTabUsesSelectedObject: boolean;
@@ -45,6 +46,7 @@ export const buildWorkbookSessionUtilityPanelProps = ({
     onSharedBoardSettingsChange: settings.onSharedBoardSettingsChange,
     pageOptions: settings.boardPageOptions,
     canManageSharedBoardSettings: settings.canManageSharedBoardSettings,
+    compactToolSettings: settings.compactToolSettings,
   };
 
   const graphPanelProps: WorkbookSessionGraphPanelProps = {
