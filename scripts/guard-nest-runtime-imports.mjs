@@ -10,6 +10,7 @@ const toPosix = (value) => value.split(path.sep).join("/");
 
 const ALLOWED_RUNTIME_CORE_IMPORTERS = new Set([
   "backend/src/nest/main.ts",
+  "backend/src/nest/health/health.controller.ts",
   "backend/src/nest/write/write-diagnostics.controller.ts",
   "backend/src/nest/runtime/workbook-runtime-engine.ts",
 ]);

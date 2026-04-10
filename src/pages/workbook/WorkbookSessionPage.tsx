@@ -282,7 +282,6 @@ export default function WorkbookSessionPage() {
     graphExpressionDraft,
     graphDraftFunctions,
     selectedGraphPresetId,
-    graphDraftError,
     graphFunctionsDraft,
     graphCatalogCursorActive,
     pendingSolid3dInsertPreset,

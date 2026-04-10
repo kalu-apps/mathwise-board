@@ -372,8 +372,7 @@ export const useWorkbookPdfExport = ({
   setError,
 }: UseWorkbookPdfExportParams) => {
   const resolveUniformContentExportBounds = useCallback(
-    (_exportPages: number[]): WorkbookExportBounds =>
-      resolvePageExportBounds(boardSettings.pageFrameWidth),
+    (): WorkbookExportBounds => resolvePageExportBounds(boardSettings.pageFrameWidth),
     [boardSettings.pageFrameWidth]
   );
 

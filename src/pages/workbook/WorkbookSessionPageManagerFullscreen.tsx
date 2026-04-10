@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { DndContext, DragOverlay, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragCancelEvent, type DragEndEvent, type DragOverEvent, type DragStartEvent } from "@dnd-kit/core";
+import { DndContext, DragOverlay, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Dialog, DialogContent, DialogTitle, IconButton } from "@mui/material";
@@ -328,7 +328,7 @@ export function WorkbookSessionPageManagerFullscreen({
   }, []);
 
   const handleDragCancel = useCallback(
-    (_event: DragCancelEvent) => {
+    () => {
       setActiveDragPageId(null);
       setOverDragPageId(null);
       lastOverDragPageIdRef.current = null;
@@ -403,7 +403,7 @@ export function WorkbookSessionPageManagerFullscreen({
     activeDragPageId !== null ? (pageOptionByPage.get(activeDragPageId) ?? null) : null;
   const activeDragPosition =
     activeDragPageId !== null
-      ? Math.max(1, displayOrderPageIdsRef.current.indexOf(activeDragPageId) + 1)
+      ? Math.max(1, displayOrderPageIds.indexOf(activeDragPageId) + 1)
       : 1;
   const activeDragPreviewData =
     activeDragOption ? (pagePreviewMap.get(activeDragOption.page) ?? null) : null;
