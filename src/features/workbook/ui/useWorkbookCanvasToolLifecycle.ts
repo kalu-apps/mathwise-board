@@ -8,7 +8,6 @@ interface UseWorkbookCanvasToolLifecycleParams {
   selectedObjectId: string | null;
   disabled: boolean;
   objectById: Map<string, WorkbookBoardObject>;
-  unpinnedSceneLayerObjectsById: Map<string, WorkbookBoardObject[]>;
   getObjectSceneLayerId: (object: WorkbookBoardObject) => string;
   onObjectDelete: (objectId: string) => void;
   onSelectedObjectChange: (objectId: string | null) => void;
@@ -41,7 +40,6 @@ export function useWorkbookCanvasToolLifecycle({
   selectedObjectId,
   disabled,
   objectById,
-  unpinnedSceneLayerObjectsById,
   getObjectSceneLayerId,
   onObjectDelete,
   onSelectedObjectChange,
@@ -84,13 +82,14 @@ export function useWorkbookCanvasToolLifecycle({
       if (isTypingTarget) return;
       if (disabled) return;
       const selected = objectById.get(selectedObjectId);
-      if (selected?.pinned) return;
       event.preventDefault();
       const layerId = selected ? getObjectSceneLayerId(selected) : "main";
       if (layerId !== "main") {
-        (unpinnedSceneLayerObjectsById.get(layerId) ?? []).forEach((item) =>
-          onObjectDelete(item.id)
-        );
+        objectById.forEach((item) => {
+          if (getObjectSceneLayerId(item) === layerId) {
+            onObjectDelete(item.id);
+          }
+        });
       } else {
         onObjectDelete(selectedObjectId);
       }
@@ -105,7 +104,6 @@ export function useWorkbookCanvasToolLifecycle({
     onObjectDelete,
     onSelectedObjectChange,
     selectedObjectId,
-    unpinnedSceneLayerObjectsById,
   ]);
 
   useEffect(() => {

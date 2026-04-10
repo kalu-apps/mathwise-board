@@ -1,0 +1,221 @@
+.workbook-session .MuiInputBase-input,
+.workbook-session .MuiSelect-select {
+  font-size: 0.8rem;
+}
+
+.workbook-session .MuiInputLabel-root {
+  font-size: 0.8rem;
+}
+
+.workbook-session .MuiFormControlLabel-label {
+  font-size: 0.78rem;
+}
+
+.workbook-session .MuiSvgIcon-root {
+  font-size: 1.1rem;
+}
+
+.workbook-session:fullscreen,
+.workbook-session.is-fullscreen {
+  width: 100dvw;
+  height: 100dvh;
+  min-height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+}
+
+.workbook-session:fullscreen .workbook-session__layout,
+.workbook-session.is-fullscreen .workbook-session__layout {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  align-items: stretch;
+  gap: 0;
+}
+
+.workbook-session:fullscreen .workbook-session__workspace,
+.workbook-session.is-fullscreen .workbook-session__workspace {
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.workbook-session:fullscreen .workbook-session__board-shell,
+.workbook-session.is-fullscreen .workbook-session__board-shell {
+  min-height: 0;
+  height: 100%;
+  align-items: stretch;
+}
+
+.workbook-session:fullscreen .workbook-session__canvas,
+.workbook-session.is-fullscreen .workbook-session__canvas {
+  min-height: 0;
+  height: 100%;
+}
+
+.workbook-session:fullscreen .workbook-session__tools,
+.workbook-session.is-fullscreen .workbook-session__tools {
+  top: auto;
+  max-height: 100%;
+}
+
+.workbook-session__hotkeys {
+  border: 1px dashed color-mix(in srgb, var(--brand-solid) 42%, var(--border-strong));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--brand-soft) 12%, transparent);
+  padding: 10px 12px;
+}
+
+.workbook-session__hotkeys strong {
+  font-size: 13px;
+}
+
+.workbook-session__hotkeys ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.workbook-session__hotkeys-tooltip {
+  max-width: 320px;
+
+  strong {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+
+  ul {
+    margin: 0;
+    padding-left: 16px;
+    display: grid;
+    gap: 3px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+}
+
+.workbook-invite {
+  min-height: calc(100vh - 160px);
+  align-items: center;
+  padding: 22px 16px;
+}
+
+.workbook-invite__card {
+  margin: 0 auto;
+  width: min(560px, 100%);
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+
+  h1 {
+    margin: 0;
+    font-size: 1.45rem;
+  }
+}
+
+.workbook-invite__loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+
+.workbook-invite__meta p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.workbook-invite__guest-field {
+  margin-top: 10px;
+}
+
+.workbook-invite__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.workbook-launch {
+  min-height: calc(100vh - 160px);
+  align-items: center;
+  padding: 22px 16px;
+}
+
+.workbook-launch--auth-only {
+  min-height: calc(100vh - 120px);
+}
+
+.workbook-launch__card {
+  margin: 0 auto;
+  width: min(680px, 100%);
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--surface-elevated) 92%, transparent), color-mix(in srgb, var(--surface-soft) 84%, transparent));
+  box-shadow: var(--shadow-md);
+
+  h4 {
+    margin: 0;
+  }
+}
+
+.workbook-launch__hint {
+  margin-top: 2px;
+}
+
+.workbook-launch__actions {
+  margin-top: 4px;
+}
+
+.workbook-launch__student-alert .MuiAlert-message {
+  width: 100%;
+  min-width: 0;
+}
+
+.workbook-launch__student-alert-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 12px;
+  row-gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.workbook-launch__student-alert-text {
+  min-width: 0;
+  margin: 0;
+  line-height: 1.48;
+}
+
+.workbook-launch__student-alert-button {
+  justify-self: end;
+  align-self: end;
+  min-width: 0;
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}

@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Alert, Button, IconButton, TextField, Tooltip } from "@mui/material";
+import { Alert, Button, IconButton, Switch, Tooltip } from "@mui/material";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import SwapHorizRoundedIcon from "@mui/icons-material/SwapHorizRounded";
@@ -8,9 +8,9 @@ import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
 import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 import {
   FUNCTION_GRAPH_PRESETS,
-  isFunctionExpressionValid,
   type GraphFunctionDraft,
 } from "@/features/workbook/model/functionGraph";
+import { toColorInputValue } from "@/shared/lib/colorInput";
 
 export type WorkbookSessionGraphPanelProps = {
   graphTabUsesSelectedObject: boolean;
@@ -30,16 +30,11 @@ export type WorkbookSessionGraphPanelProps = {
   graphWorkbenchTab: "catalog" | "work";
   onSelectCatalogTab: () => void;
   onSelectWorkTab: () => void;
-  graphExpressionDraft: string;
-  graphDraftError: string | null;
-  onGraphExpressionDraftChange: (value: string) => void;
-  onAddGraphFunction: () => void;
   selectedGraphPresetId: string | null;
   onSelectGraphPreset: (presetId: string, expression: string) => void;
   graphTabFunctions: GraphFunctionDraft[];
   onGraphFunctionColorChange: (id: string, color: string) => void;
-  onGraphFunctionExpressionChange: (id: string, value: string) => void;
-  onCommitGraphExpressions: () => void;
+  onToggleGraphFunctionDashed: (id: string, dashed: boolean) => void;
   onRemoveGraphFunction: (id: string) => void;
   onToggleGraphFunctionVisibility: (id: string, hidden: boolean) => void;
   onReflectGraphFunctionByAxis: (id: string, axis: "x" | "y") => void;
@@ -59,16 +54,11 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
   graphWorkbenchTab,
   onSelectCatalogTab,
   onSelectWorkTab,
-  graphExpressionDraft,
-  graphDraftError,
-  onGraphExpressionDraftChange,
-  onAddGraphFunction,
   selectedGraphPresetId,
   onSelectGraphPreset,
   graphTabFunctions,
   onGraphFunctionColorChange,
-  onGraphFunctionExpressionChange,
-  onCommitGraphExpressions,
+  onToggleGraphFunctionDashed,
   onRemoveGraphFunction,
   onToggleGraphFunctionVisibility,
   onReflectGraphFunctionByAxis,
@@ -121,7 +111,7 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                 <span>Цвет осей</span>
                 <input
                   type="color"
-                  value={selectedFunctionGraphAxisColor}
+                  value={toColorInputValue(selectedFunctionGraphAxisColor, "#c4872f")}
                   onChange={(event) => onAxisColorChange(event.target.value || "#c4872f")}
                 />
               </label>
@@ -130,7 +120,7 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                 <span className="workbook-session__graph-appearance-tools">
                   <input
                     type="color"
-                    value={selectedFunctionGraphPlaneColor}
+                    value={toColorInputValue(selectedFunctionGraphPlaneColor, "#5f6f86")}
                     onChange={(event) => onPlaneColorChange(event.target.value || "#5f6f86")}
                   />
                   <Tooltip title="Убрать фон" arrow>
@@ -166,21 +156,6 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
 
             {graphWorkbenchTab === "catalog" ? (
               <>
-                <div className="workbook-session__graph-builder-row">
-                  <TextField
-                    size="small"
-                    value={graphExpressionDraft}
-                    error={Boolean(graphDraftError)}
-                    helperText={
-                      graphDraftError ?? "Примеры: y = x^2 - 3*x + 2, sin(x), 1/x, abs(x)"
-                    }
-                    onChange={(event) => onGraphExpressionDraftChange(event.target.value)}
-                    placeholder="Формула y = ..."
-                  />
-                  <Button size="small" variant="outlined" onClick={onAddGraphFunction}>
-                    Добавить
-                  </Button>
-                </div>
                 <div className="workbook-session__graph-presets">
                   {FUNCTION_GRAPH_PRESETS.map((preset) => (
                     <button
@@ -211,7 +186,7 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                       </Button>
                     }
                   >
-                    На плоскости пока нет функций. Добавьте формулу или выберите шаблон.
+                    На плоскости пока нет функций. Выберите шаблон из каталога.
                   </Alert>
                 ) : (
                   <div className="workbook-session__graph-builder-list">
@@ -224,23 +199,29 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                           <label className="workbook-session__graph-swatch" title="Цвет графика">
                             <input
                               type="color"
-                              value={item.color}
+                              value={toColorInputValue(item.color, "#2f4f7f")}
                               onChange={(event) =>
                                 onGraphFunctionColorChange(item.id, event.target.value || item.color)
                               }
                             />
                           </label>
-                          <TextField
-                            size="small"
-                            value={item.expression}
-                            error={!isFunctionExpressionValid(item.expression)}
-                            placeholder="f(x)"
-                            inputProps={{ title: item.expression }}
-                            onChange={(event) =>
-                              onGraphFunctionExpressionChange(item.id, event.target.value)
-                            }
-                            onBlur={onCommitGraphExpressions}
-                          />
+                          <span
+                            className="workbook-session__graph-expression-badge"
+                            title={item.expression}
+                          >
+                            {item.expression}
+                          </span>
+                          <label className="workbook-session__graph-dashed-toggle">
+                            <Switch
+                              size="small"
+                              checked={Boolean(item.dashed)}
+                              onChange={(event) =>
+                                onToggleGraphFunctionDashed(item.id, event.target.checked)
+                              }
+                              inputProps={{ "aria-label": "Пунктир" }}
+                            />
+                            <span>Пунктир</span>
+                          </label>
                         </div>
                         <div className="workbook-session__graph-card-actions">
                           <Tooltip
@@ -283,32 +264,24 @@ export const WorkbookSessionGraphPanel = memo(function WorkbookSessionGraphPanel
                             </button>
                           </Tooltip>
                           <Tooltip title="Удалить функцию" arrow>
-                            <span>
-                              <button
-                                type="button"
-                                className="workbook-session__graph-inline-action workbook-session__graph-inline-action--danger"
-                                onClick={() => onRemoveGraphFunction(item.id)}
-                                disabled={graphTabFunctions.length <= 1}
-                                aria-label="Удалить функцию"
-                              >
-                                <DeleteOutlineRoundedIcon fontSize="small" />
-                              </button>
-                            </span>
+                            <button
+                              type="button"
+                              className="workbook-session__graph-inline-action workbook-session__graph-inline-action--danger"
+                              onClick={() => onRemoveGraphFunction(item.id)}
+                              aria-label="Удалить функцию"
+                            >
+                              <DeleteOutlineRoundedIcon fontSize="small" />
+                            </button>
                           </Tooltip>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
-                <p className="workbook-session__hint">
-                  Координатная сетка и оси отображаются прямо на доске в границах плоскости.
-                </p>
               </>
             )}
           </>
         )}
-
-        {graphDraftError ? <Alert severity="error">{graphDraftError}</Alert> : null}
       </div>
     </div>
   );

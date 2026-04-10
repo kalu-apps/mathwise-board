@@ -45,6 +45,7 @@ type UseWorkbookObjectDeleteHandlerParams = {
   setSelectedObjectId: SetState<string | null>;
   setSelectedConstraintId: SetState<string | null>;
   setError: (value: string | null) => void;
+  buildHistoryEntryFromEvents: (events: WorkbookClientEventInput[]) => unknown;
   appendEventsAndApply: AppendEventsAndApply;
   commitInteractiveBoardObjects: (objects: WorkbookBoardObject[]) => void;
   handleRealtimeConflict: () => void;
@@ -74,6 +75,7 @@ export const useWorkbookObjectDeleteHandler = ({
   setSelectedObjectId,
   setSelectedConstraintId,
   setError,
+  buildHistoryEntryFromEvents,
   appendEventsAndApply,
   commitInteractiveBoardObjects,
   handleRealtimeConflict,
@@ -127,6 +129,19 @@ export const useWorkbookObjectDeleteHandler = ({
                 : currentBoardSettings.activeSceneLayerId,
           }
         : null;
+      const events: WorkbookClientEventInput[] = [
+        {
+          type: "board.object.delete",
+          payload: { objectId },
+        },
+      ];
+      if (nextSettings) {
+        events.push({
+          type: "board.settings.update",
+          payload: { boardSettings: nextSettings },
+        });
+      }
+      const historyEntry = buildHistoryEntryFromEvents(events);
       const optimisticBoardObjects = currentBoardObjects.filter(
         (item) => item.id !== objectId
       );
@@ -143,21 +158,9 @@ export const useWorkbookObjectDeleteHandler = ({
         boardSettingsRef.current = nextSettings;
         setBoardSettings(nextSettings);
       }
-      const events: WorkbookClientEventInput[] = [
-        {
-          type: "board.object.delete",
-          payload: { objectId },
-        },
-      ];
-      if (nextSettings) {
-        events.push({
-          type: "board.settings.update",
-          payload: { boardSettings: nextSettings },
-        });
-      }
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-          await appendEventsAndApply(events);
+          await appendEventsAndApply(events, historyEntry ? { historyEntry } : undefined);
           return;
         } catch (error) {
           if (error instanceof ApiError && error.code === "not_found") {
@@ -208,6 +211,7 @@ export const useWorkbookObjectDeleteHandler = ({
       appendEventsAndApply,
       boardObjectsRef,
       boardSettingsRef,
+      buildHistoryEntryFromEvents,
       canDelete,
       commitInteractiveBoardObjects,
       constraintsRef,

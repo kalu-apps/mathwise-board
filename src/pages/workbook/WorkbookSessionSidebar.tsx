@@ -58,7 +58,10 @@ export function WorkbookSessionSidebar({
               </div>
             }
           >
-            <WorkbookSessionParticipantsPanel {...participantsPanelProps} />
+            <WorkbookSessionParticipantsPanel
+              {...participantsPanelProps}
+              isCompactViewport={isCompactViewport}
+            />
           </Suspense>
         </div>
       ) : null}

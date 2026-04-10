@@ -36,7 +36,10 @@ export const TEXT_FONT_OPTIONS = [
 export const is2dFigureObject = (object: WorkbookBoardObject | null) =>
   Boolean(
     object &&
-      (object.type === "rectangle" || object.type === "triangle" || object.type === "polygon")
+      (object.type === "rectangle" ||
+        object.type === "triangle" ||
+        object.type === "polygon" ||
+        object.type === "ellipse")
   );
 
 export const TRANSFORM_PANEL_OBJECT_TYPES = new Set<WorkbookBoardObject["type"]>([
@@ -335,11 +338,34 @@ export type WorkbookSceneSnapshot = {
 };
 
 export type WorkbookHistoryOperation =
-  | { kind: "upsert_stroke"; layer: WorkbookLayer; stroke: WorkbookStroke }
-  | { kind: "remove_stroke"; layer: WorkbookLayer; strokeId: string }
-  | { kind: "upsert_object"; object: WorkbookBoardObject }
-  | { kind: "patch_object"; objectId: string; patch: Partial<WorkbookBoardObject> }
-  | { kind: "remove_object"; objectId: string }
+  | {
+      kind: "upsert_stroke";
+      layer: WorkbookLayer;
+      stroke: WorkbookStroke;
+      expectedCurrent?: WorkbookStroke | null;
+    }
+  | {
+      kind: "remove_stroke";
+      layer: WorkbookLayer;
+      strokeId: string;
+      expectedCurrent?: WorkbookStroke | null;
+    }
+  | {
+      kind: "upsert_object";
+      object: WorkbookBoardObject;
+      expectedCurrent?: WorkbookBoardObject | null;
+    }
+  | {
+      kind: "patch_object";
+      objectId: string;
+      patch: Partial<WorkbookBoardObject>;
+      expectedCurrent?: WorkbookBoardObject | null;
+    }
+  | {
+      kind: "remove_object";
+      objectId: string;
+      expectedCurrent?: WorkbookBoardObject | null;
+    }
   | { kind: "upsert_constraint"; constraint: WorkbookConstraint }
   | { kind: "remove_constraint"; constraintId: string }
   | { kind: "patch_board_settings"; patch: Partial<WorkbookBoardSettings> }
@@ -351,7 +377,9 @@ export type WorkbookHistoryOperation =
 export type WorkbookHistoryEntry = {
   forward: WorkbookHistoryOperation[];
   inverse: WorkbookHistoryOperation[];
+  page: number;
   createdAt: string;
+  authorUserId?: string;
 };
 
 export type ToolPaintSettings = {

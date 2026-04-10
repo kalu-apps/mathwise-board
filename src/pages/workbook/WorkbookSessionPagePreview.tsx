@@ -11,14 +11,18 @@ import {
   WORKBOOK_BOARD_GRID_COLOR,
   WORKBOOK_BOARD_PRIMARY_COLOR,
 } from "@/features/workbook/model/workbookVisualColors";
-import { renderWorkbookCanvasPrimaryObject } from "@/features/workbook/ui/WorkbookCanvasPrimaryObjectRenderer";
+import {
+  renderWorkbookCanvasPrimaryObject,
+  type WorkbookPrimaryRenderedObjectParts,
+} from "@/features/workbook/ui/WorkbookCanvasPrimaryObjectRenderer";
 import { renderWorkbookCanvasSecondaryObject } from "@/features/workbook/ui/WorkbookCanvasSecondaryObjectRenderer";
 import { renderWorkbookCanvasSolid3dObject } from "@/features/workbook/ui/WorkbookCanvasSolid3dRenderer";
 import {
   ROUND_SOLID_PRESETS,
   summarizeProjectedVertices,
 } from "@/features/workbook/ui/WorkbookCanvas.types";
-import { getSectionVertexLabel, WORKBOOK_PAGE_FRAME_BOUNDS } from "./WorkbookSessionPage.core";
+import { resolveWorkbookPageFrameBounds } from "@/features/workbook/model/pageFrame";
+import { getSectionVertexLabel } from "./WorkbookSessionPage.core";
 import type { WorkbookPagePreviewData } from "./useWorkbookPagePreviewMap";
 
 type WorkbookSessionPagePreviewProps = {
@@ -28,10 +32,10 @@ type WorkbookSessionPagePreviewProps = {
   backgroundColor?: string;
   gridColor?: string;
   gridSize?: number;
+  pageFrameWidth: number;
 };
 
 const GRID_STROKE_BASE_OPACITY = 0.22;
-const PAGE_FRAME_BOUNDS = WORKBOOK_PAGE_FRAME_BOUNDS;
 const PREVIEW_ARROW_MARKER_ID = "workbook-arrow";
 const PREVIEW_TEXT_INPUT_REF = { current: null } as RefObject<HTMLTextAreaElement | null>;
 const PREVIEW_VIEWPORT_ASPECT = 1.6;
@@ -51,6 +55,13 @@ const normalizeStrokeWidth = (value: number | undefined) => {
   if (!Number.isFinite(value)) return 2;
   return clampNumber(Number(value), 1, 28);
 };
+
+const isPrimaryRenderedObjectParts = (
+  value: unknown
+): value is WorkbookPrimaryRenderedObjectParts =>
+  Boolean(value) &&
+  typeof value === "object" &&
+  Object.prototype.hasOwnProperty.call(value, "maskedObject");
 
 type ViewBounds = {
   minX: number;
@@ -116,20 +127,22 @@ const resolveContentBounds = (params: {
 };
 
 const resolvePreviewViewBounds = (params: {
+  pageFrameBounds: ViewBounds;
   objects: WorkbookPagePreviewData["objects"];
   strokes: WorkbookPagePreviewData["strokes"];
   annotationStrokes: WorkbookPagePreviewData["annotationStrokes"];
 }) => {
-  const maxWidth = PAGE_FRAME_BOUNDS.width * PREVIEW_VIEWPORT_MAX_WIDTH_RATIO;
+  const { pageFrameBounds } = params;
+  const maxWidth = pageFrameBounds.width * PREVIEW_VIEWPORT_MAX_WIDTH_RATIO;
   const minWidth = Math.min(PREVIEW_VIEWPORT_MIN_WIDTH, maxWidth);
   const minHeight = minWidth / PREVIEW_VIEWPORT_ASPECT;
-  const maxHeight = PAGE_FRAME_BOUNDS.height * PREVIEW_VIEWPORT_MAX_WIDTH_RATIO;
+  const maxHeight = pageFrameBounds.height * PREVIEW_VIEWPORT_MAX_WIDTH_RATIO;
   const contentBounds = resolveContentBounds(params);
 
   let targetWidth = minWidth;
   let targetHeight = minHeight;
-  let centerX = PAGE_FRAME_BOUNDS.minX + PAGE_FRAME_BOUNDS.width / 2;
-  let centerY = PAGE_FRAME_BOUNDS.minY + PAGE_FRAME_BOUNDS.height / 2;
+  let centerX = pageFrameBounds.minX + pageFrameBounds.width / 2;
+  let centerY = pageFrameBounds.minY + pageFrameBounds.height / 2;
 
   if (contentBounds) {
     centerX = contentBounds.minX + contentBounds.width / 2;
@@ -161,13 +174,13 @@ const resolvePreviewViewBounds = (params: {
 
   const minX = clampNumber(
     centerX - targetWidth / 2,
-    PAGE_FRAME_BOUNDS.minX,
-    PAGE_FRAME_BOUNDS.maxX - targetWidth
+    pageFrameBounds.minX,
+    pageFrameBounds.maxX - targetWidth
   );
   const minY = clampNumber(
     centerY - targetHeight / 2,
-    PAGE_FRAME_BOUNDS.minY,
-    PAGE_FRAME_BOUNDS.maxY - targetHeight
+    pageFrameBounds.minY,
+    pageFrameBounds.maxY - targetHeight
   );
 
   const maxX = minX + targetWidth;
@@ -190,6 +203,7 @@ export function WorkbookSessionPagePreview({
   backgroundColor,
   gridColor,
   gridSize,
+  pageFrameWidth,
 }: WorkbookSessionPagePreviewProps) {
   const safeBackgroundColor = normalizeColorString(
     backgroundColor,
@@ -208,14 +222,19 @@ export function WorkbookSessionPagePreview({
     () => previewData?.objects ?? [],
     [previewData?.objects]
   );
+  const pageFrameBounds = useMemo(
+    () => resolveWorkbookPageFrameBounds(pageFrameWidth),
+    [pageFrameWidth]
+  );
   const viewBounds = useMemo(
     () =>
       resolvePreviewViewBounds({
+        pageFrameBounds,
         objects: visibleObjects,
         strokes: boardStrokes,
         annotationStrokes,
       }),
-    [annotationStrokes, boardStrokes, visibleObjects]
+    [annotationStrokes, boardStrokes, pageFrameBounds, visibleObjects]
   );
   const gridStartX = Math.floor(viewBounds.minX / safeGridSize) * safeGridSize;
   const gridStartY = Math.floor(viewBounds.minY / safeGridSize) * safeGridSize;
@@ -274,10 +293,22 @@ export function WorkbookSessionPagePreview({
             /* preview-only noop */
           },
           functionGraphRenderStateById,
+          pageFrameBounds,
         });
 
         if (renderedPrimary) {
-          return <g key={`preview-object-${object.id}`}>{renderedPrimary}</g>;
+          const maskedObject = isPrimaryRenderedObjectParts(renderedPrimary)
+            ? renderedPrimary.maskedObject
+            : renderedPrimary;
+          const unmaskedOverlay = isPrimaryRenderedObjectParts(renderedPrimary)
+            ? renderedPrimary.unmaskedOverlay ?? null
+            : null;
+          return (
+            <g key={`preview-object-${object.id}`}>
+              {maskedObject}
+              {unmaskedOverlay ? <g>{unmaskedOverlay}</g> : null}
+            </g>
+          );
         }
 
         const renderedSolid3d = renderWorkbookCanvasSolid3dObject({

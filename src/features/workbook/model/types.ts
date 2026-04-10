@@ -14,6 +14,7 @@ export type WorkbookSceneLayer = {
 
 export type WorkbookTool =
   | "select"
+  | "lock_toggle"
   | "area_select"
   | "pan"
   | "pen"
@@ -188,6 +189,14 @@ export type WorkbookTimerState = {
   updatedAt: string;
 };
 
+export type WorkbookBoardPageVisualSettings = {
+  showGrid: boolean;
+  gridSize: number;
+  gridColor: string;
+  backgroundColor: string;
+  snapToGrid: boolean;
+};
+
 export type WorkbookBoardSettings = {
   title: string;
   showGrid: boolean;
@@ -195,7 +204,9 @@ export type WorkbookBoardSettings = {
   gridColor: string;
   backgroundColor: string;
   snapToGrid: boolean;
+  pageBoardSettingsByPage?: Record<string, WorkbookBoardPageVisualSettings>;
   showPageNumbers: boolean;
+  pageFrameWidth: number;
   currentPage: number;
   pagesCount: number;
   pageOrder: number[];
@@ -368,6 +379,7 @@ export type WorkbookDraftCard = {
   canInvite: boolean;
   canDelete: boolean;
   participantsCount: number;
+  onlineParticipantsCount?: number;
   isOwner: boolean;
   previewUrl?: string | null;
   previewAlt?: string | null;

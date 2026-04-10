@@ -45,8 +45,9 @@ type UseWorkbookObjectMutationHandlersParams = {
   canDraw: boolean;
   canSelect: boolean;
   canManageSession: boolean;
-  boardSettingsCurrentPage: number;
+  currentBoardPage: number;
   activeSceneLayerId: string;
+  pageFrameWidth: number;
   userId?: string;
   volatilePreviewQueueMax: number;
   realtimeBackpressureV2Enabled: boolean;
@@ -86,8 +87,9 @@ export const useWorkbookObjectMutationHandlers = ({
   canDraw,
   canSelect,
   canManageSession,
-  boardSettingsCurrentPage,
+  currentBoardPage,
   activeSceneLayerId,
+  pageFrameWidth,
   userId,
   volatilePreviewQueueMax,
   realtimeBackpressureV2Enabled,
@@ -127,7 +129,7 @@ export const useWorkbookObjectMutationHandlers = ({
         object.meta && typeof object.meta === "object" ? object.meta : {};
       let objectWithPage: WorkbookBoardObject = {
         ...object,
-        page: object.page ?? boardSettingsCurrentPage,
+        page: object.page ?? currentBoardPage,
         meta: {
           ...currentMeta,
           sceneLayerId: activeSceneLayerId,
@@ -204,7 +206,10 @@ export const useWorkbookObjectMutationHandlers = ({
       }
       const normalizedObjectWithPage =
         normalizeObjectPayload(objectWithPage) ?? objectWithPage;
-      const clampedObjectWithPage = clampBoardObjectToPageFrame(normalizedObjectWithPage);
+      const clampedObjectWithPage = clampBoardObjectToPageFrame(
+        normalizedObjectWithPage,
+        pageFrameWidth
+      );
       const objectWithZOrder = ensureWorkbookObjectZOrder(
         clampedObjectWithPage,
         boardObjectsRef.current
@@ -282,8 +287,9 @@ export const useWorkbookObjectMutationHandlers = ({
     [
       sessionId,
       canDraw,
-      boardSettingsCurrentPage,
+      currentBoardPage,
       activeSceneLayerId,
+      pageFrameWidth,
       commitInteractiveBoardObjects,
       setError,
       sendWorkbookLiveEvents,
@@ -333,7 +339,8 @@ export const useWorkbookObjectMutationHandlers = ({
           }
         : patch;
       const clampedObject = clampBoardObjectToPageFrame(
-        mergeBoardObjectWithPatch(currentObject, constrainedPatch)
+        mergeBoardObjectWithPatch(currentObject, constrainedPatch),
+        pageFrameWidth
       );
       const normalizedPatch = buildBoardObjectDiffPatch(currentObject, clampedObject);
       if (!normalizedPatch) return;
@@ -409,6 +416,7 @@ export const useWorkbookObjectMutationHandlers = ({
       scheduleLocalPreviewBoardObjectPatch,
       scheduleVolatileSyncFlush,
       sessionId,
+      pageFrameWidth,
       volatilePreviewQueueMax,
       boardObjectsRef,
       boardObjectIndexByIdRef,

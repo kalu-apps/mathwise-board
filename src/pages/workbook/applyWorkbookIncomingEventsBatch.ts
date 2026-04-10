@@ -29,6 +29,12 @@ import {
 type IncomingRuntimeControllerResult = ReturnType<typeof useWorkbookIncomingRuntimeController>;
 type WorkbookSessionRefs = ReturnType<typeof useWorkbookSessionRefs>;
 type RestoreSceneSnapshot = ReturnType<typeof useWorkbookSessionHistoryRuntime>["restoreSceneSnapshot"];
+type PushIncomingHistoryEntryFromEvent = ReturnType<
+  typeof useWorkbookSessionHistoryRuntime
+>["pushIncomingHistoryEntryFromEvent"];
+type SyncHistoryStacksFromIncomingUndoRedoEvent = ReturnType<
+  typeof useWorkbookSessionHistoryRuntime
+>["syncHistoryStacksFromIncomingUndoRedoEvent"];
 type AreParticipantsEqual = ReturnType<typeof useWorkbookSessionLocalRuntime>["areParticipantsEqual"];
 
 type ApplyWorkbookIncomingEventsBatchParams = {
@@ -36,13 +42,25 @@ type ApplyWorkbookIncomingEventsBatchParams = {
   events: WorkbookEvent[];
   userId: string | undefined;
   selectedObjectId: string | null;
-  awaitingClearRequest: unknown;
+  awaitingClearRequest: {
+    requestId: string;
+    targetLayer: "board" | "annotations";
+    authorUserId: string;
+  } | null;
   lastAppliedSeqRef: MutableRefObject<number>;
   lastAppliedBoardSettingsSeqRef: MutableRefObject<number>;
   refs: WorkbookSessionRefs;
   actions: WorkbookSessionStoreActions;
   areParticipantsEqual: AreParticipantsEqual;
   restoreSceneSnapshot: RestoreSceneSnapshot;
+  pushIncomingHistoryEntryFromEvent: PushIncomingHistoryEntryFromEvent;
+  syncHistoryStacksFromIncomingUndoRedoEvent: SyncHistoryStacksFromIncomingUndoRedoEvent;
+  onUndoRedoApplyMismatch: (payload: {
+    eventType: "board.undo" | "board.redo";
+    expectedOperations: number;
+    appliedOperations: number;
+  }) => void;
+  clearLocalPreviewPatchRuntime: () => void;
   clearObjectSyncRuntime: (options?: { cancelIncomingFrame?: boolean }) => void;
   clearStrokePreviewRuntime: (options?: {
     clearFinalized?: boolean;
@@ -68,6 +86,10 @@ export const applyWorkbookIncomingEventsBatch = ({
   actions,
   areParticipantsEqual,
   restoreSceneSnapshot,
+  pushIncomingHistoryEntryFromEvent,
+  syncHistoryStacksFromIncomingUndoRedoEvent,
+  onUndoRedoApplyMismatch,
+  clearLocalPreviewPatchRuntime,
   clearObjectSyncRuntime,
   clearStrokePreviewRuntime,
   clearIncomingEraserPreviewRuntime,
@@ -144,6 +166,7 @@ export const applyWorkbookIncomingEventsBatch = ({
       }
       const parsedEventTs = Date.parse(event.createdAt);
       const eventTimestamp = Number.isFinite(parsedEventTs) ? parsedEventTs : Date.now();
+      pushIncomingHistoryEntryFromEvent(event, userId);
       if (
         applyWorkbookIncomingRealtimeEvent({
           event,
@@ -154,9 +177,14 @@ export const applyWorkbookIncomingEventsBatch = ({
           selectedTextDraftObjectId: refs.selectedTextDraftObjectIdRef.current,
           awaitingClearRequest,
           areParticipantsEqual,
-          applyHistoryOperations: (operations) =>
-            refs.applyHistoryOperationsRef.current(operations as WorkbookHistoryOperation[]),
+          applyHistoryOperations: (operations, options) =>
+            refs.applyHistoryOperationsRef.current(
+              operations as WorkbookHistoryOperation[],
+              options
+            ),
+          onUndoRedoApplyMismatch,
           restoreSceneSnapshot,
+          clearLocalPreviewPatchRuntime,
           clearObjectSyncRuntime,
           clearStrokePreviewRuntime,
           clearIncomingEraserPreviewRuntime,
@@ -165,6 +193,7 @@ export const applyWorkbookIncomingEventsBatch = ({
           finalizeStrokePreview,
           queueIncomingPreviewPatch,
           applyLocalBoardObjects,
+          boardSettingsRef: refs.boardSettingsRef,
           setSession: actions.setSession,
           setCanvasViewport: actions.setCanvasViewport,
           setIncomingEraserPreviews: actions.setIncomingEraserPreviews,
@@ -201,6 +230,7 @@ export const applyWorkbookIncomingEventsBatch = ({
           viewportSyncEpsilon: VIEWPORT_SYNC_EPSILON,
         })
       ) {
+        syncHistoryStacksFromIncomingUndoRedoEvent(event);
         realtimeEventsApplied += 1;
         if (eventSeq !== null) {
           maxAppliedSeq = Math.max(maxAppliedSeq, eventSeq);

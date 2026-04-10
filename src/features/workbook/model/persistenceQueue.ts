@@ -4,6 +4,10 @@ import { generateId } from "@/shared/lib/id";
 import { buildIdempotencyHeaders } from "@/shared/lib/idempotency";
 import type { WorkbookClientEventInput } from "./events";
 import type { WorkbookLayer } from "./types";
+import {
+  observeWorkbookEventsPostAttempt,
+  observeWorkbookEventsPostConflict,
+} from "./workbookEventsPostDiagnostics";
 
 type WorkbookPersistenceTaskBase = {
   id: string;
@@ -38,6 +42,8 @@ type WorkbookPersistenceQueueSnapshot = {
   nextRetryAt: string | null;
 };
 
+type WorkbookPersistenceConflictHandler = (sessionId: string) => void;
+
 const STORAGE_KEY = "WORKBOOK_PERSISTENCE_QUEUE_V1";
 const QUEUE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const TASK_TTL_MS = 3 * 24 * 60 * 60 * 1000;
@@ -46,11 +52,14 @@ const RETRY_MAX_DELAY_MS = 90_000;
 const FLUSH_INTERVAL_MS = 5_000;
 const MAX_QUEUE_LENGTH = 120;
 const CONFLICT_PAUSE_DEFAULT_MS = 12_000;
+const MAX_CONFLICT_ATTEMPTS_PER_TASK = 2;
 
 let queue = readStorage<WorkbookPersistenceTask[]>(STORAGE_KEY, []);
 let flushing = false;
 let runtimeInitialized = false;
 const pausedSessionsUntilTs = new Map<string, number>();
+const blockedSessions = new Set<string>();
+let onWorkbookPersistenceConflict: WorkbookPersistenceConflictHandler | null = null;
 
 const listeners = new Set<() => void>();
 
@@ -107,6 +116,7 @@ const cleanupExpiredSessionPauses = () => {
 
 const isSessionPersistencePaused = (sessionId: string) => {
   cleanupExpiredSessionPauses();
+  if (blockedSessions.has(sessionId)) return true;
   const untilTs = pausedSessionsUntilTs.get(sessionId);
   return typeof untilTs === "number" && untilTs > nowTs();
 };
@@ -216,6 +226,12 @@ const upsertTask = (task: WorkbookPersistenceTask) => {
 
 const executeTask = async (task: WorkbookPersistenceTask) => {
   if (task.type === "events") {
+    observeWorkbookEventsPostAttempt({
+      sessionId: task.sessionId,
+      source: "queue",
+      idempotencyKey: task.idempotencyKey,
+      events: task.events,
+    });
     await api.post<{ events: unknown[]; latestSeq: number }>(
       `/workbook/sessions/${encodeURIComponent(task.sessionId)}/events`,
       { events: task.events },
@@ -273,11 +289,21 @@ export const dropWorkbookPersistenceTasksForSession = (sessionId: string) => {
   ensureRuntime();
   normalizeQueue();
   const dropped = removeTasksBySessionId(sessionId);
+  const pauseDeleted = pausedSessionsUntilTs.delete(sessionId);
+  const blockDeleted = blockedSessions.delete(sessionId);
   if (dropped > 0) {
     persistQueue();
+  }
+  if (dropped > 0 || pauseDeleted || blockDeleted) {
     emit();
   }
   return dropped;
+};
+
+export const getWorkbookPersistencePendingCountForSession = (sessionId: string) => {
+  if (!sessionId) return 0;
+  normalizeQueue();
+  return queue.reduce((count, task) => count + (task.sessionId === sessionId ? 1 : 0), 0);
 };
 
 export const pauseWorkbookPersistenceForSession = (
@@ -297,6 +323,29 @@ export const resumeWorkbookPersistenceForSession = (sessionId: string) => {
   if (pausedSessionsUntilTs.delete(sessionId)) {
     emit();
   }
+};
+
+export const setWorkbookPersistenceBlockedForSession = (
+  sessionId: string,
+  blocked: boolean
+) => {
+  if (!sessionId) return;
+  if (blocked) {
+    if (!blockedSessions.has(sessionId)) {
+      blockedSessions.add(sessionId);
+      emit();
+    }
+    return;
+  }
+  if (blockedSessions.delete(sessionId)) {
+    emit();
+  }
+};
+
+export const setWorkbookPersistenceConflictHandler = (
+  handler: WorkbookPersistenceConflictHandler | null
+) => {
+  onWorkbookPersistenceConflict = handler;
 };
 
 export const enqueueWorkbookEventsPersistence = (params: {
@@ -366,6 +415,7 @@ export const flushWorkbookPersistenceQueue = async () => {
   if (!isOnline()) return;
   if (flushing) return;
   if (queue.length === 0) return;
+  if (!queue.some((task) => !isSessionPersistencePaused(task.sessionId))) return;
   flushing = true;
   emit();
 
@@ -417,8 +467,27 @@ export const flushWorkbookPersistenceQueue = async () => {
           error.status === 409 &&
           error.code === "conflict"
         ) {
-          // Pause session writes and keep tasks queued so local intents are not discarded.
           const attempts = task.attempts + 1;
+          if (task.type === "events") {
+            observeWorkbookEventsPostConflict({
+              sessionId: task.sessionId,
+              source: "queue",
+              idempotencyKey: task.idempotencyKey,
+              events: task.events,
+              attempts,
+            });
+          }
+          if (attempts >= MAX_CONFLICT_ATTEMPTS_PER_TASK) {
+            // Deterministic safeguard: do not keep replaying the same conflicting intent forever.
+            queue.splice(executableTaskIndex, 1);
+            pauseWorkbookPersistenceForSession(task.sessionId, {
+              ttlMs: CONFLICT_PAUSE_DEFAULT_MS,
+            });
+            persistQueue();
+            emit();
+            onWorkbookPersistenceConflict?.(task.sessionId);
+            break;
+          }
           const retryDelayMs = computeRetryDelayMs(attempts);
           queue[executableTaskIndex] = {
             ...task,
@@ -431,6 +500,7 @@ export const flushWorkbookPersistenceQueue = async () => {
           });
           persistQueue();
           emit();
+          onWorkbookPersistenceConflict?.(task.sessionId);
           break;
         }
         if (isRecoverableApiError(error)) {

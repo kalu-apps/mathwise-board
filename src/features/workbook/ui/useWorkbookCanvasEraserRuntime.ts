@@ -267,6 +267,7 @@ export function useWorkbookCanvasEraserRuntime({
     const strokeReplacements: Array<{
       stroke: WorkbookStroke;
       fragments: WorkbookPoint[][];
+      preserveSourceId?: boolean;
     }> = [];
     const objectUpdates: Array<{
       objectId: string;
@@ -289,6 +290,7 @@ export function useWorkbookCanvasEraserRuntime({
       strokeReplacements.push({
         stroke: sourceStroke,
         fragments,
+        preserveSourceId: true,
       });
     });
 

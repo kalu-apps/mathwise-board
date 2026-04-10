@@ -14,6 +14,7 @@ import {
   WORKBOOK_SYSTEM_COLORS,
   WORKBOOK_TEXT_FALLBACK_COLOR,
 } from "@/features/workbook/model/workbookVisualColors";
+import { toColorInputValue } from "@/shared/lib/colorInput";
 import { WorkbookSessionTransformPanelShape2d } from "./WorkbookSessionTransformPanel.shape2d";
 import { WorkbookSessionTransformPanelSolid3d } from "./WorkbookSessionTransformPanel.solid3d";
 import type { WorkbookSessionTransformPanelProps } from "./WorkbookSessionTransformPanel.types";
@@ -340,6 +341,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                 ))}
               </Select>
               <div className="workbook-session__line-range workbook-session__text-size-inline">
+                <span className="workbook-session__text-size-label">Размер текста</span>
                 <input
                   type="range"
                   min={12}
@@ -354,7 +356,6 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                     void onUpdateSelectedTextFormatting({ fontSize: nextSize });
                   }}
                 />
-                <span>{selectedTextFontSizeDraft}px</span>
               </div>
             </div>
             <div className="workbook-session__text-controls-grid">
@@ -444,14 +445,13 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                     </IconButton>
                   </span>
                 </Tooltip>
-              </div>
-              <div className="workbook-session__text-color-row">
+                <span className="workbook-session__text-icon-divider" aria-hidden="true" />
                 <Tooltip title="Цвет текста" arrow>
                   <span className="workbook-session__text-color-control">
                     <FormatColorTextRoundedIcon fontSize="small" />
                     <input
                       type="color"
-                      value={selectedTextColor}
+                      value={toColorInputValue(selectedTextColor, WORKBOOK_TEXT_FALLBACK_COLOR)}
                       disabled={!selectedTextObject}
                       onChange={(event) =>
                         void onUpdateSelectedTextFormatting(
@@ -467,11 +467,12 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
                     <FormatColorFillRoundedIcon fontSize="small" />
                     <input
                       type="color"
-                      value={
+                      value={toColorInputValue(
                         selectedTextBackground === "transparent"
                           ? WORKBOOK_SYSTEM_COLORS.white
-                          : selectedTextBackground
-                      }
+                          : selectedTextBackground,
+                        WORKBOOK_SYSTEM_COLORS.white
+                      )}
                       disabled={!selectedTextObject}
                       onChange={(event) =>
                         void onUpdateSelectedTextFormatting(
@@ -505,7 +506,7 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
             </p>
             <div className="workbook-session__settings-row">
               <span>Стиль разделителя</span>
-              <div className="workbook-session__toggle-group">
+              <div className="workbook-session__toggle-group workbook-session__toggle-group--divider">
                 <button
                   type="button"
                   className={
@@ -542,16 +543,31 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
             </div>
             <div className="workbook-session__settings-row">
               <span>Цвет</span>
-              <input
-                type="color"
-                value={selectedDividerColor}
-                disabled={!selectedDividerObject}
-                onChange={(event) =>
-                  void onUpdateSelectedDividerObject({
-                    color: event.target.value || WORKBOOK_BOARD_PRIMARY_COLOR,
-                  })
-                }
-              />
+              <div className="workbook-session__color-control">
+                <input
+                  type="color"
+                  value={toColorInputValue(selectedDividerColor, WORKBOOK_BOARD_PRIMARY_COLOR)}
+                  disabled={!selectedDividerObject}
+                  onChange={(event) =>
+                    void onUpdateSelectedDividerObject({
+                      color: event.target.value || WORKBOOK_BOARD_PRIMARY_COLOR,
+                    })
+                  }
+                />
+                <IconButton
+                  size="small"
+                  className="workbook-session__color-reset-btn"
+                  aria-label="Сбросить цвет разделителя"
+                  disabled={!selectedDividerObject}
+                  onClick={() =>
+                    void onUpdateSelectedDividerObject({
+                      color: WORKBOOK_BOARD_PRIMARY_COLOR,
+                    })
+                  }
+                >
+                  <CloseRoundedIcon fontSize="small" />
+                </IconButton>
+              </div>
             </div>
             <div className="workbook-session__settings-row">
               <span>Толщина</span>
@@ -579,9 +595,11 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
           </div>
         ) : selectedLineObject || tool === "line" ? (
           <div className="workbook-session__settings">
-            <p className="workbook-session__hint">
-              Объект: {selectedLineObject ? selectedObjectLabel : "Новая линия"}
-            </p>
+            {!(selectedLineObject && selectedLineKind === "segment") ? (
+              <p className="workbook-session__hint">
+                Объект: {selectedLineObject ? selectedObjectLabel : "Новая линия"}
+              </p>
+            ) : null}
             <div className="workbook-session__settings-row">
               <span>Тип линии</span>
               <div className="workbook-session__toggle-group">
@@ -643,16 +661,32 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
             </div>
             <div className="workbook-session__settings-row">
               <span>Цвет линии</span>
-              <input
-                type="color"
-                value={selectedLineColor}
-                disabled={!selectedLineObject}
-                onChange={(event) =>
-                  void onUpdateSelectedLineObject({
-                    color: event.target.value || WORKBOOK_BOARD_PRIMARY_COLOR,
-                  })
-                }
-              />
+              <div className="workbook-session__color-control">
+                <input
+                  type="color"
+                  className="workbook-session__line-color"
+                  value={toColorInputValue(selectedLineColor, WORKBOOK_BOARD_PRIMARY_COLOR)}
+                  disabled={!selectedLineObject}
+                  onChange={(event) =>
+                    void onUpdateSelectedLineObject({
+                      color: event.target.value || WORKBOOK_BOARD_PRIMARY_COLOR,
+                    })
+                  }
+                />
+                <IconButton
+                  size="small"
+                  className="workbook-session__color-reset-btn"
+                  aria-label="Сбросить цвет линии"
+                  disabled={!selectedLineObject}
+                  onClick={() =>
+                    void onUpdateSelectedLineObject({
+                      color: WORKBOOK_BOARD_PRIMARY_COLOR,
+                    })
+                  }
+                >
+                  <CloseRoundedIcon fontSize="small" />
+                </IconButton>
+              </div>
             </div>
             <div className="workbook-session__settings-row">
               <span>Толщина линии</span>
@@ -739,7 +773,6 @@ export const WorkbookSessionTransformPanel = memo(function WorkbookSessionTransf
         ) : selectedShape2dObject ? (
           <WorkbookSessionTransformPanelShape2d
             selectedShape2dObject={selectedShape2dObject}
-            selectedObjectLabel={selectedObjectLabel}
             shape2dInspectorTab={shape2dInspectorTab}
             setShape2dInspectorTab={setShape2dInspectorTab}
             selectedShape2dHasAngles={selectedShape2dHasAngles}

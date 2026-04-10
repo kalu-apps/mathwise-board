@@ -16,17 +16,18 @@ import {
   type WorkbookAreaSelection,
   type WorkbookAreaSelectionDraft,
 } from "../model/sceneSelection";
+import { getStrokeRect } from "../model/stroke";
 import {
   buildAreaSelectionDraftState,
   buildAreaSelectionResizeState,
   buildPanState,
   buildPanningOffset,
   buildMovingCurrentPoint,
+  resolveObjectResizeMode,
   buildSolid3dGesturePreviewMeta,
   buildSolid3dResizeState,
   finalizeAreaSelectionDraftWithQueries,
   finalizeAreaSelectionResizeWithQueries,
-  resolveObjectResizeMode,
   shouldKeepObjectSelectedInsideArea,
   type PanState,
   type Solid3dGestureState,
@@ -57,6 +58,7 @@ import {
   isWorkbookStrokeDrawingTool,
   shouldSnapWorkbookPointerForTool,
 } from "../model/sceneTools";
+import { buildWorkbookStrokeMoveProxyObject, type WorkbookStrokeSelection } from "../model/strokeSelection";
 import type { WorkbookBoardObject, WorkbookLayer, WorkbookPoint, WorkbookStroke, WorkbookTool } from "../model/types";
 import type {
   Solid3dHostedPointClassification,
@@ -194,8 +196,10 @@ type InteractionCallbacks = {
     object: WorkbookBoardObject,
     event: PointerEvent<SVGSVGElement>,
     svg: SVGSVGElement,
-    groupOverride?: WorkbookBoardObject[]
+    groupOverride?: WorkbookBoardObject[],
+    groupStrokeSelectionsOverride?: Array<{ id: string; layer: WorkbookLayer }>
   ) => void;
+  toggleObjectPin: (objectId: string, pinned: boolean) => void;
   startResizing: (
     object: WorkbookBoardObject,
     mode: ResizeState["mode"],
@@ -226,7 +230,16 @@ type InteractionCallbacks = {
   finishShape: (draft?: ShapeDraft | null) => void;
   finishMoving: (nextMoving?: MovingState | null) => void;
   finishResizing: (nextResizing?: ResizeState | null) => void;
+  finishAreaSelectionResize?: (
+    nextAreaSelectionResize?: WorkbookAreaSelectionResizeState | null
+  ) => void;
   releasePointerCapture: (svg: SVGSVGElement, pointerId: number) => void;
+  resolveBoundedMovingCurrentPoint?: (
+    moving: MovingState,
+    clientX: number,
+    clientY: number,
+    safeZoom: number
+  ) => WorkbookPoint;
   boardObjectCandidatesInRect: (rect: WorkbookAreaSelection["rect"]) => WorkbookBoardObject[];
   strokeCandidatesInRect: (rect: WorkbookAreaSelection["rect"]) => WorkbookStroke[];
   getObjectSceneLayerId: (object: WorkbookBoardObject) => string;
@@ -235,6 +248,7 @@ type InteractionCallbacks = {
 type InteractionExternalApi = {
   onSelectedConstraintChange: (constraintId: string | null) => void;
   onSelectedObjectChange: (objectId: string | null) => void;
+  onSelectedStrokeChange: (selection: WorkbookStrokeSelection | null) => void;
   onStrokeDelete: (strokeId: string, layer: WorkbookLayer) => void;
   onObjectDelete: (objectId: string) => void;
   onObjectCreate: (object: WorkbookBoardObject) => void;
@@ -263,6 +277,7 @@ type InteractionData = {
   forcePanMode: boolean;
   viewportOffset: WorkbookPoint;
   safeZoom: number;
+  allowHorizontalPan: boolean;
   selectedObjectId: string | null;
   objectById: Map<string, WorkbookBoardObject>;
   areaSelection: WorkbookAreaSelection | null;
@@ -326,6 +341,16 @@ export const useWorkbookCanvasInteractions = (
     areaSelectionDraftRef,
     areaSelectionResizeRef,
   } = refs;
+  const canResizeAreaSelection = useCallback(
+    (selection: WorkbookAreaSelection | null) =>
+      Boolean(
+        selection &&
+          selection.resizeEnabled === true &&
+          selection.objectIds.length === 0 &&
+          selection.strokeIds.length === 1
+      ),
+    []
+  );
 
   const startInteraction = useCallback(
     (event: PointerEvent<SVGSVGElement>) => {
@@ -363,6 +388,9 @@ export const useWorkbookCanvasInteractions = (
         event.clientY,
         shouldSnapPoint
       );
+      if (startMode !== "select") {
+        api.onSelectedStrokeChange(null);
+      }
       if (startMode === "solid3d_insert") {
         api.onSelectedConstraintChange(null);
         api.onSelectedObjectChange(null);
@@ -380,6 +408,7 @@ export const useWorkbookCanvasInteractions = (
 
       if (startMode === "pan") {
         const target = callbacks.resolveTopObject(point);
+        const strokeTarget = !target ? callbacks.resolveTopStroke(point) : null;
         const targetFunctionId =
           target && target.type === "function_graph" && !target.pinned
             ? callbacks.resolveGraphFunctionHit(target, point)
@@ -406,10 +435,40 @@ export const useWorkbookCanvasInteractions = (
           callbacks.startMoving(target, event, svg);
           return;
         }
+        if (strokeTarget) {
+          api.onAreaSelectionChange?.(null);
+          api.onSelectedObjectChange(null);
+          api.onSelectedStrokeChange({
+            id: strokeTarget.id,
+            layer: strokeTarget.layer,
+          });
+          const strokeProxy = buildWorkbookStrokeMoveProxyObject(
+            strokeTarget,
+            data.authorUserId
+          );
+          if (strokeProxy) {
+            callbacks.startMoving(strokeProxy, event, svg, [strokeProxy]);
+            return;
+          }
+        }
         api.onSelectedObjectChange(null);
         pointerIdRef.current = event.pointerId;
         setters.setPanning(buildPanState({ x: event.clientX, y: event.clientY }, data.viewportOffset));
         svg.setPointerCapture(event.pointerId);
+        return;
+      }
+
+      if (startMode === "lock_toggle") {
+        const target = callbacks.resolveTopObject(point);
+        api.onSelectedConstraintChange(null);
+        api.onAreaSelectionChange?.(null);
+        if (target) {
+          api.onSelectedObjectChange(target.id);
+          callbacks.toggleObjectPin(target.id, !target.pinned);
+        } else {
+          api.onSelectedObjectChange(null);
+        }
+        api.onRequestSelectTool?.();
         return;
       }
 
@@ -447,14 +506,13 @@ export const useWorkbookCanvasInteractions = (
           return;
         }
         const target = callbacks.resolveTopObject(point);
-        if (target && !target.pinned) {
+        if (target) {
           api.onSelectedConstraintChange(null);
           const layerId = callbacks.getObjectSceneLayerId(target);
           if (layerId !== "main") {
             data.objectById.forEach((item) => {
               if (
                 item.id !== target.id &&
-                !item.pinned &&
                 callbacks.getObjectSceneLayerId(item) === layerId
               ) {
                 api.onObjectDelete(item.id);
@@ -475,14 +533,14 @@ export const useWorkbookCanvasInteractions = (
       }
 
       if (startMode === "area_select") {
-        if (data.areaSelection) {
-          const resizeMode = resolveAreaSelectionResizeMode(data.areaSelection.rect, point);
+        if (canResizeAreaSelection(data.areaSelection)) {
+          const resizeMode = resolveAreaSelectionResizeMode(data.areaSelection!.rect, point);
           if (resizeMode) {
             pointerIdRef.current = event.pointerId;
             api.onSelectedConstraintChange(null);
             api.onSelectedObjectChange(null);
             setters.setAreaSelectionResize(
-              buildAreaSelectionResizeState(data.areaSelection.rect, resizeMode, point)
+              buildAreaSelectionResizeState(data.areaSelection!.rect, resizeMode, point)
             );
             svg.setPointerCapture(event.pointerId);
             return;
@@ -498,6 +556,7 @@ export const useWorkbookCanvasInteractions = (
 
       if (startMode === "point") {
         api.onSelectedConstraintChange(null);
+        api.onSelectedObjectChange(null);
         const created = buildWorkbookPointObject({
           point,
           layer: data.layer,
@@ -549,22 +608,41 @@ export const useWorkbookCanvasInteractions = (
       }
 
       if (startMode === "select") {
+        if (canResizeAreaSelection(data.areaSelection)) {
+          const areaResizeMode = resolveAreaSelectionResizeMode(data.areaSelection!.rect, point);
+          if (areaResizeMode) {
+            pointerIdRef.current = event.pointerId;
+            api.onSelectedConstraintChange(null);
+            api.onSelectedObjectChange(null);
+            api.onSelectedStrokeChange(null);
+            setters.setAreaSelectionResize(
+              buildAreaSelectionResizeState(data.areaSelection!.rect, areaResizeMode, point)
+            );
+            svg.setPointerCapture(event.pointerId);
+            return;
+          }
+        }
         const selected = data.selectedObjectId
           ? data.objectById.get(data.selectedObjectId) ?? null
           : null;
         const solid3dResizeHit =
-          selected && !selected.pinned && selected.type === "solid3d"
+          selected?.type === "solid3d"
             ? callbacks.resolveSolid3dResizeHandleHit(selected, point)
             : null;
-        const resizeMode =
-          selected && !selected.pinned && selected.type !== "solid3d"
-            ? resolveObjectResizeMode(selected, point)
-            : null;
+        const resizeMode = selected ? resolveObjectResizeMode(selected, point) : null;
         const keepInsideArea = shouldKeepObjectSelectedInsideArea(point, data.areaSelection);
         const groupedTargets = keepInsideArea
           ? collectAreaSelectionObjects(data.areaSelection, data.objectById)
           : [];
+        const groupedStrokeSelections =
+          keepInsideArea && data.areaSelection
+            ? data.areaSelection.strokeIds.map((entry) => ({
+                id: entry.id,
+                layer: entry.layer,
+              }))
+            : [];
         const target = callbacks.resolveTopObject(point);
+        const strokeTarget = callbacks.resolveTopStroke(point);
         const selectAction = resolveWorkbookSelectStartAction({
           hasSelected: Boolean(selected),
           selectedPinned: selected?.pinned ?? true,
@@ -572,13 +650,15 @@ export const useWorkbookCanvasInteractions = (
           hasSolid3dResizeHit: Boolean(solid3dResizeHit),
           hasResizeMode: Boolean(resizeMode),
           keepInsideArea,
-          hasGroupedTargets: groupedTargets.length > 0,
+          hasGroupedTargets:
+            groupedTargets.length > 0 || groupedStrokeSelections.length > 0,
           hasTarget: Boolean(target),
           targetPinned: target?.pinned ?? true,
         });
         api.onSelectedConstraintChange(null);
         if (selectAction === "solid3d_resize" && selected?.type === "solid3d" && solid3dResizeHit) {
           pointerIdRef.current = event.pointerId;
+          api.onSelectedStrokeChange(null);
           setters.setSolid3dResize(
             buildSolid3dResizeState({
               object: selected,
@@ -593,25 +673,81 @@ export const useWorkbookCanvasInteractions = (
         }
         if (selectAction === "resize" && selected && resizeMode) {
           api.onAreaSelectionChange?.(null);
+          api.onSelectedStrokeChange(null);
           callbacks.startResizing(selected, resizeMode, event, svg);
           return;
         }
-        if (selectAction === "move_group" && groupedTargets.length > 0 && data.areaSelection) {
+        if (
+          selectAction === "move_group" &&
+          (groupedTargets.length > 0 || groupedStrokeSelections.length > 0) &&
+          data.areaSelection
+        ) {
+          api.onSelectedStrokeChange(null);
           const proxyObject = buildAreaSelectionProxyObject({
             rect: data.areaSelection.rect,
             layer: data.layer,
             authorUserId: data.authorUserId,
           });
-          callbacks.startMoving(proxyObject, event, svg, groupedTargets);
+          callbacks.startMoving(
+            proxyObject,
+            event,
+            svg,
+            groupedTargets,
+            groupedStrokeSelections
+          );
           return;
         }
         if (selectAction === "move" && target && !target.pinned) {
           api.onAreaSelectionChange?.(null);
+          api.onSelectedStrokeChange(null);
           api.onSelectedObjectChange(target.id);
           callbacks.startMoving(target, event, svg);
           return;
         }
+        if (!target && strokeTarget) {
+          const strokeRect = getStrokeRect(strokeTarget);
+          const strokeSelection = {
+            id: strokeTarget.id,
+            layer: strokeTarget.layer,
+          };
+          if (strokeRect) {
+            const singleStrokeAreaSelection: WorkbookAreaSelection = {
+              objectIds: [],
+              strokeIds: [strokeSelection],
+              rect: strokeRect,
+              resizeEnabled: true,
+            };
+            api.onAreaSelectionChange?.(singleStrokeAreaSelection);
+            api.onSelectedObjectChange(null);
+            api.onSelectedStrokeChange(strokeSelection);
+            const strokeAreaProxy = buildAreaSelectionProxyObject({
+              rect: strokeRect,
+              layer: data.layer,
+              authorUserId: data.authorUserId,
+            });
+            callbacks.startMoving(
+              strokeAreaProxy,
+              event,
+              svg,
+              [],
+              [strokeSelection]
+            );
+            return;
+          }
+          api.onAreaSelectionChange?.(null);
+          api.onSelectedObjectChange(null);
+          api.onSelectedStrokeChange(strokeSelection);
+          const strokeProxy = buildWorkbookStrokeMoveProxyObject(
+            strokeTarget,
+            data.authorUserId
+          );
+          if (strokeProxy) {
+            callbacks.startMoving(strokeProxy, event, svg, [strokeProxy]);
+          }
+          return;
+        }
         api.onSelectedObjectChange(null);
+        api.onSelectedStrokeChange(null);
         api.onAreaSelectionChange?.(null);
         pointerIdRef.current = event.pointerId;
         setters.setAreaSelectionDraft(buildAreaSelectionDraftState(point));
@@ -645,23 +781,27 @@ export const useWorkbookCanvasInteractions = (
           const target = callbacks.resolveTopObject(point);
           if (target && target.id !== data.selectedObjectId) {
             api.onSelectedConstraintChange(null);
+            api.onSelectedStrokeChange(null);
             api.onSelectedObjectChange(target.id);
             api.onRequestSelectTool?.();
             return;
           }
           if (!target && data.selectedObjectId) {
             api.onSelectedConstraintChange(null);
+            api.onSelectedStrokeChange(null);
             api.onSelectedObjectChange(null);
             api.onRequestSelectTool?.();
             return;
           }
         }
         api.onSelectedConstraintChange(null);
+        api.onSelectedStrokeChange(null);
         callbacks.startShape(data.tool as ShapeDraft["tool"], event, svg);
       }
     },
     [
       api,
+      canResizeAreaSelection,
       callbacks,
       data,
       erasedStrokeIdsRef,
@@ -724,7 +864,8 @@ export const useWorkbookCanvasInteractions = (
           data.panning,
           event.clientX,
           event.clientY,
-          data.safeZoom
+          data.safeZoom,
+          data.allowHorizontalPan
         );
         api.onViewportOffsetChange?.(nextOffset);
         return;
@@ -824,12 +965,14 @@ export const useWorkbookCanvasInteractions = (
         return;
       }
       if (continueMode === "moving" && data.moving) {
-        const nextCurrent = buildMovingCurrentPoint(
-          data.moving,
-          event.clientX,
-          event.clientY,
-          data.safeZoom
-        );
+        const nextCurrent = callbacks.resolveBoundedMovingCurrentPoint
+          ? callbacks.resolveBoundedMovingCurrentPoint(
+              data.moving,
+              event.clientX,
+              event.clientY,
+              data.safeZoom
+            )
+          : buildMovingCurrentPoint(data.moving, event.clientX, event.clientY, data.safeZoom);
         setters.scheduleMoving((prev) => (prev ? { ...prev, current: nextCurrent } : prev));
       }
     },
@@ -902,21 +1045,32 @@ export const useWorkbookCanvasInteractions = (
       } else if (finishMode === "shape" && latestShapeDraft) {
         callbacks.finishShape(latestShapeDraft);
       } else if (finishMode === "area_selection_resize" && latestAreaSelectionResize) {
-        api.onAreaSelectionChange?.(
-          finalizeAreaSelectionResizeWithQueries({
-            resize: latestAreaSelectionResize,
-            boardObjectCandidatesInRect: callbacks.boardObjectCandidatesInRect,
-            strokeCandidatesInRect: callbacks.strokeCandidatesInRect,
-          })
-        );
+        if (data.tool === "select" && callbacks.finishAreaSelectionResize) {
+          callbacks.finishAreaSelectionResize(latestAreaSelectionResize);
+        } else {
+          api.onAreaSelectionChange?.(
+            finalizeAreaSelectionResizeWithQueries({
+              resize: latestAreaSelectionResize,
+              boardObjectCandidatesInRect: callbacks.boardObjectCandidatesInRect,
+              strokeCandidatesInRect: callbacks.strokeCandidatesInRect,
+            })
+          );
+        }
         setters.setAreaSelectionResize(null);
       } else if (finishMode === "area_selection_draft" && latestAreaSelectionDraft) {
+        const nextSelection = finalizeAreaSelectionDraftWithQueries({
+          draft: latestAreaSelectionDraft,
+          boardObjectCandidatesInRect: callbacks.boardObjectCandidatesInRect,
+          strokeCandidatesInRect: callbacks.strokeCandidatesInRect,
+        });
         api.onAreaSelectionChange?.(
-          finalizeAreaSelectionDraftWithQueries({
-            draft: latestAreaSelectionDraft,
-            boardObjectCandidatesInRect: callbacks.boardObjectCandidatesInRect,
-            strokeCandidatesInRect: callbacks.strokeCandidatesInRect,
-          })
+          nextSelection
+            ? {
+                ...nextSelection,
+                // Marquee selection in "select"/"area_select" is move-only by design.
+                resizeEnabled: false,
+              }
+            : null
         );
         setters.setAreaSelectionDraft(null);
       } else if (finishMode === "panning" && data.panning) {

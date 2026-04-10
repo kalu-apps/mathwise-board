@@ -11,6 +11,7 @@ import {
   buildWorkbookSnapshotBoardObject,
   resolvePrimaryDocumentRenderedPage,
   resolveWorkbookBoardInsertPosition,
+  resolveWorkbookImportedImageFrameSize,
 } from "@/features/workbook/model/documentAssets";
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import {
@@ -25,6 +26,10 @@ import {
   WORKBOOK_PDF_IMPORT_MAX_BYTES,
   WORKBOOK_PDF_SOURCE_MAX_BYTES,
 } from "@/features/workbook/model/media";
+import {
+  resolveWorkbookImageAspectRatioFromDimensions,
+  withWorkbookImageAspectRatioMeta,
+} from "@/features/workbook/model/imageGeometry";
 import { normalizeScenePayload, WORKBOOK_IMAGE_ASSET_META_KEY } from "@/features/workbook/model/scene";
 import type {
   WorkbookBoardObject,
@@ -53,6 +58,8 @@ export type WorkbookDocumentImportStage = "uploading" | "inserting";
 export type WorkbookPreparedDocumentImport = {
   file: File;
   preparedDataUrl?: string;
+  imageWidth?: number;
+  imageHeight?: number;
   pdfSourceId?: string;
   pdfPageRange?: {
     from: number;
@@ -115,6 +122,18 @@ type UseWorkbookSessionDocumentHandlersParams = {
 
 const PDF_IMPORT_RENDER_CHUNK_SIZE = 3;
 const PDF_IMPORT_UPLOAD_CONCURRENCY = 3;
+
+const readImageMeta = async (dataUrl: string) =>
+  new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () =>
+      resolve({
+        width: Math.max(1, image.naturalWidth || image.width),
+        height: Math.max(1, image.naturalHeight || image.height),
+      });
+    image.onerror = () => reject(new Error("image_decode_failed"));
+    image.src = dataUrl;
+  });
 
 type WorkbookPdfImportRenderProfile = {
   dpi: number;
@@ -196,8 +215,9 @@ const resolvePdfImportRenderProfile = (params: {
 
 const resolvePdfImportInsertSize = (pageCount: number) => {
   const safePageCount = Math.max(1, Math.trunc(pageCount));
-  const compactHeight =
+  const baseCompactHeight =
     safePageCount <= 2 ? 312 : safePageCount <= 4 ? 286 : safePageCount <= 8 ? 252 : 224;
+  const compactHeight = Math.round(baseCompactHeight * 2);
   return {
     compactHeight,
     minWidth: Math.max(150, Math.round(compactHeight * 0.58)),
@@ -309,6 +329,8 @@ export const useWorkbookSessionDocumentHandlers = ({
     async ({
       file,
       preparedDataUrl,
+      imageWidth,
+      imageHeight,
       pdfSourceId,
       pdfPageRange,
       pdfPageCount,
@@ -365,6 +387,17 @@ export const useWorkbookSessionDocumentHandlers = ({
               maxChars: WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS,
             }))
           : "";
+        const resolvedImageMeta = isImage
+          ? Number.isFinite(imageWidth) &&
+            Number.isFinite(imageHeight) &&
+            Number(imageWidth) > 0 &&
+            Number(imageHeight) > 0
+            ? {
+                width: Number(imageWidth),
+                height: Number(imageHeight),
+              }
+            : await readImageMeta(documentAssetDataUrl || sourceDataUrl).catch(() => null)
+          : null;
         const documentAssetId = generateId();
         const uploadedAt = new Date().toISOString();
         let uploadedDocumentAsset:
@@ -515,7 +548,9 @@ export const useWorkbookSessionDocumentHandlers = ({
                   [WORKBOOK_IMAGE_ASSET_META_KEY]: uploadedChunkPage.assetId,
                 },
               };
-              const created = await commitObjectCreate(pageImageObject);
+              const created = await commitObjectCreate(
+                withWorkbookImageAspectRatioMeta(pageImageObject, pageRatio)
+              );
               if (!created) return false;
               renderedPagesAccumulator.push(uploadedChunkPage.page);
               renderedAssetIdsAccumulator.push(uploadedChunkPage.assetId);
@@ -639,7 +674,9 @@ export const useWorkbookSessionDocumentHandlers = ({
                   renderedPageAssetIds[index] ?? documentAssetId,
               },
             };
-            const created = await commitObjectCreate(pageImageObject);
+            const created = await commitObjectCreate(
+              withWorkbookImageAspectRatioMeta(pageImageObject, pageRatio)
+            );
             if (!created) return false;
           }
         } else if (!isPdf) {
@@ -653,9 +690,28 @@ export const useWorkbookSessionDocumentHandlers = ({
             insertPosition,
             imageUrl: objectImageUrl,
             renderedPage,
+            sourceWidth: resolvedImageMeta?.width,
+            sourceHeight: resolvedImageMeta?.height,
             type: isPdf ? "pdf" : isImage ? "image" : "file",
           });
-          const created = await commitObjectCreate(object);
+          const objectWithFrameSize =
+            isImage && object.type === "image"
+              ? {
+                  ...object,
+                  ...resolveWorkbookImportedImageFrameSize({
+                    sourceWidth: resolvedImageMeta?.width,
+                    sourceHeight: resolvedImageMeta?.height,
+                  }),
+                }
+              : object;
+          const objectWithAspectRatio = withWorkbookImageAspectRatioMeta(
+            objectWithFrameSize,
+            resolveWorkbookImageAspectRatioFromDimensions({
+              width: resolvedImageMeta?.width,
+              height: resolvedImageMeta?.height,
+            })
+          );
+          const created = await commitObjectCreate(objectWithAspectRatio);
           if (!created) return false;
         }
         try {
@@ -798,6 +854,8 @@ export const useWorkbookSessionDocumentHandlers = ({
         ? resolvePrimaryDocumentRenderedPage(active.renderedPages, documentState.page)
         : null;
     let snapshotImageUrl: string | undefined;
+    let snapshotImageWidth: number | undefined;
+    let snapshotImageHeight: number | undefined;
     if (active.type === "image") {
       snapshotImageUrl = active.url.startsWith("data:image/")
         ? active.url.length <= WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS
@@ -808,6 +866,11 @@ export const useWorkbookSessionDocumentHandlers = ({
               maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
             })
         : active.url;
+      if (snapshotImageUrl) {
+        const meta = await readImageMeta(snapshotImageUrl).catch(() => null);
+        snapshotImageWidth = meta?.width;
+        snapshotImageHeight = meta?.height;
+      }
     } else if (renderedPage) {
       snapshotImageUrl = renderedPage.imageUrl.startsWith("data:image/")
         ? await optimizeImageDataUrl(renderedPage.imageUrl, {
@@ -816,6 +879,8 @@ export const useWorkbookSessionDocumentHandlers = ({
             maxChars: WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS,
           })
         : renderedPage.imageUrl;
+      snapshotImageWidth = renderedPage.width;
+      snapshotImageHeight = renderedPage.height;
     }
     const object = buildWorkbookSnapshotBoardObject({
       objectId: generateId(),
@@ -825,6 +890,8 @@ export const useWorkbookSessionDocumentHandlers = ({
       createdAt: new Date().toISOString(),
       insertPosition,
       imageUrl: snapshotImageUrl,
+      sourceWidth: snapshotImageWidth,
+      sourceHeight: snapshotImageHeight,
     });
     await commitObjectCreate(object);
   }, [boardObjectCount, canvasViewport, commitObjectCreate, documentState.activeAssetId, documentState.assets, documentState.page, userId]);

@@ -53,8 +53,8 @@ type UseWorkbookSelectionSyncEffectsParams = {
   setIsUtilityPanelOpen: Dispatch<SetStateAction<boolean>>;
   setSolid3dFigureTab: (tab: "display" | "surface" | "faces" | "edges" | "angles") => void;
   setSolid3dInspectorTab: (tab: "figure" | "section" | "hosted") => void;
-  setShape2dInspectorTab: (tab: "display" | "angles") => void;
-  shape2dInspectorTab: "display" | "angles";
+  setShape2dInspectorTab: (tab: "display" | "vertices" | "angles" | "segments") => void;
+  shape2dInspectorTab: "display" | "vertices" | "angles" | "segments";
   setSelectedTextDraft: Dispatch<SetStateAction<string>>;
   setSelectedTextFontSizeDraft: Dispatch<SetStateAction<number>>;
   setLineWidthDraft: (value: number) => void;
@@ -168,6 +168,10 @@ export const useWorkbookSelectionSyncEffects = ({
 
   useEffect(() => {
     if (!selectedShape2dObject) {
+      setShape2dInspectorTab("display");
+      return;
+    }
+    if (selectedShape2dObject.type === "ellipse" && shape2dInspectorTab !== "display") {
       setShape2dInspectorTab("display");
       return;
     }

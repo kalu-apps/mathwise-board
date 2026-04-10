@@ -33,10 +33,12 @@ export default defineConfig(({ mode, command }) => {
     ...(useHttps ? [basicSsl()] : []),
   ];
   if (useEmbeddedRuntime) {
+    const embeddedRuntimeApiModuleSpecifier =
+      "./backend/src/nest/runtime/" + "workbook-runtime-api-adapters";
     plugins.push({
       name: "embedded-runtime-api",
       configureServer(server) {
-        void import("./backend/src/nest/runtime/workbook-runtime-api-adapters")
+        void import(embeddedRuntimeApiModuleSpecifier)
           .then(({ createWorkbookApiMiddleware, attachWorkbookLiveSocketServer }) => {
             server.middlewares.use(createWorkbookApiMiddleware());
             attachWorkbookLiveSocketServer(server.httpServer);

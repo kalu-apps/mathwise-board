@@ -1,0 +1,220 @@
+
+.workbook-session__graph-plane-list {
+  display: grid;
+  gap: 8px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.workbook-session__graph-plane-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 84%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-elevated) 95%, transparent);
+  padding: 8px;
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  strong {
+    font-size: 12px;
+    color: var(--text-primary);
+  }
+
+  span {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  ul {
+    margin: 0;
+    padding-left: 14px;
+    display: grid;
+    gap: 4px;
+    max-height: 96px;
+    overflow: auto;
+  }
+
+  li {
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.35;
+    display: grid;
+    gap: 2px;
+  }
+
+  small {
+    color: var(--text-muted);
+    font-size: 10px;
+  }
+}
+
+.workbook-session__graph-plane-card.is-active {
+  border-color: color-mix(in srgb, var(--brand-solid) 60%, var(--border-strong));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-solid) 20%, transparent) inset;
+}
+
+.workbook-session__graph-plane-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.workbook-session__graph-mode-tabs {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.workbook-session__graph-mode-tabs button {
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
+  border-radius: 8px;
+  min-height: 30px;
+  padding: 4px 10px;
+  background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.workbook-session__graph-mode-tabs button.is-active {
+  border-color: color-mix(in srgb, var(--brand-solid) 56%, var(--border-strong));
+  background: color-mix(in srgb, var(--brand-soft) 18%, var(--surface-elevated));
+  color: var(--text-primary);
+}
+
+.workbook-session__graph-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 6px;
+}
+
+.workbook-session__graph-preset {
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 84%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px;
+  text-align: left;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.workbook-session__graph-preset:hover {
+  border-color: color-mix(in srgb, var(--brand-solid) 56%, var(--border-strong));
+  transform: translateY(-1px);
+}
+
+.workbook-session__graph-preset.is-selected {
+  border-color: color-mix(in srgb, var(--brand-solid) 72%, var(--border-strong));
+  background: color-mix(in srgb, var(--brand-soft) 22%, var(--surface-elevated));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-solid) 26%, transparent) inset;
+}
+
+.workbook-session__graph-preset strong {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.workbook-session__graph-preset span {
+  font-family: "JetBrains Mono", "Fira Mono", monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.workbook-session__graph-preset small {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.workbook-session__graph-builder-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: start;
+}
+
+.workbook-session__graph-appearance {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+
+  label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
+    border-radius: 8px;
+    padding: 4px 8px;
+    background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+  }
+
+  span {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  input[type="color"] {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    padding: 0;
+  }
+}
+
+.workbook-session__graph-appearance-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
+  .MuiIconButton-root {
+    width: 24px;
+    height: 24px;
+    color: var(--text-secondary);
+  }
+}
+
+.workbook-session__graph-plane-reset-btn.MuiIconButton-root,
+.workbook-session__graph-plane-reset-btn.MuiIconButton-root:hover {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.workbook-session__graph-builder-list {
+  display: grid;
+  gap: 8px;
+  max-height: 224px;
+  overflow: auto;
+}
+
+.workbook-session__graph-builder-item {
+  display: grid;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--brand-soft) 18%, var(--border-subtle));
+  border-radius: 16px;
+  padding: 8px 9px;
+  background:
+    linear-gradient(
+      140deg,
+      color-mix(in srgb, var(--surface-elevated) 96%, transparent),
+      color-mix(in srgb, var(--brand-soft) 7%, var(--surface-elevated))
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 12%, transparent),
+    0 10px 18px color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+.workbook-session__graph-builder-item--work {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding-right: 0;
+}
+

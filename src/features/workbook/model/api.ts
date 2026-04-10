@@ -8,6 +8,10 @@ import {
   enqueueWorkbookSnapshotPersistence,
   flushWorkbookPersistenceQueue,
 } from "./persistenceQueue";
+import {
+  observeWorkbookEventsPostAttempt,
+  observeWorkbookEventsPostConflict,
+} from "./workbookEventsPostDiagnostics";
 import type {
   WorkbookDraftCard,
   WorkbookEvent,
@@ -398,6 +402,12 @@ export async function appendWorkbookEvents(params: {
   events: WorkbookClientEventInput[];
 }) {
   const idempotencyKey = `event-${generateId()}`;
+  observeWorkbookEventsPostAttempt({
+    sessionId: params.sessionId,
+    source: "direct",
+    idempotencyKey,
+    events: params.events,
+  });
   try {
     const response = await api.post<{ events: WorkbookEvent[]; latestSeq: number }>(
       `/workbook/sessions/${encodeURIComponent(params.sessionId)}/events`,
@@ -411,6 +421,14 @@ export async function appendWorkbookEvents(params: {
     void flushWorkbookPersistenceQueue();
     return response;
   } catch (error) {
+    if (error instanceof ApiError && error.status === 409 && error.code === "conflict") {
+      observeWorkbookEventsPostConflict({
+        sessionId: params.sessionId,
+        source: "direct",
+        idempotencyKey,
+        events: params.events,
+      });
+    }
     if (isRecoverableApiError(error)) {
       enqueueWorkbookEventsPersistence({
         sessionId: params.sessionId,

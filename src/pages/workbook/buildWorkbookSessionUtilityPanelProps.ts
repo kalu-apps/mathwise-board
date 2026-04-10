@@ -5,9 +5,11 @@ import type { WorkbookSessionGraphPanelProps } from "./WorkbookSessionGraphPanel
 type BuildWorkbookSessionUtilityPanelPropsInput = {
   settings: {
     boardSettings: WorkbookBoardSettings;
+    currentBoardPage: number;
     onSharedBoardSettingsChange: (patch: Partial<WorkbookBoardSettings>) => void;
     boardPageOptions: WorkbookSessionBoardSettingsPanelProps["pageOptions"];
     canManageSharedBoardSettings: boolean;
+    compactToolSettings?: WorkbookSessionBoardSettingsPanelProps["compactToolSettings"];
   };
   graph: {
     graphTabUsesSelectedObject: boolean;
@@ -16,8 +18,6 @@ type BuildWorkbookSessionUtilityPanelPropsInput = {
     selectedFunctionGraphAxisColor: string;
     selectedFunctionGraphPlaneColor: string;
     graphWorkbenchTab: "catalog" | "work";
-    graphExpressionDraft: string;
-    graphDraftError: string | null;
     selectedGraphPresetId: string | null;
     graphTabFunctions: WorkbookSessionGraphPanelProps["graphTabFunctions"];
     onCreatePlane: () => void;
@@ -27,12 +27,9 @@ type BuildWorkbookSessionUtilityPanelPropsInput = {
     onClearPlaneBackground: () => void;
     onSelectCatalogTab: () => void;
     onSelectWorkTab: () => void;
-    onGraphExpressionDraftChange: (value: string) => void;
-    onAddGraphFunction: () => void;
     onSelectGraphPreset: (presetId: string, expression: string) => void;
     onGraphFunctionColorChange: (id: string, color: string) => void;
-    onGraphFunctionExpressionChange: (id: string, value: string) => void;
-    onCommitGraphExpressions: () => void;
+    onToggleGraphFunctionDashed: (id: string, dashed: boolean) => void;
     onRemoveGraphFunction: (id: string) => void;
     onToggleGraphFunctionVisibility: (id: string, hidden: boolean) => void;
     onReflectGraphFunctionByAxis: (id: string, axis: "x" | "y") => void;
@@ -45,9 +42,11 @@ export const buildWorkbookSessionUtilityPanelProps = ({
 }: BuildWorkbookSessionUtilityPanelPropsInput) => {
   const settingsPanelProps: WorkbookSessionBoardSettingsPanelProps = {
     sharedBoardSettings: settings.boardSettings,
+    currentBoardPage: settings.currentBoardPage,
     onSharedBoardSettingsChange: settings.onSharedBoardSettingsChange,
     pageOptions: settings.boardPageOptions,
     canManageSharedBoardSettings: settings.canManageSharedBoardSettings,
+    compactToolSettings: settings.compactToolSettings,
   };
 
   const graphPanelProps: WorkbookSessionGraphPanelProps = {
@@ -64,16 +63,11 @@ export const buildWorkbookSessionUtilityPanelProps = ({
     graphWorkbenchTab: graph.graphWorkbenchTab,
     onSelectCatalogTab: graph.onSelectCatalogTab,
     onSelectWorkTab: graph.onSelectWorkTab,
-    graphExpressionDraft: graph.graphExpressionDraft,
-    graphDraftError: graph.graphDraftError,
-    onGraphExpressionDraftChange: graph.onGraphExpressionDraftChange,
-    onAddGraphFunction: graph.onAddGraphFunction,
     selectedGraphPresetId: graph.selectedGraphPresetId,
     onSelectGraphPreset: graph.onSelectGraphPreset,
     graphTabFunctions: graph.graphTabFunctions,
     onGraphFunctionColorChange: graph.onGraphFunctionColorChange,
-    onGraphFunctionExpressionChange: graph.onGraphFunctionExpressionChange,
-    onCommitGraphExpressions: graph.onCommitGraphExpressions,
+    onToggleGraphFunctionDashed: graph.onToggleGraphFunctionDashed,
     onRemoveGraphFunction: graph.onRemoveGraphFunction,
     onToggleGraphFunctionVisibility: graph.onToggleGraphFunctionVisibility,
     onReflectGraphFunctionByAxis: graph.onReflectGraphFunctionByAxis,

@@ -1,6 +1,7 @@
-import { Popover } from "@mui/material";
+import { Popover, Switch } from "@mui/material";
+import { toColorInputValue } from "@/shared/lib/colorInput";
 
-export type WorkbookToolSettingsPopoverTool = "pen" | "highlighter" | "eraser";
+export type WorkbookToolSettingsPopoverTool = "pen" | "highlighter" | "eraser" | "divider";
 
 export type WorkbookToolSettingsPopoverState = {
   tool: WorkbookToolSettingsPopoverTool;
@@ -26,12 +27,19 @@ type WorkbookSessionToolSettingsPopoverProps = {
   onPenToolSettingsChange: (patch: Partial<ToolPaintSettings>) => void;
   onHighlighterToolSettingsChange: (patch: Partial<ToolPaintSettings>) => void;
   onEraserRadiusChange: (value: number) => void;
+  dividerColor: string;
+  dividerWidth: number;
+  dividerLineStyle: "solid" | "dashed";
+  onDividerColorChange: (value: string) => void;
+  onDividerWidthChange: (value: number) => void;
+  onDividerLineStyleChange: (value: "solid" | "dashed") => void;
 };
 
 const TOOL_TITLES: Record<WorkbookToolSettingsPopoverTool, string> = {
   pen: "Ручка",
   highlighter: "Маркер",
   eraser: "Ластик",
+  divider: "Разделитель",
 };
 
 export function WorkbookSessionToolSettingsPopover({
@@ -47,6 +55,12 @@ export function WorkbookSessionToolSettingsPopover({
   onPenToolSettingsChange,
   onHighlighterToolSettingsChange,
   onEraserRadiusChange,
+  dividerColor,
+  dividerWidth,
+  dividerLineStyle,
+  onDividerColorChange,
+  onDividerWidthChange,
+  onDividerLineStyleChange,
 }: WorkbookSessionToolSettingsPopoverProps) {
   const portalContainer =
     typeof document !== "undefined"
@@ -95,7 +109,7 @@ export function WorkbookSessionToolSettingsPopover({
                       <input
                         type="color"
                         name="pen-color"
-                        value={penToolSettings.color}
+                        value={toColorInputValue(penToolSettings.color, "#2f4f7f")}
                         onChange={(event) =>
                           onPenToolSettingsChange({ color: event.target.value })
                         }
@@ -139,7 +153,7 @@ export function WorkbookSessionToolSettingsPopover({
                     <input
                       type="color"
                       name="highlighter-color"
-                      value={highlighterToolSettings.color}
+                      value={toColorInputValue(highlighterToolSettings.color, "#d9c16f")}
                       onChange={(event) =>
                         onHighlighterToolSettingsChange({ color: event.target.value })
                       }
@@ -189,6 +203,94 @@ export function WorkbookSessionToolSettingsPopover({
                     onChange={(event) => onEraserRadiusChange(Number(event.target.value))}
                   />
                   <span>{eraserRadius} px</span>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {tool === "divider" ? (
+            <div className="workbook-session__tool-settings-cluster">
+              <div className="workbook-session__tool-settings-cluster-title">
+                Вид и толщина
+              </div>
+              <div className="workbook-session__tool-settings-split workbook-session__tool-settings-split--divider">
+                <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact workbook-session__tool-settings-field--divider-color">
+                  <div className="workbook-session__tool-settings-field-main">
+                    <strong>Цвет</strong>
+                  </div>
+                  <label className="workbook-session__tool-settings-color workbook-session__tool-settings-color--divider">
+                    <input
+                      type="color"
+                      name="divider-color"
+                      value={toColorInputValue(dividerColor, "#2f4f7f")}
+                      onChange={(event) => onDividerColorChange(event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact workbook-session__tool-settings-field--divider-style">
+                  <div className="workbook-session__tool-settings-field-main">
+                    <strong>Линия</strong>
+                  </div>
+                  <label className="workbook-session__tool-settings-divider-switch">
+                    <span className="workbook-session__tool-settings-divider-switch-label">
+                      Пунктир
+                    </span>
+                    <Switch
+                      size="small"
+                      className="workbook-session__tool-settings-divider-switch-control"
+                      checked={dividerLineStyle === "dashed"}
+                      onChange={(event) =>
+                        onDividerLineStyleChange(event.target.checked ? "dashed" : "solid")
+                      }
+                      sx={{
+                        width: 32,
+                        height: 20,
+                        padding: 0,
+                        overflow: "hidden",
+                        flexShrink: 0,
+                        "& .MuiSwitch-switchBase": {
+                          padding: "2px",
+                          "&.Mui-checked": {
+                            transform: "translateX(12px)",
+                          },
+                        },
+                        "& .MuiSwitch-thumb": {
+                          width: 16,
+                          height: 16,
+                        },
+                        "& .MuiSwitch-track": {
+                          borderRadius: "999px",
+                          opacity: 1,
+                          backgroundColor: "var(--surface-base)",
+                          border: "1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent)",
+                        },
+                        "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
+                          backgroundColor:
+                            "color-mix(in srgb, var(--brand-soft) 36%, var(--surface-base))",
+                          border:
+                            "1px solid color-mix(in srgb, var(--brand-solid) 52%, var(--border-subtle))",
+                          opacity: 1,
+                        },
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+              <div className="workbook-session__tool-settings-field workbook-session__tool-settings-field--compact workbook-session__tool-settings-field--divider-width">
+                <div className="workbook-session__tool-settings-field-main">
+                  <strong>Толщина</strong>
+                </div>
+                <div className="workbook-session__tool-settings-range">
+                  <input
+                    type="range"
+                    name="divider-width"
+                    min={1}
+                    max={18}
+                    step={1}
+                    value={dividerWidth}
+                    onChange={(event) => onDividerWidthChange(Number(event.target.value))}
+                  />
+                  <span>{dividerWidth} px</span>
                 </div>
               </div>
             </div>

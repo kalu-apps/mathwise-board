@@ -5,6 +5,15 @@ import type {
   WorkbookBoardSettings,
   WorkbookStroke,
 } from "@/features/workbook/model/types";
+import {
+  extractWorkbookBoardPageVisualSettingsPatch,
+  normalizeWorkbookBoardPageVisualSettings,
+  normalizeWorkbookBoardPageVisualSettingsByPage,
+  remapWorkbookBoardPageVisualSettingsByPageAfterDelete,
+  resolveWorkbookBoardPageVisualDefaults,
+  resolveWorkbookBoardPageVisualSettings,
+} from "@/features/workbook/model/boardPageSettings";
+import { normalizeWorkbookPageFrameWidth } from "@/features/workbook/model/pageFrame";
 import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import {
   buildBoardSettingsDiffPatch,
@@ -33,6 +42,7 @@ type UseWorkbookBoardSettingsPagesParams = {
   canManageSharedBoardSettings: boolean;
   canDelete: boolean;
   isBoardPageMutationPending: boolean;
+  currentBoardPage: number;
   appendEventsAndApply: AppendEventsAndApply;
   boardSettingsRef: MutableRefObject<WorkbookBoardSettings>;
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
@@ -59,6 +69,7 @@ export const useWorkbookBoardSettingsPages = ({
   canManageSharedBoardSettings,
   canDelete,
   isBoardPageMutationPending,
+  currentBoardPage,
   appendEventsAndApply,
   boardSettingsRef,
   boardObjectsRef,
@@ -88,6 +99,7 @@ export const useWorkbookBoardSettingsPages = ({
         ? {
             forward: [{ kind: "patch_board_settings", patch: forwardPatch }],
             inverse: [{ kind: "patch_board_settings", patch: inversePatch }],
+            page: toSafeWorkbookPage(currentBoardPage),
             createdAt: new Date().toISOString(),
           }
         : null;
@@ -162,6 +174,7 @@ export const useWorkbookBoardSettingsPages = ({
     boardSettingsCommitInFlightRef,
     boardSettingsCommitTimerRef,
     canManageSharedBoardSettings,
+    currentBoardPage,
     queuedBoardSettingsCommitRef,
     queuedBoardSettingsHistoryBeforeRef,
     setBoardSettings,
@@ -195,7 +208,36 @@ export const useWorkbookBoardSettingsPages = ({
         if (!queuedBoardSettingsHistoryBeforeRef.current) {
           queuedBoardSettingsHistoryBeforeRef.current = cloneSerializable(current);
         }
-        const merged = { ...current, ...patch };
+        const pageVisualPatch = extractWorkbookBoardPageVisualSettingsPatch(patch);
+        const hasPageVisualPatch = Object.keys(pageVisualPatch).length > 0;
+        const merged: WorkbookBoardSettings = {
+          ...current,
+          ...patch,
+        };
+        if (hasPageVisualPatch) {
+          const targetPage = toSafeWorkbookPage(currentBoardPage);
+          const currentPageVisualSettings = resolveWorkbookBoardPageVisualSettings(
+            current,
+            targetPage
+          );
+          const nextPageVisualSettings = normalizeWorkbookBoardPageVisualSettings(
+            {
+              ...currentPageVisualSettings,
+              ...pageVisualPatch,
+            },
+            currentPageVisualSettings
+          );
+          merged.pageBoardSettingsByPage = {
+            ...(current.pageBoardSettingsByPage ?? {}),
+            [String(targetPage)]: nextPageVisualSettings,
+          };
+          // Keep root defaults stable; page-specific values are stored in pageBoardSettingsByPage.
+          merged.showGrid = current.showGrid;
+          merged.gridSize = current.gridSize;
+          merged.gridColor = current.gridColor;
+          merged.backgroundColor = current.backgroundColor;
+          merged.snapToGrid = current.snapToGrid;
+        }
         const normalizedLayers = normalizeSceneLayersForBoard(
           merged.sceneLayers,
           merged.activeSceneLayerId
@@ -235,11 +277,22 @@ export const useWorkbookBoardSettingsPages = ({
           pagesCount: safePagesCount,
           pageOrder: normalizedPageOrder,
           pageTitles: normalizedPageTitles,
+          pageFrameWidth: normalizeWorkbookPageFrameWidth(
+            merged.pageFrameWidth ?? current.pageFrameWidth
+          ),
           dividerStep: Math.max(
             320,
             Math.min(2400, Math.round(merged.dividerStep || current.dividerStep || 320))
           ),
         };
+        const fallbackPageVisualSettings =
+          resolveWorkbookBoardPageVisualDefaults(nextSettings);
+        nextSettings.pageBoardSettingsByPage =
+          normalizeWorkbookBoardPageVisualSettingsByPage(
+            merged.pageBoardSettingsByPage,
+            fallbackPageVisualSettings,
+            safePagesCount
+          );
         scheduleBoardSettingsCommit(nextSettings);
         return nextSettings;
       });
@@ -249,6 +302,7 @@ export const useWorkbookBoardSettingsPages = ({
       boardObjectsRef,
       boardStrokesRef,
       canManageSharedBoardSettings,
+      currentBoardPage,
       isBoardPageMutationPending,
       queuedBoardSettingsHistoryBeforeRef,
       scheduleBoardSettingsCommit,
@@ -365,7 +419,7 @@ export const useWorkbookBoardSettingsPages = ({
   );
 
   const handleAddBoardPage = useCallback(() => {
-    if (!canManageSharedBoardSettings || isBoardPageMutationPending) return;
+    if (!canManageSharedBoardSettings || isBoardPageMutationPending) return false;
     const maxKnownPage = resolveMaxKnownWorkbookPage({
       pagesCount: boardSettingsRef.current.pagesCount,
       boardObjects: boardObjectsRef.current,
@@ -373,12 +427,27 @@ export const useWorkbookBoardSettingsPages = ({
       annotationStrokes: annotationStrokesRef.current,
     });
     const nextPage = maxKnownPage + 1;
+    const fallbackPageVisualSettings = resolveWorkbookBoardPageVisualDefaults(
+      boardSettingsRef.current
+    );
+    const nextPageVisualSettings = normalizeWorkbookBoardPageVisualSettings(
+      {
+        ...fallbackPageVisualSettings,
+        showGrid: true,
+      },
+      fallbackPageVisualSettings
+    );
     const currentOrder = normalizeWorkbookPageOrder(boardSettingsRef.current.pageOrder, maxKnownPage);
     handleSharedBoardSettingsChange({
       pagesCount: nextPage,
       currentPage: nextPage,
       pageOrder: [...currentOrder, nextPage],
+      pageBoardSettingsByPage: {
+        ...(boardSettingsRef.current.pageBoardSettingsByPage ?? {}),
+        [String(nextPage)]: nextPageVisualSettings,
+      },
     });
+    return true;
   }, [
     annotationStrokesRef,
     boardObjectsRef,
@@ -391,10 +460,10 @@ export const useWorkbookBoardSettingsPages = ({
 
   const handleDeleteBoardPage = useCallback(
     async (targetPage: number) => {
-      if (!canManageSharedBoardSettings || !canDelete || isBoardPageMutationPending) return;
+      if (!canManageSharedBoardSettings || !canDelete || isBoardPageMutationPending) return false;
       if (boardSettingsCommitInFlightRef.current) {
         setError("Дождитесь завершения синхронизации настроек и повторите попытку.");
-        return;
+        return false;
       }
 
       const boardSettingsSnapshot = boardSettingsRef.current;
@@ -410,7 +479,7 @@ export const useWorkbookBoardSettingsPages = ({
 
       if (maxKnownPage <= 1) {
         setError("Нельзя удалить единственную страницу доски.");
-        return;
+        return false;
       }
 
       const safeTargetPage = Math.min(maxKnownPage, toSafeWorkbookPage(targetPage));
@@ -524,6 +593,15 @@ export const useWorkbookBoardSettingsPages = ({
           const shiftedPage = parsedPage > safeTargetPage ? parsedPage - 1 : parsedPage;
           shiftedPageTitles[String(shiftedPage)] = value;
         });
+        const fallbackPageVisualSettings =
+          resolveWorkbookBoardPageVisualDefaults(boardSettingsSnapshot);
+        const shiftedPageBoardSettingsByPage =
+          remapWorkbookBoardPageVisualSettingsByPageAfterDelete({
+            source: boardSettingsSnapshot.pageBoardSettingsByPage,
+            targetPage: safeTargetPage,
+            fallback: fallbackPageVisualSettings,
+            maxKnownPage: nextPagesCount,
+          });
         events.push({
           type: "board.settings.update",
           payload: {
@@ -532,13 +610,16 @@ export const useWorkbookBoardSettingsPages = ({
               currentPage: nextCurrentPage,
               pageOrder: nextPageOrder,
               pageTitles: shiftedPageTitles,
+              pageBoardSettingsByPage: shiftedPageBoardSettingsByPage,
             },
           },
         });
 
         await appendEventsAndApply(events);
+        return true;
       } catch {
         setError("Не удалось удалить страницу доски.");
+        return false;
       } finally {
         setIsBoardPageMutationPending(false);
       }

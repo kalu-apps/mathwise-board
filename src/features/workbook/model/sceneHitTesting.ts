@@ -252,7 +252,7 @@ export const isWorkbookObjectErasedByCircle = (
     object.type === "net3d" ||
     (typeof object.meta?.parentSolidId === "string" && object.meta.parentSolidId.trim().length > 0);
   if (isNonErasableSolidDomain) return false;
-  if (object.pinned || object.locked) return false;
+  if (object.locked) return false;
   const objectRect = getObjectRect(object);
   if (!circleIntersectsRect(center, radius, objectRect)) return false;
   if (isWorkbookObjectHit(object, center)) return true;

@@ -17,7 +17,11 @@ export type WorkbookCanvasAreaSelection = WorkbookAreaSelection;
 
 export type WorkbookEraserCommitPayload = {
   strokeDeletes: Array<{ strokeId: string; layer: WorkbookLayer }>;
-  strokeReplacements: Array<{ stroke: WorkbookStroke; fragments: WorkbookPoint[][] }>;
+  strokeReplacements: Array<{
+    stroke: WorkbookStroke;
+    fragments: WorkbookPoint[][];
+    preserveSourceId?: boolean;
+  }>;
   objectUpdates: Array<{ objectId: string; patch: Partial<WorkbookBoardObject> }>;
 };
 
@@ -80,9 +84,11 @@ export type WorkbookCanvasProps = {
   stickerText?: string;
   commentText?: string;
   lineStyle?: "solid" | "dashed";
+  dividerLineStyle?: "solid" | "dashed";
   snapToGrid?: boolean;
   gridSize?: number;
   viewportZoom?: number;
+  pageFrameWidth?: number;
   visibilityMode?: "viewport" | "full";
   showGrid?: boolean;
   gridColor?: string;
@@ -127,6 +133,7 @@ export type WorkbookCanvasProps = {
   onStrokeReplace: (payload: {
     stroke: WorkbookStroke;
     fragments: WorkbookPoint[][];
+    preserveSourceId?: boolean;
   }) => void;
   onObjectCreate: (object: WorkbookBoardObject) => void;
   getLatestBoardObject?: (objectId: string) => WorkbookBoardObject | null;
@@ -138,8 +145,10 @@ export type WorkbookCanvasProps = {
       markDirty?: boolean;
     }
   ) => void;
+  onObjectPinToggle: (objectId: string, pinned: boolean) => void;
   onObjectDelete: (objectId: string) => void;
   onObjectContextMenu?: (objectId: string, anchor: { x: number; y: number }) => void;
+  onObjectDoubleClick?: (object: WorkbookBoardObject) => void;
   onShapeVertexContextMenu?: (payload: {
     objectId: string;
     vertexIndex: number;

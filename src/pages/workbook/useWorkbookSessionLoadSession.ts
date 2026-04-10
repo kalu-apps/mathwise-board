@@ -321,7 +321,10 @@ export const useWorkbookSessionLoadSession = ({
               processChunk: (chunk) => {
                 chunk.forEach((item) => {
                   if (item.layer !== "board") return;
-                  const clamped = clampBoardObjectToPageFrame(item);
+                  const clamped = clampBoardObjectToPageFrame(
+                    item,
+                    normalizedBoard.boardSettings.pageFrameWidth
+                  );
                   const nextPosition = nextBoardObjects.length;
                   nextBoardObjects.push(clamped);
                   nextBoardObjectIndex.set(clamped.id, nextPosition);

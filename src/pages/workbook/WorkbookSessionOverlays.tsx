@@ -1,18 +1,15 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Button,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  IconButton,
   Menu,
   MenuItem,
   Switch,
   TextField,
 } from "@mui/material";
-import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
-import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import { SOLID3D_PRESETS } from "@/features/workbook/model/solid3d";
 import type { WorkbookBoardObject, WorkbookTool } from "@/features/workbook/model/types";
 import {
@@ -20,7 +17,6 @@ import {
   supportsTransformUtilityPanel,
 } from "./WorkbookSessionPage.geometry";
 import type {
-  WorkbookAreaSelection,
   WorkbookLineEndpointContextMenu,
   WorkbookObjectContextMenu,
   WorkbookShapeVertexContextMenu,
@@ -30,9 +26,12 @@ import type {
 } from "@/features/workbook/model/workbookSessionUiTypes";
 import { SolidPresetPreview } from "@/features/workbook/ui/WorkbookCatalogPreviews";
 import type { Solid3dSectionState } from "@/features/workbook/model/solid3dState";
+import { toColorInputValue } from "@/shared/lib/colorInput";
 type Updater<T> = T | ((current: T) => T);
 type ContextMenuPoint = { x: number; y: number };
 type ShapeCatalogItem = { id: string; title: string; subtitle: string; icon: ReactNode; apply: () => void; tool: WorkbookTool };
+type DividerMetaPatch = Partial<{ lineStyle: "solid" | "dashed" }>;
+type DividerObjectPatch = Partial<{ color: string; strokeWidth: number }>;
 type WorkbookSessionOverlaysProps = {
   overlayContainer: Element | null | undefined;
   isClearSessionChatDialogOpen: boolean;
@@ -91,13 +90,20 @@ type WorkbookSessionOverlaysProps = {
   renamePointObject: (objectId: string, label: string) => void | Promise<void>;
   canDelete: boolean;
   commitObjectDelete: (objectId: string) => void | Promise<void>;
-  commitObjectPin: (objectId: string, pinned: boolean) => void | Promise<void>;
   scaleObject: (factor: number, objectId?: string) => void | Promise<void>;
   commitObjectReorder: (objectId: string, direction: "front" | "back") => void | Promise<void>;
   canBringContextMenuImageToFront: boolean;
   canSendContextMenuImageToBack: boolean;
   canRestoreContextMenuImage: boolean;
   restoreImageOriginalView: (objectId?: string) => void;
+  updateDividerObjectById?: (
+    objectId: string,
+    patch: DividerObjectPatch
+  ) => void | Promise<void>;
+  updateDividerMetaById?: (
+    objectId: string,
+    patch: DividerMetaPatch
+  ) => void | Promise<void>;
   areaSelectionContextMenu: ContextMenuPoint | null;
   areaSelectionHasContent: boolean;
   setAreaSelectionContextMenu: (value: Updater<ContextMenuPoint | null>) => void;
@@ -107,8 +113,6 @@ type WorkbookSessionOverlaysProps = {
   fillAreaSelection: (fillColor?: string) => void | Promise<void>;
   areaFillDefaultColor: string;
   canCropAreaSelectionImage: boolean;
-  createCompositionFromAreaSelection: () => void | Promise<void>;
-  areaSelection: WorkbookAreaSelection | null;
   deleteAreaSelectionObjects: () => void | Promise<void>;
   canSelect: boolean;
   isStereoDialogOpen: boolean;
@@ -131,11 +135,9 @@ export function WorkbookSessionOverlays({
   solid3dVertexContextMenu,
   setSolid3dVertexContextMenu,
   renameSolid3dVertex,
-  getSolidVertexLabel,
   solid3dSectionVertexContextMenu,
   setSolid3dSectionVertexContextMenu,
   renameSolid3dSectionVertex,
-  getSectionVertexLabel,
   solid3dSectionContextMenu,
   setSolid3dSectionContextMenu,
   contextMenuSection,
@@ -162,13 +164,14 @@ export function WorkbookSessionOverlays({
   renamePointObject,
   canDelete,
   commitObjectDelete,
-  commitObjectPin,
   scaleObject,
   commitObjectReorder,
   canBringContextMenuImageToFront,
   canSendContextMenuImageToBack,
   canRestoreContextMenuImage,
   restoreImageOriginalView,
+  updateDividerObjectById,
+  updateDividerMetaById,
   areaSelectionContextMenu,
   areaSelectionHasContent,
   setAreaSelectionContextMenu,
@@ -178,8 +181,6 @@ export function WorkbookSessionOverlays({
   fillAreaSelection,
   areaFillDefaultColor,
   canCropAreaSelectionImage,
-  createCompositionFromAreaSelection,
-  areaSelection,
   deleteAreaSelectionObjects,
   canSelect,
   isStereoDialogOpen,
@@ -190,11 +191,49 @@ export function WorkbookSessionOverlays({
   shapeCatalog,
   activateTool,
 }: WorkbookSessionOverlaysProps) {
+  const compactRenameFieldSx = useMemo(
+    () => ({
+      "& .MuiOutlinedInput-root": {
+        borderRadius: "8px",
+        boxShadow: "none !important",
+      },
+      "& .MuiOutlinedInput-root .MuiOutlinedInput-notchedOutline": {
+        borderColor: "var(--input-border)",
+      },
+      "& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline": {
+        borderColor: "var(--input-border)",
+      },
+      "& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline": {
+        borderColor: "var(--input-border)",
+        borderWidth: "1px",
+      },
+      "& .MuiInputBase-input": {
+        fontSize: "12px",
+        lineHeight: 1.2,
+        padding: "6px 8px",
+      },
+      "& .MuiInputBase-input:focus, & .MuiInputBase-input:focus-visible": {
+        outline: "none",
+        boxShadow: "none",
+      },
+    }),
+    []
+  );
+
   const [pointRenameTargetId, setPointRenameTargetId] = useState<string | null>(null);
   const [areaFillMenuAnchor, setAreaFillMenuAnchor] = useState<ContextMenuPoint | null>(
     null
   );
   const [areaFillColorDraft, setAreaFillColorDraft] = useState("#2f4f7f");
+  const contextMenuDividerObject =
+    contextMenuObject?.type === "section_divider" ? contextMenuObject : null;
+  const dividerColorValue = toColorInputValue(contextMenuDividerObject?.color, "#2f4f7f");
+  const dividerWidthValue = Math.max(
+    1,
+    Math.min(18, Math.round(contextMenuDividerObject?.strokeWidth ?? 2))
+  );
+  const dividerLineStyle =
+    contextMenuDividerObject?.meta?.lineStyle === "solid" ? "solid" : "dashed";
   const contextMenuContainer =
     overlayContainer ??
     (typeof document !== "undefined" ? document.fullscreenElement ?? document.body : null);
@@ -248,44 +287,19 @@ export function WorkbookSessionOverlays({
                 size="small"
                 placeholder="Название вершины"
                 inputProps={{ "aria-label": "Название вершины" }}
+                sx={compactRenameFieldSx}
                 value={solid3dVertexContextMenu?.label ?? ""}
-                onChange={(event) =>
-                  setSolid3dVertexContextMenu((current) =>
-                    current ? { ...current, label: event.target.value } : current
-                  )
-                }
+                onChange={(event) => {
+                  const nextLabel = event.target.value.slice(0, 12);
+                  setSolid3dVertexContextMenu((current) => {
+                    if (!current) return current;
+                    void renameSolid3dVertex(current.vertexIndex, nextLabel);
+                    return { ...current, label: nextLabel };
+                  });
+                }}
+                onKeyDown={(event) => event.stopPropagation()}
+                autoFocus
               />
-              <div className="workbook-session__solid-menu-actions workbook-session__solid-menu-actions--icons">
-                <IconButton
-                  size="small"
-                  aria-label="Сбросить название вершины"
-                  onClick={() => {
-                    if (!solid3dVertexContextMenu) return;
-                    void renameSolid3dVertex(
-                      solid3dVertexContextMenu.vertexIndex,
-                      getSolidVertexLabel(solid3dVertexContextMenu.vertexIndex)
-                    );
-                    setSolid3dVertexContextMenu(null);
-                  }}
-                >
-                  <DeleteOutlineRoundedIcon fontSize="small" />
-                </IconButton>
-                <IconButton
-                  size="small"
-                  color="primary"
-                  aria-label="Сохранить название вершины"
-                  onClick={() => {
-                    if (!solid3dVertexContextMenu) return;
-                    void renameSolid3dVertex(
-                      solid3dVertexContextMenu.vertexIndex,
-                      solid3dVertexContextMenu.label
-                    );
-                    setSolid3dVertexContextMenu(null);
-                  }}
-                >
-                  <SaveRoundedIcon fontSize="small" />
-                </IconButton>
-              </div>
             </div>
           </Menu>
           <Menu
@@ -307,46 +321,23 @@ export function WorkbookSessionOverlays({
                 size="small"
                 placeholder="Название вершины сечения"
                 inputProps={{ "aria-label": "Название вершины сечения" }}
+                sx={compactRenameFieldSx}
                 value={solid3dSectionVertexContextMenu?.label ?? ""}
-                onChange={(event) =>
-                  setSolid3dSectionVertexContextMenu((current) =>
-                    current ? { ...current, label: event.target.value } : current
-                  )
-                }
+                onChange={(event) => {
+                  const nextLabel = event.target.value.slice(0, 12);
+                  setSolid3dSectionVertexContextMenu((current) => {
+                    if (!current) return current;
+                    void renameSolid3dSectionVertex(
+                      current.sectionId,
+                      current.vertexIndex,
+                      nextLabel
+                    );
+                    return { ...current, label: nextLabel };
+                  });
+                }}
+                onKeyDown={(event) => event.stopPropagation()}
+                autoFocus
               />
-              <div className="workbook-session__solid-menu-actions workbook-session__solid-menu-actions--icons">
-                <IconButton
-                  size="small"
-                  aria-label="Сбросить название вершины сечения"
-                  onClick={() => {
-                    if (!solid3dSectionVertexContextMenu) return;
-                    void renameSolid3dSectionVertex(
-                      solid3dSectionVertexContextMenu.sectionId,
-                      solid3dSectionVertexContextMenu.vertexIndex,
-                      getSectionVertexLabel(solid3dSectionVertexContextMenu.vertexIndex)
-                    );
-                    setSolid3dSectionVertexContextMenu(null);
-                  }}
-                >
-                  <DeleteOutlineRoundedIcon fontSize="small" />
-                </IconButton>
-                <IconButton
-                  size="small"
-                  color="primary"
-                  aria-label="Сохранить название вершины сечения"
-                  onClick={() => {
-                    if (!solid3dSectionVertexContextMenu) return;
-                    void renameSolid3dSectionVertex(
-                      solid3dSectionVertexContextMenu.sectionId,
-                      solid3dSectionVertexContextMenu.vertexIndex,
-                      solid3dSectionVertexContextMenu.label
-                    );
-                    setSolid3dSectionVertexContextMenu(null);
-                  }}
-                >
-                  <SaveRoundedIcon fontSize="small" />
-                </IconButton>
-              </div>
             </div>
           </Menu>
           <Menu
@@ -367,7 +358,7 @@ export function WorkbookSessionOverlays({
                   <input
                     type="color"
                     className="workbook-session__solid-color"
-                    value={contextMenuSection.color}
+                    value={toColorInputValue(contextMenuSection.color, "#c4872f")}
                     onChange={(event) =>
                       void updateSolid3dSection(contextMenuSection.id, {
                         color: event.target.value || "#c4872f",
@@ -446,53 +437,22 @@ export function WorkbookSessionOverlays({
                   size="small"
                   placeholder="Название вершины"
                   inputProps={{ "aria-label": "Название вершины" }}
+                  sx={compactRenameFieldSx}
                   value={shapeVertexLabelDraft}
-                  onChange={(event) =>
-                    setShapeVertexLabelDraft(event.target.value.slice(0, 12))
-                  }
-                  onKeyDown={(event) => {
-                    event.stopPropagation();
-                    if (event.key !== "Enter") return;
+                  onChange={(event) => {
+                    const nextLabel = event.target.value.slice(0, 12);
+                    setShapeVertexLabelDraft(nextLabel);
                     void renameShape2dVertexByObjectId(
                       shapeVertexContextMenu.objectId,
                       shapeVertexContextMenu.vertexIndex,
-                      shapeVertexLabelDraft
+                      nextLabel
                     );
-                    setShapeVertexContextMenu(null);
+                  }}
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
                   }}
                   autoFocus
                 />
-                <div className="workbook-session__solid-menu-actions workbook-session__solid-menu-actions--icons">
-                  <IconButton
-                    size="small"
-                    aria-label="Сбросить подпись вершины"
-                    onClick={() => {
-                      void renameShape2dVertexByObjectId(
-                        shapeVertexContextMenu.objectId,
-                        shapeVertexContextMenu.vertexIndex,
-                        ""
-                      );
-                      setShapeVertexContextMenu(null);
-                    }}
-                  >
-                    <DeleteOutlineRoundedIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    color="primary"
-                    aria-label="Сохранить подпись вершины"
-                    onClick={() => {
-                      void renameShape2dVertexByObjectId(
-                        shapeVertexContextMenu.objectId,
-                        shapeVertexContextMenu.vertexIndex,
-                        shapeVertexLabelDraft
-                      );
-                      setShapeVertexContextMenu(null);
-                    }}
-                  >
-                    <SaveRoundedIcon fontSize="small" />
-                  </IconButton>
-                </div>
               </div>
             ) : null}
           </Menu>
@@ -523,52 +483,23 @@ export function WorkbookSessionOverlays({
                         : "Название конца B",
                   }}
                   value={lineEndpointLabelDraft}
-                  onChange={(event) =>
-                    setLineEndpointLabelDraft(event.target.value.slice(0, 12))
-                  }
-                  onKeyDown={(event) => {
-                    event.stopPropagation();
-                    if (event.key !== "Enter") return;
+                  onChange={(event) => {
+                    const nextLabel = event.target.value.slice(0, 12);
+                    setLineEndpointLabelDraft(nextLabel);
                     void renameLineEndpointByObjectId(
                       lineEndpointContextMenu.objectId,
                       lineEndpointContextMenu.endpoint,
-                      lineEndpointLabelDraft
+                      nextLabel
                     );
-                    setLineEndpointContextMenu(null);
+                  }}
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                    }
                   }}
                   autoFocus
                 />
-                <div className="workbook-session__solid-menu-actions workbook-session__solid-menu-actions--icons">
-                  <IconButton
-                    size="small"
-                    aria-label="Сбросить подпись конца отрезка"
-                    onClick={() => {
-                      void renameLineEndpointByObjectId(
-                        lineEndpointContextMenu.objectId,
-                        lineEndpointContextMenu.endpoint,
-                        ""
-                      );
-                      setLineEndpointContextMenu(null);
-                    }}
-                  >
-                    <DeleteOutlineRoundedIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    color="primary"
-                    aria-label="Сохранить подпись конца отрезка"
-                    onClick={() => {
-                      void renameLineEndpointByObjectId(
-                        lineEndpointContextMenu.objectId,
-                        lineEndpointContextMenu.endpoint,
-                        lineEndpointLabelDraft
-                      );
-                      setLineEndpointContextMenu(null);
-                    }}
-                  >
-                    <SaveRoundedIcon fontSize="small" />
-                  </IconButton>
-                </div>
               </div>
             ) : null}
           </Menu>
@@ -609,14 +540,71 @@ export function WorkbookSessionOverlays({
             ) : null}
             {contextMenuObject && contextMenuObject.type !== "point" ? (
               <>
-                <MenuItem
-                  onClick={() => {
-                    void commitObjectPin(contextMenuObject.id, !contextMenuObject.pinned);
-                    setObjectContextMenu(null);
-                  }}
-                >
-                  {contextMenuObject?.pinned ? "Открепить объект" : "Закрепить объект"}
-                </MenuItem>
+                {contextMenuDividerObject ? (
+                  <div className="workbook-session__solid-menu">
+                    <div className="workbook-session__solid-menu-row">
+                      <span>Стиль</span>
+                      <div className="workbook-session__toggle-group">
+                        <button
+                          type="button"
+                          className={dividerLineStyle === "solid" ? "is-active" : ""}
+                          onClick={() =>
+                            void updateDividerMetaById?.(contextMenuDividerObject.id, {
+                              lineStyle: "solid",
+                            })
+                          }
+                        >
+                          Сплошной
+                        </button>
+                        <button
+                          type="button"
+                          className={dividerLineStyle === "dashed" ? "is-active" : ""}
+                          onClick={() =>
+                            void updateDividerMetaById?.(contextMenuDividerObject.id, {
+                              lineStyle: "dashed",
+                            })
+                          }
+                        >
+                          Пунктир
+                        </button>
+                      </div>
+                    </div>
+                    <label className="workbook-session__board-settings-color-inline-item">
+                      <span>Цвет</span>
+                      <input
+                        type="color"
+                        value={dividerColorValue}
+                        onChange={(event) =>
+                          void updateDividerObjectById?.(contextMenuDividerObject.id, {
+                            color: event.target.value || "#2f4f7f",
+                          })
+                        }
+                      />
+                    </label>
+                    <div className="workbook-session__solid-menu-row">
+                      <span>Толщина</span>
+                      <div className="workbook-session__line-range">
+                        <input
+                          type="range"
+                          min={1}
+                          max={18}
+                          step={1}
+                          value={dividerWidthValue}
+                          onChange={(event) => {
+                            const nextWidth = Math.max(
+                              1,
+                              Math.min(18, Number(event.target.value) || 1)
+                            );
+                            void updateDividerObjectById?.(contextMenuDividerObject.id, {
+                              strokeWidth: nextWidth,
+                            });
+                          }}
+                        />
+                        <span>{dividerWidthValue}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
                 <MenuItem
                   onClick={() => {
                     void scaleObject(1.1, contextMenuObject.id);
@@ -667,9 +655,7 @@ export function WorkbookSessionOverlays({
                 ) : null}
               </>
             ) : null}
-            {contextMenuObject &&
-            canDelete &&
-            !contextMenuObject.pinned ? (
+            {contextMenuObject && canDelete ? (
               <MenuItem
                 onClick={() => {
                   void commitObjectDelete(contextMenuObject.id);
@@ -684,18 +670,34 @@ export function WorkbookSessionOverlays({
             container={overlayContainer}
             open={Boolean(pointRenameTargetId)}
             onClose={() => setPointRenameTargetId(null)}
-            fullWidth
-            maxWidth="xs"
+            maxWidth={false}
             className="workbook-session__confirm-dialog"
+            PaperProps={{
+              sx: {
+                width: "min(280px, calc(100vw - 20px))",
+                margin: "10px",
+              },
+            }}
           >
-            <DialogTitle>Переименовать точку</DialogTitle>
-            <DialogContent>
+            <DialogTitle
+              sx={{
+                px: 2,
+                pt: 1.5,
+                pb: 0.5,
+                fontSize: "1rem",
+                lineHeight: 1.25,
+              }}
+            >
+              Переименовать точку
+            </DialogTitle>
+            <DialogContent sx={{ px: 2, pt: "10px !important", pb: 1 }}>
               <TextField
                 size="small"
                 fullWidth
                 autoFocus
                 placeholder="Название точки"
                 inputProps={{ "aria-label": "Название точки" }}
+                sx={compactRenameFieldSx}
                 value={pointLabelDraft}
                 onChange={(event) => setPointLabelDraft(event.target.value.slice(0, 12))}
                 onKeyDown={(event) => {
@@ -706,9 +708,12 @@ export function WorkbookSessionOverlays({
                 }}
               />
             </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setPointRenameTargetId(null)}>Отмена</Button>
+            <DialogActions sx={{ px: 2, pt: 0, pb: 1.5, gap: 0.75 }}>
+              <Button size="small" onClick={() => setPointRenameTargetId(null)}>
+                Отмена
+              </Button>
               <Button
+                size="small"
                 variant="contained"
                 onClick={() => {
                   if (!pointRenameTargetId) return;
@@ -756,22 +761,13 @@ export function WorkbookSessionOverlays({
                   : null;
                 setAreaSelectionContextMenu(null);
                 setAreaFillColorDraft(
-                  typeof areaFillDefaultColor === "string" &&
-                    areaFillDefaultColor.trim().length > 0
-                    ? areaFillDefaultColor
-                    : "#2f4f7f"
+                  toColorInputValue(areaFillDefaultColor, "#2f4f7f")
                 );
                 setAreaFillMenuAnchor(nextAnchor);
               }}
               disabled={!canSelect || !areaSelectionHasContent}
             >
               Залить выделенное
-            </MenuItem>
-            <MenuItem
-              onClick={() => void createCompositionFromAreaSelection()}
-              disabled={!canSelect || !areaSelection || areaSelection.objectIds.length < 2}
-            >
-              Объединить в композицию
             </MenuItem>
             <MenuItem
               onClick={() => void deleteAreaSelectionObjects()}
@@ -796,7 +792,7 @@ export function WorkbookSessionOverlays({
                 <span>Цвет заливки</span>
                 <input
                   type="color"
-                  value={areaFillColorDraft}
+                  value={toColorInputValue(areaFillColorDraft, "#2f4f7f")}
                   onChange={(event) => {
                     const nextColor = event.target.value || "#2f4f7f";
                     setAreaFillColorDraft(nextColor);

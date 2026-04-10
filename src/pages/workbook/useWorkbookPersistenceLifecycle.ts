@@ -6,6 +6,7 @@ type PersistSnapshotsFn = (options?: { silent?: boolean; force?: boolean }) => P
 type UseWorkbookPersistenceLifecycleParams = {
   sessionId: string | null;
   sessionReady: boolean;
+  bootstrapReady: boolean;
   persistSnapshots: PersistSnapshotsFn;
   persistSnapshotsRef: MutableRefObject<PersistSnapshotsFn | null>;
   dirtyRef: MutableRefObject<boolean>;
@@ -16,6 +17,7 @@ type UseWorkbookPersistenceLifecycleParams = {
 export const useWorkbookPersistenceLifecycle = ({
   sessionId,
   sessionReady,
+  bootstrapReady,
   persistSnapshots,
   persistSnapshotsRef,
   dirtyRef,
@@ -30,7 +32,7 @@ export const useWorkbookPersistenceLifecycle = ({
   }, [persistSnapshots, persistSnapshotsRef]);
 
   useEffect(() => {
-    if (!sessionId || !sessionReady) return;
+    if (!sessionId || !sessionReady || !bootstrapReady) return;
     void flushWorkbookPersistenceQueue();
     const intervalId = window.setInterval(() => {
       void flushWorkbookPersistenceQueue();
@@ -38,7 +40,7 @@ export const useWorkbookPersistenceLifecycle = ({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [queueFlushIntervalMs, sessionId, sessionReady]);
+  }, [bootstrapReady, queueFlushIntervalMs, sessionId, sessionReady]);
 
   useEffect(() => {
     const onBeforeUnload = () => {
@@ -67,13 +69,13 @@ export const useWorkbookPersistenceLifecycle = ({
   }, [dirtyRef, persistSnapshotsRef]);
 
   useEffect(() => {
-    if (!sessionId || !sessionReady) return;
+    if (!sessionId || !sessionReady || !bootstrapReady) return;
     const intervalId = window.setInterval(() => {
       if (!dirtyRef.current) return;
       void persistSnapshots({ force: true });
     }, autosaveIntervalMs);
     return () => window.clearInterval(intervalId);
-  }, [autosaveIntervalMs, dirtyRef, persistSnapshots, sessionId, sessionReady]);
+  }, [autosaveIntervalMs, bootstrapReady, dirtyRef, persistSnapshots, sessionId, sessionReady]);
 
   useEffect(
     () => () => {

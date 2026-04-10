@@ -1,0 +1,168 @@
+
+@media (max-width: 760px) and (orientation: landscape) {
+  .workbook-session__canvas {
+    min-height: 0;
+    height: 100%;
+  }
+
+  .workbook-session__session-chat {
+    top: 8px;
+    max-height: calc(100dvh - 16px);
+  }
+
+  .workbook-session__chat-list {
+    min-height: 120px;
+  }
+}
+
+@media (max-width: 520px) {
+  .workbook-hub,
+  .workbook-session,
+  .workbook-invite {
+    gap: 10px;
+  }
+
+  .workbook-session__workspace,
+  .workbook-session__card {
+    border-radius: 14px;
+    padding: 8px;
+  }
+
+  .workbook-session__tools {
+    width: 100%;
+    padding: 3px 5px;
+  }
+
+  .workbook-session__tool-btn {
+    width: 26px;
+    height: 26px;
+  }
+
+  .workbook-session__utility-float {
+    left: 6px !important;
+    right: 6px !important;
+    width: auto !important;
+    max-height: min(84dvh, 620px);
+    height: auto;
+    border-radius: 22px;
+    padding: 10px 8px 8px;
+  }
+
+  .workbook-session__utility-float.is-collapsed {
+    height: auto;
+    max-height: min(40dvh, 230px);
+    min-height: 0;
+  }
+
+  .workbook-session__utility-float-body {
+    gap: 10px;
+  }
+
+  .workbook-session__board-settings-field {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .workbook-session__board-settings-color-inline,
+  .workbook-session__board-settings-grid-row {
+    width: 100%;
+  }
+
+  .workbook-session__board-settings-head {
+    gap: 9px;
+    padding: 12px 11px;
+  }
+
+  .workbook-session__board-settings-card {
+    padding: 10px;
+    gap: 9px;
+  }
+
+  .workbook-session__board-settings-card-title {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .workbook-session__board-settings-card-head h4 {
+    font-size: 12.5px;
+  }
+
+  .workbook-session__board-settings-select .MuiSelect-select {
+    padding: 8px 10px;
+    white-space: normal;
+  }
+
+  .workbook-session__board-settings-range {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .workbook-session__board-settings-grid-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbook-session__board-settings-page-panel {
+    padding: 9px 10px;
+  }
+
+  .workbook-session__board-settings-page-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+  }
+
+  .workbook-session__board-settings-page-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .workbook-session__board-settings-number-field {
+    padding: 9px 10px;
+  }
+
+  .workbook-session__board-settings-color-inline {
+    gap: 8px;
+  }
+
+  .workbook-session__board-settings-color-inline-item {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .workbook-session__tool-settings-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbook-session__board-settings-note {
+    padding: 10px 11px;
+    font-size: 10.5px;
+  }
+
+  .workbook-session__utility-float.is-settings .workbook-session__board-settings-field-main small,
+  .workbook-session__utility-float.is-settings .workbook-session__board-settings-card-head p {
+    display: none;
+  }
+
+  .workbook-session__contextbar-inline {
+    min-width: 0;
+    width: max-content;
+    flex: 0 0 auto;
+  }
+
+  .workbook-session__contextbar-inline--column {
+    min-width: 280px;
+    width: max-content;
+  }
+
+  .workbook-session__graph-builder-item {
+    padding: 8px;
+  }
+
+  .workbook-session__graph-inline-action {
+    min-height: 22px;
+    min-width: 22px;
+  }
+}

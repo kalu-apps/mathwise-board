@@ -18,6 +18,7 @@ import {
 } from "../model/sceneCreation";
 import {
   clampWorkbookPointToPageFrame,
+  WORKBOOK_PAGE_FRAME_WIDTH,
 } from "../model/pageFrame";
 import {
   buildForcedVisibleObjectIdSet,
@@ -33,11 +34,12 @@ import {
   isWorkbookObjectHit,
   isWorkbookStrokeHit,
 } from "../model/sceneHitTesting";
-import type {
-  WorkbookAreaSelectionDraft,
+import {
+  type WorkbookAreaSelectionDraft,
 } from "../model/sceneSelection";
 import {
   buildGraphPanState,
+  buildMovingCurrentPoint,
   buildMovingState,
   buildResizeState,
   buildSolid3dGestureState,
@@ -46,6 +48,7 @@ import {
   type WorkbookAreaSelectionResizeState,
 } from "../model/sceneInteraction";
 import {
+  getStrokeRect,
   toPath,
 } from "../model/stroke";
 import {
@@ -114,6 +117,24 @@ import {
 } from "./WorkbookCanvas.types";
 import { useWorkbookCanvasSceneRuntime } from "./useWorkbookCanvasSceneRuntime";
 import { useWorkbookCanvasDomHandlers } from "./useWorkbookCanvasDomHandlers";
+import {
+  buildWorkbookStrokeSelectionKey,
+  resolveWorkbookStrokeMoveProxySelection,
+  translateWorkbookStrokePoints,
+  type WorkbookStrokeSelection,
+} from "../model/strokeSelection";
+import {
+  createAreaSelectionResizePointMapper,
+  hasMeaningfulAreaSelectionResizeChange,
+  remapAreaSelectionObject,
+  remapAreaSelectionStroke,
+  resolveBoundedAreaSelectionResizeRect,
+} from "../model/areaSelectionResize";
+import {
+  buildRealtimeObjectPatch,
+  REALTIME_PREVIEW_REPEAT_GUARD_MS,
+  toStableSignature,
+} from "../model/realtimePreview";
 
 export type { WorkbookEraserCommitPayload } from "./WorkbookCanvas.types";
 
@@ -121,6 +142,46 @@ type ActiveStrokeDraft = ReturnType<typeof buildWorkbookActiveStrokeDraft>;
 
 type AreaSelectionDraft = WorkbookAreaSelectionDraft;
 type AreaSelectionResizeState = WorkbookAreaSelectionResizeState;
+
+const EMPTY_STROKE_REPLACEMENT_BY_SELECTION_KEY = new Map<string, WorkbookStroke>();
+
+const replaceRenderedStrokesBySelection = (params: {
+  baseStrokes: WorkbookStroke[];
+  selections: WorkbookStrokeSelection[];
+  replacementBySelectionKey: Map<string, WorkbookStroke>;
+}) => {
+  if (params.selections.length === 0) {
+    return params.baseStrokes;
+  }
+  const replacedSelectionKeys = new Set<string>();
+  const nextStrokes: WorkbookStroke[] = [];
+  params.baseStrokes.forEach((stroke) => {
+    const matchingSelection = params.selections.find(
+      (selection) =>
+        stroke.layer === selection.layer &&
+        (stroke.id === selection.id || stroke.id.startsWith(`${selection.id}::preview-`))
+    );
+    if (!matchingSelection) {
+      nextStrokes.push(stroke);
+      return;
+    }
+    const selectionKey = buildWorkbookStrokeSelectionKey(matchingSelection);
+    if (replacedSelectionKeys.has(selectionKey)) {
+      return;
+    }
+    replacedSelectionKeys.add(selectionKey);
+    const replacementStroke = params.replacementBySelectionKey.get(selectionKey);
+    if (replacementStroke) {
+      nextStrokes.push(replacementStroke);
+    }
+  });
+
+  params.replacementBySelectionKey.forEach((replacementStroke, selectionKey) => {
+    if (replacedSelectionKeys.has(selectionKey)) return;
+    nextStrokes.push(replacementStroke);
+  });
+  return nextStrokes;
+};
 
 export const WorkbookCanvas = memo(function WorkbookCanvas({
   boardStrokes,
@@ -143,9 +204,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   stickerText = "",
   commentText = "",
   lineStyle = "solid",
+  dividerLineStyle = "dashed",
   snapToGrid = false,
   gridSize = 22,
   viewportZoom = 1,
+  pageFrameWidth = WORKBOOK_PAGE_FRAME_WIDTH,
   visibilityMode = "viewport",
   showGrid = true,
   gridColor = WORKBOOK_BOARD_GRID_COLOR,
@@ -180,8 +243,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   onObjectCreate,
   getLatestBoardObject,
   onObjectUpdate,
+  onObjectPinToggle,
   onObjectDelete,
   onObjectContextMenu,
+  onObjectDoubleClick,
   onShapeVertexContextMenu,
   onLineEndpointContextMenu,
   onSolid3dVertexContextMenu,
@@ -275,6 +340,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const setAreaSelectionResize = areaSelectionResizeState.setImmediate;
   const scheduleAreaSelectionResize = areaSelectionResizeState.schedule;
   const flushAreaSelectionResize = areaSelectionResizeState.flush;
+  const liveObjectPreviewSentAtRef = useRef<Map<string, number>>(new Map());
+  const liveObjectPreviewSignatureRef = useRef<Map<string, string>>(new Map());
+  const liveStrokePreviewVersionRef = useRef<Map<string, number>>(new Map());
+  const liveStrokePreviewSentAtRef = useRef<Map<string, number>>(new Map());
+  const liveStrokePreviewSignatureRef = useRef<Map<string, string>>(new Map());
   const [erasing, setErasing] = useState(false);
   const eraserCursorPointState = useAnimationFrameState<WorkbookPoint | null>(null);
   const eraserCursorPoint = eraserCursorPointState.value;
@@ -288,6 +358,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const eraserLastAppliedPointRef = useRef<WorkbookPoint | null>(null);
   const eraserLastPreviewPointRef = useRef<WorkbookPoint | null>(null);
   const [inlineTextEdit, setInlineTextEdit] = useState<InlineTextEditDraft | null>(null);
+  const [selectedStrokeSelection, setSelectedStrokeSelection] =
+    useState<WorkbookStrokeSelection | null>(null);
   const inlineTextLastInputAtRef = useRef(0);
   const [pendingCommittedBridgeStrokeId, setPendingCommittedBridgeStrokeId] = useState<
     string | null
@@ -303,14 +375,17 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   const {
     size,
     safeZoom,
+    allowHorizontalPan,
     pageFrameBounds,
     resolvedViewportOffset,
+    displayBias,
     effectiveFocusPoints,
     effectivePointerPoints,
     autoDividerLines,
   } = useWorkbookCanvasViewport({
     containerNode,
     viewportZoom,
+    pageFrameWidth,
     viewportOffset,
     onViewportOffsetChange,
     focusPoint,
@@ -437,6 +512,120 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     visibleHitStrokeCandidatesInRect,
   } = sceneAccess;
 
+  const selectedStrokeKey = useMemo(
+    () => buildWorkbookStrokeSelectionKey(selectedStrokeSelection),
+    [selectedStrokeSelection]
+  );
+
+  const selectedStrokeBase = useMemo(
+    () => (selectedStrokeKey ? strokeByKey.get(selectedStrokeKey) ?? null : null),
+    [selectedStrokeKey, strokeByKey]
+  );
+
+  const movingStrokeSelection = useMemo(
+    () => (moving ? resolveWorkbookStrokeMoveProxySelection(moving.object) : null),
+    [moving]
+  );
+
+  const movingStrokeSelections = useMemo(() => {
+    if (!moving) return [] as WorkbookStrokeSelection[];
+    if (movingStrokeSelection) return [movingStrokeSelection];
+    return moving.groupStrokeSelections.map((entry) => ({
+      id: entry.id,
+      layer: entry.layer,
+    }));
+  }, [moving, movingStrokeSelection]);
+
+  const movingStrokeKeys = useMemo(
+    () =>
+      new Set(
+        movingStrokeSelections.map((selection) =>
+          buildWorkbookStrokeSelectionKey(selection)
+        )
+      ),
+    [movingStrokeSelections]
+  );
+
+  const selectedStroke = useMemo(() => {
+    if (!selectedStrokeBase) return null;
+    if (!moving) return selectedStrokeBase;
+    const selectedStrokeMoveKey = buildWorkbookStrokeSelectionKey({
+      id: selectedStrokeBase.id,
+      layer: selectedStrokeBase.layer,
+    });
+    if (!movingStrokeKeys.has(selectedStrokeMoveKey)) {
+      return selectedStrokeBase;
+    }
+    const deltaX = moving.current.x - moving.start.x;
+    const deltaY = moving.current.y - moving.start.y;
+    if (Math.abs(deltaX) <= 0.01 && Math.abs(deltaY) <= 0.01) {
+      return selectedStrokeBase;
+    }
+    return {
+      ...selectedStrokeBase,
+      points: translateWorkbookStrokePoints(selectedStrokeBase.points, deltaX, deltaY),
+    };
+  }, [moving, movingStrokeKeys, selectedStrokeBase]);
+
+  const selectedStrokeRect = useMemo(
+    () => (selectedStroke ? getStrokeRect(selectedStroke) : null),
+    [selectedStroke]
+  );
+
+  const incomingPreviewStrokeSelections = useMemo(() => {
+    if (previewStrokes.length === 0) return [] as WorkbookStrokeSelection[];
+    const uniqueSelections = new Map<string, WorkbookStrokeSelection>();
+    previewStrokes.forEach((stroke) => {
+      const selection: WorkbookStrokeSelection = {
+        id: stroke.id,
+        layer: stroke.layer,
+      };
+      const selectionKey = buildWorkbookStrokeSelectionKey(selection);
+      if (!selectionKey || uniqueSelections.has(selectionKey)) return;
+      uniqueSelections.set(selectionKey, selection);
+    });
+    return Array.from(uniqueSelections.values());
+  }, [previewStrokes]);
+
+  const areaSelectionOverlay = useMemo(() => {
+    if (!areaSelection) return null;
+    const nextRect = areaSelectionResize
+      ? resolveBoundedAreaSelectionResizeRect({
+          resize: areaSelectionResize,
+          bounds: pageFrameBounds,
+        })
+      : areaSelection.rect;
+    const hasResizeDelta = Boolean(
+      areaSelectionResize &&
+        hasMeaningfulAreaSelectionResizeChange(areaSelectionResize.initialRect, nextRect)
+    );
+
+    const baseRect = hasResizeDelta ? nextRect : areaSelection.rect;
+    if (!moving || moving.object.id !== "__area-selection__") {
+      return {
+        ...areaSelection,
+        rect: baseRect,
+      };
+    }
+    const deltaX = moving.current.x - moving.start.x;
+    const deltaY = moving.current.y - moving.start.y;
+    if (Math.abs(deltaX) <= 0.01 && Math.abs(deltaY) <= 0.01) {
+      return {
+        ...areaSelection,
+        rect: baseRect,
+      };
+    }
+    return {
+      ...areaSelection,
+      rect: {
+        x: baseRect.x + deltaX,
+        y: baseRect.y + deltaY,
+        width: baseRect.width,
+        height: baseRect.height,
+      },
+    };
+  }, [areaSelection, areaSelectionResize, moving, pageFrameBounds]);
+
   const getObjectSceneLayerId = resolveWorkbookObjectSceneLayerId;
 
   const startInlineTextEdit = useCallback(
@@ -497,6 +686,22 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     );
   }, [inlineTextEdit, objectById]);
 
+  useEffect(() => {
+    if (tool === "select") return;
+    setSelectedStrokeSelection((current) => (current ? null : current));
+  }, [tool]);
+
+  useEffect(() => {
+    if (!selectedObjectId) return;
+    setSelectedStrokeSelection((current) => (current ? null : current));
+  }, [selectedObjectId]);
+
+  useEffect(() => {
+    if (!selectedStrokeKey) return;
+    if (strokeByKey.has(selectedStrokeKey)) return;
+    setSelectedStrokeSelection(null);
+  }, [selectedStrokeKey, strokeByKey]);
+
   const handleInlineTextDraftChange = useCallback(
     (objectId: string, text: string) => {
       inlineTextLastInputAtRef.current = Date.now();
@@ -527,8 +732,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
     try {
       const rect = svg.getBoundingClientRect();
-      const rawX = (clientX - rect.left) / safeZoom + resolvedViewportOffset.x;
-      const rawY = (clientY - rect.top) / safeZoom + resolvedViewportOffset.y;
+      const rawX =
+        (clientX - rect.left - displayBias.x) / safeZoom + resolvedViewportOffset.x;
+      const rawY =
+        (clientY - rect.top - displayBias.y) / safeZoom + resolvedViewportOffset.y;
       const x = clampToViewport
         ? Math.max(
             0 + resolvedViewportOffset.x,
@@ -576,6 +783,104 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     [allStrokes, visibleHitStrokeCandidatesAtPoint, visibleHitStrokes]
   );
 
+  const resolveBoundedMoveDelta = useCallback(
+    (movingStateValue: MovingState, rawDeltaX: number, rawDeltaY: number) => {
+      if (!Number.isFinite(rawDeltaX) || !Number.isFinite(rawDeltaY)) {
+        return { x: 0, y: 0 };
+      }
+
+      const moveBounds = {
+        minX: Number.POSITIVE_INFINITY,
+        maxX: Number.NEGATIVE_INFINITY,
+        minY: Number.POSITIVE_INFINITY,
+        maxY: Number.NEGATIVE_INFINITY,
+        hasTargets: false,
+      };
+
+      const includeRect = (rect: { x: number; y: number; width: number; height: number }) => {
+        moveBounds.minX = Math.min(moveBounds.minX, rect.x);
+        moveBounds.maxX = Math.max(moveBounds.maxX, rect.x + rect.width);
+        moveBounds.minY = Math.min(moveBounds.minY, rect.y);
+        moveBounds.maxY = Math.max(moveBounds.maxY, rect.y + rect.height);
+        moveBounds.hasTargets = true;
+      };
+
+      const objectTargets =
+        movingStateValue.groupObjects.length > 0
+          ? movingStateValue.groupObjects
+          : movingStateValue.object.id === "__area-selection__"
+            ? []
+            : [movingStateValue.object];
+      objectTargets.forEach((target) => includeRect(getObjectRect(target)));
+
+      const strokeSelections = [...movingStateValue.groupStrokeSelections];
+      const singleStrokeSelection = resolveWorkbookStrokeMoveProxySelection(movingStateValue.object);
+      if (
+        singleStrokeSelection &&
+        !strokeSelections.some(
+          (entry) =>
+            entry.id === singleStrokeSelection.id && entry.layer === singleStrokeSelection.layer
+        )
+      ) {
+        strokeSelections.push(singleStrokeSelection);
+      }
+
+      strokeSelections.forEach((selection) => {
+        const sourceStroke = strokeByKey.get(buildWorkbookStrokeSelectionKey(selection));
+        if (!sourceStroke) return;
+        const rect = getStrokeRect(sourceStroke);
+        if (!rect) return;
+        includeRect(rect);
+      });
+
+      if (!moveBounds.hasTargets) {
+        return {
+          x: rawDeltaX,
+          y: rawDeltaY,
+        };
+      }
+
+      const minDeltaX = pageFrameBounds.minX - moveBounds.minX;
+      const maxDeltaX = pageFrameBounds.maxX - moveBounds.maxX;
+      const minDeltaY = pageFrameBounds.minY - moveBounds.minY;
+      const maxDeltaY = pageFrameBounds.maxY - moveBounds.maxY;
+
+      const boundedDeltaX =
+        minDeltaX <= maxDeltaX
+          ? Math.max(minDeltaX, Math.min(maxDeltaX, rawDeltaX))
+          : 0;
+      const boundedDeltaY =
+        minDeltaY <= maxDeltaY
+          ? Math.max(minDeltaY, Math.min(maxDeltaY, rawDeltaY))
+          : 0;
+
+      return {
+        x: boundedDeltaX,
+        y: boundedDeltaY,
+      };
+    },
+    [pageFrameBounds.maxX, pageFrameBounds.maxY, pageFrameBounds.minX, pageFrameBounds.minY, strokeByKey]
+  );
+
+  const resolveBoundedMovingCurrentPoint = useCallback(
+    (movingStateValue: MovingState, clientX: number, clientY: number, zoom: number) => {
+      const nextCurrent = buildMovingCurrentPoint(
+        movingStateValue,
+        clientX,
+        clientY,
+        zoom
+      );
+      const rawDeltaX = nextCurrent.x - movingStateValue.start.x;
+      const rawDeltaY = nextCurrent.y - movingStateValue.start.y;
+      const boundedDelta = resolveBoundedMoveDelta(movingStateValue, rawDeltaX, rawDeltaY);
+      return {
+        x: movingStateValue.start.x + boundedDelta.x,
+        y: movingStateValue.start.y + boundedDelta.y,
+      };
+    },
+    [resolveBoundedMoveDelta]
+  );
+
   const {
     renderedStrokes,
     eraserPreviewActive,
@@ -618,6 +923,241 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     onObjectUpdate,
   });
 
+  const areaSelectionResizePreview = useMemo(() => {
+    if (!areaSelectionResize || !areaSelection) return null;
+    const nextRect = resolveBoundedAreaSelectionResizeRect({
+      resize: areaSelectionResize,
+      bounds: pageFrameBounds,
+    });
+    if (
+      !hasMeaningfulAreaSelectionResizeChange(areaSelectionResize.initialRect, nextRect)
+    ) {
+      return null;
+    }
+    const remapPoint = createAreaSelectionResizePointMapper({
+      initialRect: areaSelectionResize.initialRect,
+      nextRect,
+    });
+    const resizedObjectsById = new Map<string, WorkbookBoardObject>();
+    areaSelection.objectIds.forEach((objectId) => {
+      const sourceObject = objectById.get(objectId);
+      if (!sourceObject) return;
+      resizedObjectsById.set(
+        objectId,
+        remapAreaSelectionObject(sourceObject, remapPoint)
+      );
+    });
+    const resizedStrokesBySelectionKey = new Map<string, WorkbookStroke>();
+    areaSelection.strokeIds.forEach((selection) => {
+      const selectionKey = buildWorkbookStrokeSelectionKey(selection);
+      const sourceStroke = strokeByKey.get(selectionKey) ?? null;
+      if (!sourceStroke) return;
+      resizedStrokesBySelectionKey.set(
+        selectionKey,
+        remapAreaSelectionStroke(sourceStroke, remapPoint)
+      );
+    });
+    return {
+      resizedObjectsById,
+      resizedStrokesBySelectionKey,
+    };
+  }, [areaSelectionResize, areaSelection, pageFrameBounds, objectById, strokeByKey]);
+
+  const emitLiveObjectPreviewPatch = useCallback(
+    (objectId: string, patch: Partial<WorkbookBoardObject>) => {
+      const now =
+        typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+      const signature = toStableSignature(patch);
+      const previousTs = liveObjectPreviewSentAtRef.current.get(objectId) ?? 0;
+      const previousSignature = liveObjectPreviewSignatureRef.current.get(objectId) ?? "";
+      if (
+        signature === previousSignature &&
+        now - previousTs < REALTIME_PREVIEW_REPEAT_GUARD_MS
+      ) {
+        return;
+      }
+      liveObjectPreviewSentAtRef.current.set(objectId, now);
+      liveObjectPreviewSignatureRef.current.set(objectId, signature);
+      onObjectUpdate(objectId, patch, {
+        trackHistory: false,
+        markDirty: false,
+      });
+    },
+    [onObjectUpdate]
+  );
+
+  const emitLiveStrokePreview = useCallback(
+    (stroke: WorkbookStroke) => {
+      if (!onStrokePreview) return;
+      const strokeId = stroke.id;
+      if (!strokeId) return;
+      const now =
+        typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+      const signature = toStableSignature(stroke.points);
+      const previousTs = liveStrokePreviewSentAtRef.current.get(strokeId) ?? 0;
+      const previousSignature = liveStrokePreviewSignatureRef.current.get(strokeId) ?? "";
+      if (
+        signature === previousSignature &&
+        now - previousTs < REALTIME_PREVIEW_REPEAT_GUARD_MS
+      ) {
+        return;
+      }
+      const nextPreviewVersion = (liveStrokePreviewVersionRef.current.get(strokeId) ?? 0) + 1;
+      liveStrokePreviewVersionRef.current.set(strokeId, nextPreviewVersion);
+      liveStrokePreviewSentAtRef.current.set(strokeId, now);
+      liveStrokePreviewSignatureRef.current.set(strokeId, signature);
+      onStrokePreview({
+        stroke,
+        previewVersion: nextPreviewVersion,
+      });
+    },
+    [onStrokePreview]
+  );
+
+  useEffect(() => {
+    if (!moving) return;
+    const deltaX = moving.current.x - moving.start.x;
+    const deltaY = moving.current.y - moving.start.y;
+    const hasMeaningfulMove = Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5;
+    const movingAreaSelection = moving.object.id === "__area-selection__";
+
+    if (hasMeaningfulMove && (movingAreaSelection || moving.groupObjects.length > 1)) {
+      const { objectPatches } = buildMoveCommitResult({
+        moving,
+        areaSelection,
+      });
+      const selectedObjectHandledBySinglePreview =
+        !movingAreaSelection &&
+        Boolean(selectedObjectId) &&
+        moving.object.id === selectedObjectId;
+      objectPatches.forEach(({ id, patch }) => {
+        if (!objectById.has(id)) return;
+        if (selectedObjectHandledBySinglePreview && id === selectedObjectId) return;
+        emitLiveObjectPreviewPatch(id, patch);
+      });
+    }
+
+    if (!hasMeaningfulMove || movingStrokeSelections.length === 0) return;
+    movingStrokeSelections.forEach((selection) => {
+      const selectionKey = buildWorkbookStrokeSelectionKey(selection);
+      const sourceStroke = strokeByKey.get(selectionKey) ?? null;
+      if (!sourceStroke) return;
+      const translatedPoints = translateWorkbookStrokePoints(sourceStroke.points, deltaX, deltaY);
+      if (translatedPoints.length === 0) return;
+      emitLiveStrokePreview({
+        ...sourceStroke,
+        points: translatedPoints,
+      });
+    });
+  }, [
+    areaSelection,
+    emitLiveObjectPreviewPatch,
+    emitLiveStrokePreview,
+    moving,
+    movingStrokeSelections,
+    objectById,
+    selectedObjectId,
+    strokeByKey,
+  ]);
+
+  useEffect(() => {
+    if (!areaSelection || !areaSelectionResizePreview) return;
+    areaSelection.objectIds.forEach((objectId) => {
+      const sourceObject = objectById.get(objectId);
+      const previewObject = areaSelectionResizePreview.resizedObjectsById.get(objectId);
+      if (!sourceObject || !previewObject) return;
+      const patch = buildRealtimeObjectPatch(sourceObject, previewObject);
+      if (!patch) return;
+      emitLiveObjectPreviewPatch(objectId, patch);
+    });
+    areaSelection.strokeIds.forEach((selection) => {
+      const selectionKey = buildWorkbookStrokeSelectionKey(selection);
+      const previewStroke =
+        areaSelectionResizePreview.resizedStrokesBySelectionKey.get(selectionKey) ?? null;
+      if (!previewStroke || previewStroke.points.length === 0) return;
+      emitLiveStrokePreview(previewStroke);
+    });
+  }, [
+    areaSelection,
+    areaSelectionResizePreview,
+    emitLiveObjectPreviewPatch,
+    emitLiveStrokePreview,
+    objectById,
+  ]);
+
+  useEffect(() => {
+    if (moving || areaSelectionResizePreview) return;
+    liveObjectPreviewSentAtRef.current.clear();
+    liveObjectPreviewSignatureRef.current.clear();
+    liveStrokePreviewSentAtRef.current.clear();
+    liveStrokePreviewSignatureRef.current.clear();
+  }, [areaSelectionResizePreview, moving]);
+
+  const visibleBoardObjectsForDisplay = useMemo(() => {
+    if (!areaSelectionResizePreview || areaSelectionResizePreview.resizedObjectsById.size === 0) {
+      return visibleBoardObjects;
+    }
+    return visibleBoardObjects.map(
+      (object) => areaSelectionResizePreview.resizedObjectsById.get(object.id) ?? object
+    );
+  }, [areaSelectionResizePreview, visibleBoardObjects]);
+
+  const renderedStrokesForDisplay = useMemo(() => {
+    let nextStrokes = renderedStrokes;
+    if (incomingPreviewStrokeSelections.length > 0) {
+      // Hide committed copies while volatile preview exists for the same stroke selection.
+      nextStrokes = replaceRenderedStrokesBySelection({
+        baseStrokes: nextStrokes,
+        selections: incomingPreviewStrokeSelections,
+        replacementBySelectionKey: EMPTY_STROKE_REPLACEMENT_BY_SELECTION_KEY,
+      });
+    }
+
+    if (moving && movingStrokeSelections.length > 0) {
+      const deltaX = moving.current.x - moving.start.x;
+      const deltaY = moving.current.y - moving.start.y;
+      if (Math.abs(deltaX) > 0.01 || Math.abs(deltaY) > 0.01) {
+        const translatedBySelectionKey = new Map<string, WorkbookStroke>();
+        movingStrokeSelections.forEach((selection) => {
+          const sourceStrokeKey = buildWorkbookStrokeSelectionKey(selection);
+          const sourceStroke = strokeByKey.get(sourceStrokeKey) ?? null;
+          if (!sourceStroke) return;
+          translatedBySelectionKey.set(sourceStrokeKey, {
+            ...sourceStroke,
+            points: translateWorkbookStrokePoints(sourceStroke.points, deltaX, deltaY),
+          });
+        });
+        nextStrokes = replaceRenderedStrokesBySelection({
+          baseStrokes: nextStrokes,
+          selections: movingStrokeSelections,
+          replacementBySelectionKey: translatedBySelectionKey,
+        });
+      }
+    }
+
+    if (areaSelectionResizePreview && areaSelection?.strokeIds.length) {
+      nextStrokes = replaceRenderedStrokesBySelection({
+        baseStrokes: nextStrokes,
+        selections: areaSelection.strokeIds,
+        replacementBySelectionKey: areaSelectionResizePreview.resizedStrokesBySelectionKey,
+      });
+    }
+
+    return nextStrokes;
+  }, [
+    incomingPreviewStrokeSelections,
+    moving,
+    movingStrokeSelections,
+    renderedStrokes,
+    strokeByKey,
+    areaSelectionResizePreview,
+    areaSelection,
+  ]);
+
   const {
     selectedPreviewObject,
     resolveGraphFunctionHit,
@@ -630,7 +1170,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     areaSelectionDraftRect,
     areaSelectionResizeRect,
   } = useWorkbookCanvasSceneRuntime({
-    visibleBoardObjects,
+    visibleBoardObjects: visibleBoardObjectsForDisplay,
     objectById,
     selectedObjectId,
     moving,
@@ -652,6 +1192,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     constraints,
     selectedConstraintId,
     renderViewportRect,
+    pageFrameBounds,
     solid3dSectionMarkers,
     solid3dPreviewMetaById,
     areaSelectionDraft,
@@ -700,15 +1241,18 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     object: WorkbookBoardObject,
     event: PointerEvent<SVGSVGElement>,
     svg: SVGSVGElement,
-    groupOverride?: WorkbookBoardObject[]
+    groupOverride?: WorkbookBoardObject[],
+    groupStrokeSelectionsOverride?: WorkbookStrokeSelection[]
   ) => {
     pointerIdRef.current = event.pointerId;
     const start = mapPointer(svg, event.clientX, event.clientY, false, false);
     const groupObjects = groupOverride ?? resolveMovingGroup(object);
+    const groupStrokeSelections = groupStrokeSelectionsOverride ?? [];
     setMoving(
       buildMovingState({
         object,
         groupObjects,
+        groupStrokeSelections,
         start,
         startClientX: event.clientX,
         startClientY: event.clientY,
@@ -841,10 +1385,23 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       stickerText,
       commentText,
       lineStyle,
+      dividerLineStyle,
       solid3dInsertPreset,
     });
-    onObjectCreate(result.created);
-    onSelectedObjectChange(result.created.id);
+    const createdObject =
+      result.created.type === "section_divider"
+        ? {
+            ...result.created,
+            x: pageFrameBounds.minX,
+            width: pageFrameBounds.width,
+            y: Math.max(
+              pageFrameBounds.minY,
+              Math.min(pageFrameBounds.maxY - result.created.height, result.created.y)
+            ),
+          }
+        : result.created;
+    onObjectCreate(createdObject);
+    onSelectedObjectChange(createdObject.id);
     if (result.inlineTextEdit) {
       setInlineTextEdit(result.inlineTextEdit);
     }
@@ -857,11 +1414,95 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   const finishMoving = (nextMoving = movingState.ref.current) => {
     if (!nextMoving) return;
+    const rawDeltaX = nextMoving.current.x - nextMoving.start.x;
+    const rawDeltaY = nextMoving.current.y - nextMoving.start.y;
+    const boundedDelta = resolveBoundedMoveDelta(nextMoving, rawDeltaX, rawDeltaY);
+    const deltaX = boundedDelta.x;
+    const deltaY = boundedDelta.y;
+    const hasMeaningfulMove = Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5;
+    const normalizedMoving =
+      Math.abs(rawDeltaX - deltaX) <= 1e-6 && Math.abs(rawDeltaY - deltaY) <= 1e-6
+        ? nextMoving
+        : {
+            ...nextMoving,
+            current: {
+              x: nextMoving.start.x + deltaX,
+              y: nextMoving.start.y + deltaY,
+            },
+          };
+    const movingStrokeSelection = resolveWorkbookStrokeMoveProxySelection(nextMoving.object);
+    if (movingStrokeSelection) {
+      const sourceStrokeKey = buildWorkbookStrokeSelectionKey(movingStrokeSelection);
+      const sourceStroke = sourceStrokeKey ? strokeByKey.get(sourceStrokeKey) ?? null : null;
+      if (
+        sourceStroke &&
+        (Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5)
+      ) {
+        const translatedPoints = translateWorkbookStrokePoints(
+          sourceStroke.points,
+          deltaX,
+          deltaY
+        );
+        if (translatedPoints.length > 0) {
+          onStrokeReplace({
+            stroke: sourceStroke,
+            fragments: [translatedPoints],
+            preserveSourceId: true,
+          });
+          setSelectedStrokeSelection({
+            id: sourceStroke.id,
+            layer: sourceStroke.layer,
+          });
+        }
+      }
+      setMoving(null);
+      return;
+    }
+
+    const movedStrokeReplacements = !hasMeaningfulMove
+      ? []
+      : nextMoving.groupStrokeSelections
+      .map((selection) => {
+        const sourceStrokeKey = buildWorkbookStrokeSelectionKey(selection);
+        const sourceStroke = strokeByKey.get(sourceStrokeKey) ?? null;
+        if (!sourceStroke) return null;
+        const translatedPoints = translateWorkbookStrokePoints(
+          sourceStroke.points,
+          deltaX,
+          deltaY
+        );
+        if (translatedPoints.length === 0) return null;
+        return {
+          stroke: sourceStroke,
+          fragments: [translatedPoints],
+          preserveSourceId: true,
+        };
+      })
+      .filter(
+        (
+          entry
+        ): entry is {
+          stroke: WorkbookStroke;
+          fragments: WorkbookPoint[][];
+          preserveSourceId: true;
+        } => entry !== null
+      );
+
     const { objectPatches, nextAreaSelection } = buildMoveCommitResult({
-      moving: nextMoving,
+      moving: normalizedMoving,
       areaSelection,
     });
-    objectPatches.forEach(({ id, patch }) => onObjectUpdate(id, patch));
+
+    if (hasMeaningfulMove && movedStrokeReplacements.length > 0 && onEraserCommit) {
+      onEraserCommit({
+        strokeDeletes: [],
+        strokeReplacements: movedStrokeReplacements,
+        objectUpdates: objectPatches.map(({ id, patch }) => ({ objectId: id, patch })),
+      });
+    } else {
+      movedStrokeReplacements.forEach((entry) => onStrokeReplace(entry));
+      objectPatches.forEach(({ id, patch }) => onObjectUpdate(id, patch));
+    }
     if (nextAreaSelection) {
       onAreaSelectionChange?.(nextAreaSelection);
     }
@@ -875,6 +1516,93 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       onObjectUpdate(nextResizing.object.id, patch);
     }
     setResizing(null);
+  };
+
+  const finishAreaSelectionResize = (
+    nextAreaSelectionResize = areaSelectionResizeState.ref.current
+  ) => {
+    if (!nextAreaSelectionResize || !areaSelection) return;
+
+    const nextRect = resolveBoundedAreaSelectionResizeRect({
+      resize: nextAreaSelectionResize,
+      bounds: pageFrameBounds,
+    });
+    if (
+      !hasMeaningfulAreaSelectionResizeChange(nextAreaSelectionResize.initialRect, nextRect)
+    ) {
+      return;
+    }
+    const remapPoint = createAreaSelectionResizePointMapper({
+      initialRect: nextAreaSelectionResize.initialRect,
+      nextRect,
+    });
+
+    const objectUpdates: Array<{ objectId: string; patch: Partial<WorkbookBoardObject> }> = [];
+    const persistedObjectIds: string[] = [];
+    areaSelection.objectIds.forEach((objectId) => {
+      const object = objectById.get(objectId);
+      if (!object) return;
+      persistedObjectIds.push(object.id);
+      const nextObject = remapAreaSelectionObject(object, remapPoint);
+      const patch: Partial<WorkbookBoardObject> = {
+        x: nextObject.x,
+        y: nextObject.y,
+        width: nextObject.width,
+        height: nextObject.height,
+      };
+      if (Array.isArray(nextObject.points) && nextObject.points.length > 0) {
+        patch.points = nextObject.points;
+      }
+      objectUpdates.push({
+        objectId: object.id,
+        patch,
+      });
+    });
+
+    const strokeReplacements: Array<{
+      stroke: WorkbookStroke;
+      fragments: WorkbookPoint[][];
+      preserveSourceId: true;
+    }> = [];
+    const persistedStrokeSelections: Array<{ id: string; layer: WorkbookStroke["layer"] }> = [];
+    areaSelection.strokeIds.forEach((selection) => {
+      const sourceStroke = strokeByKey.get(buildWorkbookStrokeSelectionKey(selection));
+      if (!sourceStroke) return;
+      persistedStrokeSelections.push({
+        id: sourceStroke.id,
+        layer: sourceStroke.layer,
+      });
+      const nextStroke = remapAreaSelectionStroke(sourceStroke, remapPoint);
+      if (nextStroke.points.length === 0) return;
+      strokeReplacements.push({
+        stroke: sourceStroke,
+        fragments: [nextStroke.points],
+        preserveSourceId: true,
+      });
+    });
+
+    if (persistedObjectIds.length === 0 && persistedStrokeSelections.length === 0) {
+      onAreaSelectionChange?.(null);
+      return;
+    }
+
+    if (strokeReplacements.length > 0 && onEraserCommit) {
+      onEraserCommit({
+        strokeDeletes: [],
+        strokeReplacements,
+        objectUpdates,
+      });
+    } else {
+      objectUpdates.forEach((entry) => onObjectUpdate(entry.objectId, entry.patch));
+      strokeReplacements.forEach((entry) => onStrokeReplace(entry));
+    }
+
+    onAreaSelectionChange?.({
+      objectIds: persistedObjectIds,
+      strokeIds: persistedStrokeSelections,
+      rect: nextRect,
+      resizeEnabled: areaSelection.resizeEnabled,
+    });
   };
 
   const { startInteraction, continueInteraction, finishInteraction } =
@@ -929,6 +1657,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         startStroke,
         startShape,
         startMoving,
+        toggleObjectPin: onObjectPinToggle,
         startResizing,
         startSolid3dGesture,
         startGraphPan,
@@ -943,7 +1672,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         finishShape,
         finishMoving,
         finishResizing,
+        finishAreaSelectionResize,
         releasePointerCapture,
+        resolveBoundedMovingCurrentPoint,
         boardObjectCandidatesInRect,
         strokeCandidatesInRect,
         getObjectSceneLayerId,
@@ -951,6 +1682,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       api: {
         onSelectedConstraintChange,
         onSelectedObjectChange,
+        onSelectedStrokeChange: setSelectedStrokeSelection,
         onStrokeDelete,
         onObjectDelete,
         onObjectCreate,
@@ -971,6 +1703,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         forcePanMode,
         viewportOffset: resolvedViewportOffset,
         safeZoom,
+        allowHorizontalPan,
         selectedObjectId,
         objectById,
         areaSelection,
@@ -1006,11 +1739,99 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       },
     });
 
+  const touchTapStartRef = useRef<{
+    pointerId: number;
+    x: number;
+    y: number;
+    time: number;
+  } | null>(null);
+  const lastTouchTapRef = useRef<{
+    objectId: string;
+    x: number;
+    y: number;
+    time: number;
+  } | null>(null);
+  const handlePointerDown = useCallback(
+    (event: PointerEvent<SVGSVGElement>) => {
+      if (event.pointerType !== "mouse" && event.button === 0) {
+        touchTapStartRef.current = {
+          pointerId: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          time: Date.now(),
+        };
+      } else {
+        touchTapStartRef.current = null;
+      }
+      startInteraction(event);
+    },
+    [startInteraction]
+  );
+  const handlePointerMove = useCallback(
+    (event: PointerEvent<SVGSVGElement>) => {
+      const touchStart = touchTapStartRef.current;
+      if (touchStart && touchStart.pointerId === event.pointerId) {
+        const distance = Math.hypot(event.clientX - touchStart.x, event.clientY - touchStart.y);
+        if (distance > 10) {
+          touchTapStartRef.current = null;
+        }
+      }
+      continueInteraction(event);
+    },
+    [continueInteraction]
+  );
+  const handlePointerUp = useCallback(
+    (event: PointerEvent<SVGSVGElement>) => {
+      const touchStart = touchTapStartRef.current;
+      const isTouchTap =
+        event.pointerType !== "mouse" &&
+        Boolean(touchStart) &&
+        touchStart?.pointerId === event.pointerId &&
+        Math.hypot(event.clientX - touchStart.x, event.clientY - touchStart.y) <= 10 &&
+        Date.now() - touchStart.time <= 500;
+      if (touchStart?.pointerId === event.pointerId) {
+        touchTapStartRef.current = null;
+      }
+
+      finishInteraction(event);
+
+      if (!isTouchTap || !onObjectDoubleClick || disabled || tool !== "select") {
+        return;
+      }
+      const svg = event.currentTarget ?? null;
+      if (!svg) return;
+      const point = mapPointer(svg, event.clientX, event.clientY, true);
+      const target = resolveTopObject(point);
+      if (!target) {
+        lastTouchTapRef.current = null;
+        return;
+      }
+      const now = Date.now();
+      const previousTap = lastTouchTapRef.current;
+      const isDoubleTap =
+        previousTap &&
+        previousTap.objectId === target.id &&
+        now - previousTap.time <= 360 &&
+        Math.hypot(previousTap.x - point.x, previousTap.y - point.y) <= 18;
+      if (isDoubleTap) {
+        lastTouchTapRef.current = null;
+        onObjectDoubleClick(target);
+        return;
+      }
+      lastTouchTapRef.current = {
+        objectId: target.id,
+        x: point.x,
+        y: point.y,
+        time: now,
+      };
+    },
+    [disabled, finishInteraction, mapPointer, onObjectDoubleClick, resolveTopObject, tool]
+  );
+
   useWorkbookCanvasToolLifecycle({
     selectedObjectId,
     disabled,
     objectById,
-    unpinnedSceneLayerObjectsById,
     getObjectSceneLayerId,
     onObjectDelete,
     onSelectedObjectChange,
@@ -1062,6 +1883,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     roundSolidPresets: ROUND_SOLID_PRESETS,
     onLaserClear,
     onObjectContextMenu,
+    onObjectDoubleClick,
     onShapeVertexContextMenu,
     onLineEndpointContextMenu,
     onSolid3dVertexContextMenu,
@@ -1077,6 +1899,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     setEraserCursorPoint,
     viewportOffset: resolvedViewportOffset,
     safeZoom,
+    displayBias,
+    allowHorizontalPan,
+    pageFrameBounds,
     onViewportOffsetChange,
   });
 
@@ -1092,10 +1917,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       ref={setContainerNode}
       style={canvasStyle}
     >
+      <div className="workbook-session__canvas-page-surface" aria-hidden="true" />
       {newRendererEnabled ? (
         <WorkbookCommittedCanvasLayer
-          strokes={renderedStrokes}
+          strokes={renderedStrokesForDisplay}
           viewportOffset={resolvedViewportOffset}
+          displayBias={displayBias}
           zoom={safeZoom}
           width={size.width}
           height={size.height}
@@ -1115,9 +1942,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           WebkitUserSelect: "none",
           cursor: eraserModeEnabled ? "none" : undefined,
         }}
-        onPointerDown={startInteraction}
-        onPointerMove={continueInteraction}
-        onPointerUp={finishInteraction}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
         onPointerCancel={finishInteraction}
         onDoubleClick={handleDoubleClick}
         onWheel={handleWheel}
@@ -1143,7 +1970,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           </radialGradient>
         </defs>
 
-        <g transform={`scale(${safeZoom})`}>
+        <g transform={`translate(${displayBias.x} ${displayBias.y}) scale(${safeZoom})`}>
         <g transform={`translate(${-resolvedViewportOffset.x} ${-resolvedViewportOffset.y})`}>
         <WorkbookAutoDividerLayer lines={autoDividerLines} />
         <WorkbookObjectSceneLayer entries={objectSceneEntries} />
@@ -1160,10 +1987,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
             style={{ display: "none" }}
             aria-hidden="true"
           >
-            <WorkbookStrokeLayer strokes={renderedStrokes} />
+            <WorkbookStrokeLayer strokes={renderedStrokesForDisplay} />
           </g>
         ) : (
-          <WorkbookStrokeLayer strokes={renderedStrokes} />
+          <WorkbookStrokeLayer strokes={renderedStrokesForDisplay} />
         )}
         <WorkbookPreviewStrokeRuntimeLayer strokes={previewStrokes} />
         <WorkbookDraftOverlayLayer
@@ -1205,10 +2032,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           pointerEvents="none"
         />
         <WorkbookSelectionOverlayLayer
-          areaSelection={areaSelection}
+          areaSelection={areaSelectionOverlay}
           selectedRect={selectedRect}
-          selectedPreviewObject={selectedPreviewObject}
           selectedLineControls={selectedLineControls}
+          selectedPreviewObject={selectedPreviewObject}
+          selectedStroke={selectedStroke}
+          selectedStrokeRect={selectedStrokeRect}
+          isStrokeDragging={movingStrokeSelections.length > 0}
           selectedSolidResizeHandles={selectedSolidResizeHandles}
           tool={tool}
         />

@@ -23,6 +23,10 @@ import type {
   WorkbookTimerState,
 } from "./types";
 import { normalizeWorkbookObjectZOrder } from "./objectZOrder";
+import {
+  normalizeWorkbookPageFrameWidth,
+  WORKBOOK_PAGE_FRAME_WIDTH,
+} from "./pageFrame";
 import { normalizeWorkbookAssetContentUrl } from "./workbookAssetUrl";
 import {
   WORKBOOK_BOARD_ANNOTATION_COLOR,
@@ -30,6 +34,10 @@ import {
   WORKBOOK_BOARD_GRID_COLOR,
   WORKBOOK_BOARD_PRIMARY_COLOR,
 } from "./workbookVisualColors";
+import {
+  normalizeWorkbookBoardPageVisualSettingsByPage,
+  resolveWorkbookBoardPageVisualDefaults,
+} from "./boardPageSettings";
 
 const toFiniteNumber = (value: unknown, fallback = 0) => {
   const numeric = typeof value === "number" ? value : Number(value);
@@ -80,6 +88,7 @@ const toColor = (value: unknown, fallback: string) =>
 const MAIN_SCENE_LAYER_ID = "main";
 const MAIN_SCENE_LAYER_NAME = "Основной слой";
 export const WORKBOOK_IMAGE_ASSET_META_KEY = "documentAssetId";
+export const WORKBOOK_IMAGE_ASPECT_RATIO_META_KEY = "imageAspectRatio";
 
 const normalizeSceneLayers = (
   rawLayers: unknown,
@@ -492,14 +501,16 @@ const normalizeConstraint = (raw: unknown): WorkbookConstraint | null => {
 const normalizeBoardSettings = (raw: unknown): WorkbookBoardSettings => {
   const fallbackLayers = normalizeSceneLayers(null, null);
   if (!raw || typeof raw !== "object") {
-    return {
+    const fallbackSettings: WorkbookBoardSettings = {
       title: "Рабочая тетрадь",
       showGrid: true,
       gridSize: 22,
       gridColor: WORKBOOK_BOARD_GRID_COLOR,
       backgroundColor: WORKBOOK_BOARD_BACKGROUND_COLOR,
       snapToGrid: false,
+      pageBoardSettingsByPage: {},
       showPageNumbers: false,
+      pageFrameWidth: normalizeWorkbookPageFrameWidth(WORKBOOK_PAGE_FRAME_WIDTH),
       currentPage: 1,
       pagesCount: 1,
       pageOrder: [1],
@@ -510,6 +521,7 @@ const normalizeBoardSettings = (raw: unknown): WorkbookBoardSettings => {
       sceneLayers: fallbackLayers.sceneLayers,
       activeSceneLayerId: fallbackLayers.activeSceneLayerId,
     };
+    return fallbackSettings;
   }
   const source = raw as Partial<WorkbookBoardSettings>;
   const pagesCount = Math.max(1, toSafeInt(source.pagesCount, 1));
@@ -519,7 +531,7 @@ const normalizeBoardSettings = (raw: unknown): WorkbookBoardSettings => {
     (source as Partial<Record<"sceneLayers", unknown>>).sceneLayers,
     (source as Partial<Record<"activeSceneLayerId", unknown>>).activeSceneLayerId
   );
-  return {
+  const normalizedSettings: WorkbookBoardSettings = {
     title:
       typeof source.title === "string" && source.title.trim().length > 0
         ? source.title.trim()
@@ -530,6 +542,9 @@ const normalizeBoardSettings = (raw: unknown): WorkbookBoardSettings => {
     backgroundColor: toColor(source.backgroundColor, WORKBOOK_BOARD_BACKGROUND_COLOR),
     snapToGrid: Boolean(source.snapToGrid),
     showPageNumbers: Boolean(source.showPageNumbers),
+    pageFrameWidth: normalizeWorkbookPageFrameWidth(
+      source.pageFrameWidth ?? WORKBOOK_PAGE_FRAME_WIDTH
+    ),
     currentPage: Math.max(1, toSafeInt(source.currentPage, 1)),
     pagesCount,
     pageOrder,
@@ -541,6 +556,13 @@ const normalizeBoardSettings = (raw: unknown): WorkbookBoardSettings => {
     sceneLayers: sceneLayers.sceneLayers,
     activeSceneLayerId: sceneLayers.activeSceneLayerId,
   };
+  const fallbackPageVisualSettings = resolveWorkbookBoardPageVisualDefaults(normalizedSettings);
+  normalizedSettings.pageBoardSettingsByPage = normalizeWorkbookBoardPageVisualSettingsByPage(
+    (source as { pageBoardSettingsByPage?: unknown }).pageBoardSettingsByPage,
+    fallbackPageVisualSettings,
+    pagesCount
+  );
+  return normalizedSettings;
 };
 
 const normalizeLibraryFolder = (raw: unknown): WorkbookLibraryFolder | null => {

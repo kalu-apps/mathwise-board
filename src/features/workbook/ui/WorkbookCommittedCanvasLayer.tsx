@@ -31,6 +31,7 @@ type WorkerRenderPayload = {
     points: WorkbookPoint[];
   }>;
   viewportOffset: WorkbookPoint;
+  displayBias: WorkbookPoint;
   zoom: number;
   width: number;
   height: number;
@@ -43,6 +44,7 @@ type WorkerRenderBasePayload = Omit<WorkerRenderPayload, "requestId">;
 type WorkbookCommittedCanvasLayerProps = {
   strokes: WorkbookStroke[];
   viewportOffset: WorkbookPoint;
+  displayBias: WorkbookPoint;
   zoom: number;
   width: number;
   height: number;
@@ -109,6 +111,7 @@ const drawBatches = (
 export const WorkbookCommittedCanvasLayer = memo(function WorkbookCommittedCanvasLayer({
   strokes,
   viewportOffset,
+  displayBias,
   zoom,
   width,
   height,
@@ -146,13 +149,14 @@ export const WorkbookCommittedCanvasLayer = memo(function WorkbookCommittedCanva
         points: stroke.points,
       })),
       viewportOffset,
+      displayBias,
       zoom,
       width,
       height,
       currentPage,
       maxPointsPerStroke: MAX_POINTS_PER_STROKE,
     }),
-    [currentPage, height, strokes, viewportOffset, width, zoom]
+    [currentPage, displayBias, height, strokes, viewportOffset, width, zoom]
   );
 
   const scheduleDraw = useMemo(

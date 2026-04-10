@@ -176,6 +176,7 @@ export const createWorkbookSessionStoreActions = (
   setFloatingPanelsTop: (updater) => updateUi(set, "floatingPanelsTop", updater),
   setSelectedObjectId: (updater) => updateScene(set, "selectedObjectId", updater),
   setSelectedConstraintId: (updater) => updateScene(set, "selectedConstraintId", updater),
+  setCurrentBoardPage: (updater) => updateScene(set, "currentBoardPage", updater),
   setCanvasViewport: (updater) => updateScene(set, "canvasViewport", updater),
   setViewportZoom: (updater) => updateScene(set, "viewportZoom", updater),
   setFocusPoint: (updater) => updateRuntime(set, "focusPoint", updater),

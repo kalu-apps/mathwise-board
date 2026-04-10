@@ -7,6 +7,11 @@ const parseCssPixelSize = (value: string, fallback: number) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+const parseCssPixelValue = (value: string, fallback: number) => {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 type WorkbookPreviewTextMeasure = (value: string) => number;
 
 const buildWorkbookPreviewTextMeasure = (
@@ -80,21 +85,30 @@ const drawWorkbookGrid = (
     sourceWidth: number;
     targetWidth: number;
     gridSizePx: number;
+    gridOffsetXPx: number;
+    gridOffsetYPx: number;
     gridColor: string;
   }
 ) => {
   const scale = params.targetWidth / Math.max(1, params.sourceWidth);
   const scaledGridSize = Math.max(1, params.gridSizePx * scale);
   if (scaledGridSize <= 1) return;
+  const normalizeOffset = (value: number, modulo: number) => {
+    if (!Number.isFinite(value) || modulo <= 0) return 0;
+    const normalized = value % modulo;
+    return normalized < 0 ? normalized + modulo : normalized;
+  };
+  const scaledOffsetX = normalizeOffset(params.gridOffsetXPx * scale, scaledGridSize);
+  const scaledOffsetY = normalizeOffset(params.gridOffsetYPx * scale, scaledGridSize);
   context.save();
   context.strokeStyle = params.gridColor;
   context.lineWidth = 1;
   context.beginPath();
-  for (let x = 0.5; x <= params.width; x += scaledGridSize) {
+  for (let x = scaledOffsetX + 0.5; x <= params.width; x += scaledGridSize) {
     context.moveTo(x, 0);
     context.lineTo(x, params.height);
   }
-  for (let y = 0.5; y <= params.height; y += scaledGridSize) {
+  for (let y = scaledOffsetY + 0.5; y <= params.height; y += scaledGridSize) {
     context.moveTo(0, y);
     context.lineTo(params.width, y);
   }
@@ -331,27 +345,73 @@ export const captureWorkbookSessionPreviewDataUrl = async (
   if (!context) return null;
 
   const canvasComputedStyle = window.getComputedStyle(canvasNode);
-  const backgroundColor =
+  const outsideBackgroundColor = canvasComputedStyle.backgroundColor || "#ffffff";
+  const pageBackgroundColor =
     canvasComputedStyle.getPropertyValue("--workbook-background-color").trim() ||
-    canvasComputedStyle.backgroundColor ||
-    "#ffffff";
+    outsideBackgroundColor;
   const gridColor = canvasComputedStyle.getPropertyValue("--workbook-grid-color").trim();
   const gridSizePx = parseCssPixelSize(
     canvasComputedStyle.getPropertyValue("--workbook-grid-size"),
     22
   );
+  const gridOffsetXPx = parseCssPixelSize(
+    canvasComputedStyle.getPropertyValue("--workbook-grid-offset-x"),
+    0
+  );
+  const gridOffsetYPx = parseCssPixelSize(
+    canvasComputedStyle.getPropertyValue("--workbook-grid-offset-y"),
+    0
+  );
+  const pageLeftPx = parseCssPixelValue(
+    canvasComputedStyle.getPropertyValue("--workbook-page-left"),
+    0
+  );
+  const pageTopPx = parseCssPixelValue(
+    canvasComputedStyle.getPropertyValue("--workbook-page-top"),
+    0
+  );
+  const pageWidthPx = parseCssPixelSize(
+    canvasComputedStyle.getPropertyValue("--workbook-page-width"),
+    sourceWidth
+  );
+  const pageHeightPx = parseCssPixelSize(
+    canvasComputedStyle.getPropertyValue("--workbook-page-height"),
+    sourceHeight
+  );
+  const pageGridOffsetXPx = parseCssPixelValue(
+    canvasComputedStyle.getPropertyValue("--workbook-page-grid-offset-x"),
+    gridOffsetXPx
+  );
+  const pageGridOffsetYPx = parseCssPixelValue(
+    canvasComputedStyle.getPropertyValue("--workbook-page-grid-offset-y"),
+    gridOffsetYPx
+  );
+  const scale = targetSize.width / Math.max(1, sourceWidth);
+  const pageRect = {
+    x: pageLeftPx * scale,
+    y: pageTopPx * scale,
+    width: pageWidthPx * scale,
+    height: pageHeightPx * scale,
+  };
 
-  context.fillStyle = backgroundColor;
+  context.fillStyle = outsideBackgroundColor;
   context.fillRect(0, 0, targetSize.width, targetSize.height);
+  context.fillStyle = pageBackgroundColor;
+  context.fillRect(pageRect.x, pageRect.y, pageRect.width, pageRect.height);
   if (gridColor && gridColor.toLowerCase() !== "transparent") {
+    context.save();
+    context.translate(pageRect.x, pageRect.y);
     drawWorkbookGrid(context, {
-      width: targetSize.width,
-      height: targetSize.height,
+      width: Math.max(1, pageRect.width),
+      height: Math.max(1, pageRect.height),
       sourceWidth,
       targetWidth: targetSize.width,
       gridSizePx,
+      gridOffsetXPx: pageGridOffsetXPx,
+      gridOffsetYPx: pageGridOffsetYPx,
       gridColor,
     });
+    context.restore();
   }
   if (committedCanvasNode) {
     context.drawImage(committedCanvasNode, 0, 0, targetSize.width, targetSize.height);

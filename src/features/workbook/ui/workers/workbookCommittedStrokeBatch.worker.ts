@@ -21,6 +21,7 @@ type RenderPayload = {
   requestId: number;
   strokes: WorkerStroke[];
   viewportOffset: WorkerPoint;
+  displayBias: WorkerPoint;
   zoom: number;
   width: number;
   height: number;
@@ -114,6 +115,10 @@ const renderPayload = (payload: RenderPayload): RenderResult => {
     x: isFiniteNumber(payload.viewportOffset?.x) ? payload.viewportOffset.x : 0,
     y: isFiniteNumber(payload.viewportOffset?.y) ? payload.viewportOffset.y : 0,
   };
+  const safeDisplayBias = {
+    x: isFiniteNumber(payload.displayBias?.x) ? payload.displayBias.x : 0,
+    y: isFiniteNumber(payload.displayBias?.y) ? payload.displayBias.y : 0,
+  };
   const maxPointsPerStroke = Math.max(12, Math.floor(clampPositive(payload.maxPointsPerStroke, 240)));
   const worldMargin = Math.max(48, Math.round(220 / safeZoom));
   const viewportBounds = {
@@ -166,8 +171,8 @@ const renderPayload = (payload: RenderPayload): RenderResult => {
     }
     const flatPoints: number[] = [];
     for (const point of simplifiedPoints) {
-      const x = (point.x - safeViewportOffset.x) * safeZoom;
-      const y = (point.y - safeViewportOffset.y) * safeZoom;
+      const x = (point.x - safeViewportOffset.x) * safeZoom + safeDisplayBias.x;
+      const y = (point.y - safeViewportOffset.y) * safeZoom + safeDisplayBias.y;
       if (!isFiniteNumber(x) || !isFiniteNumber(y)) continue;
       flatPoints.push(x, y);
     }

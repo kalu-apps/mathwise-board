@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Alert, Button, IconButton, MenuItem, Select, Switch, TextField } from "@mui/material";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import PolylineRoundedIcon from "@mui/icons-material/PolylineRounded";
 import ViewInArRoundedIcon from "@mui/icons-material/ViewInArRounded";
 import { computeSectionPolygon } from "@/features/workbook/model/solid3dGeometry";
@@ -13,6 +14,7 @@ import {
   WORKBOOK_SELECTION_HELPER_COLOR,
   WORKBOOK_SYSTEM_COLORS,
 } from "@/features/workbook/model/workbookVisualColors";
+import { toColorInputValue } from "@/shared/lib/colorInput";
 import type { WorkbookSessionTransformPanelProps } from "./WorkbookSessionTransformPanel.types";
 
 type WorkbookSessionTransformPanelSolid3dProps = Pick<
@@ -293,12 +295,6 @@ export function WorkbookSessionTransformPanelSolid3d({
                     Отразить по Y
                   </Button>
                 </div>
-                {selectedSolidIsCurved ? (
-                  <p className="workbook-session__hint">
-                    Для тел с круговым основанием скрыты служебные mesh-точки: в учебной записи
-                    остаются контур, образующие, ось и сечения.
-                  </p>
-                ) : null}
               </article>
             ) : null}
 
@@ -310,22 +306,30 @@ export function WorkbookSessionTransformPanelSolid3d({
                 <div className="workbook-session__solid-face-grid">
                   <div className="workbook-session__solid-face-row">
                     <span>Заливка</span>
-                    <input
-                      type="color"
-                      className="workbook-session__solid-color"
-                      value={selectedSolidSurfaceColor}
-                      onChange={(event) =>
-                        void onUpdateSelectedSolid3dSurfaceColor(
-                          event.target.value || solidSurfaceFallback
-                        )
-                      }
-                    />
+                    <div className="workbook-session__color-control">
+                      <input
+                        type="color"
+                        className="workbook-session__solid-color"
+                        value={toColorInputValue(selectedSolidSurfaceColor, solidSurfaceFallback)}
+                        onChange={(event) =>
+                          void onUpdateSelectedSolid3dSurfaceColor(
+                            event.target.value || solidSurfaceFallback
+                          )
+                        }
+                      />
+                      <IconButton
+                        size="small"
+                        className="workbook-session__color-reset-btn"
+                        aria-label="Сбросить цвет поверхности"
+                        onClick={() =>
+                          void onUpdateSelectedSolid3dSurfaceColor(solidSurfaceFallback)
+                        }
+                      >
+                        <CloseRoundedIcon fontSize="small" />
+                      </IconButton>
+                    </div>
                   </div>
                 </div>
-                <p className="workbook-session__hint">
-                  Для тел с круговым основанием доступны управление поверхностью и служебными
-                  контурами.
-                </p>
               </article>
             ) : null}
 
@@ -348,19 +352,29 @@ export function WorkbookSessionTransformPanelSolid3d({
                                 selectedSolidVertexLabels[vertexIndex] || getSolidVertexLabel(vertexIndex)
                             )
                             .join("-") || faceIndex + 1
-                        }`}
+                          }`}
                       </span>
-                      <input
-                        type="color"
-                        className="workbook-session__solid-color"
-                        value={selectedSolidFaceColors[String(faceIndex)] || solidSurfaceFallback}
-                        onChange={(event) =>
-                          void onSetSolid3dFaceColor(
-                            faceIndex,
-                            event.target.value || solidSurfaceFallback
-                          )
-                        }
-                      />
+                      <div className="workbook-session__color-control">
+                        <input
+                          type="color"
+                          className="workbook-session__solid-color"
+                          value={toColorInputValue(
+                            selectedSolidFaceColors[String(faceIndex)] || selectedSolidSurfaceColor,
+                            solidSurfaceFallback
+                          )}
+                          onChange={(event) =>
+                            void onSetSolid3dFaceColor(faceIndex, event.target.value || "")
+                          }
+                        />
+                        <IconButton
+                          size="small"
+                          className="workbook-session__color-reset-btn"
+                          aria-label={`Сбросить цвет грани ${faceIndex + 1}`}
+                          onClick={() => void onSetSolid3dFaceColor(faceIndex, "")}
+                        >
+                          <CloseRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -384,17 +398,27 @@ export function WorkbookSessionTransformPanelSolid3d({
                   {selectedSolidEdges.slice(0, 24).map((edge) => (
                     <div key={`solid-edge-color-${edge.key}`} className="workbook-session__solid-face-row">
                       <span>{`Ребро ${edge.label}`}</span>
-                      <input
-                        type="color"
-                        className="workbook-session__solid-color"
-                        value={selectedSolidEdgeColors[edge.key] || solidEdgeFallback}
-                        onChange={(event) =>
-                          void onSetSolid3dEdgeColor(
-                            edge.key,
-                            event.target.value || solidEdgeFallback
-                          )
-                        }
-                      />
+                      <div className="workbook-session__color-control">
+                        <input
+                          type="color"
+                          className="workbook-session__solid-color"
+                          value={toColorInputValue(
+                            selectedSolidEdgeColors[edge.key] || solidEdgeFallback,
+                            solidEdgeFallback
+                          )}
+                          onChange={(event) =>
+                            void onSetSolid3dEdgeColor(edge.key, event.target.value || "")
+                          }
+                        />
+                        <IconButton
+                          size="small"
+                          className="workbook-session__color-reset-btn"
+                          aria-label={`Сбросить цвет ребра ${edge.label}`}
+                          onClick={() => void onSetSolid3dEdgeColor(edge.key, "")}
+                        >
+                          <CloseRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -459,22 +483,39 @@ export function WorkbookSessionTransformPanelSolid3d({
                               </div>
                             </div>
                             <div className="workbook-session__solid-angle-card-actions">
-                              <input
-                                type="color"
-                                className="workbook-session__solid-color"
-                                value={mark.color || solidAngleFallback}
-                                onChange={(event) =>
-                                  void onUpdateSolid3dAngleMark(mark.id, {
-                                    color: event.target.value || solidAngleFallback,
-                                  })
-                                }
-                              />
+                              <div className="workbook-session__color-control">
+                                <input
+                                  type="color"
+                                  className="workbook-session__solid-color"
+                                  value={toColorInputValue(
+                                    mark.color || solidAngleFallback,
+                                    solidAngleFallback
+                                  )}
+                                  onChange={(event) =>
+                                    void onUpdateSolid3dAngleMark(mark.id, {
+                                      color: event.target.value || solidAngleFallback,
+                                    })
+                                  }
+                                />
+                                <IconButton
+                                  size="small"
+                                  className="workbook-session__color-reset-btn"
+                                  aria-label="Сбросить цвет угла"
+                                  onClick={() =>
+                                    void onUpdateSolid3dAngleMark(mark.id, {
+                                      color: solidAngleFallback,
+                                    })
+                                  }
+                                >
+                                  <CloseRoundedIcon fontSize="small" />
+                                </IconButton>
+                              </div>
                               <IconButton
                                 size="small"
                                 className="workbook-session__solid-angle-delete"
                                 onClick={() => void onDeleteSolid3dAngleMark(mark.id)}
                               >
-                                <CloseRoundedIcon />
+                                <DeleteOutlineRoundedIcon />
                               </IconButton>
                             </div>
                           </div>
@@ -620,11 +661,23 @@ export function WorkbookSessionTransformPanelSolid3d({
                       <span className="workbook-session__solid-card-title workbook-session__solid-card-title--segment">
                         {`Отрезок ${start?.name || "?"}-${end?.name || "?"}`}
                       </span>
-                      <div className="workbook-session__solid-card-controls workbook-session__solid-card-controls--segment-top">
+                      <IconButton
+                        size="small"
+                        className="workbook-session__solid-section-delete"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void onDeleteSolid3dHostedSegment?.(segment.id);
+                        }}
+                      >
+                        <DeleteOutlineRoundedIcon />
+                      </IconButton>
+                    </div>
+                    <div className="workbook-session__solid-card-controls workbook-session__solid-card-controls--segment-top">
+                      <div className="workbook-session__color-control">
                         <input
                           type="color"
                           className="workbook-session__solid-color"
-                          value={segment.color}
+                          value={toColorInputValue(segment.color, solidAngleFallback)}
                           onClick={(event) => event.stopPropagation()}
                           onChange={(event) =>
                             void onUpdateSolid3dHostedSegment?.(segment.id, {
@@ -632,31 +685,34 @@ export function WorkbookSessionTransformPanelSolid3d({
                             })
                           }
                         />
-                        <div className="workbook-session__solid-segment-thickness">
-                          <input
-                            type="range"
-                            min={1}
-                            max={12}
-                            step={1}
-                            value={segment.thickness}
-                            onClick={(event) => event.stopPropagation()}
-                            onChange={(event) =>
-                              void onUpdateSolid3dHostedSegment?.(segment.id, {
-                                thickness: Math.max(1, Math.min(12, Number(event.target.value) || 1)),
-                              })
-                            }
-                          />
-                        </div>
                         <IconButton
                           size="small"
-                          className="workbook-session__solid-section-delete"
+                          className="workbook-session__color-reset-btn"
+                          aria-label="Сбросить цвет отрезка"
                           onClick={(event) => {
                             event.stopPropagation();
-                            void onDeleteSolid3dHostedSegment?.(segment.id);
+                            void onUpdateSolid3dHostedSegment?.(segment.id, {
+                              color: solidAngleFallback,
+                            });
                           }}
                         >
-                          <CloseRoundedIcon />
+                          <CloseRoundedIcon fontSize="small" />
                         </IconButton>
+                      </div>
+                      <div className="workbook-session__solid-segment-thickness">
+                        <input
+                          type="range"
+                          min={1}
+                          max={12}
+                          step={1}
+                          value={segment.thickness}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) =>
+                            void onUpdateSolid3dHostedSegment?.(segment.id, {
+                              thickness: Math.max(1, Math.min(12, Number(event.target.value) || 1)),
+                            })
+                          }
+                        />
                       </div>
                     </div>
                     <div className="workbook-session__solid-hosted-segment-toggles">
@@ -770,17 +826,32 @@ export function WorkbookSessionTransformPanelSolid3d({
                     <div className="workbook-session__solid-card-head">
                       <span className="workbook-session__solid-card-title">{section.name}</span>
                       <div className="workbook-session__solid-card-controls">
-                        <input
-                          type="color"
-                          className="workbook-session__solid-color"
-                          value={section.color}
-                          onClick={(event) => event.stopPropagation()}
-                          onChange={(event) =>
-                            void onUpdateSolid3dSection(section.id, {
-                              color: event.target.value || solidAngleFallback,
-                            })
-                          }
-                        />
+                        <div className="workbook-session__color-control">
+                          <input
+                            type="color"
+                            className="workbook-session__solid-color"
+                            value={toColorInputValue(section.color, solidAngleFallback)}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={(event) =>
+                              void onUpdateSolid3dSection(section.id, {
+                                color: event.target.value || solidAngleFallback,
+                              })
+                            }
+                          />
+                          <IconButton
+                            size="small"
+                            className="workbook-session__color-reset-btn"
+                            aria-label="Сбросить цвет сечения"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void onUpdateSolid3dSection(section.id, {
+                                color: solidAngleFallback,
+                              });
+                            }}
+                          >
+                            <CloseRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </div>
                         <IconButton
                           size="small"
                           className="workbook-session__solid-section-delete"
@@ -789,22 +860,17 @@ export function WorkbookSessionTransformPanelSolid3d({
                             void onDeleteSolid3dSection(section.id);
                           }}
                         >
-                          <CloseRoundedIcon />
+                          <DeleteOutlineRoundedIcon />
                         </IconButton>
                       </div>
                     </div>
                     <div className="workbook-session__solid-section-summary">
-                      {selectedSolidIsCurved ? (
+                      {!selectedSolidIsCurved && !summary?.isPolygonal ? (
                         <p className="workbook-session__hint">
-                          Для тел с круговым основанием вершины сечения не используются.
+                          Сечение сохранено как плоскость пересечения. Контур появится, когда
+                          фигура корректно пересечётся этой плоскостью.
                         </p>
-                      ) : (
-                        <p className="workbook-session__hint">
-                          {summary?.isPolygonal
-                            ? "Сечение построено по опорным точкам."
-                            : "Сечение сохранено как плоскость пересечения. Контур появится, когда фигура корректно пересечётся этой плоскостью."}
-                        </p>
-                      )}
+                      ) : null}
                       {!selectedSolidIsCurved ? (
                         <div className="workbook-session__solid-card-row workbook-session__solid-card-row--toggle">
                           <span>Скрыть названия вершин</span>

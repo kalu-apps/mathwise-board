@@ -8,6 +8,7 @@ import type {
   WorkbookPoint,
   WorkbookTool,
 } from "../model/types";
+import type { WorkbookPageFrameBounds } from "../model/pageFrame";
 import { handleWorkbookCanvasContextMenu } from "./workbookCanvasContextMenu";
 import type { WorkbookCanvasAreaSelection } from "./WorkbookCanvas.types";
 
@@ -26,6 +27,9 @@ interface UseWorkbookCanvasDomHandlersParams {
   tool: WorkbookTool;
   viewportOffset: WorkbookPoint;
   safeZoom: number;
+  displayBias: WorkbookPoint;
+  allowHorizontalPan: boolean;
+  pageFrameBounds: WorkbookPageFrameBounds;
   onViewportOffsetChange?: (offset: WorkbookPoint) => void;
   onObjectUpdate: (
     objectId: string,
@@ -43,6 +47,7 @@ interface UseWorkbookCanvasDomHandlersParams {
   roundSolidPresets: Set<string>;
   onLaserClear?: () => void;
   onObjectContextMenu?: (objectId: string, anchor: { x: number; y: number }) => void;
+  onObjectDoubleClick?: (object: WorkbookBoardObject) => void;
   onShapeVertexContextMenu?: (payload: {
     objectId: string;
     vertexIndex: number;
@@ -86,6 +91,12 @@ interface UseWorkbookCanvasDomHandlersParams {
   setEraserCursorPoint: (point: WorkbookPoint | null) => void;
 }
 
+const toPositiveModulo = (value: number, modulo: number) => {
+  if (!Number.isFinite(value) || !Number.isFinite(modulo) || modulo <= 0) return 0;
+  const normalized = value % modulo;
+  return normalized < 0 ? normalized + modulo : normalized;
+};
+
 export const useWorkbookCanvasDomHandlers = ({
   disabled,
   selectedObjectId,
@@ -95,6 +106,9 @@ export const useWorkbookCanvasDomHandlers = ({
   tool,
   viewportOffset,
   safeZoom,
+  displayBias,
+  allowHorizontalPan,
+  pageFrameBounds,
   onViewportOffsetChange,
   onObjectUpdate,
   onSelectedObjectChange,
@@ -105,6 +119,7 @@ export const useWorkbookCanvasDomHandlers = ({
   roundSolidPresets,
   onLaserClear,
   onObjectContextMenu,
+  onObjectDoubleClick,
   onShapeVertexContextMenu,
   onLineEndpointContextMenu,
   onSolid3dVertexContextMenu,
@@ -128,13 +143,60 @@ export const useWorkbookCanvasDomHandlers = ({
   );
 
   const canvasStyle = useMemo(
-    () =>
-      ({
-        "--workbook-grid-size": `${Math.max(8, Math.min(96, Math.floor(gridSize || 22)))}px`,
+    () => {
+      const safeGridSizeWorld = Math.max(8, Math.min(96, Math.floor(gridSize || 22)));
+      const safeRenderZoom =
+        Number.isFinite(safeZoom) && safeZoom > 0 ? safeZoom : 1;
+      const gridStepPx = Math.max(1, safeGridSizeWorld * safeRenderZoom);
+      const displayBiasX = Number.isFinite(displayBias.x) ? displayBias.x : 0;
+      const displayBiasY = Number.isFinite(displayBias.y) ? displayBias.y : 0;
+      // Align screen-space CSS grid phase with world-space viewport translation.
+      const gridOffsetXPx = toPositiveModulo(
+        -viewportOffset.x * safeRenderZoom + displayBiasX,
+        gridStepPx
+      );
+      const gridOffsetYPx = toPositiveModulo(
+        -viewportOffset.y * safeRenderZoom + displayBiasY,
+        gridStepPx
+      );
+      const pageLeftPx =
+        (pageFrameBounds.minX - viewportOffset.x) * safeRenderZoom + displayBiasX;
+      const pageTopPx =
+        (pageFrameBounds.minY - viewportOffset.y) * safeRenderZoom + displayBiasY;
+      const pageWidthPx = pageFrameBounds.width * safeRenderZoom;
+      const pageHeightPx = pageFrameBounds.height * safeRenderZoom;
+      const pageGridOffsetXPx = toPositiveModulo(gridOffsetXPx - pageLeftPx, gridStepPx);
+      const pageGridOffsetYPx = toPositiveModulo(gridOffsetYPx - pageTopPx, gridStepPx);
+      return {
+        "--workbook-grid-size-world": `${safeGridSizeWorld}px`,
+        "--workbook-grid-size": `${gridStepPx}px`,
+        "--workbook-grid-offset-x": `${gridOffsetXPx}px`,
+        "--workbook-grid-offset-y": `${gridOffsetYPx}px`,
+        "--workbook-page-grid-offset-x": `${pageGridOffsetXPx}px`,
+        "--workbook-page-grid-offset-y": `${pageGridOffsetYPx}px`,
+        "--workbook-page-left": `${pageLeftPx}px`,
+        "--workbook-page-top": `${pageTopPx}px`,
+        "--workbook-page-width": `${pageWidthPx}px`,
+        "--workbook-page-height": `${pageHeightPx}px`,
         "--workbook-grid-color": showGrid ? gridColor : "transparent",
         "--workbook-background-color": backgroundColor,
-      }) as CSSProperties,
-    [backgroundColor, gridColor, gridSize, showGrid]
+      } as CSSProperties;
+    },
+    [
+      backgroundColor,
+      displayBias.x,
+      displayBias.y,
+      gridColor,
+      gridSize,
+      pageFrameBounds.height,
+      pageFrameBounds.minX,
+      pageFrameBounds.minY,
+      pageFrameBounds.width,
+      safeZoom,
+      showGrid,
+      viewportOffset.x,
+      viewportOffset.y,
+    ]
   );
 
   const preventDefaultIfCancelable = (
@@ -155,20 +217,25 @@ export const useWorkbookCanvasDomHandlers = ({
       if (disabled) return;
       if (!event.ctrlKey && !event.metaKey) {
         if (!onViewportOffsetChange) return;
-        // Intercept all regular wheel/trackpad gestures on canvas to keep
-        // viewport navigation strictly vertical and avoid native horizontal scroll.
+        // Intercept all regular wheel/trackpad gestures on canvas.
+        // Horizontal pan is enabled only when page width overflows visible viewport width.
         preventDefaultIfCancelable(event);
-        if (!Number.isFinite(event.deltaY) || Math.abs(event.deltaY) <= 0.0001) return;
+        const hasDeltaY = Number.isFinite(event.deltaY) && Math.abs(event.deltaY) > 0.0001;
+        const hasDeltaX =
+          allowHorizontalPan && Number.isFinite(event.deltaX) && Math.abs(event.deltaX) > 0.0001;
+        if (!hasDeltaY && !hasDeltaX) return;
         const deltaModeScale =
           event.deltaMode === 1
             ? 16
             : event.deltaMode === 2
               ? (typeof window !== "undefined" ? Math.max(480, window.innerHeight) : 800)
               : 1;
-        const deltaY = event.deltaY * deltaModeScale;
+        const deltaY = hasDeltaY ? event.deltaY * deltaModeScale : 0;
+        const deltaX = hasDeltaX ? event.deltaX * deltaModeScale : 0;
+        const safeScrollZoom = Math.max(0.08, safeZoom);
         const nextOffset: WorkbookPoint = {
-          x: viewportOffset.x,
-          y: Math.max(0, viewportOffset.y + deltaY / Math.max(0.08, safeZoom)),
+          x: Math.max(0, viewportOffset.x + deltaX / safeScrollZoom),
+          y: Math.max(0, viewportOffset.y + deltaY / safeScrollZoom),
         };
         onViewportOffsetChange(nextOffset);
         return;
@@ -203,6 +270,7 @@ export const useWorkbookCanvasDomHandlers = ({
       objectById,
       onObjectUpdate,
       onViewportOffsetChange,
+      allowHorizontalPan,
       safeZoom,
       selectedObjectId,
       viewportOffset.x,
@@ -217,6 +285,12 @@ export const useWorkbookCanvasDomHandlers = ({
       if (!svg) return;
       const point = mapPointer(svg, event.clientX, event.clientY, true);
       const target = resolveTopObject(point);
+      if (target && onObjectDoubleClick) {
+        event.preventDefault();
+        event.stopPropagation();
+        onObjectDoubleClick(target);
+        return;
+      }
       if (!target && tool === "select") {
         event.preventDefault();
         event.stopPropagation();
@@ -227,7 +301,7 @@ export const useWorkbookCanvasDomHandlers = ({
       event.stopPropagation();
       startInlineTextEdit(target.id);
     },
-    [disabled, mapPointer, resolveTopObject, startInlineTextEdit, tool]
+    [disabled, mapPointer, onObjectDoubleClick, resolveTopObject, startInlineTextEdit, tool]
   );
 
   const handleContextMenu = useCallback(

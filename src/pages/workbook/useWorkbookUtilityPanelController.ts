@@ -23,6 +23,48 @@ type StateUpdater<T> = T | ((current: T) => T);
 
 type SetState<T> = (updater: StateUpdater<T>) => void;
 
+type WorkbookViewportPanelBounds = {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+};
+
+const resolveViewportPanelBounds = ({
+  viewportWidth,
+  viewportHeight,
+  panelWidth,
+  panelHeight,
+  floatingPanelsTop,
+}: {
+  viewportWidth: number;
+  viewportHeight: number;
+  panelWidth: number;
+  panelHeight: number;
+  floatingPanelsTop: number;
+}): WorkbookViewportPanelBounds => {
+  const horizontalInset = 8;
+  const verticalInset = 8;
+  const minX = horizontalInset;
+  const minY = Math.max(verticalInset, floatingPanelsTop);
+  const maxX = Math.max(minX + 24, viewportWidth - panelWidth - horizontalInset);
+  const maxY = Math.max(minY + 24, viewportHeight - panelHeight - verticalInset);
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+  };
+};
+
+const clampPanelPositionToBounds = (
+  position: WorkbookPoint,
+  bounds: WorkbookViewportPanelBounds
+): WorkbookPoint => ({
+  x: Math.max(bounds.minX, Math.min(bounds.maxX, position.x)),
+  y: Math.max(bounds.minY, Math.min(bounds.maxY, position.y)),
+});
+
 type UseWorkbookUtilityPanelControllerParams = {
   boardObjects: WorkbookBoardObject[];
   selectedObjectId: string | null;
@@ -139,11 +181,12 @@ export const useWorkbookUtilityPanelController = ({
       if (canvasRect.width <= 1 || canvasRect.height <= 1) return null;
       const measuredPanelRect = utilityPanelRef.current?.getBoundingClientRect() ?? null;
       const fallbackWidth = tab === "graph" ? 392 : 380;
+      const viewportPadding = 12;
       const panelWidth = Math.max(
         280,
         Math.min(
           measuredPanelRect?.width ?? fallbackWidth,
-          Math.max(280, canvasRect.width - 18)
+          Math.max(280, window.innerWidth - viewportPadding * 2)
         )
       );
       const panelHeight = Math.max(
@@ -157,10 +200,10 @@ export const useWorkbookUtilityPanelController = ({
       const objectBottom = canvasRect.top + (bounds.maxY - canvasViewport.y) * viewportZoom;
       const objectHeight = Math.max(24, objectBottom - objectTop);
       const gap = 14;
-      const availableLeft = Math.max(12, canvasRect.left + 6);
-      const availableRight = Math.min(window.innerWidth - 12, canvasRect.right - 6);
-      const availableTop = Math.max(12, canvasRect.top + 6);
-      const availableBottom = Math.min(window.innerHeight - 12, canvasRect.bottom - 6);
+      const availableLeft = viewportPadding;
+      const availableRight = window.innerWidth - viewportPadding;
+      const availableTop = Math.max(floatingPanelsTop, viewportPadding);
+      const availableBottom = window.innerHeight - viewportPadding;
       const maxX = Math.max(availableLeft, availableRight - panelWidth);
       const maxY = Math.max(availableTop, availableBottom - panelHeight);
       const fitsRight = objectRight + gap + panelWidth <= availableRight;
@@ -179,6 +222,7 @@ export const useWorkbookUtilityPanelController = ({
     [
       canvasViewport.x,
       canvasViewport.y,
+      floatingPanelsTop,
       isCompactViewport,
       isUtilityPanelCollapsed,
       utilityPanelRef,
@@ -233,21 +277,22 @@ export const useWorkbookUtilityPanelController = ({
       if (tab === "graph" || tab === "transform") {
         return;
       }
-      if (!workspaceRef.current) return;
-      const rect = workspaceRef.current.getBoundingClientRect();
+      if (typeof window === "undefined") return;
       setUtilityPanelPosition((current) => {
-        const fallbackX = Math.max(rect.left + 8, rect.right - 420);
-        const fallbackY = Math.max(rect.top + 8, floatingPanelsTop);
+        const panelWidth = utilityPanelRef.current?.offsetWidth ?? 420;
+        const panelHeight = utilityPanelRef.current?.offsetHeight ?? 560;
+        const bounds = resolveViewportPanelBounds({
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+          panelWidth,
+          panelHeight,
+          floatingPanelsTop,
+        });
+        const fallbackX = Math.max(bounds.minX, bounds.maxX);
+        const fallbackY = bounds.minY;
         const nextX = current.x > 0 ? current.x : fallbackX;
         const nextY = current.y > 0 ? current.y : fallbackY;
-        const minX = rect.left + 8;
-        const minY = Math.max(rect.top + 8, floatingPanelsTop);
-        const maxX = Math.max(minX + 24, rect.right - 320);
-        const maxY = Math.max(minY + 24, rect.bottom - 120);
-        return {
-          x: Math.max(minX, Math.min(maxX, nextX)),
-          y: Math.max(minY, Math.min(maxY, nextY)),
-        };
+        return clampPanelPositionToBounds({ x: nextX, y: nextY }, bounds);
       });
     },
     [
@@ -263,7 +308,7 @@ export const useWorkbookUtilityPanelController = ({
       setUtilityPanelPosition,
       setUtilityTab,
       utilityTab,
-      workspaceRef,
+      utilityPanelRef,
     ]
   );
 
@@ -325,23 +370,24 @@ export const useWorkbookUtilityPanelController = ({
     const onPointerMove = (event: PointerEvent) => {
       const deltaX = event.clientX - utilityPanelDragState.startClientX;
       const deltaY = event.clientY - utilityPanelDragState.startClientY;
-      const workspaceRect = workspaceRef.current?.getBoundingClientRect();
       const panelWidth = utilityPanelRef.current?.offsetWidth ?? 360;
       const panelHeight = utilityPanelRef.current?.offsetHeight ?? 420;
-      const minX = (workspaceRect?.left ?? 0) + 8;
-      const minY = Math.max((workspaceRect?.top ?? 0) + 8, floatingPanelsTop);
-      const maxX = Math.max(
-        minX + 24,
-        (workspaceRect?.right ?? window.innerWidth) - panelWidth - 8
-      );
-      const maxY = Math.max(
-        minY + 24,
-        (workspaceRect?.bottom ?? window.innerHeight) - panelHeight - 8
-      );
-      setUtilityPanelPosition({
-        x: Math.max(minX, Math.min(maxX, utilityPanelDragState.startLeft + deltaX)),
-        y: Math.max(minY, Math.min(maxY, utilityPanelDragState.startTop + deltaY)),
+      const bounds = resolveViewportPanelBounds({
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        panelWidth,
+        panelHeight,
+        floatingPanelsTop,
       });
+      setUtilityPanelPosition(
+        clampPanelPositionToBounds(
+          {
+            x: utilityPanelDragState.startLeft + deltaX,
+            y: utilityPanelDragState.startTop + deltaY,
+          },
+          bounds
+        )
+      );
     };
     const onPointerUp = () => setUtilityPanelDragState(null);
     window.addEventListener("pointermove", onPointerMove);
@@ -358,30 +404,27 @@ export const useWorkbookUtilityPanelController = ({
     setUtilityPanelPosition,
     utilityPanelDragState,
     utilityPanelRef,
-    workspaceRef,
   ]);
 
   useEffect(() => {
     if (isCompactViewport) return;
     if (!isUtilityPanelOpen) return;
-    if (!workspaceRef.current) return;
+    if (typeof window === "undefined") return;
     setUtilityPanelPosition((current) => {
-      const rect = workspaceRef.current?.getBoundingClientRect();
-      if (!rect) return current;
       const panelWidth = utilityPanelRef.current?.offsetWidth ?? 360;
       const panelHeight = utilityPanelRef.current?.offsetHeight ?? 420;
-      const fallbackX = Math.max(rect.left + 8, rect.right - 420);
-      const fallbackY = Math.max(rect.top + 8, floatingPanelsTop);
+      const bounds = resolveViewportPanelBounds({
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        panelWidth,
+        panelHeight,
+        floatingPanelsTop,
+      });
+      const fallbackX = Math.max(bounds.minX, bounds.maxX);
+      const fallbackY = bounds.minY;
       const nextX = current.x > 0 ? current.x : fallbackX;
       const nextY = current.y > 0 ? current.y : fallbackY;
-      const minX = rect.left + 8;
-      const minY = Math.max(rect.top + 8, floatingPanelsTop);
-      const maxX = Math.max(minX + 24, rect.right - panelWidth - 8);
-      const maxY = Math.max(minY + 24, rect.bottom - panelHeight - 8);
-      return {
-        x: Math.max(minX, Math.min(maxX, nextX)),
-        y: Math.max(minY, Math.min(maxY, nextY)),
-      };
+      return clampPanelPositionToBounds({ x: nextX, y: nextY }, bounds);
     });
   }, [
     floatingPanelsTop,
@@ -391,29 +434,53 @@ export const useWorkbookUtilityPanelController = ({
     setUtilityPanelPosition,
     utilityPanelRef,
     utilityTab,
-    workspaceRef,
   ]);
 
   useEffect(() => {
+    const panelNode = utilityPanelRef.current;
     if (isCompactViewport || !isUtilityPanelOpen) {
-      utilityPanelRef.current?.style.removeProperty("--workbook-utility-max-height");
+      panelNode?.style.removeProperty("--workbook-utility-max-height");
       return;
     }
+    let frameId: number | null = null;
     const updatePanelMaxHeight = () => {
-      const panelNode = utilityPanelRef.current;
+      const currentPanelNode = utilityPanelRef.current;
+      if (!currentPanelNode) return;
       const workspaceNode = workspaceRef.current;
-      if (!panelNode || !workspaceNode) return;
-      const workspaceRect = workspaceNode.getBoundingClientRect();
-      const maxHeight = Math.max(280, Math.floor(workspaceRect.height - 16));
-      panelNode.style.setProperty("--workbook-utility-max-height", `${maxHeight}px`);
+      const canvasNode = workspaceNode?.querySelector<HTMLDivElement>(".workbook-session__canvas");
+      const canvasRect = canvasNode?.getBoundingClientRect();
+      const workspaceRect = workspaceNode?.getBoundingClientRect();
+      const viewportMaxHeight = window.innerHeight - Math.max(8, floatingPanelsTop) - 12;
+      const notebookMaxHeight = (canvasRect?.height ?? workspaceRect?.height ?? viewportMaxHeight) - 14;
+      const maxHeight = Math.max(260, Math.floor(Math.min(viewportMaxHeight, notebookMaxHeight)));
+      currentPanelNode.style.setProperty("--workbook-utility-max-height", `${maxHeight}px`);
     };
+    const schedulePanelMaxHeightUpdate = () => {
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        updatePanelMaxHeight();
+      });
+    };
+    const resizeObserver =
+      typeof ResizeObserver === "function"
+        ? new ResizeObserver(() => {
+            schedulePanelMaxHeightUpdate();
+          })
+        : null;
+    const workspaceNode = workspaceRef.current;
+    const canvasNode = workspaceNode?.querySelector<HTMLDivElement>(".workbook-session__canvas");
+    if (workspaceNode && resizeObserver) resizeObserver.observe(workspaceNode);
+    if (canvasNode && resizeObserver) resizeObserver.observe(canvasNode);
     updatePanelMaxHeight();
-    window.addEventListener("resize", updatePanelMaxHeight);
+    window.addEventListener("resize", schedulePanelMaxHeightUpdate);
     return () => {
-      window.removeEventListener("resize", updatePanelMaxHeight);
-      utilityPanelRef.current?.style.removeProperty("--workbook-utility-max-height");
+      window.removeEventListener("resize", schedulePanelMaxHeightUpdate);
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
+      resizeObserver?.disconnect();
+      panelNode?.style.removeProperty("--workbook-utility-max-height");
     };
-  }, [isCompactViewport, isUtilityPanelOpen, utilityPanelRef, workspaceRef]);
+  }, [floatingPanelsTop, isCompactViewport, isUtilityPanelOpen, utilityPanelRef, workspaceRef]);
 
   const utilityPanelTitle = useMemo(() => {
     if (utilityTab === "settings") return "Настройки доски";

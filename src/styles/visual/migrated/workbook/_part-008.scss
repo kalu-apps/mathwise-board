@@ -1,0 +1,221 @@
+.workbook-session__canvas-page-surface {
+  position: absolute;
+  left: var(--workbook-page-left, 0px);
+  top: var(--workbook-page-top, 0px);
+  width: max(1px, var(--workbook-page-width, 1px));
+  height: max(1px, var(--workbook-page-height, 1px));
+  pointer-events: none;
+  z-index: 0;
+  background:
+    linear-gradient(
+      to right,
+      var(--workbook-grid-color, color-mix(in srgb, var(--card-border) 34%, transparent))
+        1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      var(--workbook-grid-color, color-mix(in srgb, var(--card-border) 34%, transparent))
+        1px,
+      transparent 1px
+    ),
+    var(--workbook-background-color, #ffffff);
+  background-size:
+    var(--workbook-grid-size, 22px) var(--workbook-grid-size, 22px),
+    var(--workbook-grid-size, 22px) var(--workbook-grid-size, 22px),
+    auto;
+  background-position:
+    var(--workbook-page-grid-offset-x, 0px) var(--workbook-page-grid-offset-y, 0px),
+    var(--workbook-page-grid-offset-x, 0px) var(--workbook-page-grid-offset-y, 0px),
+    0 0;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--brand-solid) 20%, var(--border-subtle)),
+    0 0 0 1px color-mix(in srgb, var(--brand-soft) 20%, transparent);
+}
+.workbook-session__canvas-svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  z-index: 2;
+}
+.workbook-session__canvas-committed {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+.workbook-session__canvas-svg text {
+  text-rendering: geometricPrecision;
+  pointer-events: none;
+  user-select: none;
+}
+.workbook-session__canvas.is-pan-mode,
+.workbook-session__canvas.is-pan-mode .workbook-session__canvas-svg {
+  cursor: grab;
+}
+.workbook-session__canvas.is-pan-mode .workbook-session__canvas-svg:active {
+  cursor: grabbing;
+}
+.workbook-session__canvas.is-graph-mode,
+.workbook-session__canvas.is-graph-mode .workbook-session__canvas-svg {
+  cursor: crosshair;
+}
+.workbook-session__workspace.is-graph-catalog-cursor .workbook-session__canvas,
+.workbook-session__workspace.is-graph-catalog-cursor .workbook-session__canvas .workbook-session__canvas-svg {
+  cursor: crosshair;
+}
+.workbook-session__canvas-page {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 3;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand-solid) 34%, var(--border-subtle));
+  background: color-mix(in srgb, var(--surface-elevated) 82%, transparent);
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.workbook-session__constraint-line {
+  cursor: pointer;
+  pointer-events: all;
+  line {
+    stroke: color-mix(in srgb, var(--brand-solid) 58%, var(--text-muted));
+    stroke-width: 1.4;
+    stroke-dasharray: 6 4;
+    opacity: 0.66;
+  }
+  text {
+    font-size: 11px;
+    font-weight: 700;
+    fill: color-mix(in srgb, var(--text-secondary) 84%, #ffffff);
+    paint-order: stroke;
+    stroke: color-mix(in srgb, var(--surface-soft) 92%, #ffffff);
+    stroke-width: 2px;
+  }
+}
+.workbook-session__constraint-line.is-active {
+  line {
+    stroke: var(--feedback-warning);
+    stroke-width: 2;
+    opacity: 1;
+  }
+  text {
+    fill: var(--feedback-warning);
+  }
+}
+.workbook-session__focus-blink {
+  pointer-events: none;
+  animation: workbook-focus-blink 0.8s ease;
+}
+.workbook-session__focus-blink circle,
+.workbook-session__focus-blink line {
+  stroke: var(--feedback-warning);
+  stroke-width: 2;
+  fill: none;
+}
+.workbook-session__teacher-pointer {
+  pointer-events: none;
+  filter: drop-shadow(0 5px 10px rgba(18, 31, 65, 0.28));
+}
+.workbook-session__teacher-pointer-shaft {
+  fill: color-mix(in srgb, var(--feedback-warning) 76%, #9a6b38);
+  stroke: color-mix(in srgb, #6d4a24 68%, var(--text-primary));
+  stroke-width: 1.2;
+}
+.workbook-session__teacher-pointer-accent {
+  fill: none;
+  stroke: rgba(255, 246, 222, 0.9);
+  stroke-width: 1.3;
+  stroke-linecap: round;
+}
+.workbook-session__teacher-pointer-tip {
+  fill: color-mix(in srgb, var(--feedback-warning) 68%, #f7d199);
+  stroke: color-mix(in srgb, #6d4a24 72%, var(--text-primary));
+  stroke-width: 1.2;
+}
+.workbook-session__teacher-pointer-glow {
+  fill: rgba(196, 135, 47, 0.24);
+}
+
+.workbook-session__teacher-pointer-point {
+  fill: var(--feedback-warning);
+  stroke: color-mix(in srgb, #ffffff 82%, var(--warning-bg));
+  stroke-width: 1.1;
+}
+
+@keyframes workbook-focus-blink {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.2);
+  }
+}
+
+.workbook-session__sidebar {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.workbook-session__card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+
+  h3 {
+    margin: 0;
+    font-size: 15px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+}
+
+.workbook-session__utility-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workbook-session__utility-float {
+  position: fixed;
+  z-index: 80;
+  width: min(436px, calc(100vw - 20px));
+  max-height: min(var(--workbook-utility-max-height, 76vh), 760px);
+  max-width: calc(100vw - 20px);
+  overflow: hidden;
+  overflow-x: hidden;
+  border: 1px solid var(--card-border);
+  background: var(--surface-elevated);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  isolation: isolate;
+  background-clip: padding-box;
+  overscroll-behavior: contain;
+  will-change: left, top;
+  transition: top 0.18s ease;
+}
+
+.workbook-session__utility-float.is-contextual {
+  width: min(380px, calc(100vw - 24px));
+}
+
+.workbook-session__utility-float.is-settings {
+  width: min(486px, calc(100vw - 20px));
+}

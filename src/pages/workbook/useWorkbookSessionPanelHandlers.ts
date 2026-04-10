@@ -31,14 +31,13 @@ export type UseWorkbookSessionPanelHandlersParams = {
   selectGraphPlane: (planeId: string) => void;
   updateFunctionGraphAppearance: (patch: { axisColor?: string; planeColor?: string }) => void;
   setGraphWorkbenchTab: (tab: "catalog" | "work") => void;
-  setGraphExpressionDraft: (value: string) => void;
   setSelectedGraphPresetId: (value: string | null) => void;
-  clearGraphDraftError: () => void;
   appendSelectedGraphFunction: (expression?: string) => void;
   activateGraphCatalogCursor: () => void;
-  updateSelectedGraphFunction: (id: string, patch: { color?: string; visible?: boolean }) => void;
-  normalizeGraphExpressionDraft: (id: string, value: string, fromPanel: boolean) => void;
-  commitSelectedGraphExpressions: () => void;
+  updateSelectedGraphFunction: (
+    id: string,
+    patch: { color?: string; visible?: boolean; dashed?: boolean }
+  ) => void;
   removeSelectedGraphFunction: (id: string) => void;
   reflectGraphFunctionByAxis: (id: string, axis: "x" | "y") => void;
 };
@@ -56,14 +55,10 @@ export const useWorkbookSessionPanelHandlers = ({
   selectGraphPlane,
   updateFunctionGraphAppearance,
   setGraphWorkbenchTab,
-  setGraphExpressionDraft,
   setSelectedGraphPresetId,
-  clearGraphDraftError,
   appendSelectedGraphFunction,
   activateGraphCatalogCursor,
   updateSelectedGraphFunction,
-  normalizeGraphExpressionDraft,
-  commitSelectedGraphExpressions,
   removeSelectedGraphFunction,
   reflectGraphFunctionByAxis,
 }: UseWorkbookSessionPanelHandlersParams) => {
@@ -153,20 +148,6 @@ export const useWorkbookSessionPanelHandlers = ({
     setGraphWorkbenchTab("work");
   }, [setGraphWorkbenchTab]);
 
-  const handleGraphPanelExpressionDraftChange = useCallback(
-    (value: string) => {
-      setGraphExpressionDraft(value);
-      setSelectedGraphPresetId(null);
-      clearGraphDraftError();
-    },
-    [clearGraphDraftError, setGraphExpressionDraft, setSelectedGraphPresetId]
-  );
-
-  const handleGraphPanelAddFunction = useCallback(() => {
-    setSelectedGraphPresetId(null);
-    appendSelectedGraphFunction();
-  }, [appendSelectedGraphFunction, setSelectedGraphPresetId]);
-
   const handleGraphPanelSelectPreset = useCallback(
     (presetId: string, expression: string) => {
       setSelectedGraphPresetId(presetId);
@@ -183,17 +164,6 @@ export const useWorkbookSessionPanelHandlers = ({
     [updateSelectedGraphFunction]
   );
 
-  const handleGraphPanelFunctionExpressionChange = useCallback(
-    (id: string, value: string) => {
-      normalizeGraphExpressionDraft(id, value, true);
-    },
-    [normalizeGraphExpressionDraft]
-  );
-
-  const handleGraphPanelCommitExpressions = useCallback(() => {
-    commitSelectedGraphExpressions();
-  }, [commitSelectedGraphExpressions]);
-
   const handleGraphPanelRemoveFunction = useCallback(
     (id: string) => {
       removeSelectedGraphFunction(id);
@@ -204,6 +174,13 @@ export const useWorkbookSessionPanelHandlers = ({
   const handleGraphPanelToggleVisibility = useCallback(
     (id: string, visible: boolean) => {
       updateSelectedGraphFunction(id, { visible });
+    },
+    [updateSelectedGraphFunction]
+  );
+
+  const handleGraphPanelToggleDashed = useCallback(
+    (id: string, dashed: boolean) => {
+      updateSelectedGraphFunction(id, { dashed });
     },
     [updateSelectedGraphFunction]
   );
@@ -233,14 +210,11 @@ export const useWorkbookSessionPanelHandlers = ({
     handleGraphPanelClearPlaneBackground,
     handleGraphPanelSelectCatalogTab,
     handleGraphPanelSelectWorkTab,
-    handleGraphPanelExpressionDraftChange,
-    handleGraphPanelAddFunction,
     handleGraphPanelSelectPreset,
     handleGraphPanelFunctionColorChange,
-    handleGraphPanelFunctionExpressionChange,
-    handleGraphPanelCommitExpressions,
     handleGraphPanelRemoveFunction,
     handleGraphPanelToggleVisibility,
+    handleGraphPanelToggleDashed,
     handleGraphPanelReflectFunction,
   };
 };

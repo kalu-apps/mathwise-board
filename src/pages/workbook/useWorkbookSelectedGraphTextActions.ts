@@ -238,7 +238,6 @@ export const useWorkbookSelectedGraphTextActions = ({
 
   const removeSelectedGraphFunction = useCallback(
     (id: string) => {
-      if (graphFunctionsDraft.length <= 1) return;
       const nextFunctions = graphFunctionsDraft.filter((entry) => entry.id !== id);
       pushSelectedGraphFunctions(nextFunctions);
     },

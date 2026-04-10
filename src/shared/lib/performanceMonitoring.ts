@@ -5,6 +5,9 @@ type MetricRating = "good" | "needs-improvement" | "poor";
 type LayoutShiftEntry = PerformanceEntry & {
   hadRecentInput?: boolean;
   value?: number;
+  sources?: Array<{
+    node?: Node | null;
+  }>;
 };
 type EventTimingEntry = PerformanceEntry & {
   duration: number;
@@ -33,8 +36,16 @@ const THRESHOLDS = {
   LONG_TASK: { poor: 500, needsImprovement: 200 },
 } as const;
 const MAX_REASONABLE_INP_MS = 60_000;
+const INP_FALLBACK_INTERACTION_DEDUP_WINDOW_MS = 2_000;
+const FLUSH_INP_DEDUP_WINDOW_MS = 2_000;
+const INP_VALUE_EPSILON_MS = 8;
 
 const IS_DEV = typeof import.meta !== "undefined" && Boolean(import.meta.env?.DEV);
+const PERF_CONSOLE_ENABLED =
+  IS_DEV ||
+  (typeof import.meta !== "undefined" &&
+    (import.meta.env?.VITE_PERF_CONSOLE === "1" ||
+      import.meta.env?.VITE_PERF_CONSOLE === "true"));
 
 const getRating = (
   name: MetricName,
@@ -55,6 +66,40 @@ const describeTarget = (target: EventTarget | null) => {
   return `${tag}${id}${classSuffix}`;
 };
 
+const resolveLayoutShiftSourceElement = (node: Node | null | undefined): Element | null => {
+  if (!node) return null;
+  if (node instanceof Element) return node;
+  return node.parentElement ?? null;
+};
+
+const isWorkbookSessionCanvasLayoutShift = (entry: LayoutShiftEntry) => {
+  if (typeof window === "undefined") return false;
+  if (!window.location.pathname.startsWith("/workbook/session/")) return false;
+  const sources = Array.isArray(entry.sources) ? entry.sources : [];
+  if (sources.length === 0) return false;
+
+  let hasCanvasSource = false;
+  let hasOutsideSource = false;
+
+  for (const source of sources) {
+    const element = resolveLayoutShiftSourceElement(source?.node);
+    if (!element) continue;
+    const insideCanvas = Boolean(
+      element.closest(".workbook-session__canvas, .workbook-session__canvas-svg")
+    );
+    if (insideCanvas) {
+      hasCanvasSource = true;
+    } else {
+      hasOutsideSource = true;
+    }
+    if (hasCanvasSource && hasOutsideSource) {
+      return false;
+    }
+  }
+
+  return hasCanvasSource && !hasOutsideSource;
+};
+
 const emitMetric = (detail: PerformanceMetricEventDetail) => {
   if (typeof window === "undefined") return;
   try {
@@ -65,6 +110,10 @@ const emitMetric = (detail: PerformanceMetricEventDetail) => {
     );
   } catch {
     // ignore
+  }
+
+  if (!PERF_CONSOLE_ENABLED) {
+    return;
   }
 
   if (detail.rating === "poor") {
@@ -122,9 +171,12 @@ const createMonitoringSession = () => {
 
   const observers: PerformanceObserver[] = [];
   const seenInteractionIds = new Set<number>();
+  const seenFallbackInpInteraction = new Map<string, number>();
   let currentLcp = 0;
   let clsValue = 0;
   let maxInp = 0;
+  let lastFlushedInpAtMs = 0;
+  let lastFlushedInpValue = 0;
 
   const lcpObserver = observe(
     "largest-contentful-paint",
@@ -144,6 +196,7 @@ const createMonitoringSession = () => {
       for (const entry of list.getEntries() as LayoutShiftEntry[]) {
         if (entry.hadRecentInput) continue;
         if (typeof entry.value !== "number") continue;
+        if (isWorkbookSessionCanvasLayoutShift(entry)) continue;
         clsValue += entry.value;
       }
     },
@@ -167,6 +220,27 @@ const createMonitoringSession = () => {
         // Report each slow interaction once, plus keep max INP snapshot.
         if (interactionId && seenInteractionIds.has(interactionId)) continue;
         if (interactionId) seenInteractionIds.add(interactionId);
+        if (!interactionId) {
+          const fallbackInteractionKey = `${rawEntry.name ?? "unknown"}|${Math.round(
+            rawEntry.startTime / 16
+          )}|${Math.round(duration / 8)}|${describeTarget(rawEntry.target ?? null) ?? "none"}`;
+          const previousSeenAt = seenFallbackInpInteraction.get(fallbackInteractionKey) ?? 0;
+          if (
+            previousSeenAt > 0 &&
+            rawEntry.startTime - previousSeenAt < INP_FALLBACK_INTERACTION_DEDUP_WINDOW_MS
+          ) {
+            continue;
+          }
+          seenFallbackInpInteraction.set(fallbackInteractionKey, rawEntry.startTime);
+          if (seenFallbackInpInteraction.size > 200) {
+            const staleBefore = rawEntry.startTime - INP_FALLBACK_INTERACTION_DEDUP_WINDOW_MS;
+            for (const [key, seenAt] of seenFallbackInpInteraction) {
+              if (seenAt < staleBefore) {
+                seenFallbackInpInteraction.delete(key);
+              }
+            }
+          }
+        }
 
         const details = {
           interactionType: rawEntry.name ?? null,
@@ -213,7 +287,18 @@ const createMonitoringSession = () => {
       clsValue = 0;
     }
     if (maxInp > 0) {
-      emitMetric(toMetricDetail("INP", maxInp));
+      const now =
+        typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+      if (
+        now - lastFlushedInpAtMs >= FLUSH_INP_DEDUP_WINDOW_MS ||
+        Math.abs(maxInp - lastFlushedInpValue) > INP_VALUE_EPSILON_MS
+      ) {
+        emitMetric(toMetricDetail("INP", maxInp));
+        lastFlushedInpAtMs = now;
+        lastFlushedInpValue = maxInp;
+      }
       maxInp = 0;
     }
   };

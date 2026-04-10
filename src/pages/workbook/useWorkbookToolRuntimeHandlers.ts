@@ -7,6 +7,8 @@ interface UseWorkbookToolRuntimeHandlersParams {
   tool: WorkbookTool;
   penToolSettings: ToolPaintSettings;
   highlighterToolSettings: ToolPaintSettings;
+  dividerToolColor: string;
+  dividerWidthDraft: number;
   eraserRadius: number;
   strokeColor: string;
   strokeWidth: number;
@@ -24,6 +26,8 @@ export function useWorkbookToolRuntimeHandlers({
   tool,
   penToolSettings,
   highlighterToolSettings,
+  dividerToolColor,
+  dividerWidthDraft,
   eraserRadius,
   strokeColor,
   strokeWidth,
@@ -36,6 +40,11 @@ export function useWorkbookToolRuntimeHandlers({
   eraserRadiusMin,
   eraserRadiusMax,
 }: UseWorkbookToolRuntimeHandlersParams) {
+  const clampDividerWidth = useCallback(
+    (value: number) => Math.max(1, Math.min(18, Math.round(value))),
+    []
+  );
+
   const clampEraserRadius = useCallback(
     (value: number) =>
       Math.max(eraserRadiusMin, Math.min(eraserRadiusMax, Math.round(value))),
@@ -68,11 +77,19 @@ export function useWorkbookToolRuntimeHandlers({
         setStrokeWidth(clampedEraserRadius);
         return;
       }
+      if (nextTool === "divider") {
+        setStrokeColor(dividerToolColor);
+        setStrokeWidth(clampDividerWidth(dividerWidthDraft));
+        return;
+      }
       setStrokeColor(defaultColorByLayer.board);
       setStrokeWidth(getDefaultToolWidth(nextTool));
     },
     [
+      clampDividerWidth,
       clampedEraserRadius,
+      dividerToolColor,
+      dividerWidthDraft,
       highlighterToolSettings,
       penToolSettings,
       setStrokeColor,
@@ -153,9 +170,22 @@ export function useWorkbookToolRuntimeHandlers({
     }
     if (tool === "eraser" && strokeWidth !== clampedEraserRadius) {
       setStrokeWidth(clampedEraserRadius);
+      return;
+    }
+    if (tool === "divider") {
+      const safeDividerWidth = clampDividerWidth(dividerWidthDraft);
+      if (strokeWidth !== safeDividerWidth) {
+        setStrokeWidth(safeDividerWidth);
+      }
+      if (strokeColor !== dividerToolColor) {
+        setStrokeColor(dividerToolColor);
+      }
     }
   }, [
+    clampDividerWidth,
     clampedEraserRadius,
+    dividerToolColor,
+    dividerWidthDraft,
     highlighterToolSettings.color,
     highlighterToolSettings.width,
     penToolSettings.color,

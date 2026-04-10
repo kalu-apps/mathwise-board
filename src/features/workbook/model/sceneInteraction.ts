@@ -19,6 +19,7 @@ import {
 import { readSolid3dState, writeSolid3dState } from "./solid3dState";
 import type {
   WorkbookBoardObject,
+  WorkbookLayer,
   WorkbookPoint,
   WorkbookStroke,
 } from "./types";
@@ -60,12 +61,14 @@ export const buildPanState = (
 export const buildMovingState = (params: {
   object: WorkbookBoardObject;
   groupObjects: WorkbookBoardObject[];
+  groupStrokeSelections?: Array<{ id: string; layer: WorkbookLayer }>;
   start: WorkbookPoint;
   startClientX: number;
   startClientY: number;
 }): MovingState => ({
   object: params.object,
   groupObjects: params.groupObjects,
+  groupStrokeSelections: params.groupStrokeSelections ?? [],
   start: params.start,
   current: params.start,
   startClientX: params.startClientX,
@@ -76,11 +79,15 @@ export const buildPanningOffset = (
   pan: PanState,
   clientX: number,
   clientY: number,
-  safeZoom: number
+  safeZoom: number,
+  allowHorizontalPan = false
 ): WorkbookPoint => {
+  const dx = clientX - pan.start.x;
   const dy = clientY - pan.start.y;
   return {
-    x: pan.baseOffset.x,
+    x: allowHorizontalPan
+      ? Math.max(0, pan.baseOffset.x - dx / safeZoom)
+      : pan.baseOffset.x,
     y: Math.max(0, pan.baseOffset.y - dy / safeZoom),
   };
 };

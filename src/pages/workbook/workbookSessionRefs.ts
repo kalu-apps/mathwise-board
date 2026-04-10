@@ -57,9 +57,12 @@ export const useWorkbookSessionRefs = () => {
   const recoveryModeRef = useRef<WorkbookRecoveryMode>("bootstrapping");
   const lastAppliedBoardSettingsSeqRef = useRef(0);
   const processedEventIdsRef = useRef<Set<string>>(new Set());
-  const applyHistoryOperationsRef = useRef<(operations: WorkbookHistoryOperation[]) => void>(
-    () => {}
-  );
+  const applyHistoryOperationsRef = useRef<
+    (
+      operations: WorkbookHistoryOperation[],
+      options?: { ignoreExpectedCurrent?: boolean }
+    ) => number
+  >(() => 0);
   const sessionChatListRef = useRef<HTMLDivElement | null>(null);
   const sessionChatRef = useRef<HTMLDivElement | null>(null);
   const contextbarRef = useRef<HTMLDivElement | null>(null);

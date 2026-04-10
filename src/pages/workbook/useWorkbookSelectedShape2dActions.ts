@@ -5,6 +5,7 @@ import {
   type WorkbookShapeAngleMarkStyle,
 } from "@/features/workbook/model/shapeAngleMarks";
 import type { WorkbookBoardObject } from "@/features/workbook/model/types";
+import { WORKBOOK_BOARD_PRIMARY_COLOR } from "@/features/workbook/model/workbookVisualColors";
 import { getFigureVertexLabel } from "./WorkbookSessionPage.core";
 import {
   is2dFigureClosed,
@@ -46,6 +47,24 @@ export const useWorkbookSelectedShape2dActions = ({
   shapeSegmentDraftCommitTimersRef,
   shapeSegmentDraftObjectIdRef,
 }: UseWorkbookSelectedShape2dActionsParams) => {
+  const resolveShape2dBaseStrokeColor = (target: WorkbookBoardObject) => {
+    const metaColor =
+      typeof target.meta?.shape2dBaseStrokeColor === "string"
+        ? target.meta.shape2dBaseStrokeColor.trim()
+        : "";
+    return metaColor || target.color || WORKBOOK_BOARD_PRIMARY_COLOR;
+  };
+
+  const resolveShape2dBaseFillColor = (target: WorkbookBoardObject) => {
+    const metaFill =
+      typeof target.meta?.shape2dBaseFillColor === "string"
+        ? target.meta.shape2dBaseFillColor.trim()
+        : "";
+    if (metaFill) return metaFill;
+    if (typeof target.fill === "string" && target.fill.trim()) return target.fill;
+    return "transparent";
+  };
+
   const updateSelectedShape2dMeta = useCallback(
     async (patch: Record<string, unknown>) => {
       if (!selectedObjectId || !canSelect) return;
@@ -66,7 +85,31 @@ export const useWorkbookSelectedShape2dActions = ({
       if (!selectedObjectId || !canSelect) return;
       const target = boardObjects.find((item) => item.id === selectedObjectId);
       if (!target || !is2dFigureObject(target)) return;
-      await commitObjectUpdate(target.id, patch);
+      const nextPatch: Partial<WorkbookBoardObject> = { ...patch };
+      const colorPatchProvided = typeof patch.color === "string";
+      const fillPatchProvided = typeof patch.fill === "string";
+      if (colorPatchProvided || fillPatchProvided) {
+        const nextMeta = {
+          ...(target.meta ?? {}),
+          ...(typeof patch.meta === "object" && patch.meta ? patch.meta : {}),
+        } as Record<string, unknown>;
+        if (
+          colorPatchProvided &&
+          (typeof nextMeta.shape2dBaseStrokeColor !== "string" ||
+            !nextMeta.shape2dBaseStrokeColor.trim())
+        ) {
+          nextMeta.shape2dBaseStrokeColor = resolveShape2dBaseStrokeColor(target);
+        }
+        if (
+          fillPatchProvided &&
+          (typeof nextMeta.shape2dBaseFillColor !== "string" ||
+            !nextMeta.shape2dBaseFillColor.trim())
+        ) {
+          nextMeta.shape2dBaseFillColor = resolveShape2dBaseFillColor(target);
+        }
+        nextPatch.meta = nextMeta;
+      }
+      await commitObjectUpdate(target.id, nextPatch);
     },
     [boardObjects, canSelect, commitObjectUpdate, selectedObjectId]
   );

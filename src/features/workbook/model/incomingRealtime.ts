@@ -11,7 +11,6 @@ import {
 import {
   clampWorkbookObjectToPageFrame,
   resolveWorkbookPageFrameBounds,
-  WORKBOOK_PAGE_FRAME_WIDTH,
 } from "./pageFrame";
 import { mergeBoardObjectWithPatch, mergePreviewPathPoints } from "./runtime";
 import type {
@@ -79,8 +78,17 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
     current: WorkbookSessionParticipant[],
     next: WorkbookSessionParticipant[]
   ) => boolean;
-  applyHistoryOperations: (operations: unknown[]) => void;
+  applyHistoryOperations: (
+    operations: unknown[],
+    options?: { ignoreExpectedCurrent?: boolean }
+  ) => number;
+  onUndoRedoApplyMismatch?: (payload: {
+    eventType: "board.undo" | "board.redo";
+    expectedOperations: number;
+    appliedOperations: number;
+  }) => void;
   restoreSceneSnapshot: (payload: RestoreSceneSnapshotPayload) => void;
+  clearLocalPreviewPatchRuntime: () => void;
   clearObjectSyncRuntime: () => void;
   clearStrokePreviewRuntime: (options?: { clearFinalized?: boolean }) => void;
   clearIncomingEraserPreviewRuntime: () => void;
@@ -94,6 +102,7 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
   applyLocalBoardObjects: (
     updater: (current: WorkbookBoardObject[]) => WorkbookBoardObject[]
   ) => void;
+  boardSettingsRef: MutableRefObject<WorkbookBoardSettings>;
   setSession: Dispatch<SetStateAction<WorkbookSession | null>>;
   setCanvasViewport: Dispatch<SetStateAction<WorkbookPoint>>;
   setIncomingEraserPreviews: Dispatch<
@@ -136,8 +145,6 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
   viewportSyncEpsilon: number;
 };
 
-const WORKBOOK_PAGE_FRAME_BOUNDS = resolveWorkbookPageFrameBounds(WORKBOOK_PAGE_FRAME_WIDTH);
-
 export const applyWorkbookIncomingRealtimeEvent = (
   params: ApplyWorkbookIncomingRealtimeEventParams
 ) => {
@@ -151,7 +158,9 @@ export const applyWorkbookIncomingRealtimeEvent = (
     awaitingClearRequest,
     areParticipantsEqual,
     applyHistoryOperations,
+    onUndoRedoApplyMismatch,
     restoreSceneSnapshot,
+    clearLocalPreviewPatchRuntime,
     clearObjectSyncRuntime,
     clearStrokePreviewRuntime,
     clearIncomingEraserPreviewRuntime,
@@ -160,8 +169,8 @@ export const applyWorkbookIncomingRealtimeEvent = (
     finalizeStrokePreview,
     queueIncomingPreviewPatch,
     applyLocalBoardObjects,
+    boardSettingsRef,
     setSession,
-    setCanvasViewport,
     setIncomingEraserPreviews,
     setBoardStrokes,
     setAnnotationStrokes,
@@ -175,7 +184,6 @@ export const applyWorkbookIncomingRealtimeEvent = (
     setPointerPoint,
     setFocusPointsByUser,
     setPointerPointsByUser,
-    viewportLastReceivedAtRef,
     finalizedStrokePreviewIdsRef,
     incomingStrokePreviewVersionRef,
     objectLastCommittedEventAtRef,
@@ -193,8 +201,10 @@ export const applyWorkbookIncomingRealtimeEvent = (
     eraserPreviewPointMergeMinDistancePx,
     eraserPreviewExpiryMs,
     eraserPreviewEndExpiryMs,
-    viewportSyncEpsilon,
   } = params;
+  const pageFrameBounds = resolveWorkbookPageFrameBounds(
+    boardSettingsRef.current.pageFrameWidth
+  );
 
   if (event.type === "presence.sync") {
     const payload = event.payload as { participants?: unknown };
@@ -217,42 +227,52 @@ export const applyWorkbookIncomingRealtimeEvent = (
   }
 
   if (event.type === "board.viewport.sync") {
-    if (event.authorUserId === userId) return true;
-    const payload = event.payload as { offset?: unknown };
-    const rawOffset =
-      payload.offset && typeof payload.offset === "object"
-        ? (payload.offset as Partial<WorkbookPoint>)
-        : null;
-    if (
-      !rawOffset ||
-      typeof rawOffset.x !== "number" ||
-      !Number.isFinite(rawOffset.x) ||
-      typeof rawOffset.y !== "number" ||
-      !Number.isFinite(rawOffset.y)
-    ) {
-      return true;
-    }
-    const offset: WorkbookPoint = { x: rawOffset.x, y: rawOffset.y };
-    viewportLastReceivedAtRef.current = Date.now();
-    setCanvasViewport((current) => {
-      if (
-        Math.abs(current.x - offset.x) <= viewportSyncEpsilon &&
-        Math.abs(current.y - offset.y) <= viewportSyncEpsilon
-      ) {
-        return current;
-      }
-      return { x: offset.x, y: offset.y };
-    });
+    // Viewport is local per participant: keep incoming sync events as no-op for compatibility.
     return true;
   }
 
   if (event.type === "board.undo" || event.type === "board.redo") {
     const payload = event.payload as { scene?: unknown; operations?: unknown };
+    clearLocalPreviewPatchRuntime();
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
     if (Array.isArray(payload.operations)) {
-      applyHistoryOperations(payload.operations);
+      const appliedOperations = applyHistoryOperations(payload.operations, {
+        ignoreExpectedCurrent: true,
+      });
+      const expectedOperations = payload.operations.length;
+      const isRemoteEvent = !userId || event.authorUserId !== userId;
+      const hasScenePayload = Boolean(payload.scene && typeof payload.scene === "object");
+      if (
+        isRemoteEvent &&
+        expectedOperations > 0 &&
+        appliedOperations < expectedOperations &&
+        hasScenePayload
+      ) {
+        const normalized = normalizeScenePayload(payload.scene);
+        restoreSceneSnapshot({
+          boardStrokes: normalized.strokes.filter((stroke) => stroke.layer === "board"),
+          boardObjects: normalized.objects,
+          constraints: normalized.constraints,
+          annotationStrokes: normalized.strokes.filter(
+            (stroke) => stroke.layer === "annotations"
+          ),
+          chatMessages: normalized.chat,
+          comments: normalized.comments,
+          timerState: normalized.timer,
+          boardSettings: normalized.boardSettings,
+          libraryState: normalized.library,
+          documentState: normalized.document,
+        });
+      }
+      if (isRemoteEvent && expectedOperations > 0 && appliedOperations < expectedOperations) {
+        onUndoRedoApplyMismatch?.({
+          eventType: event.type,
+          expectedOperations,
+          appliedOperations,
+        });
+      }
       return true;
     }
     if (!payload.scene || typeof payload.scene !== "object") return true;
@@ -345,7 +365,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     const payload = event.payload as { stroke?: unknown; previewVersion?: unknown };
     const stroke = normalizeStrokePayload(payload.stroke);
     if (!stroke) return true;
-    if (finalizedStrokePreviewIdsRef.current.has(stroke.id)) return true;
+    finalizedStrokePreviewIdsRef.current.delete(stroke.id);
     const previewVersion =
       typeof payload.previewVersion === "number" && Number.isFinite(payload.previewVersion)
         ? Math.max(1, Math.trunc(payload.previewVersion))
@@ -407,7 +427,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     if (!object) return true;
     const boundedObject = clampWorkbookObjectToPageFrame(
       object,
-      WORKBOOK_PAGE_FRAME_BOUNDS
+      pageFrameBounds
     );
     objectLastCommittedEventAtRef.current.set(object.id, eventTimestamp);
     applyLocalBoardObjects((current) =>
@@ -446,7 +466,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
         found = true;
         return clampWorkbookObjectToPageFrame(
           mergeBoardObjectWithPatch(item, safePatch),
-          WORKBOOK_PAGE_FRAME_BOUNDS
+          pageFrameBounds
         );
       });
       return found ? next : current;

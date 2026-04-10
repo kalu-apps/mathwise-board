@@ -13,6 +13,7 @@ import {
   initializeRuntimeServices,
   shutdownRuntimeServices,
 } from "./runtime/core/runtimeServices";
+import { markRuntimeShuttingDown } from "./health/runtime-readiness-state";
 
 const readRequiredEnv = (name: string) => String(process.env[name] ?? "").trim();
 const isEmailLike = (value: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
@@ -116,6 +117,7 @@ const bootstrap = async () => {
   const stop = async () => {
     if (isShuttingDown) return;
     isShuttingDown = true;
+    markRuntimeShuttingDown();
     try {
       await app.close();
     } finally {

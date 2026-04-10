@@ -39,6 +39,7 @@ type UseWorkbookAreaSelectionClipboardHandlersParams = {
   canSelect: boolean;
   areaSelection: WorkbookAreaSelection | null;
   areaSelectionHasContent: boolean;
+  currentBoardPage: number;
   boardSettings: WorkbookBoardSettings;
   areaFillColor: string;
   selectedObjectId: string | null;
@@ -69,6 +70,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
   canSelect,
   areaSelection,
   areaSelectionHasContent,
+  currentBoardPage,
   boardSettings,
   areaFillColor,
   selectedObjectId,
@@ -90,7 +92,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
     if (!canDelete || !areaSelection || !areaSelectionHasContent) return;
     const currentBoardObjects = boardObjectsRef.current;
     const objectIds = areaSelection.objectIds.filter((id) =>
-      currentBoardObjects.some((object) => object.id === id && !object.pinned)
+      currentBoardObjects.some((object) => object.id === id)
     );
     const strokeIds = areaSelection.strokeIds.filter((entry) => {
       if (entry.layer === "annotations") {
@@ -179,9 +181,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
     const currentBoardObjects = boardObjectsRef.current;
     const selectedObjects = areaSelection.objectIds
       .map((id) => currentBoardObjects.find((object) => object.id === id))
-      .filter(
-        (object): object is WorkbookBoardObject => object != null && !object.pinned
-      );
+      .filter((object): object is WorkbookBoardObject => object != null);
     const selectedStrokes = areaSelection.strokeIds
       .map((entry) => {
         if (entry.layer === "annotations") {
@@ -231,7 +231,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
           : object.points,
         createdAt: now,
         authorUserId: userId ?? object.authorUserId,
-      });
+      }, boardSettings.pageFrameWidth);
       const nextObject = ensureWorkbookObjectZOrder(
         translatedObject,
         simulatedBoardObjects
@@ -371,7 +371,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
       fill: normalizedColor,
       strokeWidth: 0,
       opacity: 0.24,
-      page: boardSettings.currentPage,
+      page: currentBoardPage,
       meta: {
         sceneLayerId: boardSettings.activeSceneLayerId,
         showLabels: false,
@@ -400,8 +400,8 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
     areaSelectionHasContent,
     boardObjectsRef,
     boardSettings.activeSceneLayerId,
-    boardSettings.currentPage,
     canSelect,
+    currentBoardPage,
     setAreaSelectionContextMenu,
     setError,
     userId,

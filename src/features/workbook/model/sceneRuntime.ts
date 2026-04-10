@@ -8,7 +8,7 @@ import {
   rotatePointAround,
 } from "./sceneGeometry";
 import type { WorkbookAreaSelection } from "./sceneSelection";
-import type { WorkbookBoardObject, WorkbookPoint } from "./types";
+import type { WorkbookBoardObject, WorkbookLayer, WorkbookPoint } from "./types";
 
 type ClientPointLike = {
   clientX: number;
@@ -18,6 +18,7 @@ type ClientPointLike = {
 export type MovingState = {
   object: WorkbookBoardObject;
   groupObjects: WorkbookBoardObject[];
+  groupStrokeSelections: Array<{ id: string; layer: WorkbookLayer }>;
   start: WorkbookPoint;
   current: WorkbookPoint;
   startClientX: number;
@@ -71,6 +72,34 @@ type Solid3dPreviewMetaById = Record<string, Record<string, unknown>>;
 
 const clampGraphOffsetValue = (value: number) =>
   Math.max(-999, Math.min(999, Number.isFinite(value) ? value : 0));
+
+const resolveCornerResizeRect = (params: {
+  mode: "nw" | "ne" | "se" | "sw";
+  rect: { x: number; y: number; width: number; height: number };
+  current: WorkbookPoint;
+}) => {
+  let nextLeft = params.rect.x;
+  let nextRight = params.rect.x + params.rect.width;
+  let nextTop = params.rect.y;
+  let nextBottom = params.rect.y + params.rect.height;
+  if (params.mode === "nw") {
+    nextLeft = Math.min(params.current.x, nextRight - 1);
+    nextTop = Math.min(params.current.y, nextBottom - 1);
+  } else if (params.mode === "ne") {
+    nextRight = Math.max(params.current.x, nextLeft + 1);
+    nextTop = Math.min(params.current.y, nextBottom - 1);
+  } else if (params.mode === "se") {
+    nextRight = Math.max(params.current.x, nextLeft + 1);
+    nextBottom = Math.max(params.current.y, nextTop + 1);
+  } else {
+    nextLeft = Math.min(params.current.x, nextRight - 1);
+    nextBottom = Math.max(params.current.y, nextTop + 1);
+  }
+  return normalizeRect(
+    { x: nextLeft, y: nextTop },
+    { x: nextRight, y: nextBottom }
+  );
+};
 
 export const collectMappedInteractionPoints = <T extends ClientPointLike>(params: {
   sourceEvents: T[];
@@ -245,7 +274,11 @@ export const buildMoveCommitResult = (params: {
     };
   }
   const targets =
-    moving.groupObjects.length > 0 ? moving.groupObjects : [moving.object];
+    moving.groupObjects.length > 0
+      ? moving.groupObjects
+      : moving.object.id === "__area-selection__"
+        ? []
+        : [moving.object];
   const objectPatches = targets.map((target) => {
     const patch: Partial<WorkbookBoardObject> = {
       x: target.type === "section_divider" ? target.x : target.x + deltaX,
@@ -273,6 +306,7 @@ export const buildMoveCommitResult = (params: {
             width: areaSelection.rect.width,
             height: areaSelection.rect.height,
           },
+          resizeEnabled: areaSelection.resizeEnabled,
         }
       : null;
   return {
@@ -441,7 +475,10 @@ export const buildResizeCommitPatch = (
       nextLeft = Math.min(localCurrent.x, nextRight - 1);
     }
 
-    const nextRect = normalizeRect({ x: nextLeft, y: nextTop }, { x: nextRight, y: nextBottom });
+    const nextRect = normalizeRect(
+      { x: nextLeft, y: nextTop },
+      { x: nextRight, y: nextBottom }
+    );
     if (Array.isArray(object.points) && object.points.length > 0) {
       const safeWidth = Math.max(1e-6, rect.width);
       const safeHeight = Math.max(1e-6, rect.height);
@@ -472,6 +509,25 @@ export const buildResizeCommitPatch = (
       };
     }
 
+    return {
+      x: nextRect.x,
+      y: nextRect.y,
+      width: nextRect.width,
+      height: nextRect.height,
+    };
+  }
+  if (
+    (state.mode === "nw" ||
+      state.mode === "ne" ||
+      state.mode === "se" ||
+      state.mode === "sw") &&
+    object.type === "image"
+  ) {
+    const nextRect = resolveCornerResizeRect({
+      mode: state.mode,
+      rect,
+      current: localCurrent,
+    });
     return {
       x: nextRect.x,
       y: nextRect.y,
@@ -655,6 +711,36 @@ export const resolveSelectedPreviewObject = (params: {
                 : nextLocal;
             })
           : preview.points,
+      };
+    } else if (
+      (resizing.mode === "nw" ||
+        resizing.mode === "ne" ||
+        resizing.mode === "se" ||
+        resizing.mode === "sw") &&
+      preview.type === "image"
+    ) {
+      const rect = normalizeRect(
+        { x: preview.x, y: preview.y },
+        { x: preview.x + preview.width, y: preview.y + preview.height }
+      );
+      const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      const rotationDeg =
+        preview.rotation && Number.isFinite(preview.rotation) ? preview.rotation : 0;
+      const localCurrent =
+        rotationDeg !== 0
+          ? rotatePointAround(resizing.current, center, -rotationDeg)
+          : resizing.current;
+      const nextRect = resolveCornerResizeRect({
+        mode: resizing.mode,
+        rect,
+        current: localCurrent,
+      });
+      preview = {
+        ...preview,
+        x: nextRect.x,
+        y: nextRect.y,
+        width: nextRect.width,
+        height: nextRect.height,
       };
     } else if (
       (resizing.mode === "nw" ||

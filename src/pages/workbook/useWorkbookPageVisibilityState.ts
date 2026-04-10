@@ -31,9 +31,10 @@ type UseWorkbookPageVisibilityStateParams = {
   boardStrokes: WorkbookStroke[];
   annotationStrokes: WorkbookStroke[];
   incomingEraserPreviews: Record<string, WorkbookIncomingEraserPreviewEntry>;
+  currentPage: number;
   boardSettings: Pick<
     WorkbookBoardSettings,
-    "pagesCount" | "currentPage" | "activeFrameId" | "pageOrder" | "pageTitles"
+    "pagesCount" | "activeFrameId" | "pageOrder" | "pageTitles"
   >;
   frameFocusMode: "all" | "active";
   selectedObjectId: string | null;
@@ -84,6 +85,7 @@ export const useWorkbookPageVisibilityState = ({
   boardStrokes,
   annotationStrokes,
   incomingEraserPreviews,
+  currentPage,
   boardSettings,
   frameFocusMode,
   selectedObjectId,
@@ -209,7 +211,7 @@ export const useWorkbookPageVisibilityState = ({
     boardStrokes,
     annotationStrokes,
     incomingEraserPreviews,
-    currentPage: boardSettings.currentPage,
+    currentPage,
     activeFrameId: boardSettings.activeFrameId,
     frameFocusMode,
   });

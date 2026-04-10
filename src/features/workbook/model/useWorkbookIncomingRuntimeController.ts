@@ -8,8 +8,8 @@ import {
 } from "react";
 import {
   clampWorkbookObjectToPageFrame,
+  normalizeWorkbookPageFrameWidth,
   resolveWorkbookPageFrameBounds,
-  WORKBOOK_PAGE_FRAME_WIDTH,
 } from "./pageFrame";
 import { mergeBoardObjectWithPatch } from "./runtime";
 import type {
@@ -37,6 +37,7 @@ export type WorkbookIncomingEraserPreviewEntry = {
 };
 
 type UseWorkbookIncomingRuntimeControllerParams = {
+  pageFrameWidth: number;
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
   setBoardObjects: Dispatch<SetStateAction<WorkbookBoardObject[]>>;
   setIncomingStrokePreviews: Dispatch<
@@ -90,9 +91,10 @@ export const useWorkbookIncomingRuntimeController = (
   params: UseWorkbookIncomingRuntimeControllerParams
 ) => {
   const pageFrameBoundsRef = useRef(
-    resolveWorkbookPageFrameBounds(WORKBOOK_PAGE_FRAME_WIDTH)
+    resolveWorkbookPageFrameBounds(normalizeWorkbookPageFrameWidth(params.pageFrameWidth))
   );
   const {
+    pageFrameWidth,
     boardObjectsRef,
     setBoardObjects,
     setIncomingStrokePreviews,
@@ -117,6 +119,12 @@ export const useWorkbookIncomingRuntimeController = (
     finalizedStrokePreviewIdsRef,
     maxIncomingPreviewPatchesPerObject,
   } = params;
+
+  useEffect(() => {
+    pageFrameBoundsRef.current = resolveWorkbookPageFrameBounds(
+      normalizeWorkbookPageFrameWidth(pageFrameWidth)
+    );
+  }, [pageFrameWidth]);
 
   const queuedBoardObjectsRef = useRef<WorkbookBoardObject[] | null>(null);
   const boardObjectsFrameRef = useRef<number | null>(null);
@@ -184,7 +192,13 @@ export const useWorkbookIncomingRuntimeController = (
       window.cancelAnimationFrame(incomingPreviewFrameRef.current);
       incomingPreviewFrameRef.current = null;
     }
+    if (boardObjectsFrameRef.current !== null && typeof window !== "undefined") {
+      window.cancelAnimationFrame(boardObjectsFrameRef.current);
+      boardObjectsFrameRef.current = null;
+    }
+    queuedBoardObjectsRef.current = null;
   }, [
+    boardObjectsFrameRef,
     incomingPreviewFrameRef,
     incomingPreviewQueuedPatchRef,
     incomingPreviewVersionByAuthorObjectRef,
@@ -196,6 +210,7 @@ export const useWorkbookIncomingRuntimeController = (
     objectUpdateInFlightRef,
     objectUpdateQueuedPatchRef,
     objectUpdateTimersRef,
+    queuedBoardObjectsRef,
   ]);
 
   const clearIncomingEraserPreviewRuntime = useCallback(() => {
@@ -280,12 +295,10 @@ export const useWorkbookIncomingRuntimeController = (
       if (!strokeId) return;
       finalizedStrokePreviewIdsRef.current.add(strokeId);
       strokePreviewQueuedByIdRef.current.delete(strokeId);
-      incomingStrokePreviewVersionRef.current.delete(strokeId);
       queueIncomingStrokePreview(null, strokeId);
     },
     [
       finalizedStrokePreviewIdsRef,
-      incomingStrokePreviewVersionRef,
       queueIncomingStrokePreview,
       strokePreviewQueuedByIdRef,
     ]

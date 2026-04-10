@@ -3,6 +3,7 @@ import { Tooltip } from "@mui/material";
 import BorderColorRoundedIcon from "@mui/icons-material/BorderColorRounded";
 import PanToolRoundedIcon from "@mui/icons-material/PanToolRounded";
 import AdsClickRoundedIcon from "@mui/icons-material/AdsClickRounded";
+import PushPinRoundedIcon from "@mui/icons-material/PushPinRounded";
 import HorizontalRuleRoundedIcon from "@mui/icons-material/HorizontalRuleRounded";
 import DragHandleRoundedIcon from "@mui/icons-material/DragHandleRounded";
 import FiberManualRecordRoundedIcon from "@mui/icons-material/FiberManualRecordRounded";
@@ -35,6 +36,7 @@ export type ShapeCatalogItem = {
 type UseWorkbookToolCatalogParams = {
   tool: WorkbookTool;
   canSelect: boolean;
+  canManageSession: boolean;
   canDelete: boolean;
   canUseLaser: boolean;
   canDraw: boolean;
@@ -51,6 +53,7 @@ type UseWorkbookToolCatalogParams = {
 export const useWorkbookToolCatalog = ({
   tool,
   canSelect,
+  canManageSession,
   canDelete,
   canUseLaser,
   canDraw,
@@ -66,6 +69,7 @@ export const useWorkbookToolCatalog = ({
   const toolButtons = useMemo<Array<ToolButton>>(
     () => [
       { tool: "select", label: "Выбор", icon: <AdsClickRoundedIcon /> },
+      { tool: "lock_toggle", label: "Закрепить/Открепить", icon: <PushPinRoundedIcon /> },
       { tool: "pan", label: "Рука", icon: <PanToolRoundedIcon /> },
       { tool: "pen", label: "Ручка", icon: <CreateRoundedIcon /> },
       { tool: "highlighter", label: "Маркер", icon: <BorderColorRoundedIcon /> },
@@ -103,11 +107,13 @@ export const useWorkbookToolCatalog = ({
       const isDisabled =
         (item.tool === "select" && !canSelect) ||
         (item.tool === "area_select" && !canSelect) ||
+        (item.tool === "lock_toggle" && !canManageSession) ||
         (item.tool === "eraser" && !canDelete) ||
         (item.tool === "sweep" && !canDelete) ||
         (item.tool === "laser" && !canUseLaser) ||
         (!canDraw &&
           item.tool !== "select" &&
+          item.tool !== "lock_toggle" &&
           item.tool !== "area_select" &&
           item.tool !== "pan" &&
           item.tool !== "eraser" &&
@@ -131,6 +137,7 @@ export const useWorkbookToolCatalog = ({
                   return;
                 }
                 if (
+                  (item.tool === "lock_toggle" && tool === "lock_toggle") ||
                   (item.tool === "sweep" && tool === "sweep") ||
                   (item.tool === "area_select" && tool === "area_select") ||
                   (item.tool === "eraser" && tool === "eraser")
@@ -154,6 +161,7 @@ export const useWorkbookToolCatalog = ({
       activateTool,
       canDelete,
       canDraw,
+      canManageSession,
       canSelect,
       canUseLaser,
       createFunctionGraphPlane,

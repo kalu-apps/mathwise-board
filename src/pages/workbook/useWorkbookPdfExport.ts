@@ -4,27 +4,26 @@ import {
   getStrokeExportBounds,
   type WorkbookExportBounds,
 } from "@/features/workbook/model/export";
+import { resolveWorkbookBoardPageVisualSettings } from "@/features/workbook/model/boardPageSettings";
 import { normalizeWorkbookAssetContentUrl } from "@/features/workbook/model/workbookAssetUrl";
 import {
   WORKBOOK_BOARD_BACKGROUND_COLOR,
   WORKBOOK_BOARD_GRID_COLOR,
 } from "@/features/workbook/model/workbookVisualColors";
+import { resolveWorkbookPageFrameBounds } from "@/features/workbook/model/pageFrame";
 import type {
   WorkbookBoardObject,
   WorkbookBoardSettings,
   WorkbookStroke,
 } from "@/features/workbook/model/types";
-import { MAX_EXPORT_CANVAS_SIDE, WORKBOOK_PAGE_FRAME_BOUNDS } from "./WorkbookSessionPage.core";
+import { MAX_EXPORT_CANVAS_SIDE } from "./WorkbookSessionPage.core";
 
-type SetBoardSettings = (
-  next:
-    | WorkbookBoardSettings
-    | ((state: WorkbookBoardSettings) => WorkbookBoardSettings)
-) => void;
+type SetCurrentBoardPage = (next: number | ((current: number) => number)) => void;
 
 type UseWorkbookPdfExportParams = {
   boardSettings: WorkbookBoardSettings;
-  boardSettingsRef: MutableRefObject<WorkbookBoardSettings>;
+  currentBoardPage: number;
+  currentBoardPageRef: MutableRefObject<number>;
   boardObjects: WorkbookBoardObject[];
   boardStrokes: WorkbookStroke[];
   sessionId: string;
@@ -32,7 +31,7 @@ type UseWorkbookPdfExportParams = {
   exportingSections: boolean;
   setExportingSections: (value: boolean) => void;
   setCanvasVisibilityMode: (mode: "viewport" | "full") => void;
-  setBoardSettings: SetBoardSettings;
+  setCurrentBoardPage: SetCurrentBoardPage;
   setError: (value: string | null) => void;
 };
 
@@ -52,14 +51,17 @@ const yieldToMainThread = () =>
     window.requestAnimationFrame(() => resolve());
   });
 
-const resolvePageExportBounds = (): WorkbookExportBounds => ({
-  minX: WORKBOOK_PAGE_FRAME_BOUNDS.minX,
-  minY: WORKBOOK_PAGE_FRAME_BOUNDS.minY,
-  maxX: WORKBOOK_PAGE_FRAME_BOUNDS.maxX,
-  maxY: WORKBOOK_PAGE_FRAME_BOUNDS.maxY,
-  width: WORKBOOK_PAGE_FRAME_BOUNDS.width,
-  height: WORKBOOK_PAGE_FRAME_BOUNDS.height,
-});
+const resolvePageExportBounds = (pageFrameWidth: number): WorkbookExportBounds => {
+  const bounds = resolveWorkbookPageFrameBounds(pageFrameWidth);
+  return {
+    minX: bounds.minX,
+    minY: bounds.minY,
+    maxX: bounds.maxX,
+    maxY: bounds.maxY,
+    width: bounds.width,
+    height: bounds.height,
+  };
+};
 
 const EXPORT_MAX_CANVAS_PIXELS = 8_500_000;
 const EXPORT_MIN_SCALE = 0.35;
@@ -357,7 +359,8 @@ const waitForSvgImageResources = async (svg: SVGSVGElement) => {
 
 export const useWorkbookPdfExport = ({
   boardSettings,
-  boardSettingsRef,
+  currentBoardPage,
+  currentBoardPageRef,
   boardObjects,
   boardStrokes,
   sessionId,
@@ -365,30 +368,27 @@ export const useWorkbookPdfExport = ({
   exportingSections,
   setExportingSections,
   setCanvasVisibilityMode,
-  setBoardSettings,
+  setCurrentBoardPage,
   setError,
 }: UseWorkbookPdfExportParams) => {
   const resolveUniformContentExportBounds = useCallback(
-    (_exportPages: number[]): WorkbookExportBounds => resolvePageExportBounds(),
-    []
+    (): WorkbookExportBounds => resolvePageExportBounds(boardSettings.pageFrameWidth),
+    [boardSettings.pageFrameWidth]
   );
 
   const switchBoardPageForExport = useCallback(
     async (targetPage: number) => {
       const safePage = Math.max(1, Math.floor(targetPage));
-      if ((boardSettingsRef.current.currentPage ?? 1) === safePage) {
+      if ((currentBoardPageRef.current ?? 1) === safePage) {
         await waitForCanvasRender();
         return;
       }
-      setBoardSettings((state) => ({
-        ...state,
-        currentPage: safePage,
-      }));
+      setCurrentBoardPage(safePage);
       const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
       await new Promise<void>((resolve) => {
         const poll = () => {
           const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-          const current = boardSettingsRef.current.currentPage ?? 1;
+          const current = currentBoardPageRef.current ?? 1;
           if (current === safePage || now - startedAt > 900) {
             resolve();
             return;
@@ -399,7 +399,7 @@ export const useWorkbookPdfExport = ({
       });
       await waitForCanvasRender();
     },
-    [boardSettingsRef, setBoardSettings]
+    [currentBoardPageRef, setCurrentBoardPage]
   );
 
   const resolveExportPageNumbers = useCallback((): number[] => {
@@ -421,19 +421,27 @@ export const useWorkbookPdfExport = ({
     });
 
     if (contentPages.size === 0) {
-      return [Math.max(1, boardSettings.currentPage || 1)];
+      return [Math.max(1, currentBoardPage || 1)];
     }
 
     return Array.from(contentPages)
       .filter((page) => page >= 1 && page <= maxReferencedPage)
       .sort((left, right) => left - right);
-  }, [boardObjects, boardSettings.currentPage, boardSettings.pagesCount, boardStrokes]);
+  }, [boardObjects, boardSettings.pagesCount, boardStrokes, currentBoardPage]);
 
   const renderBoardToCanvas = useCallback(
-    async (scale = 2, options?: { bounds?: WorkbookExportBounds | null }) => {
+    async (scale = 2, options?: { bounds?: WorkbookExportBounds | null; page?: number }) => {
       const svg = document.querySelector<SVGSVGElement>(".workbook-session__canvas-svg");
       if (!svg) return null;
       const bounds = options?.bounds ?? null;
+      const exportPage = Math.max(
+        1,
+        Math.round(options?.page ?? currentBoardPage ?? 1)
+      );
+      const pageVisualSettings = resolveWorkbookBoardPageVisualSettings(
+        boardSettings,
+        exportPage
+      );
       const svgClone = svg.cloneNode(true) as SVGSVGElement;
       svgClone
         .querySelectorAll<SVGGElement>('[data-workbook-export-only="true"]')
@@ -513,11 +521,15 @@ export const useWorkbookPdfExport = ({
         if (!ctx) return null;
         ctx.save();
         ctx.scale(safeScale, safeScale);
-        ctx.fillStyle = boardSettings.backgroundColor || WORKBOOK_BOARD_BACKGROUND_COLOR;
+        ctx.fillStyle =
+          pageVisualSettings.backgroundColor || WORKBOOK_BOARD_BACKGROUND_COLOR;
         ctx.fillRect(0, 0, width, height);
-        if (boardSettings.showGrid) {
-          const gridStep = Math.max(8, Math.min(96, Math.floor(boardSettings.gridSize || 22)));
-          ctx.strokeStyle = boardSettings.gridColor || WORKBOOK_BOARD_GRID_COLOR;
+        if (pageVisualSettings.showGrid) {
+          const gridStep = Math.max(
+            8,
+            Math.min(96, Math.floor(pageVisualSettings.gridSize || 22))
+          );
+          ctx.strokeStyle = pageVisualSettings.gridColor || WORKBOOK_BOARD_GRID_COLOR;
           ctx.lineWidth = 1;
           ctx.beginPath();
           const minGridX = bounds ? Math.floor(bounds.minX / gridStep) * gridStep : 0;
@@ -551,7 +563,7 @@ export const useWorkbookPdfExport = ({
         URL.revokeObjectURL(url);
       }
     },
-    [boardSettings.backgroundColor, boardSettings.gridColor, boardSettings.gridSize, boardSettings.showGrid]
+    [boardSettings, currentBoardPage]
   );
 
   const resolveExportFileBaseName = useCallback(() => {
@@ -585,7 +597,7 @@ export const useWorkbookPdfExport = ({
   const exportBoardAsPdf = useCallback(async (options?: ExportPdfOptions) => {
     if (exportingSections) return;
     setExportingSections(true);
-    const currentPage = Math.max(1, boardSettings.currentPage || 1);
+    const currentPage = Math.max(1, currentBoardPage || 1);
     let activePage = currentPage;
     try {
       const fileName = resolveExportPdfFileName(options);
@@ -626,6 +638,7 @@ export const useWorkbookPdfExport = ({
         for (const tile of tiles) {
           const rendered = await renderBoardToCanvas(2.2, {
             bounds: tile.bounds,
+            page: pageNumber,
           });
           if (!rendered) continue;
           if (renderedPagesCount > 0) {
@@ -667,22 +680,19 @@ export const useWorkbookPdfExport = ({
     } finally {
       setCanvasVisibilityMode("viewport");
       if (activePage !== currentPage) {
-        setBoardSettings((state) => ({
-          ...state,
-          currentPage,
-        }));
+        setCurrentBoardPage(currentPage);
       }
       setExportingSections(false);
     }
   }, [
-    boardSettings.currentPage,
     exportingSections,
+    currentBoardPage,
     renderBoardToCanvas,
     resolveExportPdfFileName,
     resolveExportPageNumbers,
     resolveUniformContentExportBounds,
-    setBoardSettings,
     setCanvasVisibilityMode,
+    setCurrentBoardPage,
     setError,
     setExportingSections,
     switchBoardPageForExport,

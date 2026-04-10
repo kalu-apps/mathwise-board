@@ -5,6 +5,7 @@ import type {
   WorkbookOperationRecord,
 } from "../core/db";
 import type { WorkbookClientEventInput } from "../../../../../src/features/workbook/model/events";
+import type { WorkbookEvent } from "../../../../../src/features/workbook/model/types";
 
 type RuntimeRequestContext = {
   req: IncomingMessage;
@@ -40,6 +41,24 @@ type WorkbookDomainDeps = Record<string, any> & {
   }>;
   readWorkbookPdfTempSourceBuffer: (sourceId: string) => Promise<Buffer | null>;
   workbookStreamClientsBySession: Map<string, Map<string, WorkbookStreamClient>>;
+  resolveWorkbookUndoRedoEvents?: (params: {
+    sessionId: string;
+    events: WorkbookClientEventInput[];
+    workbookSnapshotStore: {
+      read: (params: {
+        sessionId: string;
+        layer: "board" | "annotations";
+      }) => Promise<{ payload: unknown; version: number } | null>;
+    };
+    workbookEventStore: {
+      read: (params: {
+        sessionId: string;
+        afterSeq: number;
+        limit?: number;
+      }) => Promise<{ events: WorkbookEvent[]; latestSeq: number }>;
+    };
+    eventLimit: number;
+  }) => Promise<WorkbookClientEventInput[]>;
   nowIso: () => string;
   ensureId: () => string;
   nowTs: () => number;
@@ -495,7 +514,21 @@ const handleWorkbookEventsRoute = async (
       return true;
     }
 
-    for (const event of normalizedEvents) {
+    const resolvedUndoRedoEvents =
+      typeof deps.resolveWorkbookUndoRedoEvents === "function"
+        ? await deps.resolveWorkbookUndoRedoEvents({
+            sessionId,
+            events: normalizedEvents,
+            workbookSnapshotStore: deps.workbookSnapshotStore,
+            workbookEventStore: deps.workbookEventStore,
+            eventLimit: deps.WORKBOOK_EVENT_LIMIT,
+          })
+        : normalizedEvents;
+    const preparedEvents = Array.isArray(resolvedUndoRedoEvents)
+      ? resolvedUndoRedoEvents
+      : normalizedEvents;
+
+    for (const event of preparedEvents) {
       if (event.type === "media.signal" && !participant.permissions.canUseMedia) {
         deps.forbidden(res, "media_disabled");
         return true;
@@ -540,7 +573,7 @@ const handleWorkbookEventsRoute = async (
     const versionGuardResult = await deps.applyWorkbookObjectVersionGuard({
       db,
       sessionId,
-      events: normalizedEvents,
+      events: preparedEvents,
     });
     if (!versionGuardResult.ok) {
       deps.json(res, 409, {

@@ -1,0 +1,227 @@
+
+.workbook-session__session-chat-input .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline {
+  border-color: var(--input-border) !important;
+}
+
+.workbook-session__session-chat-input
+  .MuiOutlinedInput-root.Mui-focused
+  .MuiOutlinedInput-notchedOutline {
+  border-color: var(--input-border) !important;
+  border-width: 1px !important;
+}
+
+.workbook-session__session-chat-input .MuiInputBase-input:focus,
+.workbook-session__session-chat-input .MuiInputBase-input:focus-visible,
+.workbook-session__session-chat-input .MuiOutlinedInput-root:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.workbook-session__chat-action-icon.MuiIconButton-root {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.workbook-session__chat-action-icon.MuiIconButton-root:hover {
+  border: none !important;
+  background: color-mix(in srgb, var(--brand-soft) 16%, transparent) !important;
+}
+
+.workbook-session__chat-send-icon.MuiIconButton-root {
+  color: color-mix(in srgb, var(--brand-solid) 86%, var(--text-primary));
+}
+
+.workbook-session__chat-send-icon.MuiIconButton-root.Mui-disabled {
+  color: var(--text-muted);
+}
+
+.workbook-session__session-chat-emoji {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-soft) 86%, transparent);
+  padding: 6px;
+
+  button {
+    border: 1px solid transparent;
+    background: transparent;
+    border-radius: 8px;
+    font-size: 17px;
+    line-height: 1;
+    padding: 4px 7px;
+    cursor: pointer;
+  }
+
+  button:hover {
+    border-color: color-mix(in srgb, var(--brand-solid) 48%, var(--border-strong));
+    background: color-mix(in srgb, var(--brand-soft) 16%, transparent);
+  }
+}
+
+.workbook-session__docs-window {
+  position: absolute;
+  top: 94px;
+  right: 14px;
+  width: min(480px, 92%);
+  max-height: min(74vh, 760px);
+  border-radius: 14px;
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+  box-shadow: var(--shadow-md);
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  z-index: 4;
+}
+
+.workbook-session__import-modal-paper {
+  width: min(540px, calc(100vw - 32px));
+  max-height: min(calc(100dvh - 20px), 760px);
+  transition: width 0.2s ease, max-height 0.2s ease;
+}
+
+.workbook-session__import-modal-paper.workbook-session__import-modal-paper--expanded {
+  width: min(860px, calc(100vw - 40px));
+  max-height: min(calc(100dvh - 20px), 900px);
+}
+
+.workbook-session__import-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.workbook-session__import-modal-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 8px;
+}
+
+.workbook-session__import-modal-close.MuiIconButton-root {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
+}
+
+.workbook-session__import-modal-close.MuiIconButton-root:hover {
+  background: color-mix(in srgb, var(--brand-soft) 12%, transparent) !important;
+  color: var(--text-primary);
+}
+
+.workbook-session__import-modal-alert {
+  margin: 0 !important;
+}
+
+.workbook-session__import-preparing-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.workbook-session__import-preparing-status .MuiCircularProgress-root {
+  color: currentColor;
+  flex: 0 0 auto;
+}
+
+.workbook-session__import-dropzone {
+  border: 1px dashed rgba(95, 111, 134, 0.4);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(238, 243, 248, 0.5);
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.workbook-session__import-dropzone-caption {
+  font-size: 12px;
+  line-height: 1.35;
+  color: rgba(48, 55, 81, 0.72);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+
+.workbook-session__import-dropzone.is-dragover {
+  border-color: rgba(47, 79, 127, 0.72);
+  background: rgba(238, 243, 248, 0.76);
+}
+
+.workbook-session__import-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(38vh, 300px);
+  overflow-y: auto;
+}
+
+.workbook-session__import-modal-paper.workbook-session__import-modal-paper--expanded
+  .workbook-session__import-list {
+  max-height: min(50vh, 430px);
+}
+
+.workbook-session__import-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid rgba(70, 87, 126, 0.22);
+  border-radius: 10px;
+  padding: 8px 30px 8px 10px;
+  background: rgba(248, 250, 255, 0.92);
+}
+
+.workbook-session__import-item.is-preview-openable {
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.workbook-session__import-item.is-preview-openable:hover {
+  border-color: color-mix(in srgb, var(--brand-solid) 34%, rgba(70, 87, 126, 0.22));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-solid) 18%, transparent) inset;
+  background: color-mix(in srgb, rgba(248, 250, 255, 0.92) 88%, var(--brand-soft));
+}
+
+.workbook-session__import-item.is-preview-openable:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--brand-solid) 56%, transparent);
+  outline-offset: 2px;
+}
+
+.workbook-session__import-item.is-error {
+  border-color: rgba(194, 47, 47, 0.38);
+}
+
+.workbook-session__import-item.is-success {
+  border-color: rgba(26, 136, 75, 0.34);
+}
+
+.workbook-session__import-item-preview {
+  width: 64px;
+  height: 48px;
+  border-radius: 8px;
+  border: 1px solid rgba(79, 95, 135, 0.26);
+  background: rgba(255, 255, 255, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}

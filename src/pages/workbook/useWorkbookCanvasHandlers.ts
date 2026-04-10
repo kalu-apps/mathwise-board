@@ -14,9 +14,9 @@ type UseWorkbookCanvasHandlersParams = {
   commitStroke: (stroke: WorkbookStroke) => Promise<void> | void;
   commitStrokeDelete: (strokeId: string, layer: WorkbookLayer) => Promise<void> | void;
   commitStrokeReplace: (payload: {
-    strokeId: string;
-    layer: WorkbookLayer;
     stroke: WorkbookStroke;
+    fragments: WorkbookPoint[][];
+    preserveSourceId?: boolean;
   }) => Promise<void> | void;
   commitEraserBatch: (payload: WorkbookEraserCommitPayload) => Promise<void> | void;
   commitObjectUpdate: (

@@ -45,6 +45,14 @@ body {
   padding-bottom: var(--fluid-gap-lg);
 }
 
+.app-main.app-main--workbook-session {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+  padding-inline: 0;
+  padding-bottom: 0;
+}
+
 .fluid-shell {
   width: min(100%, var(--layout-content-max));
   margin-inline: auto;
@@ -89,4 +97,3 @@ body {
     transition: none !important;
   }
 }
-

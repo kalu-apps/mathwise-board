@@ -73,6 +73,7 @@ export type WorkbookSessionCollabSlice = {
 export type WorkbookSessionSceneSlice = {
   selectedObjectId: string | null;
   selectedConstraintId: string | null;
+  currentBoardPage: number;
   canvasViewport: WorkbookPoint;
   viewportZoom: number;
 };
@@ -155,6 +156,7 @@ export type WorkbookSessionStoreActions = {
   setFloatingPanelsTop: (updater: StateUpdater<number>) => void;
   setSelectedObjectId: (updater: StateUpdater<string | null>) => void;
   setSelectedConstraintId: (updater: StateUpdater<string | null>) => void;
+  setCurrentBoardPage: (updater: StateUpdater<number>) => void;
   setCanvasViewport: (updater: StateUpdater<WorkbookPoint>) => void;
   setViewportZoom: (updater: StateUpdater<number>) => void;
   setFocusPoint: (updater: StateUpdater<WorkbookPoint | null>) => void;

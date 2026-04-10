@@ -1,4 +1,4 @@
-import { distanceToSegment } from "./sceneGeometry";
+import { distanceToSegment, getLineBasis } from "./sceneGeometry";
 import type { WorkbookBoardObject, WorkbookPoint, WorkbookStroke } from "./types";
 
 type RectLike = {
@@ -28,6 +28,7 @@ export type ObjectEraserPreviewPath = {
 export type ObjectEraserStoredPath = {
   points: Array<{ u: number; v: number }>;
   radiusRatio: number;
+  space?: "rect" | "line";
 };
 
 type GetObjectRect = (object: WorkbookBoardObject) => RectLike;
@@ -58,6 +59,60 @@ const projectPointOnSegment = (
 
 const distanceBetweenPoints = (left: WorkbookPoint, right: WorkbookPoint) =>
   Math.hypot(left.x - right.x, left.y - right.y);
+
+type ObjectEraserCoordinateSpace = "rect" | "line";
+
+type LineEraserFrame = {
+  start: WorkbookPoint;
+  tangent: WorkbookPoint;
+  normal: WorkbookPoint;
+  length: number;
+};
+
+const isLineLikeObject = (object: WorkbookBoardObject) =>
+  object.type === "line" || object.type === "arrow";
+
+const resolveLineEraserFrame = (object: WorkbookBoardObject): LineEraserFrame | null => {
+  if (!isLineLikeObject(object)) return null;
+  const basis = getLineBasis(object);
+  const safeLength = Math.max(1, basis.length);
+  if (!Number.isFinite(safeLength)) return null;
+  return {
+    start: basis.start,
+    tangent: basis.tangent,
+    normal: basis.normal,
+    length: safeLength,
+  };
+};
+
+const projectPointToLineEraserFrame = (point: WorkbookPoint, frame: LineEraserFrame) => {
+  const dx = point.x - frame.start.x;
+  const dy = point.y - frame.start.y;
+  return {
+    u: (dx * frame.tangent.x + dy * frame.tangent.y) / frame.length,
+    v: (dx * frame.normal.x + dy * frame.normal.y) / frame.length,
+  };
+};
+
+const projectPointFromLineEraserFrame = (
+  point: { u: number; v: number },
+  frame: LineEraserFrame
+): WorkbookPoint => ({
+  x:
+    frame.start.x +
+    frame.tangent.x * point.u * frame.length +
+    frame.normal.x * point.v * frame.length,
+  y:
+    frame.start.y +
+    frame.tangent.y * point.u * frame.length +
+    frame.normal.y * point.v * frame.length,
+});
+
+const resolvePathCoordinateSpace = (
+  object: WorkbookBoardObject,
+  pathSpace: unknown
+): ObjectEraserCoordinateSpace =>
+  pathSpace === "line" && isLineLikeObject(object) ? "line" : "rect";
 
 export const buildEraserSegmentPoints = (
   from: WorkbookPoint,
@@ -474,25 +529,34 @@ export const normalizeObjectEraserPreviewPath = (
   getObjectRect: GetObjectRect
 ): ObjectEraserStoredPath | null => {
   if (!Array.isArray(path.points) || path.points.length === 0) return null;
+  const lineFrame = resolveLineEraserFrame(object);
+  const coordinateSpace: ObjectEraserCoordinateSpace = lineFrame ? "line" : "rect";
   const rect = getObjectRect(object);
   const safeWidth = Math.max(1, Math.abs(rect.width));
   const safeHeight = Math.max(1, Math.abs(rect.height));
   const safeScale = Math.max(1, Math.max(safeWidth, safeHeight));
   const normalizedPoints = path.points.reduce<Array<{ u: number; v: number }>>((acc, point) => {
     if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return acc;
-    acc.push({
-      u: (point.x - rect.x) / safeWidth,
-      v: (point.y - rect.y) / safeHeight,
-    });
+    if (coordinateSpace === "line" && lineFrame) {
+      acc.push(projectPointToLineEraserFrame(point, lineFrame));
+    } else {
+      acc.push({
+        u: (point.x - rect.x) / safeWidth,
+        v: (point.y - rect.y) / safeHeight,
+      });
+    }
     return acc;
   }, []);
   if (normalizedPoints.length === 0) return null;
+  const scale =
+    coordinateSpace === "line" && lineFrame ? lineFrame.length : safeScale;
   return {
     points: normalizedPoints,
     radiusRatio: Math.max(
       OBJECT_ERASER_RATIO_MIN,
-      Math.min(OBJECT_ERASER_RATIO_MAX, path.radius / safeScale)
+      Math.min(OBJECT_ERASER_RATIO_MAX, path.radius / scale)
     ),
+    ...(coordinateSpace === "line" ? { space: "line" as const } : {}),
   };
 };
 
@@ -508,6 +572,7 @@ export const sanitizeObjectEraserPaths = (
   getObjectRect: GetObjectRect
 ): ObjectEraserStoredPath[] => {
   const raw = Array.isArray(object.meta?.eraserPaths) ? object.meta.eraserPaths : [];
+  const lineFrame = resolveLineEraserFrame(object);
   const rect = getObjectRect(object);
   const safeWidth = Math.max(1, Math.abs(rect.width));
   const safeHeight = Math.max(1, Math.abs(rect.height));
@@ -519,7 +584,9 @@ export const sanitizeObjectEraserPaths = (
       radiusRatio?: unknown;
       radius?: unknown;
       r?: unknown;
+      space?: unknown;
     };
+    const coordinateSpace = resolvePathCoordinateSpace(object, typed.space);
     const rawPoints = Array.isArray(typed.points) ? typed.points : [];
     const normalizedPoints = rawPoints.reduce<Array<{ u: number; v: number }>>((pointsAcc, point) => {
       if (!point || typeof point !== "object") return pointsAcc;
@@ -542,21 +609,29 @@ export const sanitizeObjectEraserPaths = (
         typeof rawY === "number" &&
         Number.isFinite(rawY)
       ) {
-        pointsAcc.push({
-          u: (rawX - rect.x) / safeWidth,
-          v: (rawY - rect.y) / safeHeight,
-        });
+        if (coordinateSpace === "line" && lineFrame) {
+          pointsAcc.push(
+            projectPointToLineEraserFrame({ x: rawX, y: rawY }, lineFrame)
+          );
+        } else {
+          pointsAcc.push({
+            u: (rawX - rect.x) / safeWidth,
+            v: (rawY - rect.y) / safeHeight,
+          });
+        }
       }
       return pointsAcc;
     }, []);
     if (normalizedPoints.length === 0) return acc;
+    const radiusScale =
+      coordinateSpace === "line" && lineFrame ? lineFrame.length : safeScale;
     const radiusRatio =
       typeof typed.radiusRatio === "number" && Number.isFinite(typed.radiusRatio)
         ? typed.radiusRatio
         : typeof typed.radius === "number" && Number.isFinite(typed.radius)
-          ? typed.radius / safeScale
+          ? typed.radius / radiusScale
           : typeof typed.r === "number" && Number.isFinite(typed.r)
-            ? typed.r / safeScale
+            ? typed.r / radiusScale
             : null;
     if (radiusRatio === null) return acc;
     acc.push({
@@ -565,6 +640,7 @@ export const sanitizeObjectEraserPaths = (
         OBJECT_ERASER_RATIO_MIN,
         Math.min(OBJECT_ERASER_RATIO_MAX, radiusRatio)
       ),
+      ...(coordinateSpace === "line" ? { space: "line" as const } : {}),
     });
     return acc;
   }, []);
@@ -596,6 +672,9 @@ export const areObjectEraserStoredPathsEquivalent = (
   return left.every((path, index) => {
     const target = right[index];
     if (!target) return false;
+    const leftSpace = path.space === "line" ? "line" : "rect";
+    const rightSpace = target.space === "line" ? "line" : "rect";
+    if (leftSpace !== rightSpace) return false;
     if (Math.abs(path.radiusRatio - target.radiusRatio) > epsilon) return false;
     if (path.points.length !== target.points.length) return false;
     return path.points.every((point, pointIndex) => {
@@ -722,12 +801,14 @@ export const resolveObjectEraserPathsForRender = (
   getObjectRect: GetObjectRect
 ): ObjectEraserPreviewPath[] => {
   if (paths.length === 0) return [];
+  const lineFrame = resolveLineEraserFrame(object);
   const rect = getObjectRect(object);
   const safeWidth = Math.max(1, Math.abs(rect.width));
   const safeHeight = Math.max(1, Math.abs(rect.height));
   const safeScale = Math.max(1, Math.max(safeWidth, safeHeight));
   return paths.reduce<ObjectEraserPreviewPath[]>((acc, path) => {
     if (!Array.isArray(path.points) || path.points.length === 0) return acc;
+    const coordinateSpace = resolvePathCoordinateSpace(object, path.space);
     const resolvedPoints = path.points.reduce<WorkbookPoint[]>((pointsAcc, point) => {
       if (!point || typeof point !== "object") return pointsAcc;
       if (
@@ -738,16 +819,22 @@ export const resolveObjectEraserPathsForRender = (
       ) {
         return pointsAcc;
       }
-      pointsAcc.push({
-        x: rect.x + point.u * safeWidth,
-        y: rect.y + point.v * safeHeight,
-      });
+      if (coordinateSpace === "line" && lineFrame) {
+        pointsAcc.push(projectPointFromLineEraserFrame(point, lineFrame));
+      } else {
+        pointsAcc.push({
+          x: rect.x + point.u * safeWidth,
+          y: rect.y + point.v * safeHeight,
+        });
+      }
       return pointsAcc;
     }, []);
     if (resolvedPoints.length === 0) return acc;
+    const scale =
+      coordinateSpace === "line" && lineFrame ? lineFrame.length : safeScale;
     acc.push({
       points: resolvedPoints,
-      radius: Math.max(1, Math.min(320, path.radiusRatio * safeScale)),
+      radius: Math.max(1, Math.min(320, path.radiusRatio * scale)),
     });
     return acc;
   }, []);

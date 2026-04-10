@@ -2,6 +2,10 @@ import { useCallback, type MutableRefObject } from "react";
 import {
   mergeBoardObjectWithPatch,
 } from "@/features/workbook/model/runtime";
+import {
+  normalizeWorkbookBoardPageVisualSettingsByPage,
+  resolveWorkbookBoardPageVisualDefaults,
+} from "@/features/workbook/model/boardPageSettings";
 import type {
   WorkbookBoardObject,
   WorkbookBoardSettings,
@@ -14,6 +18,7 @@ import {
   clampBoardObjectToPageFrame,
   cloneSerializable,
 } from "./WorkbookSessionPage.core";
+import { normalizeWorkbookPageFrameWidth } from "@/features/workbook/model/pageFrame";
 import {
   normalizeSceneLayersForBoard,
   type WorkbookHistoryOperation,
@@ -25,6 +30,8 @@ type SetState<T> = (updater: StateUpdater<T>) => void;
 type UseWorkbookHistoryOperationsApplyParams = {
   setAnnotationStrokes: SetState<WorkbookStroke[]>;
   setBoardStrokes: SetState<WorkbookStroke[]>;
+  boardStrokesRef: MutableRefObject<WorkbookStroke[]>;
+  annotationStrokesRef: MutableRefObject<WorkbookStroke[]>;
   applyLocalBoardObjects: (
     updater: (current: WorkbookBoardObject[]) => WorkbookBoardObject[]
   ) => void;
@@ -34,6 +41,7 @@ type UseWorkbookHistoryOperationsApplyParams = {
   setDocumentState: SetState<WorkbookDocumentState>;
   setSelectedConstraintId: SetState<string | null>;
   setSelectedObjectId: SetState<string | null>;
+  boardSettingsRef: MutableRefObject<WorkbookBoardSettings>;
   objectUpdateQueuedPatchRef: MutableRefObject<Map<string, Partial<WorkbookBoardObject>>>;
   objectUpdateDispatchOptionsRef: MutableRefObject<
     Map<string, { trackHistory: boolean; markDirty: boolean }>
@@ -50,9 +58,45 @@ type UseWorkbookHistoryOperationsApplyParams = {
   objectUpdateTimersRef: MutableRefObject<Map<string, number>>;
 };
 
+const isPlainSerializableObject = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const areSerializableValuesStructurallyEqual = (left: unknown, right: unknown): boolean => {
+  if (Object.is(left, right)) return true;
+  if (left === null || right === null) return left === right;
+  if (typeof left !== typeof right) return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right)) return false;
+    if (left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index += 1) {
+      if (!areSerializableValuesStructurallyEqual(left[index], right[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (!isPlainSerializableObject(left) || !isPlainSerializableObject(right)) {
+    return false;
+  }
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (let index = 0; index < leftKeys.length; index += 1) {
+    const leftKey = leftKeys[index];
+    const rightKey = rightKeys[index];
+    if (leftKey !== rightKey) return false;
+    if (!areSerializableValuesStructurallyEqual(left[leftKey], right[rightKey])) {
+      return false;
+    }
+  }
+  return true;
+};
+
 export const useWorkbookHistoryOperationsApply = ({
   setAnnotationStrokes,
   setBoardStrokes,
+  boardStrokesRef,
+  annotationStrokesRef,
   applyLocalBoardObjects,
   finalizeStrokePreview,
   setBoardSettings,
@@ -60,6 +104,7 @@ export const useWorkbookHistoryOperationsApply = ({
   setDocumentState,
   setSelectedConstraintId,
   setSelectedObjectId,
+  boardSettingsRef,
   objectUpdateQueuedPatchRef,
   objectUpdateDispatchOptionsRef,
   objectUpdateHistoryBeforeRef,
@@ -71,6 +116,9 @@ export const useWorkbookHistoryOperationsApply = ({
   incomingPreviewVersionByAuthorObjectRef,
   objectUpdateTimersRef,
 }: UseWorkbookHistoryOperationsApplyParams) => {
+  void boardStrokesRef;
+  void annotationStrokesRef;
+
   const applyLocalStrokeCollection = useCallback(
     (
       targetLayer: WorkbookLayer,
@@ -85,50 +133,134 @@ export const useWorkbookHistoryOperationsApply = ({
     [setAnnotationStrokes, setBoardStrokes]
   );
 
+  const isExpectedStateMatch = useCallback(
+    <T,>(current: T | undefined, expected: T | null | undefined) => {
+      if (expected === undefined) return true;
+      if (expected === null) return current === undefined;
+      if (current === undefined) return false;
+      return areSerializableValuesStructurallyEqual(current, expected);
+    },
+    []
+  );
+
   const applyHistoryOperations = useCallback(
-    (operations: WorkbookHistoryOperation[]) => {
+    (
+      operations: WorkbookHistoryOperation[],
+      options?: { ignoreExpectedCurrent?: boolean }
+    ) => {
+      const ignoreExpectedCurrent = options?.ignoreExpectedCurrent === true;
+      let appliedOperationsCount = 0;
       operations.forEach((operation) => {
         if (operation.kind === "upsert_stroke") {
-          finalizeStrokePreview(operation.stroke.id);
+          let applied = false;
           applyLocalStrokeCollection(operation.layer, (current) => {
-            const exists = current.some((item) => item.id === operation.stroke.id);
+            const currentStroke = current.find((item) => item.id === operation.stroke.id);
+            if (
+              !ignoreExpectedCurrent &&
+              !isExpectedStateMatch(currentStroke, operation.expectedCurrent)
+            ) {
+              return current;
+            }
+            const exists = Boolean(currentStroke);
+            applied = true;
             if (!exists) return [...current, cloneSerializable(operation.stroke)];
             return current.map((item) =>
               item.id === operation.stroke.id ? cloneSerializable(operation.stroke) : item
             );
           });
+          if (applied) {
+            finalizeStrokePreview(operation.stroke.id);
+            appliedOperationsCount += 1;
+          }
           return;
         }
         if (operation.kind === "remove_stroke") {
-          finalizeStrokePreview(operation.strokeId);
-          applyLocalStrokeCollection(operation.layer, (current) =>
-            current.filter((item) => item.id !== operation.strokeId)
-          );
+          let applied = false;
+          applyLocalStrokeCollection(operation.layer, (current) => {
+            const currentStroke = current.find((item) => item.id === operation.strokeId);
+            if (
+              !ignoreExpectedCurrent &&
+              !isExpectedStateMatch(currentStroke, operation.expectedCurrent)
+            ) {
+              return current;
+            }
+            if (!currentStroke) return current;
+            applied = true;
+            return current.filter((item) => item.id !== operation.strokeId);
+          });
+          if (applied) {
+            finalizeStrokePreview(operation.strokeId);
+            appliedOperationsCount += 1;
+          }
           return;
         }
         if (operation.kind === "upsert_object") {
-          const nextObject = clampBoardObjectToPageFrame(cloneSerializable(operation.object));
+          let applied = false;
+          const nextObject = clampBoardObjectToPageFrame(
+            cloneSerializable(operation.object),
+            boardSettingsRef.current.pageFrameWidth
+          );
           applyLocalBoardObjects((current) => {
-            const exists = current.some((item) => item.id === nextObject.id);
+            const currentObject = current.find((item) => item.id === nextObject.id);
+            if (
+              !ignoreExpectedCurrent &&
+              !isExpectedStateMatch(currentObject, operation.expectedCurrent)
+            ) {
+              return current;
+            }
+            const exists = Boolean(currentObject);
+            applied = true;
             if (!exists) return [...current, nextObject];
             return current.map((item) => (item.id === nextObject.id ? nextObject : item));
           });
+          if (applied) {
+            appliedOperationsCount += 1;
+          }
           return;
         }
         if (operation.kind === "patch_object") {
-          applyLocalBoardObjects((current) =>
-            current.map((item) =>
+          let applied = false;
+          applyLocalBoardObjects((current) => {
+            const currentObject = current.find((item) => item.id === operation.objectId);
+            if (!currentObject) return current;
+            if (
+              !ignoreExpectedCurrent &&
+              !isExpectedStateMatch(currentObject, operation.expectedCurrent)
+            ) {
+              return current;
+            }
+            applied = true;
+            return current.map((item) =>
               item.id === operation.objectId
                 ? clampBoardObjectToPageFrame(
-                    mergeBoardObjectWithPatch(item, cloneSerializable(operation.patch))
+                    mergeBoardObjectWithPatch(item, cloneSerializable(operation.patch)),
+                    boardSettingsRef.current.pageFrameWidth
                   )
                 : item
-            )
-          );
+            );
+          });
+          if (applied) {
+            appliedOperationsCount += 1;
+          }
           return;
         }
         if (operation.kind === "remove_object") {
           const objectId = operation.objectId;
+          let removed = false;
+          applyLocalBoardObjects((current) => {
+            const currentObject = current.find((item) => item.id === objectId);
+            if (
+              !ignoreExpectedCurrent &&
+              !isExpectedStateMatch(currentObject, operation.expectedCurrent)
+            ) {
+              return current;
+            }
+            if (!currentObject) return current;
+            removed = true;
+            return current.filter((item) => item.id !== objectId);
+          });
+          if (!removed) return;
+          appliedOperationsCount += 1;
           objectUpdateQueuedPatchRef.current.delete(objectId);
           objectUpdateDispatchOptionsRef.current.delete(objectId);
           objectUpdateHistoryBeforeRef.current.delete(objectId);
@@ -147,7 +279,6 @@ export const useWorkbookHistoryOperationsApply = ({
             window.clearTimeout(pendingUpdateTimer);
             objectUpdateTimersRef.current.delete(objectId);
           }
-          applyLocalBoardObjects((current) => current.filter((item) => item.id !== objectId));
           setConstraints((current) =>
             current.filter(
               (constraint) =>
@@ -165,6 +296,7 @@ export const useWorkbookHistoryOperationsApply = ({
             if (!exists) return [...current, nextConstraint];
             return current.map((item) => (item.id === nextConstraint.id ? nextConstraint : item));
           });
+          appliedOperationsCount += 1;
           return;
         }
         if (operation.kind === "remove_constraint") {
@@ -174,6 +306,7 @@ export const useWorkbookHistoryOperationsApply = ({
           setSelectedConstraintId((current) =>
             current === operation.constraintId ? null : current
           );
+          appliedOperationsCount += 1;
           return;
         }
         if (operation.kind === "patch_board_settings") {
@@ -186,12 +319,23 @@ export const useWorkbookHistoryOperationsApply = ({
               merged.sceneLayers,
               merged.activeSceneLayerId
             );
-            return {
+            const normalizedSettings: WorkbookBoardSettings = {
               ...merged,
+              pageFrameWidth: normalizeWorkbookPageFrameWidth(merged.pageFrameWidth),
               sceneLayers: normalizedLayers.sceneLayers,
               activeSceneLayerId: normalizedLayers.activeSceneLayerId,
             };
+            const fallbackPageVisual = resolveWorkbookBoardPageVisualDefaults(
+              normalizedSettings
+            );
+            normalizedSettings.pageBoardSettingsByPage =
+              normalizeWorkbookBoardPageVisualSettingsByPage(
+                merged.pageBoardSettingsByPage,
+                fallbackPageVisual
+              );
+            return normalizedSettings;
           });
+          appliedOperationsCount += 1;
           return;
         }
         if (operation.kind === "upsert_document_asset") {
@@ -206,6 +350,7 @@ export const useWorkbookHistoryOperationsApply = ({
               activeAssetId: current.activeAssetId ?? nextAsset.id,
             };
           });
+          appliedOperationsCount += 1;
           return;
         }
         if (operation.kind === "remove_document_asset") {
@@ -220,6 +365,7 @@ export const useWorkbookHistoryOperationsApply = ({
                   : current.activeAssetId,
             };
           });
+          appliedOperationsCount += 1;
           return;
         }
         if (operation.kind === "upsert_document_annotation") {
@@ -235,6 +381,7 @@ export const useWorkbookHistoryOperationsApply = ({
                 : [...current.annotations, nextAnnotation],
             };
           });
+          appliedOperationsCount += 1;
           return;
         }
         if (operation.kind === "remove_document_annotation") {
@@ -244,13 +391,16 @@ export const useWorkbookHistoryOperationsApply = ({
               (item) => item.id !== operation.annotationId
             ),
           }));
+          appliedOperationsCount += 1;
         }
       });
+      return appliedOperationsCount;
     },
     [
       applyLocalBoardObjects,
       applyLocalStrokeCollection,
       finalizeStrokePreview,
+      isExpectedStateMatch,
       incomingPreviewQueuedPatchRef,
       incomingPreviewVersionByAuthorObjectRef,
       objectPreviewQueuedAtRef,
@@ -266,6 +416,7 @@ export const useWorkbookHistoryOperationsApply = ({
       setDocumentState,
       setSelectedConstraintId,
       setSelectedObjectId,
+      boardSettingsRef,
     ]
   );
 

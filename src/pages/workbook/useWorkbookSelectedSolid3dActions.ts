@@ -121,13 +121,19 @@ export const useWorkbookSelectedSolid3dActions = ({
   const setSolid3dFaceColor = useCallback(
     async (faceIndex: number, color: string) => {
       if (!Number.isInteger(faceIndex) || faceIndex < 0) return;
-      await updateSelectedSolid3dState((state) => ({
-        ...state,
-        faceColors: {
-          ...(state.faceColors ?? {}),
-          [String(faceIndex)]: color || "#5f6f86",
-        },
-      }));
+      await updateSelectedSolid3dState((state) => {
+        const nextFaceColors = { ...(state.faceColors ?? {}) };
+        const faceKey = String(faceIndex);
+        if (typeof color === "string" && color.trim()) {
+          nextFaceColors[faceKey] = color;
+        } else {
+          delete nextFaceColors[faceKey];
+        }
+        return {
+          ...state,
+          faceColors: nextFaceColors,
+        };
+      });
     },
     [updateSelectedSolid3dState]
   );
@@ -190,13 +196,18 @@ export const useWorkbookSelectedSolid3dActions = ({
   const setSolid3dEdgeColor = useCallback(
     async (edgeKey: string, color: string) => {
       if (!edgeKey.trim()) return;
-      await updateSelectedSolid3dState((state) => ({
-        ...state,
-        edgeColors: {
-          ...(state.edgeColors ?? {}),
-          [edgeKey]: color || "#2f4f7f",
-        },
-      }));
+      await updateSelectedSolid3dState((state) => {
+        const nextEdgeColors = { ...(state.edgeColors ?? {}) };
+        if (typeof color === "string" && color.trim()) {
+          nextEdgeColors[edgeKey] = color;
+        } else {
+          delete nextEdgeColors[edgeKey];
+        }
+        return {
+          ...state,
+          edgeColors: nextEdgeColors,
+        };
+      });
     },
     [updateSelectedSolid3dState]
   );
@@ -265,6 +276,12 @@ export const useWorkbookSelectedSolid3dActions = ({
         angleMarks: (state.angleMarks ?? []).map((mark) =>
           mark.id === markId
             ? (() => {
+                const resolvedColor =
+                  typeof patch.color === "string"
+                    ? patch.color.trim() || "#c4872f"
+                    : typeof mark.color === "string" && mark.color.trim()
+                      ? mark.color
+                      : "#c4872f";
                 const next = {
                   ...mark,
                   ...patch,
@@ -272,6 +289,7 @@ export const useWorkbookSelectedSolid3dActions = ({
                     typeof patch.label === "string"
                       ? patch.label.trim().slice(0, 64)
                       : mark.label,
+                  color: resolvedColor,
                 };
                 if (!selectedSolidMesh) return next;
                 const requestedFaceIndex =

@@ -28,9 +28,17 @@ import {
 import { reportWorkbookImportEvent } from "@/features/workbook/model/workbookPerformance";
 import { generateId } from "@/shared/lib/id";
 import type { WorkbookPreparedDocumentImport } from "./useWorkbookSessionDocumentHandlers";
+import { WorkbookImageImportCropModal } from "./WorkbookImageImportCropModal";
 import { WorkbookPdfImportPreviewModal } from "./WorkbookPdfImportPreviewModal";
 import { createWorkbookPdfSource, inspectWorkbookPdf } from "@/features/workbook/model/api";
 import { ApiError } from "@/shared/api/client";
+import {
+  DEFAULT_WORKBOOK_IMPORT_CROP_RECT,
+  cropWorkbookImageDataUrl,
+  isWorkbookImportCropRectDefault,
+  normalizeWorkbookImportCropRect,
+  type WorkbookImportCropRect,
+} from "./workbookImageImportCrop";
 
 type ImportModalState =
   | "idle"
@@ -69,12 +77,16 @@ type WorkbookImportItem = {
   height?: number;
   previewUrl?: string;
   preparedDataUrl?: string;
+  basePreparedDataUrl?: string;
+  cropRect?: WorkbookImportCropRect;
+  isCropped?: boolean;
   pdfPageRange?: {
     from: number;
     to: number;
   };
   pdfPageCount?: number;
   pdfSourceId?: string;
+  baseWarning?: string;
   warning?: string;
   error?: string;
   status: ImportFileStatus;
@@ -141,6 +153,7 @@ export function WorkbookImportModal({
   const [modalState, setModalState] = useState<ImportModalState>("idle");
   const [items, setItems] = useState<WorkbookImportItem[]>([]);
   const [pdfPreviewItemId, setPdfPreviewItemId] = useState<string | null>(null);
+  const [imageCropItemId, setImageCropItemId] = useState<string | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const dialogContainer =
@@ -177,6 +190,17 @@ export function WorkbookImportModal({
   const pdfPreviewItem = useMemo(
     () => items.find((item) => item.id === pdfPreviewItemId && item.isPdf) ?? null,
     [items, pdfPreviewItemId]
+  );
+  const imageCropItem = useMemo(
+    () =>
+      items.find(
+        (item) =>
+          item.id === imageCropItemId &&
+          item.isImage &&
+          typeof item.basePreparedDataUrl === "string" &&
+          item.basePreparedDataUrl.length > 0
+      ) ?? null,
+    [imageCropItemId, items]
   );
   const pdfPreviewContainer = useMemo(() => {
     if (!open || !pdfPreviewItemId || typeof document === "undefined") return undefined;
@@ -429,8 +453,12 @@ export function WorkbookImportModal({
                     : warning,
                 previewUrl: preparedDataUrl,
                 preparedDataUrl,
+                basePreparedDataUrl: preparedDataUrl,
+                baseWarning: warning,
                 width,
                 height,
+                cropRect: DEFAULT_WORKBOOK_IMPORT_CROP_RECT,
+                isCropped: false,
                 progress: 100,
               });
             } catch {
@@ -453,6 +481,12 @@ export function WorkbookImportModal({
       const firstPdfNeedingSetup = nextItems.find((item) => item.isPdf);
       if (firstPdfNeedingSetup) {
         setPdfPreviewItemId((current) => current ?? firstPdfNeedingSetup.id);
+      }
+      const firstImageNeedingCrop = nextItems.find(
+        (item) => item.isImage && item.status !== "invalid"
+      );
+      if (!firstPdfNeedingSetup && firstImageNeedingCrop) {
+        setImageCropItemId((current) => current ?? firstImageNeedingCrop.id);
       }
       const validCount = nextItems.filter((item) => item.status === "ready").length;
       const hasProcessableItems = nextItems.some((item) => item.status !== "invalid");
@@ -480,7 +514,36 @@ export function WorkbookImportModal({
     [validateAndPrepareItems]
   );
 
+  const canReopenItemPreview = useCallback(
+    (item: WorkbookImportItem) => {
+      if (isBusy) return false;
+      if (item.isPdf) return true;
+      if (item.isImage) {
+        return Boolean(item.basePreparedDataUrl) && item.status !== "invalid";
+      }
+      return false;
+    },
+    [isBusy]
+  );
+
+  const handleReopenItemPreview = useCallback(
+    (item: WorkbookImportItem) => {
+      if (!canReopenItemPreview(item)) return;
+      if (item.isPdf) {
+        setImageCropItemId(null);
+        setPdfPreviewItemId(item.id);
+        return;
+      }
+      if (item.isImage) {
+        setPdfPreviewItemId(null);
+        setImageCropItemId(item.id);
+      }
+    },
+    [canReopenItemPreview]
+  );
+
   const handleOpenPdfPreview = useCallback((itemId: string) => {
+    setImageCropItemId(null);
     setPdfPreviewItemId(itemId);
   }, []);
 
@@ -517,6 +580,72 @@ export function WorkbookImportModal({
       setModalState(hasReadyAfterConfirm ? "ready" : "files_selected");
     },
     [items, pdfPreviewItemId]
+  );
+
+  const handleCancelImageCrop = useCallback(() => {
+    setImageCropItemId(null);
+  }, []);
+
+  const handleConfirmImageCrop = useCallback(
+    async (nextCropRect: WorkbookImportCropRect) => {
+      const targetId = imageCropItemId;
+      if (!targetId) return;
+      const target = items.find((item) => item.id === targetId && item.isImage) ?? null;
+      if (!target || typeof target.basePreparedDataUrl !== "string") {
+        setImageCropItemId(null);
+        return;
+      }
+      const normalizedCropRect = normalizeWorkbookImportCropRect(nextCropRect);
+      const isDefaultCrop = isWorkbookImportCropRectDefault(normalizedCropRect);
+      setItemPatch(target.id, {
+        status: "optimizing",
+        progress: 12,
+        error: undefined,
+      });
+      try {
+        const baseDataUrl = target.basePreparedDataUrl;
+        let nextPreparedDataUrl = baseDataUrl;
+        let nextWarning = target.baseWarning;
+        if (!isDefaultCrop) {
+          const cropped = await cropWorkbookImageDataUrl({
+            dataUrl: baseDataUrl,
+            cropRect: normalizedCropRect,
+          });
+          const needsAggressiveResize = cropped.width * cropped.height > MAX_IMAGE_PIXELS;
+          nextPreparedDataUrl = await optimizeImageDataUrl(cropped.dataUrl, {
+            maxEdge: needsAggressiveResize ? 1_920 : 2_280,
+            quality: needsAggressiveResize ? 0.8 : 0.86,
+            maxChars: WORKBOOK_DOCUMENT_IMAGE_MAX_DATA_URL_CHARS,
+          });
+          if (needsAggressiveResize) {
+            nextWarning = "Обрезанный фрагмент очень большой. Применена безопасная оптимизация.";
+          }
+        }
+        const nextMeta = await readImageMeta(nextPreparedDataUrl);
+        setItemPatch(target.id, {
+          status: "ready",
+          previewUrl: nextPreparedDataUrl,
+          preparedDataUrl: nextPreparedDataUrl,
+          width: nextMeta.width,
+          height: nextMeta.height,
+          cropRect: normalizedCropRect,
+          isCropped: !isDefaultCrop,
+          baseWarning: target.baseWarning,
+          warning: nextWarning,
+          error: undefined,
+          progress: 100,
+        });
+      } catch {
+        setItemPatch(target.id, {
+          status: "ready",
+          error: "Не удалось применить обрезку. Попробуйте снова.",
+          progress: 100,
+        });
+      } finally {
+        setImageCropItemId(null);
+      }
+    },
+    [imageCropItemId, items, setItemPatch]
   );
 
   const restoreFullscreenAfterPicker = useCallback(() => {
@@ -592,6 +721,8 @@ export function WorkbookImportModal({
         const imported = await onImportFile({
           file: item.file,
           preparedDataUrl: item.preparedDataUrl,
+          imageWidth: item.isImage ? item.width : undefined,
+          imageHeight: item.isImage ? item.height : undefined,
           pdfSourceId: item.isPdf ? item.pdfSourceId : undefined,
           pdfPageRange: item.isPdf ? item.pdfPageRange : undefined,
           pdfPageCount: item.isPdf ? item.pdfPageCount : undefined,
@@ -679,6 +810,7 @@ export function WorkbookImportModal({
     fullscreenRestorePendingRef.current = false;
     fullscreenRestoreTargetRef.current = null;
     setPdfPreviewItemId(null);
+    setImageCropItemId(null);
     onClose();
   }, [isBusy, onClose]);
 
@@ -687,6 +819,7 @@ export function WorkbookImportModal({
       setModalState("idle");
       setItems([]);
       setPdfPreviewItemId(null);
+      setImageCropItemId(null);
       setBatchError(null);
       setIsBusy(false);
       return;
@@ -784,8 +917,9 @@ export function WorkbookImportModal({
           }}
         >
           <UploadFileRoundedIcon fontSize="large" />
-          <strong>Перетащите файлы сюда</strong>
-          <span>или выберите вручную</span>
+          <span className="workbook-session__import-dropzone-caption">
+            Перетащите файл сюда или выберите вручную
+          </span>
           <Button
             variant="outlined"
             onClick={requestFileDialog}
@@ -797,76 +931,102 @@ export function WorkbookImportModal({
 
         {items.length > 0 ? (
           <div className="workbook-session__import-list" role="list">
-            {items.map((item) => (
-              <article
-                key={item.id}
-                className={`workbook-session__import-item ${
-                  item.status === "failed" || item.status === "invalid"
-                    ? "is-error"
-                    : item.status === "success"
-                      ? "is-success"
-                      : ""
-                }`}
-                role="listitem"
-              >
-                <div className="workbook-session__import-item-preview">
-                  {item.previewUrl ? (
-                    <img src={item.previewUrl} alt={item.name} loading="lazy" />
-                  ) : item.isImage ? (
-                    <ImageRoundedIcon fontSize="small" />
-                  ) : (
-                    <InsertDriveFileRoundedIcon fontSize="small" />
-                  )}
-                </div>
-                <div className="workbook-session__import-item-meta">
-                  <div className="workbook-session__import-item-headline">
-                    <strong>{item.name}</strong>
+            {items.map((item) => {
+              const isPreviewOpenable = canReopenItemPreview(item);
+              return (
+                <article
+                  key={item.id}
+                  className={`workbook-session__import-item ${
+                    item.status === "failed" || item.status === "invalid"
+                      ? "is-error"
+                      : item.status === "success"
+                        ? "is-success"
+                        : ""
+                  }${isPreviewOpenable ? " is-preview-openable" : ""}`}
+                  role="listitem"
+                  tabIndex={isPreviewOpenable ? 0 : undefined}
+                  aria-label={isPreviewOpenable ? `Открыть предпросмотр ${item.name}` : undefined}
+                  onClick={isPreviewOpenable ? () => handleReopenItemPreview(item) : undefined}
+                  onKeyDown={
+                    isPreviewOpenable
+                      ? (event) => {
+                          if (event.key !== "Enter" && event.key !== " ") return;
+                          event.preventDefault();
+                          handleReopenItemPreview(item);
+                        }
+                      : undefined
+                  }
+                >
+                  <div className="workbook-session__import-item-preview">
+                    {item.previewUrl ? (
+                      <img src={item.previewUrl} alt={item.name} loading="lazy" />
+                    ) : item.isImage ? (
+                      <ImageRoundedIcon fontSize="small" />
+                    ) : (
+                      <InsertDriveFileRoundedIcon fontSize="small" />
+                    )}
                   </div>
-                  <div className="workbook-session__import-item-details">
-                    <span>{item.extension || item.mimeType}</span>
-                    <span>{formatFileSizeMb(item.size)}</span>
-                    {item.width && item.height ? (
-                      <span>
-                        {item.width}×{item.height}
-                      </span>
+                  <div className="workbook-session__import-item-meta">
+                    <div className="workbook-session__import-item-headline">
+                      <strong>{item.name}</strong>
+                    </div>
+                    <div className="workbook-session__import-item-details">
+                      <span>{item.extension || item.mimeType}</span>
+                      <span>{formatFileSizeMb(item.size)}</span>
+                      {item.width && item.height ? (
+                        <span>
+                          {item.width}×{item.height}
+                        </span>
+                      ) : null}
+                    </div>
+                    {item.isPdf ? (
+                      <div className="workbook-session__import-item-actions">
+                        <span className="workbook-session__import-item-range">
+                          Страницы: {item.pdfPageRange?.from ?? 1}-{item.pdfPageRange?.to ?? 1}
+                          {item.pdfPageCount ? ` из ${item.pdfPageCount}` : ""}
+                        </span>
+                        <Button
+                          size="small"
+                          variant="text"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleOpenPdfPreview(item.id);
+                          }}
+                          disabled={isBusy}
+                        >
+                          Выбрать страницы
+                        </Button>
+                      </div>
+                    ) : item.isImage ? (
+                      <div className="workbook-session__import-item-actions">
+                        <span className="workbook-session__import-item-range">
+                          {item.isCropped ? "Обрезка: сохранена" : "Обрезка: весь кадр"}
+                        </span>
+                      </div>
+                    ) : null}
+                    {item.warning ? (
+                      <p className="workbook-session__import-item-warning">{item.warning}</p>
+                    ) : null}
+                    {item.error ? (
+                      <p className="workbook-session__import-item-error">{item.error}</p>
                     ) : null}
                   </div>
-                  {item.isPdf ? (
-                    <div className="workbook-session__import-item-actions">
-                      <span className="workbook-session__import-item-range">
-                        Страницы: {item.pdfPageRange?.from ?? 1}-{item.pdfPageRange?.to ?? 1}
-                        {item.pdfPageCount ? ` из ${item.pdfPageCount}` : ""}
-                      </span>
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={() => handleOpenPdfPreview(item.id)}
-                        disabled={isBusy}
-                      >
-                        Выбрать страницы
-                      </Button>
-                    </div>
-                  ) : null}
-                  {item.warning ? (
-                    <p className="workbook-session__import-item-warning">{item.warning}</p>
-                  ) : null}
-                  {item.error ? (
-                    <p className="workbook-session__import-item-error">{item.error}</p>
-                  ) : null}
-                </div>
-                <IconButton
-                  className="workbook-session__import-item-remove"
-                  aria-label={`Удалить ${item.name}`}
-                  onClick={() => {
-                    setItems((current) => current.filter((entry) => entry.id !== item.id));
-                    setPdfPreviewItemId((current) => (current === item.id ? null : current));
-                  }}
-                  disabled={isBusy}
-                >
-                  <CloseRoundedIcon fontSize="inherit" />
-                </IconButton>
-              </article>
-            ))}
+                  <IconButton
+                    className="workbook-session__import-item-remove"
+                    aria-label={`Удалить ${item.name}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setItems((current) => current.filter((entry) => entry.id !== item.id));
+                      setPdfPreviewItemId((current) => (current === item.id ? null : current));
+                      setImageCropItemId((current) => (current === item.id ? null : current));
+                    }}
+                    disabled={isBusy}
+                  >
+                    <CloseRoundedIcon fontSize="inherit" />
+                  </IconButton>
+                </article>
+              );
+            })}
           </div>
         ) : null}
         {(modalState === "uploading" || modalState === "processing") && items.length > 0 ? (
@@ -916,6 +1076,17 @@ export function WorkbookImportModal({
         container={pdfPreviewContainer}
         onCancel={handleCancelPdfPreview}
         onConfirm={handleConfirmPdfPreview}
+      />
+      <WorkbookImageImportCropModal
+        open={open && Boolean(imageCropItem)}
+        sourceDataUrl={imageCropItem?.basePreparedDataUrl ?? null}
+        fileName={imageCropItem?.name}
+        initialCropRect={imageCropItem?.cropRect ?? DEFAULT_WORKBOOK_IMPORT_CROP_RECT}
+        container={dialogContainer}
+        onCancel={handleCancelImageCrop}
+        onConfirm={(cropRect) => {
+          void handleConfirmImageCrop(cropRect);
+        }}
       />
     </>
   );

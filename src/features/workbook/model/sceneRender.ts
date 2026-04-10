@@ -79,10 +79,23 @@ export type PreparedWorkbookRenderObject = {
 export type WorkbookMaskedObjectSceneEntry = {
   id: string;
   renderedObject: ReactNode;
+  unmaskedOverlay: ReactNode | null;
   resolvedEraserCuts: ResolvedObjectEraserCut[];
   maskPaths: ObjectEraserPreviewPath[];
   maskBounds: { x: number; y: number; width: number; height: number } | null;
 };
+
+type WorkbookMaskedObjectRenderPayload = {
+  maskedObject: ReactNode;
+  unmaskedOverlay?: ReactNode | null;
+};
+
+const isWorkbookMaskedObjectRenderPayload = (
+  value: unknown
+): value is WorkbookMaskedObjectRenderPayload =>
+  Boolean(value) &&
+  typeof value === "object" &&
+  Object.prototype.hasOwnProperty.call(value, "maskedObject");
 
 export type WorkbookObjectSceneEntryCacheRecord = {
   objectRef: WorkbookBoardObject;
@@ -180,11 +193,17 @@ export const prepareWorkbookRenderObject = (params: {
       ? moving.groupObjects.find((entry) => entry.id === objectSource.id) ??
         (moving.object.id === objectSource.id ? moving.object : null)
       : null;
+  const sourceAlreadyIncludesMove =
+    Boolean(movingBaseObject && movingDelta) &&
+    Math.abs(objectSource.x - ((movingBaseObject?.x ?? 0) + (movingDelta?.x ?? 0))) <= 1e-6 &&
+    Math.abs(objectSource.y - ((movingBaseObject?.y ?? 0) + (movingDelta?.y ?? 0))) <= 1e-6 &&
+    Math.abs(objectSource.width - (movingBaseObject?.width ?? 0)) <= 1e-6 &&
+    Math.abs(objectSource.height - (movingBaseObject?.height ?? 0)) <= 1e-6;
   let object =
     previewMeta && objectSource.type === "solid3d"
       ? { ...objectSource, meta: previewMeta }
       : objectSource;
-  if (movingBaseObject && movingDelta) {
+  if (movingBaseObject && movingDelta && !sourceAlreadyIncludesMove) {
     const sourceForMove =
       previewMeta && movingBaseObject.type === "solid3d"
         ? { ...movingBaseObject, meta: previewMeta }
@@ -202,7 +221,7 @@ export const prepareWorkbookRenderObject = (params: {
     };
   }
   const rect =
-    activeMoveRect && activeMoveRect.id === object.id
+    !sourceAlreadyIncludesMove && activeMoveRect && activeMoveRect.id === object.id
       ? { ...activeMoveRect }
       : {
           id: object.id,
@@ -272,6 +291,7 @@ export const buildMaskedObjectSceneEntry = (params: {
   object: WorkbookBoardObject;
   renderSource: WorkbookBoardObject;
   renderedObject: ReactNode;
+  unmaskedOverlay?: ReactNode | null;
   eraserPreviewActive: boolean;
   previewObjectCuts: Record<string, ObjectEraserCut[]>;
   previewObjectPaths: Record<string, ObjectEraserPreviewPath[]>;
@@ -280,6 +300,7 @@ export const buildMaskedObjectSceneEntry = (params: {
     object,
     renderSource,
     renderedObject,
+    unmaskedOverlay = null,
     eraserPreviewActive,
     previewObjectCuts,
     previewObjectPaths,
@@ -297,6 +318,7 @@ export const buildMaskedObjectSceneEntry = (params: {
     return {
       id: object.id,
       renderedObject,
+      unmaskedOverlay,
       resolvedEraserCuts,
       maskPaths,
       maskBounds: null,
@@ -324,6 +346,7 @@ export const buildMaskedObjectSceneEntry = (params: {
   return {
     id: object.id,
     renderedObject,
+    unmaskedOverlay,
     resolvedEraserCuts,
     maskPaths,
     maskBounds: {
@@ -343,7 +366,9 @@ export const buildWorkbookObjectSceneEntries = (params: {
   previewObjectPaths: Record<string, ObjectEraserPreviewPath[]>;
   renderRevision: string;
   functionGraphRenderStateById?: Map<string, unknown>;
-  renderObject: (object: WorkbookBoardObject) => ReactNode;
+  renderObject: (
+    object: WorkbookBoardObject
+  ) => ReactNode | WorkbookMaskedObjectRenderPayload;
   previousCache?: Map<string, WorkbookObjectSceneEntryCacheRecord>;
 }) => {
   const nextCache = new Map<string, WorkbookObjectSceneEntryCacheRecord>();
@@ -373,10 +398,18 @@ export const buildWorkbookObjectSceneEntries = (params: {
       nextCache.set(object.id, previousEntry);
       return previousEntry.entry;
     }
+    const renderedObjectResult = params.renderObject(renderSource);
+    const renderedObject = isWorkbookMaskedObjectRenderPayload(renderedObjectResult)
+      ? renderedObjectResult.maskedObject
+      : renderedObjectResult;
+    const unmaskedOverlay = isWorkbookMaskedObjectRenderPayload(renderedObjectResult)
+      ? renderedObjectResult.unmaskedOverlay ?? null
+      : null;
     const entry = buildMaskedObjectSceneEntry({
       object,
       renderSource,
-      renderedObject: params.renderObject(renderSource),
+      renderedObject,
+      unmaskedOverlay,
       eraserPreviewActive: params.eraserPreviewActive,
       previewObjectCuts: params.previewObjectCuts,
       previewObjectPaths: params.previewObjectPaths,

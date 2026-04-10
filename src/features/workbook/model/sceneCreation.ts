@@ -51,6 +51,7 @@ type BuildWorkbookShapeObjectParams = {
   stickerText?: string;
   commentText?: string;
   lineStyle?: "solid" | "dashed";
+  dividerLineStyle?: "solid" | "dashed";
   solid3dInsertPreset?: {
     presetId: string;
     presetTitle?: string;
@@ -152,6 +153,7 @@ export const buildWorkbookShapeObject = (
     stickerText,
     commentText,
     lineStyle,
+    dividerLineStyle,
     solid3dInsertPreset,
   } = params;
 
@@ -213,6 +215,8 @@ export const buildWorkbookShapeObject = (
             color,
             style: "arc_single" as const,
           })),
+          shape2dBaseStrokeColor: color,
+          shape2dBaseFillColor: "transparent",
         }
       : undefined;
   const polygonFigureKind =
@@ -364,6 +368,11 @@ export const buildWorkbookShapeObject = (
                   }
                 : draft.tool === "rectangle" || draft.tool === "triangle"
                   ? defaultFigureMeta
+                  : draft.tool === "ellipse"
+                    ? {
+                        shape2dBaseStrokeColor: color,
+                        shape2dBaseFillColor: "transparent",
+                      }
                   : draft.tool === "frame"
                     ? {
                         title: textPreset.trim() || "Фрейм",
@@ -378,7 +387,10 @@ export const buildWorkbookShapeObject = (
                           ),
                         }
                       : draft.tool === "divider"
-                        ? { dividerType: "manual", lineStyle: "dashed" }
+                        ? {
+                            dividerType: "manual",
+                            lineStyle: dividerLineStyle === "solid" ? "solid" : "dashed",
+                          }
                         : undefined,
   };
 };

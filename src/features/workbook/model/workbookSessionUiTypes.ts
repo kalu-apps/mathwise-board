@@ -25,6 +25,7 @@ export type WorkbookAreaSelection = {
   objectIds: string[];
   strokeIds: Array<{ id: string; layer: WorkbookLayer }>;
   rect: { x: number; y: number; width: number; height: number };
+  resizeEnabled?: boolean;
 };
 
 export type WorkbookAreaSelectionClipboard = {

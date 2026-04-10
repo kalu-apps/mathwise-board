@@ -8,6 +8,7 @@ type WorkbookSessionRefs = ReturnType<typeof useWorkbookSessionRefs>;
 
 type UseWorkbookSessionIncomingRuntimeParams = {
   refs: WorkbookSessionRefs;
+  pageFrameWidth: number;
   setBoardObjects: WorkbookSessionStoreActions["setBoardObjects"];
   setIncomingStrokePreviews: WorkbookSessionStoreActions["setIncomingStrokePreviews"];
   setIncomingEraserPreviews: WorkbookSessionStoreActions["setIncomingEraserPreviews"];
@@ -15,6 +16,7 @@ type UseWorkbookSessionIncomingRuntimeParams = {
 
 export const useWorkbookSessionIncomingRuntime = ({
   refs,
+  pageFrameWidth,
   setBoardObjects,
   setIncomingStrokePreviews,
   setIncomingEraserPreviews,
@@ -30,6 +32,7 @@ export const useWorkbookSessionIncomingRuntime = ({
     commitInteractiveBoardObjects,
     queueIncomingPreviewPatch,
   } = useWorkbookIncomingRuntimeController({
+    pageFrameWidth,
     boardObjectsRef: refs.boardObjectsRef,
     setBoardObjects,
     setIncomingStrokePreviews,

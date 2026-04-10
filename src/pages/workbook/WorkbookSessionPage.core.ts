@@ -12,6 +12,7 @@ import {
 } from "@/features/workbook/model/workbookVisualColors";
 import {
   clampWorkbookObjectToPageFrame,
+  normalizeWorkbookPageFrameWidth,
   resolveWorkbookPageFrameBounds,
   WORKBOOK_PAGE_FRAME_WIDTH,
 } from "@/features/workbook/model/pageFrame";
@@ -216,6 +217,7 @@ export const defaultColorByLayer: Record<WorkbookLayer, string> = {
 };
 
 export const defaultWidthByTool: Partial<Record<WorkbookTool, number>> = {
+  lock_toggle: 2,
   area_select: 2,
   pen: 3,
   highlighter: 12,
@@ -257,7 +259,9 @@ export const DEFAULT_BOARD_SETTINGS: WorkbookBoardSettings = {
   gridColor: WORKBOOK_BOARD_GRID_COLOR,
   backgroundColor: WORKBOOK_BOARD_BACKGROUND_COLOR,
   snapToGrid: false,
+  pageBoardSettingsByPage: {},
   showPageNumbers: false,
+  pageFrameWidth: normalizeWorkbookPageFrameWidth(WORKBOOK_PAGE_FRAME_WIDTH),
   currentPage: 1,
   pagesCount: 1,
   pageOrder: [1],
@@ -276,7 +280,7 @@ export const DEFAULT_BOARD_SETTINGS: WorkbookBoardSettings = {
 };
 
 export const WORKBOOK_PAGE_FRAME_BOUNDS = resolveWorkbookPageFrameBounds(
-  WORKBOOK_PAGE_FRAME_WIDTH
+  DEFAULT_BOARD_SETTINGS.pageFrameWidth
 );
 
 export const DEFAULT_LIBRARY: WorkbookLibraryState = {
@@ -411,8 +415,14 @@ export const normalizeMetaRecord = (value: unknown) =>
     ? (value as Record<string, unknown>)
     : {};
 
-export const clampBoardObjectToPageFrame = (object: WorkbookBoardObject) =>
-  clampWorkbookObjectToPageFrame(object, WORKBOOK_PAGE_FRAME_BOUNDS);
+export const clampBoardObjectToPageFrame = (
+  object: WorkbookBoardObject,
+  pageFrameWidth = WORKBOOK_PAGE_FRAME_WIDTH
+) =>
+  clampWorkbookObjectToPageFrame(
+    object,
+    resolveWorkbookPageFrameBounds(pageFrameWidth)
+  );
 
 export const applyBoardObjectGeometryPatch = (
   object: WorkbookBoardObject,
@@ -470,7 +480,8 @@ export const buildBoardObjectDiffPatch = (
   ).filter((key) => !areSerializableValuesEqual(previousMeta[key], nextMeta[key]));
   if (changedMetaKeys.length > 0) {
     patch.meta = changedMetaKeys.reduce<Record<string, unknown>>((acc, key) => {
-      acc[key] = cloneSerializable(nextMeta[key]);
+      const hasNextValue = Object.prototype.hasOwnProperty.call(nextMeta, key);
+      acc[key] = hasNextValue ? cloneSerializable(nextMeta[key]) : null;
       return acc;
     }, {});
   }

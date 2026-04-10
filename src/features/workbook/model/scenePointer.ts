@@ -36,6 +36,7 @@ export type WorkbookStartInteractionMode =
   | "solid3d_insert"
   | "force_pan"
   | "pan"
+  | "lock_toggle"
   | "polygon_points"
   | "laser"
   | "sweep"
@@ -78,6 +79,7 @@ export const resolveWorkbookStartInteractionMode = (params: {
   if (params.solid3dInsertPreset) return "solid3d_insert" as const;
   if (params.forcePanMode) return "force_pan" as const;
   if (params.tool === "pan") return "pan" as const;
+  if (params.tool === "lock_toggle") return "lock_toggle" as const;
   if (params.polygonPointMode) return "polygon_points" as const;
   if (params.tool === "laser") return "laser" as const;
   if (params.tool === "sweep") return "sweep" as const;

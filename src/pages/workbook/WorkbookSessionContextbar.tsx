@@ -3,6 +3,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  CircularProgress,
   Button,
   IconButton,
   Menu,
@@ -14,6 +15,9 @@ import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
 import HelpOutlineRoundedIcon from "@mui/icons-material/HelpOutlineRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
+import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
+import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
+import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import ZoomInRoundedIcon from "@mui/icons-material/ZoomInRounded";
 import ZoomOutRoundedIcon from "@mui/icons-material/ZoomOutRounded";
 import CenterFocusStrongRoundedIcon from "@mui/icons-material/CenterFocusStrongRounded";
@@ -26,6 +30,7 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import UndoRoundedIcon from "@mui/icons-material/UndoRounded";
 import RedoRoundedIcon from "@mui/icons-material/RedoRounded";
+import type { ThemeMode } from "@/app/theme/themeModeContext";
 import type { WorkbookUtilityTab } from "@/features/workbook/model/workbookSessionUiTypes";
 import type { WorkbookBoardPageOption } from "./WorkbookSessionBoardSettingsPanel";
 
@@ -65,6 +70,10 @@ interface WorkbookSessionContextbarProps {
   hotkeysTooltipContent: ReactNode;
   isFullscreen: boolean;
   onToggleFullscreen: () => Promise<void> | void;
+  themeMode: ThemeMode;
+  onToggleThemeMode: () => void;
+  onExitSession: () => Promise<void> | void;
+  isExitSessionPending?: boolean;
   showCollaborationPanels: boolean;
   isParticipantsCollapsed: boolean;
   onToggleParticipantsCollapsed: () => void;
@@ -100,8 +109,6 @@ export function WorkbookSessionContextbar({
   onAddBoardPage,
   onDeleteBoardPage,
   canUseUndo,
-  undoDepth,
-  redoDepth,
   onUndo,
   onRedo,
   onZoomOut,
@@ -113,6 +120,10 @@ export function WorkbookSessionContextbar({
   hotkeysTooltipContent,
   isFullscreen,
   onToggleFullscreen,
+  themeMode,
+  onToggleThemeMode,
+  onExitSession,
+  isExitSessionPending = false,
   showCollaborationPanels,
   isParticipantsCollapsed,
   onToggleParticipantsCollapsed,
@@ -139,10 +150,11 @@ export function WorkbookSessionContextbar({
     0
   );
   const canMutatePages = canManageBoardPages && !isBoardPageMutationPending;
+  const canNavigatePages = !isBoardPageMutationPending && orderedPageIds.length > 0;
   const prevPageId = orderedPageIds[currentPageOrderIndex - 1] ?? null;
   const nextPageId = orderedPageIds[currentPageOrderIndex + 1] ?? null;
-  const canGoPrev = canMutatePages && typeof prevPageId === "number";
-  const canGoNext = canMutatePages && typeof nextPageId === "number";
+  const canGoPrev = canNavigatePages && typeof prevPageId === "number";
+  const canGoNext = canNavigatePages && typeof nextPageId === "number";
   const canDeleteCurrentPage = canMutatePages && safeTotalBoardPages > 1;
 
   return (
@@ -236,7 +248,7 @@ export function WorkbookSessionContextbar({
             type="button"
             className="workbook-session__page-badge workbook-session__page-badge--button"
             onClick={onOpenPageManager}
-            disabled={!canManageBoardPages}
+            disabled={!canNavigatePages}
           >
             Стр. {currentPagePosition}
           </button>
@@ -286,7 +298,7 @@ export function WorkbookSessionContextbar({
               size="small"
               className="workbook-session__toolbar-icon"
               onClick={() => void onUndo()}
-              disabled={!canUseUndo || undoDepth === 0}
+              disabled={!canUseUndo}
             >
               <UndoRoundedIcon />
             </IconButton>
@@ -298,7 +310,7 @@ export function WorkbookSessionContextbar({
               size="small"
               className="workbook-session__toolbar-icon"
               onClick={() => void onRedo()}
-              disabled={!canUseUndo || redoDepth === 0}
+              disabled={!canUseUndo}
             >
               <RedoRoundedIcon />
             </IconButton>
@@ -384,22 +396,6 @@ export function WorkbookSessionContextbar({
             </IconButton>
           </span>
         </Tooltip>
-        {showInviteLinkButton ? (
-          <Tooltip title="Скопировать ссылку приглашения" placement="bottom" arrow>
-            <span className="workbook-session__invite-link-wrap">
-              <Button
-                size="small"
-                variant="outlined"
-                className="workbook-session__invite-link-button"
-                startIcon={<ContentCopyRoundedIcon />}
-                onClick={() => void onCopyInviteLink()}
-                disabled={copyingInviteLink}
-              >
-                Ссылка-приглашение
-              </Button>
-            </span>
-          </Tooltip>
-        ) : null}
         {showCollaborationPanels ? (
           <Tooltip
             title={
@@ -425,6 +421,59 @@ export function WorkbookSessionContextbar({
             </span>
           </Tooltip>
         ) : null}
+        <span className="workbook-session__contextbar-right-actions">
+          <Tooltip
+            title={themeMode === "dark" ? "Включить светлую тему" : "Включить тёмную тему"}
+            placement="bottom"
+            arrow
+          >
+            <span>
+              <IconButton
+                size="small"
+                className="workbook-session__toolbar-icon workbook-session__toolbar-icon--plain"
+                onClick={onToggleThemeMode}
+              >
+                {themeMode === "dark" ? <LightModeRoundedIcon /> : <DarkModeRoundedIcon />}
+              </IconButton>
+            </span>
+          </Tooltip>
+          {showInviteLinkButton ? (
+            <Tooltip title="Скопировать ссылку приглашения" placement="bottom" arrow>
+              <span className="workbook-session__invite-link-wrap">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  className="workbook-session__invite-link-button"
+                  startIcon={<ContentCopyRoundedIcon />}
+                  onClick={() => void onCopyInviteLink()}
+                  disabled={copyingInviteLink}
+                >
+                  Ссылка-приглашение
+                </Button>
+              </span>
+            </Tooltip>
+          ) : null}
+          <Tooltip title={isExitSessionPending ? "Выходим..." : "Выйти из тетради"} placement="bottom" arrow>
+            <span className="workbook-session__contextbar-exit-wrap">
+              <Button
+                size="small"
+                variant="outlined"
+                className="workbook-session__contextbar-exit-button"
+                startIcon={
+                  isExitSessionPending ? (
+                    <CircularProgress size={13} thickness={6} />
+                  ) : (
+                    <LogoutRoundedIcon />
+                  )
+                }
+                onClick={() => void onExitSession()}
+                disabled={isExitSessionPending}
+              >
+                Выход
+              </Button>
+            </span>
+          </Tooltip>
+        </span>
       </div>
     </div>
   );

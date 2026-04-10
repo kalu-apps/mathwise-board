@@ -65,6 +65,7 @@ import {
   workbookEventStore,
   workbookSnapshotStore,
 } from "./core/workbookStores";
+import { resolveWorkbookUndoRedoEvents } from "./core/workbookUndoRedoResolver";
 import {
   getDbIndex,
   getSessionOwnerKey,
@@ -1696,6 +1697,10 @@ const serializeDraft = (
   const session = getWorkbookSessionById(db, draft.sessionId);
   if (!session) return null;
   const participants = getWorkbookParticipants(db, session.id);
+  const onlineParticipantsCount = participants.reduce(
+    (count, participant) => count + (isParticipantOnline(participant) ? 1 : 0),
+    0
+  );
   const actorParticipant = participants.find((item) => item.userId === actorUserId);
   if (!actorParticipant) return null;
   const preview = params?.previewBySessionId?.get(session.id) ?? null;
@@ -1716,6 +1721,7 @@ const serializeDraft = (
     canInvite: actorParticipant.permissions.canInvite,
     canDelete: actorParticipant.permissions.canManageSession,
     participantsCount: participants.length,
+    onlineParticipantsCount,
     isOwner: session.createdBy === actorUserId,
     previewUrl: preview?.previewUrl ?? null,
     previewAlt: preview?.previewAlt ?? null,
@@ -2266,12 +2272,22 @@ const sanitizeWorkbookLiveEvents = (
       const operations =
         payload && typeof payload === "object"
           ? (payload as { operations?: unknown }).operations
-          : null;
-      if (!Array.isArray(operations)) continue;
+          : undefined;
+      const pageRaw =
+        payload && typeof payload === "object"
+          ? (payload as { page?: unknown }).page
+          : undefined;
+      const page =
+        typeof pageRaw === "number" && Number.isFinite(pageRaw)
+          ? Math.max(1, Math.trunc(pageRaw))
+          : undefined;
       sanitized.push({
         ...(clientEventId ? { clientEventId } : {}),
         type,
-        payload: { operations },
+        payload: {
+          ...(Array.isArray(operations) ? { operations } : {}),
+          ...(page !== undefined ? { page } : {}),
+        },
       });
       continue;
     }
@@ -2508,6 +2524,7 @@ export const handleWorkbookApiRequestByDomains = async (
           {
             authCookieName: AUTH_COOKIE_NAME,
             teacherPassword: WHITEBOARD_TEACHER_PASSWORD,
+            isTeacherEmail,
             resolveAuthUser,
             readBody,
             unauthorized,
@@ -2596,6 +2613,7 @@ export const handleWorkbookApiRequestByDomains = async (
             sanitizeWorkbookLiveEvents,
             appendWorkbookEvents,
             workbookEventStore,
+            resolveWorkbookUndoRedoEvents,
             collectUrgentWorkbookLiveEvents,
             publishWorkbookLiveEvents,
             publishWorkbookStreamEvents,
