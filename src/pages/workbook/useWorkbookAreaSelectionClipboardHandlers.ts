@@ -24,6 +24,7 @@ import type {
 
 type StateUpdater<T> = T | ((current: T) => T);
 type SetState<T> = (updater: StateUpdater<T>) => void;
+type RectLike = { x: number; y: number; width: number; height: number };
 
 type AppendEventsAndApply = (
   events: WorkbookClientEventInput[],
@@ -65,6 +66,42 @@ type UseWorkbookAreaSelectionClipboardHandlersParams = {
   setError: (value: string | null) => void;
 };
 
+const AREA_SELECTION_COVER_EPSILON = 0.5;
+
+const doesRectCoverRect = (outerRect: RectLike, innerRect: RectLike) =>
+  outerRect.x <= innerRect.x + AREA_SELECTION_COVER_EPSILON &&
+  outerRect.y <= innerRect.y + AREA_SELECTION_COVER_EPSILON &&
+  outerRect.x + outerRect.width >= innerRect.x + innerRect.width - AREA_SELECTION_COVER_EPSILON &&
+  outerRect.y + outerRect.height >= innerRect.y + innerRect.height - AREA_SELECTION_COVER_EPSILON;
+
+const applyBoardObjectPatch = (
+  object: WorkbookBoardObject,
+  patch: Partial<WorkbookBoardObject>
+): WorkbookBoardObject => ({
+  ...object,
+  x: typeof patch.x === "number" && Number.isFinite(patch.x) ? patch.x : object.x,
+  y: typeof patch.y === "number" && Number.isFinite(patch.y) ? patch.y : object.y,
+  width:
+    typeof patch.width === "number" && Number.isFinite(patch.width)
+      ? patch.width
+      : object.width,
+  height:
+    typeof patch.height === "number" && Number.isFinite(patch.height)
+      ? patch.height
+      : object.height,
+  rotation:
+    typeof patch.rotation === "number" && Number.isFinite(patch.rotation)
+      ? patch.rotation
+      : object.rotation,
+  meta:
+    patch.meta && typeof patch.meta === "object"
+      ? {
+          ...(object.meta ?? {}),
+          ...patch.meta,
+        }
+      : object.meta,
+});
+
 export const useWorkbookAreaSelectionClipboardHandlers = ({
   canDelete,
   canSelect,
@@ -91,16 +128,41 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
   const deleteAreaSelectionObjects = useCallback(async () => {
     if (!canDelete || !areaSelection || !areaSelectionHasContent) return;
     const currentBoardObjects = boardObjectsRef.current;
-    const objectIds = areaSelection.objectIds.filter((id) =>
-      currentBoardObjects.some((object) => object.id === id)
-    );
+    const selectedObjects = areaSelection.objectIds
+      .map((id) => currentBoardObjects.find((object) => object.id === id))
+      .filter((object): object is WorkbookBoardObject => object != null);
+    const objectIds: string[] = [];
+    const objectUpdateEvents: WorkbookClientEventInput[] = [];
+    selectedObjects.forEach((object) => {
+      if (object.type !== "image") {
+        objectIds.push(object.id);
+        return;
+      }
+      const objectRect = resolveWorkbookObjectAxisAlignedRect(object);
+      if (doesRectCoverRect(areaSelection.rect, objectRect)) {
+        objectIds.push(object.id);
+        return;
+      }
+      const cropPatch = buildWorkbookImageCropUpdate({
+        object,
+        selectionRect: areaSelection.rect,
+      });
+      if (!cropPatch) return;
+      objectUpdateEvents.push({
+        type: "board.object.update",
+        payload: {
+          objectId: object.id,
+          patch: cropPatch,
+        },
+      });
+    });
     const strokeIds = areaSelection.strokeIds.filter((entry) => {
       if (entry.layer === "annotations") {
         return annotationStrokes.some((stroke) => stroke.id === entry.id);
       }
       return boardStrokes.some((stroke) => stroke.id === entry.id);
     });
-    if (objectIds.length === 0 && strokeIds.length === 0) {
+    if (objectIds.length === 0 && strokeIds.length === 0 && objectUpdateEvents.length === 0) {
       setAreaSelectionContextMenu(null);
       return;
     }
@@ -126,6 +188,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
           payload: { strokeId: entry.id },
         });
       });
+      events.push(...objectUpdateEvents);
       objectIds.forEach((objectId) => {
         events.push({
           type: "board.object.delete" as const,
@@ -181,7 +244,29 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
     const currentBoardObjects = boardObjectsRef.current;
     const selectedObjects = areaSelection.objectIds
       .map((id) => currentBoardObjects.find((object) => object.id === id))
-      .filter((object): object is WorkbookBoardObject => object != null);
+      .reduce<WorkbookBoardObject[]>((acc, object) => {
+        if (!object) return acc;
+        if (object.type !== "image") {
+          acc.push(structuredClone<WorkbookBoardObject>(object));
+          return acc;
+        }
+        const objectRect = resolveWorkbookObjectAxisAlignedRect(object);
+        if (doesRectCoverRect(areaSelection.rect, objectRect)) {
+          acc.push(structuredClone<WorkbookBoardObject>(object));
+          return acc;
+        }
+        const cropPatch = buildWorkbookImageCropUpdate({
+          object,
+          selectionRect: areaSelection.rect,
+        });
+        if (!cropPatch) return acc;
+        acc.push(
+          structuredClone<WorkbookBoardObject>(
+            applyBoardObjectPatch(object, cropPatch)
+          )
+        );
+        return acc;
+      }, []);
     const selectedStrokes = areaSelection.strokeIds
       .map((entry) => {
         if (entry.layer === "annotations") {
