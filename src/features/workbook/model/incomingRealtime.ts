@@ -698,5 +698,59 @@ export const applyWorkbookIncomingRealtimeEvent = (
     return true;
   }
 
+  if (event.type === "teacher.cursor") {
+    const TEACHER_CURSOR_REMOTE_TIMEOUT_MS = 4_000;
+    const payload = event.payload as { target?: unknown; point?: unknown; mode?: unknown };
+    if (payload.target !== "board") return true;
+    const authorKey = event.authorUserId || "unknown";
+    const timerKey = `teacher-cursor:${authorKey}`;
+    const clearTeacherCursor = () => {
+      setPointerPointsByUser((current) => {
+        if (!(authorKey in current)) return current;
+        const next = { ...current };
+        delete next[authorKey];
+        return next;
+      });
+      const activeTimer = focusResetTimersByUserRef.current.get(timerKey);
+      if (activeTimer !== undefined) {
+        window.clearTimeout(activeTimer);
+        focusResetTimersByUserRef.current.delete(timerKey);
+      }
+    };
+    const mode = payload.mode === "clear" ? "clear" : payload.mode === "move" ? "move" : null;
+    if (!mode) return true;
+    if (event.authorUserId && userId && event.authorUserId === userId) {
+      clearTeacherCursor();
+      return true;
+    }
+    if (mode === "clear") {
+      clearTeacherCursor();
+      return true;
+    }
+    const point = payload.point as Partial<WorkbookPoint> | undefined;
+    if (!point || typeof point.x !== "number" || typeof point.y !== "number") return true;
+    const pointX = point.x;
+    const pointY = point.y;
+    setPointerPointsByUser((current) => ({
+      ...current,
+      [authorKey]: { x: pointX, y: pointY },
+    }));
+    const existingTimer = focusResetTimersByUserRef.current.get(timerKey);
+    if (existingTimer !== undefined) {
+      window.clearTimeout(existingTimer);
+    }
+    const expiryTimer = window.setTimeout(() => {
+      setPointerPointsByUser((current) => {
+        if (!(authorKey in current)) return current;
+        const next = { ...current };
+        delete next[authorKey];
+        return next;
+      });
+      focusResetTimersByUserRef.current.delete(timerKey);
+    }, TEACHER_CURSOR_REMOTE_TIMEOUT_MS);
+    focusResetTimersByUserRef.current.set(timerKey, expiryTimer);
+    return true;
+  }
+
   return false;
 };

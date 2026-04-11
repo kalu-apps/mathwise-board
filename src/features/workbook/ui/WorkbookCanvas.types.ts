@@ -192,6 +192,8 @@ export type WorkbookCanvasProps = {
   onRequestSelectTool?: () => void;
   onLaserPoint: (point: WorkbookPoint) => void;
   onLaserClear?: () => void;
+  onTeacherCursorPoint?: (point: WorkbookPoint) => void;
+  onTeacherCursorClear?: () => void;
   onEraserRadiusChange?: (nextRadius: number) => void;
   solid3dInsertPreset?: {
     presetId: string;

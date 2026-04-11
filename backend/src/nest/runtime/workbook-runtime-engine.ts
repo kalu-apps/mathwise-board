@@ -2245,6 +2245,57 @@ const sanitizeWorkbookLiveEvents = (
       });
       continue;
     }
+    if (type === "teacher.cursor") {
+      if (!participant.permissions.canManageSession) continue;
+      const target =
+        payload && typeof payload === "object"
+          ? (payload as { target?: unknown }).target
+          : undefined;
+      if (target !== "board") continue;
+      const mode =
+        payload && typeof payload === "object"
+          ? (payload as { mode?: unknown }).mode
+          : undefined;
+      if (mode === "clear") {
+        sanitized.push({
+          ...(clientEventId ? { clientEventId } : {}),
+          type,
+          payload: {
+            target: "board",
+            mode: "clear",
+          },
+        });
+        continue;
+      }
+      if (mode !== "move") continue;
+      const point =
+        payload && typeof payload === "object"
+          ? (payload as { point?: unknown }).point
+          : null;
+      if (
+        !point ||
+        typeof point !== "object" ||
+        typeof (point as { x?: unknown }).x !== "number" ||
+        !Number.isFinite((point as { x: number }).x) ||
+        typeof (point as { y?: unknown }).y !== "number" ||
+        !Number.isFinite((point as { y: number }).y)
+      ) {
+        continue;
+      }
+      sanitized.push({
+        ...(clientEventId ? { clientEventId } : {}),
+        type,
+        payload: {
+          target: "board",
+          mode: "move",
+          point: {
+            x: (point as { x: number }).x,
+            y: (point as { y: number }).y,
+          },
+        },
+      });
+      continue;
+    }
     if (type === "chat.message") {
       if (!participant.permissions.canUseChat) continue;
       const message =

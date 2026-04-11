@@ -58,6 +58,11 @@ export type WorkbookKnownEventPayloadMap = {
   "document.annotation.add": { annotation: WorkbookDocumentAnnotation };
   "document.annotation.clear": WorkbookUnknownPayload;
   "board.settings.update": { boardSettings: Partial<WorkbookBoardSettings> };
+  "teacher.cursor": {
+    target: "board";
+    mode: "move" | "clear";
+    point?: WorkbookPoint;
+  };
   "chat.message": { message: WorkbookChatMessage | WorkbookUnknownPayload };
   "chat.clear": WorkbookUnknownPayload;
   "permissions.update": {
@@ -96,6 +101,7 @@ export const WORKBOOK_VOLATILE_EVENT_TYPES = [
   ...WORKBOOK_PREVIEW_EVENT_TYPES,
   "board.viewport.sync",
   "presence.sync",
+  "teacher.cursor",
 ] as const satisfies readonly WorkbookEventType[];
 
 export const WORKBOOK_LIVE_REPLAYABLE_EVENT_TYPES = [

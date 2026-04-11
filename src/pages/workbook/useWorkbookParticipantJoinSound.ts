@@ -7,6 +7,7 @@ const GLOBAL_PLAY_COOLDOWN_MS = 320;
 const USER_PLAY_COOLDOWN_MS = 12_000;
 const BOOTSTRAP_SUPPRESS_MS = 1_600;
 const RECONNECT_SUPPRESS_MS = 1_800;
+const JOIN_SOUND_DEFAULT_VOLUME_MULTIPLIER = 2;
 
 type PersistedParticipantJoinSoundState = {
   enabled: boolean;
@@ -102,7 +103,10 @@ export function useWorkbookParticipantJoinSound({
           oscillator.frequency.setValueAtTime(note.frequency, noteStartAt);
 
           gain.gain.setValueAtTime(0.0001, noteStartAt);
-          gain.gain.exponentialRampToValueAtTime(note.peakGain, noteStartAt + 0.024);
+          gain.gain.exponentialRampToValueAtTime(
+            Math.min(1, note.peakGain * JOIN_SOUND_DEFAULT_VOLUME_MULTIPLIER),
+            noteStartAt + 0.024
+          );
           gain.gain.exponentialRampToValueAtTime(0.0001, noteEndAt);
 
           oscillator.connect(gain);
