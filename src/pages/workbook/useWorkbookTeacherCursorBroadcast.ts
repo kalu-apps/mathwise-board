@@ -4,6 +4,7 @@ import type { WorkbookPoint } from "@/features/workbook/model/types";
 
 const TEACHER_CURSOR_MIN_SEND_INTERVAL_MS = 40;
 const TEACHER_CURSOR_MIN_DISTANCE_PX = 2;
+const TEACHER_CURSOR_HEARTBEAT_INTERVAL_MS = 900;
 
 type UseWorkbookTeacherCursorBroadcastParams = {
   enabled: boolean;
@@ -19,12 +20,54 @@ export const useWorkbookTeacherCursorBroadcast = ({
   const lastSentAtRef = useRef(0);
   const lastSentPointRef = useRef<WorkbookPoint | null>(null);
   const hasActiveCursorRef = useRef(false);
+  const heartbeatTimerRef = useRef<number | null>(null);
+
+  const stopHeartbeat = useCallback(() => {
+    if (heartbeatTimerRef.current === null) return;
+    window.clearInterval(heartbeatTimerRef.current);
+    heartbeatTimerRef.current = null;
+  }, []);
+
+  const sendTeacherCursorMove = useCallback(
+    (point: WorkbookPoint) => {
+      sendWorkbookLiveEvents([
+        {
+          type: "teacher.cursor",
+          payload: {
+            target: "board",
+            mode: "move",
+            point: {
+              x: point.x,
+              y: point.y,
+            },
+          },
+        },
+      ]);
+      lastSentAtRef.current = Date.now();
+      lastSentPointRef.current = point;
+    },
+    [sendWorkbookLiveEvents]
+  );
+
+  const ensureHeartbeat = useCallback(() => {
+    if (heartbeatTimerRef.current !== null) return;
+    heartbeatTimerRef.current = window.setInterval(() => {
+      if (!enabled || !userId || !hasActiveCursorRef.current) {
+        stopHeartbeat();
+        return;
+      }
+      const point = lastSentPointRef.current;
+      if (!point) return;
+      sendTeacherCursorMove(point);
+    }, TEACHER_CURSOR_HEARTBEAT_INTERVAL_MS);
+  }, [enabled, sendTeacherCursorMove, stopHeartbeat, userId]);
 
   const resetLocalState = useCallback(() => {
+    stopHeartbeat();
     lastSentAtRef.current = 0;
     lastSentPointRef.current = null;
     hasActiveCursorRef.current = false;
-  }, []);
+  }, [stopHeartbeat]);
 
   const clearTeacherCursor = useCallback(() => {
     if (!userId || !hasActiveCursorRef.current) {
@@ -57,30 +100,17 @@ export const useWorkbookTeacherCursorBroadcast = ({
       ) {
         return;
       }
-      sendWorkbookLiveEvents([
-        {
-          type: "teacher.cursor",
-          payload: {
-            target: "board",
-            mode: "move",
-            point: {
-              x: point.x,
-              y: point.y,
-            },
-          },
-        },
-      ]);
       hasActiveCursorRef.current = true;
-      lastSentAtRef.current = now;
-      lastSentPointRef.current = point;
+      sendTeacherCursorMove(point);
+      ensureHeartbeat();
     },
-    [enabled, sendWorkbookLiveEvents, userId]
+    [enabled, ensureHeartbeat, sendTeacherCursorMove, userId]
   );
 
   useEffect(() => {
-    if (enabled) return;
+    if (enabled && userId) return;
     clearTeacherCursor();
-  }, [clearTeacherCursor, enabled]);
+  }, [clearTeacherCursor, enabled, userId]);
 
   useEffect(
     () => () => {
@@ -94,4 +124,3 @@ export const useWorkbookTeacherCursorBroadcast = ({
     clearTeacherCursor,
   };
 };
-

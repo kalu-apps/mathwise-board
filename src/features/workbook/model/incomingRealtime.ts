@@ -699,6 +699,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
   }
 
   if (event.type === "teacher.cursor") {
+    const TEACHER_CURSOR_REMOTE_TIMEOUT_MS = 4_000;
     const payload = event.payload as { target?: unknown; point?: unknown; mode?: unknown };
     if (payload.target !== "board") return true;
     const authorKey = event.authorUserId || "unknown";
@@ -718,6 +719,10 @@ export const applyWorkbookIncomingRealtimeEvent = (
     };
     const mode = payload.mode === "clear" ? "clear" : payload.mode === "move" ? "move" : null;
     if (!mode) return true;
+    if (event.authorUserId && userId && event.authorUserId === userId) {
+      clearTeacherCursor();
+      return true;
+    }
     if (mode === "clear") {
       clearTeacherCursor();
       return true;
@@ -742,7 +747,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
         return next;
       });
       focusResetTimersByUserRef.current.delete(timerKey);
-    }, 1_500);
+    }, TEACHER_CURSOR_REMOTE_TIMEOUT_MS);
     focusResetTimersByUserRef.current.set(timerKey, expiryTimer);
     return true;
   }

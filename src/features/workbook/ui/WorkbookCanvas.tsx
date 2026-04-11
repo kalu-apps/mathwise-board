@@ -1779,6 +1779,30 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     },
     [disabled, mapPointer, onTeacherCursorPoint, startInteraction]
   );
+  const isClientPointInsideSvg = useCallback(
+    (svg: SVGSVGElement, clientX: number, clientY: number) => {
+      const rect = svg.getBoundingClientRect();
+      return (
+        clientX >= rect.left &&
+        clientX <= rect.right &&
+        clientY >= rect.top &&
+        clientY <= rect.bottom
+      );
+    },
+    []
+  );
+  const handlePointerEnter = useCallback(
+    (event: PointerEvent<SVGSVGElement>) => {
+      if (disabled || !onTeacherCursorPoint) return;
+      const isPrimaryPointer =
+        event.pointerType === "mouse" ? event.isPrimary : true;
+      if (!isPrimaryPointer) return;
+      const svg = event.currentTarget ?? null;
+      if (!svg) return;
+      onTeacherCursorPoint(mapPointer(svg, event.clientX, event.clientY));
+    },
+    [disabled, mapPointer, onTeacherCursorPoint]
+  );
   const handlePointerMove = useCallback(
     (event: PointerEvent<SVGSVGElement>) => {
       const touchStart = touchTapStartRef.current;
@@ -1789,11 +1813,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         }
       }
       if (!disabled && onTeacherCursorPoint) {
-        const isPrimaryPressed =
+        const isPrimaryPointer =
           event.pointerType === "mouse"
-            ? (event.buttons & 1) === 1
+            ? event.isPrimary
             : pointerIdRef.current === event.pointerId;
-        if (isPrimaryPressed) {
+        if (isPrimaryPointer) {
           const svg = event.currentTarget ?? null;
           if (svg) {
             onTeacherCursorPoint(mapPointer(svg, event.clientX, event.clientY));
@@ -1818,12 +1842,19 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       }
 
       finishInteraction(event);
-      onTeacherCursorClear?.();
+      const svg = event.currentTarget ?? null;
+      const shouldClearTeacherCursor =
+        event.pointerType !== "mouse" &&
+        event.pointerType !== "pen"
+          ? true
+          : !svg || !isClientPointInsideSvg(svg, event.clientX, event.clientY);
+      if (shouldClearTeacherCursor) {
+        onTeacherCursorClear?.();
+      }
 
       if (!isTouchTap || !onObjectDoubleClick || disabled || tool !== "select") {
         return;
       }
-      const svg = event.currentTarget ?? null;
       if (!svg) return;
       const point = mapPointer(svg, event.clientX, event.clientY, true);
       const target = resolveTopObject(point);
@@ -1853,6 +1884,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     [
       disabled,
       finishInteraction,
+      isClientPointInsideSvg,
       mapPointer,
       onObjectDoubleClick,
       onTeacherCursorClear,
@@ -1988,6 +2020,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           cursor: eraserModeEnabled ? "none" : undefined,
         }}
         onPointerDown={handlePointerDown}
+        onPointerEnter={handlePointerEnter}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
