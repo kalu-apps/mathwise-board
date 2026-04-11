@@ -103,6 +103,7 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
     updater: (current: WorkbookBoardObject[]) => WorkbookBoardObject[]
   ) => void;
   boardSettingsRef: MutableRefObject<WorkbookBoardSettings>;
+  boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
   setSession: Dispatch<SetStateAction<WorkbookSession | null>>;
   setCanvasViewport: Dispatch<SetStateAction<WorkbookPoint>>;
   setIncomingEraserPreviews: Dispatch<
@@ -170,6 +171,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     queueIncomingPreviewPatch,
     applyLocalBoardObjects,
     boardSettingsRef,
+    boardObjectsRef,
     setSession,
     setIncomingEraserPreviews,
     setBoardStrokes,
@@ -205,6 +207,8 @@ export const applyWorkbookIncomingRealtimeEvent = (
   const pageFrameBounds = resolveWorkbookPageFrameBounds(
     boardSettingsRef.current.pageFrameWidth
   );
+  const toSafePage = (value: number | null | undefined) =>
+    Math.max(1, Math.round(value || 1));
 
   if (event.type === "presence.sync") {
     const payload = event.payload as { participants?: unknown };
@@ -565,8 +569,50 @@ export const applyWorkbookIncomingRealtimeEvent = (
   }
 
   if (event.type === "board.clear") {
-    setBoardStrokes([]);
-    applyLocalBoardObjects(() => []);
+    const payload =
+      event.payload && typeof event.payload === "object"
+        ? (event.payload as { page?: unknown; scope?: unknown })
+        : null;
+    const targetPageRaw = payload?.page;
+    const targetPage =
+      typeof targetPageRaw === "number" && Number.isFinite(targetPageRaw)
+        ? toSafePage(targetPageRaw)
+        : null;
+    const scope = payload?.scope === "all" ? "all" : payload?.scope === "page" ? "page" : null;
+    const hasScopedPayload = scope === "all" || scope === "page" || targetPage !== null;
+    if (!hasScopedPayload) {
+      // Legacy behavior for old payloads: clear only board layer content.
+      setBoardStrokes([]);
+      applyLocalBoardObjects(() => []);
+      setConstraints([]);
+    } else if (scope === "all") {
+      setBoardStrokes([]);
+      setAnnotationStrokes([]);
+      applyLocalBoardObjects(() => []);
+      setConstraints([]);
+    } else {
+      const removedObjectIds = new Set(
+        boardObjectsRef.current
+          .filter((object) => toSafePage(object.page) === targetPage)
+          .map((object) => object.id)
+      );
+      setBoardStrokes((current) =>
+        current.filter((stroke) => toSafePage(stroke.page) !== targetPage)
+      );
+      setAnnotationStrokes((current) =>
+        current.filter((stroke) => toSafePage(stroke.page) !== targetPage)
+      );
+      applyLocalBoardObjects((current) => {
+        return current.filter((object) => toSafePage(object.page) !== targetPage);
+      });
+      setConstraints((current) =>
+        current.filter(
+          (constraint) =>
+            !removedObjectIds.has(constraint.sourceObjectId) &&
+            !removedObjectIds.has(constraint.targetObjectId)
+        )
+      );
+    }
     clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
@@ -578,7 +624,6 @@ export const applyWorkbookIncomingRealtimeEvent = (
       window.clearTimeout(timerId);
     });
     focusResetTimersByUserRef.current.clear();
-    setConstraints([]);
     setSelectedObjectId(null);
     setSelectedConstraintId(null);
     setPendingClearRequest(null);

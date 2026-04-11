@@ -194,6 +194,7 @@ export const applyWorkbookIncomingEventsBatch = ({
           queueIncomingPreviewPatch,
           applyLocalBoardObjects,
           boardSettingsRef: refs.boardSettingsRef,
+          boardObjectsRef: refs.boardObjectsRef,
           setSession: actions.setSession,
           setCanvasViewport: actions.setCanvasViewport,
           setIncomingEraserPreviews: actions.setIncomingEraserPreviews,

@@ -70,6 +70,9 @@ type UseWorkbookLayerClearActionsParams = {
   setError: (value: string | null) => void;
 };
 
+const toSafePage = (value: number | null | undefined) =>
+  Math.max(1, Math.round(value || 1));
+
 export const useWorkbookLayerClearActions = ({
   chatMessages,
   comments,
@@ -122,8 +125,21 @@ export const useWorkbookLayerClearActions = ({
       };
 
       if (target === "board") {
-        setBoardStrokes([]);
-        applyLocalBoardObjects(() => []);
+        const targetPage = toSafePage(boardSettingsRef.current.currentPage);
+        const removedObjectIds = new Set(
+          boardObjectsRef.current
+            .filter((object) => toSafePage(object.page) === targetPage)
+            .map((object) => object.id)
+        );
+        setBoardStrokes((current) =>
+          current.filter((stroke) => toSafePage(stroke.page) !== targetPage)
+        );
+        setAnnotationStrokes((current) =>
+          current.filter((stroke) => toSafePage(stroke.page) !== targetPage)
+        );
+        applyLocalBoardObjects((current) =>
+          current.filter((object) => toSafePage(object.page) !== targetPage)
+        );
         clearObjectSyncRuntime();
         clearStrokePreviewRuntime();
         clearIncomingEraserPreviewRuntime();
@@ -135,7 +151,13 @@ export const useWorkbookLayerClearActions = ({
           window.clearTimeout(timerId);
         });
         focusResetTimersByUserRef.current.clear();
-        setConstraints([]);
+        setConstraints((current) =>
+          current.filter(
+            (constraint) =>
+              !removedObjectIds.has(constraint.sourceObjectId) &&
+              !removedObjectIds.has(constraint.targetObjectId)
+          )
+        );
         setSelectedObjectId(null);
         setSelectedConstraintId(null);
       } else {
@@ -151,7 +173,13 @@ export const useWorkbookLayerClearActions = ({
         await appendEventsAndApply([
           {
             type: target === "board" ? "board.clear" : "annotations.clear",
-            payload: {},
+            payload:
+              target === "board"
+                ? {
+                    scope: "page",
+                    page: toSafePage(boardSettingsRef.current.currentPage),
+                  }
+                : {},
           },
         ]);
       } catch (error) {
