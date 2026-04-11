@@ -579,6 +579,8 @@ export const applyWorkbookIncomingRealtimeEvent = (
         ? toSafePage(targetPageRaw)
         : null;
     const scope = payload?.scope === "all" ? "all" : payload?.scope === "page" ? "page" : null;
+    // Cancel queued object preview/runtime frames first so clear commit is not discarded.
+    clearObjectSyncRuntime();
     const hasScopedPayload = scope === "all" || scope === "page" || targetPage !== null;
     if (!hasScopedPayload) {
       // Legacy behavior for old payloads: clear only board layer content.
@@ -613,7 +615,6 @@ export const applyWorkbookIncomingRealtimeEvent = (
         )
       );
     }
-    clearObjectSyncRuntime();
     clearStrokePreviewRuntime();
     clearIncomingEraserPreviewRuntime();
     setFocusPoint(null);

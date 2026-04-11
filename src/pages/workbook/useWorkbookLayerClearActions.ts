@@ -131,6 +131,8 @@ export const useWorkbookLayerClearActions = ({
             .filter((object) => toSafePage(object.page) === targetPage)
             .map((object) => object.id)
         );
+        // Drop queued preview/object sync frames before applying page clear state.
+        clearObjectSyncRuntime();
         setBoardStrokes((current) =>
           current.filter((stroke) => toSafePage(stroke.page) !== targetPage)
         );
@@ -140,7 +142,6 @@ export const useWorkbookLayerClearActions = ({
         applyLocalBoardObjects((current) =>
           current.filter((object) => toSafePage(object.page) !== targetPage)
         );
-        clearObjectSyncRuntime();
         clearStrokePreviewRuntime();
         clearIncomingEraserPreviewRuntime();
         setFocusPoint(null);
