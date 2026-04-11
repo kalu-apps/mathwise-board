@@ -443,6 +443,7 @@ export type WorkbookEventType =
   | "timer.update"
   | "board.settings.update"
   | "focus.point"
+  | "teacher.cursor"
   | "media.signal"
   | "media.state"
   | "permissions.update"

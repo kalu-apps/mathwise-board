@@ -259,6 +259,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   onRequestSelectTool,
   onLaserPoint,
   onLaserClear,
+  onTeacherCursorPoint,
+  onTeacherCursorClear,
   solid3dInsertPreset = null,
   onSolid3dInsertConsumed,
 }: WorkbookCanvasProps) {
@@ -1763,9 +1765,19 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       } else {
         touchTapStartRef.current = null;
       }
+      if (!disabled && onTeacherCursorPoint) {
+        const isPrimaryPointer =
+          event.pointerType !== "mouse" || event.button === 0;
+        if (isPrimaryPointer) {
+          const svg = event.currentTarget ?? null;
+          if (svg) {
+            onTeacherCursorPoint(mapPointer(svg, event.clientX, event.clientY));
+          }
+        }
+      }
       startInteraction(event);
     },
-    [startInteraction]
+    [disabled, mapPointer, onTeacherCursorPoint, startInteraction]
   );
   const handlePointerMove = useCallback(
     (event: PointerEvent<SVGSVGElement>) => {
@@ -1776,9 +1788,21 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           touchTapStartRef.current = null;
         }
       }
+      if (!disabled && onTeacherCursorPoint) {
+        const isPrimaryPressed =
+          event.pointerType === "mouse"
+            ? (event.buttons & 1) === 1
+            : pointerIdRef.current === event.pointerId;
+        if (isPrimaryPressed) {
+          const svg = event.currentTarget ?? null;
+          if (svg) {
+            onTeacherCursorPoint(mapPointer(svg, event.clientX, event.clientY));
+          }
+        }
+      }
       continueInteraction(event);
     },
-    [continueInteraction]
+    [continueInteraction, disabled, mapPointer, onTeacherCursorPoint]
   );
   const handlePointerUp = useCallback(
     (event: PointerEvent<SVGSVGElement>) => {
@@ -1794,6 +1818,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       }
 
       finishInteraction(event);
+      onTeacherCursorClear?.();
 
       if (!isTouchTap || !onObjectDoubleClick || disabled || tool !== "select") {
         return;
@@ -1825,7 +1850,15 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         time: now,
       };
     },
-    [disabled, finishInteraction, mapPointer, onObjectDoubleClick, resolveTopObject, tool]
+    [
+      disabled,
+      finishInteraction,
+      mapPointer,
+      onObjectDoubleClick,
+      onTeacherCursorClear,
+      resolveTopObject,
+      tool,
+    ]
   );
 
   useWorkbookCanvasToolLifecycle({
@@ -1904,6 +1937,18 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     pageFrameBounds,
     onViewportOffsetChange,
   });
+  const handlePointerCancel = useCallback(
+    (event: PointerEvent<SVGSVGElement>) => {
+      finishInteraction(event);
+      onTeacherCursorClear?.();
+    },
+    [finishInteraction, onTeacherCursorClear]
+  );
+  const handleCanvasPointerLeave = useCallback(() => {
+    handlePointerLeave();
+    if (pointerIdRef.current !== null) return;
+    onTeacherCursorClear?.();
+  }, [handlePointerLeave, onTeacherCursorClear]);
 
   const { panModeEnabled, graphModeEnabled, eraserModeEnabled } =
     resolveWorkbookCanvasModeFlags(tool, forcePanMode);
@@ -1945,11 +1990,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onPointerCancel={finishInteraction}
+        onPointerCancel={handlePointerCancel}
         onDoubleClick={handleDoubleClick}
         onWheel={handleWheel}
         onContextMenu={handleContextMenu}
-        onPointerLeave={handlePointerLeave}
+        onPointerLeave={handleCanvasPointerLeave}
       >
         <defs>
           <marker

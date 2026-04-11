@@ -529,6 +529,10 @@ const handleWorkbookEventsRoute = async (
       : normalizedEvents;
 
     for (const event of preparedEvents) {
+      if (event.type === "teacher.cursor") {
+        deps.badRequest(res, "teacher_cursor_live_only");
+        return true;
+      }
       if (event.type === "media.signal" && !participant.permissions.canUseMedia) {
         deps.forbidden(res, "media_disabled");
         return true;

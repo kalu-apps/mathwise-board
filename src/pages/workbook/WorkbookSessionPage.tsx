@@ -62,6 +62,7 @@ import { useWorkbookSelectedStructureActions } from "./useWorkbookSelectedStruct
 import { useWorkbookSelectedShape2dActions } from "./useWorkbookSelectedShape2dActions";
 import { useWorkbookContextMenuHandlers } from "./useWorkbookContextMenuHandlers";
 import { useWorkbookLaserHandlers } from "./useWorkbookLaserHandlers";
+import { useWorkbookTeacherCursorBroadcast } from "./useWorkbookTeacherCursorBroadcast";
 import { useWorkbookHistoryHotkeys } from "./useWorkbookHistoryHotkeys";
 import { useWorkbookSessionCollabHandlers } from "./useWorkbookSessionCollabHandlers";
 import { useWorkbookSessionDocumentHandlers } from "./useWorkbookSessionDocumentHandlers";
@@ -1339,6 +1340,17 @@ export default function WorkbookSessionPage() {
     rollbackHistoryEntry,
     enqueueIncomingRealtimeApply,
   });
+  const { publishTeacherCursorPoint, clearTeacherCursor } =
+    useWorkbookTeacherCursorBroadcast({
+      enabled: Boolean(
+        isTeacherActor &&
+          canEdit &&
+          !boardLocked &&
+          !isWorkspaceInteractionBlocked
+      ),
+      userId: user?.id,
+      sendWorkbookLiveEvents,
+    });
 
   const {
     scheduleVolatileSyncFlush,
@@ -3063,6 +3075,8 @@ export default function WorkbookSessionPage() {
     onRequestSelectTool: canvasHandlers.handleCanvasRequestSelectTool,
     onLaserPoint: canvasHandlers.handleCanvasLaserPoint,
     onLaserClear: canvasHandlers.handleCanvasLaserClear,
+    onTeacherCursorPoint: publishTeacherCursorPoint,
+    onTeacherCursorClear: clearTeacherCursor,
     solid3dInsertPreset: pendingSolid3dInsertPreset,
     onSolid3dInsertConsumed: mathPresetCreationHandlers.clearPendingSolid3dInsertPreset,
   };
