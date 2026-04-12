@@ -33,6 +33,51 @@ const runShell = (command, args, cwd) => {
   });
 };
 
+const commandExists = (command) => {
+  try {
+    execFileSync("sh", ["-lc", `command -v ${command}`], {
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const extractZipArchive = (zipPath, outputDir, cwd) => {
+  if (commandExists("unzip")) {
+    runShell("unzip", ["-oq", zipPath, "-d", outputDir], cwd);
+    return;
+  }
+  if (commandExists("python3")) {
+    runShell(
+      "python3",
+      [
+        "-c",
+        "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])",
+        zipPath,
+        outputDir,
+      ],
+      cwd
+    );
+    return;
+  }
+  if (commandExists("python")) {
+    runShell(
+      "python",
+      [
+        "-c",
+        "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])",
+        zipPath,
+        outputDir,
+      ],
+      cwd
+    );
+    return;
+  }
+  throw new Error("missing_zip_extractor:install_unzip_or_python3");
+};
+
 const runJson = async (url, token) => {
   const response = await fetch(url, {
     headers: {
@@ -150,7 +195,7 @@ const run = async () => {
     writeFileSync(tempZipPath, archiveBuffer);
 
     mkdirSync(extractedRoot, { recursive: true });
-    runShell("unzip", ["-oq", tempZipPath, "-d", extractedRoot], workdir);
+    extractZipArchive(tempZipPath, extractedRoot, workdir);
 
     const distTgzPath = resolve(extractedRoot, "dist.tgz");
     if (!existsSync(distTgzPath)) {
