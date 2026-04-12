@@ -187,8 +187,13 @@ export const useWorkbookLayerClearActions = ({
         ]);
       } catch (error) {
         if (isRecoverableApiError(error)) {
+          // Keep clear operation strongly consistent across participants:
+          // if persist failed, rollback optimistic local clear.
+          restoreSceneSnapshot(previousSnapshot);
           markDirty();
-          setError("Сервис временно недоступен (503). Очистка страницы будет повторена автоматически.");
+          setError(
+            "Сервис временно недоступен (503). Очистка страницы не подтверждена и отменена локально."
+          );
           return;
         }
         restoreSceneSnapshot(previousSnapshot);
