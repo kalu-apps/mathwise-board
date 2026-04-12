@@ -66,6 +66,7 @@ type UseWorkbookLayerClearActionsParams = {
   setAwaitingClearRequest: SetState<ClearRequest | null>;
   setConfirmedClearRequest: SetState<ClearRequest | null>;
   appendEventsAndApply: AppendEventsAndApply;
+  buildHistoryEntryFromEvents: (events: WorkbookClientEventInput[]) => unknown;
   markDirty: () => void;
   restoreSceneSnapshot: (snapshot: WorkbookSceneSnapshot) => void;
   setError: (value: string | null) => void;
@@ -107,6 +108,7 @@ export const useWorkbookLayerClearActions = ({
   setAwaitingClearRequest,
   setConfirmedClearRequest,
   appendEventsAndApply,
+  buildHistoryEntryFromEvents,
   markDirty,
   restoreSceneSnapshot,
   setError,
@@ -126,6 +128,19 @@ export const useWorkbookLayerClearActions = ({
         libraryState: cloneSerializable(libraryState),
         documentState: cloneSerializable(documentStateRef.current),
       };
+      const clearEvents: WorkbookClientEventInput[] = [
+        {
+          type: target === "board" ? "board.clear" : "annotations.clear",
+          payload:
+            target === "board"
+              ? {
+                  scope: "page",
+                  page: targetPage,
+                }
+              : {},
+        },
+      ];
+      const clearHistoryEntry = buildHistoryEntryFromEvents(clearEvents);
 
       if (target === "board") {
         const removedObjectIds = new Set(
@@ -173,18 +188,10 @@ export const useWorkbookLayerClearActions = ({
       setAwaitingClearRequest(null);
 
       try {
-        await appendEventsAndApply([
-          {
-            type: target === "board" ? "board.clear" : "annotations.clear",
-            payload:
-              target === "board"
-                ? {
-                    scope: "page",
-                    page: targetPage,
-                  }
-                : {},
-          },
-        ]);
+        await appendEventsAndApply(
+          clearEvents,
+          clearHistoryEntry ? { historyEntry: clearHistoryEntry } : undefined
+        );
       } catch (error) {
         if (isRecoverableApiError(error)) {
           // Keep clear operation strongly consistent across participants:
@@ -207,6 +214,7 @@ export const useWorkbookLayerClearActions = ({
       boardObjectsRef,
       boardSettingsRef,
       boardStrokesRef,
+      buildHistoryEntryFromEvents,
       chatMessages,
       clearIncomingEraserPreviewRuntime,
       clearObjectSyncRuntime,

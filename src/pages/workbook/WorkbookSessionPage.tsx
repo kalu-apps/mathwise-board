@@ -1431,6 +1431,7 @@ export default function WorkbookSessionPage() {
     setAwaitingClearRequest,
     setConfirmedClearRequest,
     appendEventsAndApply,
+    buildHistoryEntryFromEvents,
     markDirty,
     restoreSceneSnapshot,
     setError,
