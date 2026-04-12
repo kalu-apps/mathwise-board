@@ -60,6 +60,15 @@ type UseWorkbookSessionHistoryRuntimeParams = {
   documentStateRef: MutableRefObject<WorkbookDocumentState>;
 };
 
+type WorkbookHistoryEntryBuildState = {
+  currentBoardStrokes: WorkbookStroke[];
+  currentAnnotationStrokes: WorkbookStroke[];
+  currentObjects: WorkbookBoardObject[];
+  currentConstraints: WorkbookConstraint[];
+  currentBoardSettings: WorkbookBoardSettings;
+  currentDocumentState: WorkbookDocumentState;
+};
+
 export const useWorkbookSessionHistoryRuntime = ({
   boardObjectsRef,
   boardObjectIndexByIdRef,
@@ -293,15 +302,26 @@ export const useWorkbookSessionHistoryRuntime = ({
   ]);
 
   const buildHistoryEntryFromEvents = useCallback(
-    (events: WorkbookClientEventInput[]) => {
-      const historyEntry = buildWorkbookHistoryEntryFromEvents({
-        events,
+    (
+      events: WorkbookClientEventInput[],
+      sourceState?: WorkbookHistoryEntryBuildState
+    ) => {
+      const historySource: WorkbookHistoryEntryBuildState = sourceState ?? {
         currentBoardStrokes: boardStrokesRef.current,
         currentAnnotationStrokes: annotationStrokesRef.current,
         currentObjects: boardObjectsRef.current,
         currentConstraints: constraintsRef.current,
         currentBoardSettings: boardSettingsRef.current,
         currentDocumentState: documentStateRef.current,
+      };
+      const historyEntry = buildWorkbookHistoryEntryFromEvents({
+        events,
+        currentBoardStrokes: historySource.currentBoardStrokes,
+        currentAnnotationStrokes: historySource.currentAnnotationStrokes,
+        currentObjects: historySource.currentObjects,
+        currentConstraints: historySource.currentConstraints,
+        currentBoardSettings: historySource.currentBoardSettings,
+        currentDocumentState: historySource.currentDocumentState,
       });
       if (!historyEntry) return null;
       const historyEntryPage =
@@ -326,7 +346,11 @@ export const useWorkbookSessionHistoryRuntime = ({
   );
 
   const pushIncomingHistoryEntryFromEventsBatch = useCallback(
-    (events: WorkbookEvent[], localUserId?: string) => {
+    (
+      events: WorkbookEvent[],
+      localUserId?: string,
+      sourceState?: WorkbookHistoryEntryBuildState
+    ) => {
       if (!Array.isArray(events) || events.length === 0) return;
       const historyEvents = events.reduce<WorkbookClientEventInput[]>((acc, event) => {
         if (!isHistoryTrackedWorkbookEventType(event.type)) return acc;
@@ -338,7 +362,7 @@ export const useWorkbookSessionHistoryRuntime = ({
         return acc;
       }, []);
       if (historyEvents.length === 0) return;
-      const entry = buildHistoryEntryFromEvents(historyEvents);
+      const entry = buildHistoryEntryFromEvents(historyEvents, sourceState);
       if (!entry) return;
       pushHistoryEntry(entry, { clearRedo: true });
     },

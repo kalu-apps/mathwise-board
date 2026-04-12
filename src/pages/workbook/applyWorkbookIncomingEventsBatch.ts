@@ -11,7 +11,14 @@ import {
   reportWorkbookCorrectnessEvent,
   reportWorkbookPerfPhaseMetric,
 } from "@/features/workbook/model/workbookPerformance";
-import type { WorkbookEvent } from "@/features/workbook/model/types";
+import type {
+  WorkbookBoardObject,
+  WorkbookBoardSettings,
+  WorkbookConstraint,
+  WorkbookDocumentState,
+  WorkbookEvent,
+  WorkbookStroke,
+} from "@/features/workbook/model/types";
 import type { WorkbookSessionStoreActions } from "@/features/workbook/model/workbookSessionStoreTypes";
 import { generateId } from "@/shared/lib/id";
 import type { useWorkbookIncomingRuntimeController } from "@/features/workbook/model/useWorkbookIncomingRuntimeController";
@@ -128,11 +135,26 @@ export const applyWorkbookIncomingEventsBatch = ({
   let maxAppliedSeq = lastAppliedSeqRef.current;
   let pendingIncomingHistoryEvents: WorkbookEvent[] = [];
   let pendingIncomingHistoryBatchKey: string | null = null;
+  let pendingIncomingHistorySourceState:
+    | {
+        currentBoardStrokes: WorkbookStroke[];
+        currentAnnotationStrokes: WorkbookStroke[];
+        currentObjects: WorkbookBoardObject[];
+        currentConstraints: WorkbookConstraint[];
+        currentBoardSettings: WorkbookBoardSettings;
+        currentDocumentState: WorkbookDocumentState;
+      }
+    | null = null;
   const flushIncomingHistoryBatch = () => {
     if (pendingIncomingHistoryEvents.length === 0) return;
-    pushIncomingHistoryEntryFromEventsBatch(pendingIncomingHistoryEvents, userId);
+    pushIncomingHistoryEntryFromEventsBatch(
+      pendingIncomingHistoryEvents,
+      userId,
+      pendingIncomingHistorySourceState ?? undefined
+    );
     pendingIncomingHistoryEvents = [];
     pendingIncomingHistoryBatchKey = null;
+    pendingIncomingHistorySourceState = null;
   };
   const resolveIncomingHistoryBatchKey = (event: WorkbookEvent, eventSeq: number | null) => {
     const authorUserId =
@@ -192,6 +214,16 @@ export const applyWorkbookIncomingEventsBatch = ({
         const batchKey = resolveIncomingHistoryBatchKey(event, eventSeq);
         if (pendingIncomingHistoryBatchKey !== null && batchKey !== pendingIncomingHistoryBatchKey) {
           flushIncomingHistoryBatch();
+        }
+        if (pendingIncomingHistoryEvents.length === 0) {
+          pendingIncomingHistorySourceState = {
+            currentBoardStrokes: refs.boardStrokesRef.current,
+            currentAnnotationStrokes: refs.annotationStrokesRef.current,
+            currentObjects: refs.boardObjectsRef.current,
+            currentConstraints: refs.constraintsRef.current,
+            currentBoardSettings: refs.boardSettingsRef.current,
+            currentDocumentState: refs.documentStateRef.current,
+          };
         }
         pendingIncomingHistoryEvents.push(event);
         pendingIncomingHistoryBatchKey = batchKey;

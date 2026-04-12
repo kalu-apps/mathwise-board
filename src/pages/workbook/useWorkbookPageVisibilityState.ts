@@ -26,6 +26,7 @@ type SetAreaSelection = (
 ) => void;
 
 type UseWorkbookPageVisibilityStateParams = {
+  sessionId: string;
   documentState: WorkbookDocumentState;
   boardObjects: WorkbookBoardObject[];
   boardStrokes: WorkbookStroke[];
@@ -44,6 +45,25 @@ type UseWorkbookPageVisibilityStateParams = {
 
 const prewarmedImageAssetUrls = new Set<string>();
 const IMAGE_VISIBILITY_READY_TIMEOUT_MS = 900;
+const WORKBOOK_HASH_ASSET_ID_RE = /^[a-f0-9]{64}(?:\.[a-z0-9]{2,16})?$/i;
+
+const isBrokenAssetAlias = (value: string) => {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "content" || normalized === "/content";
+};
+
+const resolveReconstructedAssetUrl = (sessionId: string, assetId: string) => {
+  const safeSessionId = sessionId.trim();
+  const safeAssetId = assetId.trim().toLowerCase();
+  if (!safeSessionId || !WORKBOOK_HASH_ASSET_ID_RE.test(safeAssetId)) {
+    return "";
+  }
+  return normalizeWorkbookAssetContentUrl(
+    `/api/workbook/sessions/${encodeURIComponent(safeSessionId)}/assets/${encodeURIComponent(
+      safeAssetId
+    )}/content`
+  );
+};
 
 const loadImageForVisibility = (assetUrl: string): Promise<void> =>
   new Promise<void>((resolve) => {
@@ -80,6 +100,7 @@ const loadImageForVisibility = (assetUrl: string): Promise<void> =>
   });
 
 export const useWorkbookPageVisibilityState = ({
+  sessionId,
   documentState,
   boardObjects,
   boardStrokes,
@@ -132,7 +153,7 @@ export const useWorkbookPageVisibilityState = ({
         typeof object.imageUrl === "string" && object.imageUrl.trim().length > 0
           ? normalizeWorkbookAssetContentUrl(object.imageUrl)
           : "";
-      if (objectImageUrl) {
+      if (objectImageUrl && !isBrokenAssetAlias(objectImageUrl)) {
         imageByPage.set(page, objectImageUrl);
         return;
       }
@@ -144,6 +165,11 @@ export const useWorkbookPageVisibilityState = ({
           : "";
       if (assetImageUrl) {
         imageByPage.set(page, assetImageUrl);
+        return;
+      }
+      const reconstructedAssetUrl = resolveReconstructedAssetUrl(sessionId, assetId);
+      if (reconstructedAssetUrl) {
+        imageByPage.set(page, reconstructedAssetUrl);
       }
     });
     boardStrokes.forEach((stroke) => {
@@ -199,6 +225,7 @@ export const useWorkbookPageVisibilityState = ({
     boardSettings.pagesCount,
     boardStrokes,
     imageAssetUrls,
+    sessionId,
   ]);
 
   const {
@@ -225,7 +252,11 @@ export const useWorkbookPageVisibilityState = ({
         typeof object.imageUrl === "string" && object.imageUrl.trim().length > 0
           ? normalizeWorkbookAssetContentUrl(object.imageUrl)
           : "";
-      if (objectImageUrl && !seen.has(objectImageUrl)) {
+      if (
+        objectImageUrl &&
+        !isBrokenAssetAlias(objectImageUrl) &&
+        !seen.has(objectImageUrl)
+      ) {
         seen.add(objectImageUrl);
         urls.push(objectImageUrl);
       }
@@ -237,10 +268,18 @@ export const useWorkbookPageVisibilityState = ({
       if (assetImageUrl && !seen.has(assetImageUrl)) {
         seen.add(assetImageUrl);
         urls.push(assetImageUrl);
+        return;
+      }
+      if (assetId) {
+        const reconstructedAssetUrl = resolveReconstructedAssetUrl(sessionId, assetId);
+        if (reconstructedAssetUrl && !seen.has(reconstructedAssetUrl)) {
+          seen.add(reconstructedAssetUrl);
+          urls.push(reconstructedAssetUrl);
+        }
       }
     });
     return urls;
-  }, [imageAssetUrls, visibleBoardObjects]);
+  }, [imageAssetUrls, sessionId, visibleBoardObjects]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
