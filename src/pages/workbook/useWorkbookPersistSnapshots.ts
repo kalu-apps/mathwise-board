@@ -119,28 +119,30 @@ const compactSnapshotState = async (params: {
 }) => {
   const profile = resolveSnapshotCompactionProfile(params.level);
   const referencedAssetIds = collectReferencedAssetIds(params.boardObjects);
+  const resolvableAssetIds = new Set(
+    params.documentState.assets
+      .filter((asset) => typeof asset.url === "string" && asset.url.trim().length > 0)
+      .map((asset) => asset.id)
+  );
   const compactedObjects = await Promise.all(
     params.boardObjects.map(async (object) => {
       if (object.type !== "image" || !isImageDataUrl(object.imageUrl)) {
         return object;
       }
-      const hasAssetReference =
+      const referencedAssetId =
         Boolean(object.meta) &&
         typeof object.meta === "object" &&
-        typeof object.meta[WORKBOOK_IMAGE_ASSET_META_KEY] === "string";
-      if (hasAssetReference) {
+        typeof object.meta[WORKBOOK_IMAGE_ASSET_META_KEY] === "string"
+          ? String(object.meta[WORKBOOK_IMAGE_ASSET_META_KEY]).trim()
+          : "";
+      // Drop inline image payload only when the linked asset can actually be resolved from document assets.
+      if (referencedAssetId && resolvableAssetIds.has(referencedAssetId)) {
         return {
           ...object,
           imageUrl: undefined,
         };
       }
       const compactedImageUrl = await optimizeImageDataUrl(object.imageUrl, profile.object);
-      if (compactedImageUrl === object.imageUrl && params.level === "minimal") {
-        return {
-          ...object,
-          imageUrl: undefined,
-        };
-      }
       if (compactedImageUrl === object.imageUrl) return object;
       return {
         ...object,
