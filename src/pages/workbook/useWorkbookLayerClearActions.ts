@@ -44,7 +44,7 @@ type UseWorkbookLayerClearActionsParams = {
   constraintsRef: MutableRefObject<WorkbookConstraint[]>;
   annotationStrokesRef: MutableRefObject<WorkbookStroke[]>;
   boardSettingsRef: MutableRefObject<WorkbookBoardSettings>;
-  currentBoardPageRef: MutableRefObject<number>;
+  currentBoardPage: number;
   documentStateRef: MutableRefObject<WorkbookDocumentState>;
   focusResetTimersByUserRef: MutableRefObject<Map<string, number>>;
   setBoardStrokes: SetState<WorkbookStroke[]>;
@@ -87,7 +87,7 @@ export const useWorkbookLayerClearActions = ({
   constraintsRef,
   annotationStrokesRef,
   boardSettingsRef,
-  currentBoardPageRef,
+  currentBoardPage,
   documentStateRef,
   focusResetTimersByUserRef,
   setBoardStrokes,
@@ -113,6 +113,7 @@ export const useWorkbookLayerClearActions = ({
 }: UseWorkbookLayerClearActionsParams) => {
   const clearLayerNow = useCallback(
     async (target: WorkbookLayer) => {
+      const targetPage = toSafePage(currentBoardPage);
       const previousSnapshot: WorkbookSceneSnapshot = {
         boardStrokes: cloneSerializable(boardStrokesRef.current),
         boardObjects: cloneSerializable(boardObjectsRef.current),
@@ -127,7 +128,6 @@ export const useWorkbookLayerClearActions = ({
       };
 
       if (target === "board") {
-        const targetPage = toSafePage(currentBoardPageRef.current);
         const removedObjectIds = new Set(
           boardObjectsRef.current
             .filter((object) => toSafePage(object.page) === targetPage)
@@ -180,7 +180,7 @@ export const useWorkbookLayerClearActions = ({
               target === "board"
                 ? {
                     scope: "page",
-                    page: toSafePage(currentBoardPageRef.current),
+                    page: targetPage,
                   }
                 : {},
           },
@@ -208,7 +208,7 @@ export const useWorkbookLayerClearActions = ({
       clearStrokePreviewRuntime,
       comments,
       constraintsRef,
-      currentBoardPageRef,
+      currentBoardPage,
       documentStateRef,
       focusResetTimersByUserRef,
       libraryState,

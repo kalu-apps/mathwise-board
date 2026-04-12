@@ -23,6 +23,7 @@ import { normalizeSceneLayersForBoard } from "./WorkbookSessionPage.geometry";
 type WorkbookSessionDerivedStateParams = {
   sessionId: string;
   user: { id: string } | null;
+  currentBoardPage: number;
   session: WorkbookSession | null;
   setError: WorkbookSessionStoreActions["setError"];
   isSessionTabPassive: boolean;
@@ -36,9 +37,13 @@ type WorkbookSessionDerivedStateParams = {
   boardObjects: WorkbookBoardObject[];
 };
 
+const toSafePage = (value: number | null | undefined) =>
+  Math.max(1, Math.round(value || 1));
+
 export const useWorkbookSessionDerivedState = ({
   sessionId,
   user,
+  currentBoardPage,
   session,
   setError,
   isSessionTabPassive,
@@ -145,8 +150,11 @@ export const useWorkbookSessionDerivedState = ({
     [pointerPointsByUser]
   );
   const previewStrokes = useMemo(
-    () => Object.values(incomingStrokePreviews ?? {}).map((entry) => entry.stroke),
-    [incomingStrokePreviews]
+    () =>
+      Object.values(incomingStrokePreviews ?? {})
+        .map((entry) => entry.stroke)
+        .filter((stroke) => toSafePage(stroke.page) === toSafePage(currentBoardPage)),
+    [currentBoardPage, incomingStrokePreviews]
   );
   const areaSelectionHasContent = Boolean(
     areaSelection && (areaSelection.objectIds.length > 0 || areaSelection.strokeIds.length > 0)

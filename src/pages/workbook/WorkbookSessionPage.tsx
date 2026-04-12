@@ -678,6 +678,7 @@ export default function WorkbookSessionPage() {
   } = useWorkbookSessionDerivedState({
     sessionId,
     user,
+    currentBoardPage,
     session,
     setError,
     isSessionTabPassive: isWorkspaceInteractionBlocked,
@@ -1410,7 +1411,7 @@ export default function WorkbookSessionPage() {
     constraintsRef,
     annotationStrokesRef,
     boardSettingsRef,
-    currentBoardPageRef,
+    currentBoardPage,
     documentStateRef,
     focusResetTimersByUserRef,
     setBoardStrokes,
