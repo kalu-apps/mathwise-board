@@ -127,6 +127,21 @@ LiveKit token для подключения к аудио-комнате:
 ## Деплой в Timeweb
 См. инструкцию: `TIMEWEB_DEPLOY.md`.
 
+### Artifact-first deploy (без server-side сборки)
+
+Для снижения нагрузки на shared-хостинг сборка делается в GitHub Actions, а сервер только применяет готовый `dist`:
+
+1. Workflow `.github/workflows/build-board-artifact.yml` собирает `dist` на push в `staging` и `main`.
+2. На сервере выполняется:
+   - `npm run deploy:artifact` — скачать и атомарно заменить `dist` из GitHub artifact;
+   - `npm run deploy:safe-restart` — controlled restart с readiness-check.
+
+Быстрый комбинированный запуск:
+
+```bash
+npm run deploy:release
+```
+
 ## Phase 0 (migration foundation)
 
 Перед работами по миграции `frontend -> zustand` и `backend -> nest` используйте Phase 0 артефакты:

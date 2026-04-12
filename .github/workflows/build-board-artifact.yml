@@ -1,0 +1,63 @@
+name: Build Board Artifact
+
+on:
+  push:
+    branches:
+      - staging
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: build-board-artifact-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build board bundle
+        run: npm run build:board
+
+      - name: Prepare artifact payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -czf dist.tgz dist
+          cat > build-info.json <<EOF
+          {
+            "repo": "${GITHUB_REPOSITORY}",
+            "runId": ${GITHUB_RUN_ID},
+            "runNumber": ${GITHUB_RUN_NUMBER},
+            "workflow": "${GITHUB_WORKFLOW}",
+            "ref": "${GITHUB_REF}",
+            "sha": "${GITHUB_SHA}",
+            "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+      - name: Upload board artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: board-dist
+          path: |
+            dist.tgz
+            build-info.json
+          retention-days: 14
+          if-no-files-found: error

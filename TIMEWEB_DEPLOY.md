@@ -262,6 +262,50 @@ npm run deploy:safe-restart
 - `DEPLOY_POLL_INTERVAL_MS=2500` — шаг опроса readiness.
 - `DEPLOY_DRY_RUN=1` — показать действия без выполнения.
 
+### 3.3) Artifact-first deploy (рекомендуется для снижения server load)
+Цель: убрать `npm ci`/`vite build` с прод/стейдж сервера и не перегружать shared-контур, где рядом живут `prod` и `stage`.
+
+Что уже есть в репозитории:
+- workflow `.github/workflows/build-board-artifact.yml` — собирает `dist` в GitHub Actions при push в `staging` и `main`;
+- скрипт [`scripts/deploy-board-artifact.mjs`](./scripts/deploy-board-artifact.mjs) — скачивает последний успешный артефакт и атомарно заменяет `dist` (с rollback при ошибке);
+- команда `npm run deploy:release` = `deploy:artifact` + `deploy:safe-restart`.
+
+Требования:
+- на сервере должен быть `DEPLOY_GH_TOKEN` (GitHub PAT или fine-grained token) с доступом к `Actions: Read` и `Contents: Read` для репозитория;
+- токен лучше хранить в systemd unit (`Environment=`) или в root-only env-файле, не в shell history.
+
+Пример для `staging` (на `mw-app-01`, из `/opt/mathwise/board-staging`):
+
+```bash
+DEPLOY_GH_TOKEN='<github-token>' \
+DEPLOY_GH_REPO='kalu-apps/mathwise-board' \
+DEPLOY_GH_BRANCH='staging' \
+DEPLOY_GH_WORKFLOW='build-board-artifact.yml' \
+DEPLOY_GH_ARTIFACT_NAME='board-dist' \
+DEPLOY_API_BASE_URL='https://stage.board.mathwise.ru/api' \
+DEPLOY_RESTART_CMD='systemctl restart mathwise-board-staging' \
+MAINTENANCE_FLAG_FILE='/opt/mathwise/board-staging/MAINTENANCE_MODE' \
+npm run deploy:release
+```
+
+Пример для `main` (на `mw-app-01`, из `/opt/mathwise/board`):
+
+```bash
+DEPLOY_GH_TOKEN='<github-token>' \
+DEPLOY_GH_REPO='kalu-apps/mathwise-board' \
+DEPLOY_GH_BRANCH='main' \
+DEPLOY_GH_WORKFLOW='build-board-artifact.yml' \
+DEPLOY_GH_ARTIFACT_NAME='board-dist' \
+DEPLOY_API_BASE_URL='https://api.board.mathwise.ru' \
+DEPLOY_RESTART_CMD='systemctl restart mathwise-board' \
+npm run deploy:release
+```
+
+Полезно:
+- `DEPLOY_GH_SHA=<commit-sha>` — применить артефакт строго от конкретного коммита;
+- `DEPLOY_GH_RUN_ID=<run-id>` — применить артефакт от конкретного workflow run;
+- `DEPLOY_DRY_RUN=1 npm run deploy:release` — проверка без изменений.
+
 ## 4) coturn на `mw-media-01`
 Ключевые параметры `/etc/turnserver.conf`:
 - `use-auth-secret`
