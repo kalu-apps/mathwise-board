@@ -313,6 +313,39 @@ type InteractionFlushers = {
   flushSolid3dPreviewMetaById: () => Record<string, Record<string, unknown>>;
 };
 
+const refineImageScissorsSelection = (params: {
+  tool: WorkbookTool;
+  selection: WorkbookAreaSelection | null;
+  draft: WorkbookAreaSelectionDraft;
+  resolveTopObject: (point: WorkbookPoint) => WorkbookBoardObject | null;
+}): WorkbookAreaSelection | null => {
+  const { tool, selection, draft, resolveTopObject } = params;
+  if (tool !== "area_select" || !selection) return selection;
+  if (selection.objectIds.length === 0) return selection;
+
+  const objectIds = new Set(selection.objectIds);
+  const centerPoint: WorkbookPoint = {
+    x: selection.rect.x + selection.rect.width / 2,
+    y: selection.rect.y + selection.rect.height / 2,
+  };
+  const probePoints = [draft.start, draft.current, centerPoint];
+
+  for (const point of probePoints) {
+    const topObject = resolveTopObject(point);
+    if (!topObject) continue;
+    if (!objectIds.has(topObject.id)) continue;
+    if (topObject.type !== "image") continue;
+
+    return {
+      ...selection,
+      objectIds: [topObject.id],
+      strokeIds: [],
+    };
+  }
+
+  return selection;
+};
+
 export type UseWorkbookCanvasInteractionsParams = {
   refs: InteractionStateRefs;
   setters: InteractionStateSetters;
@@ -1063,10 +1096,16 @@ export const useWorkbookCanvasInteractions = (
           boardObjectCandidatesInRect: callbacks.boardObjectCandidatesInRect,
           strokeCandidatesInRect: callbacks.strokeCandidatesInRect,
         });
+        const refinedSelection = refineImageScissorsSelection({
+          tool: data.tool,
+          selection: nextSelection,
+          draft: latestAreaSelectionDraft,
+          resolveTopObject: callbacks.resolveTopObject,
+        });
         api.onAreaSelectionChange?.(
-          nextSelection
+          refinedSelection
             ? {
-                ...nextSelection,
+                ...refinedSelection,
                 // Marquee selection in "select"/"area_select" is move-only by design.
                 resizeEnabled: false,
               }
