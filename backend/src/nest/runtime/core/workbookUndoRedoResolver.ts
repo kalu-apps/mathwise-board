@@ -462,41 +462,113 @@ const buildHistoryEntryFromEvent = (
       },
     ];
   } else if (event.type === "board.clear") {
-    entryPage = fallbackPage;
-    forward.push(
-      ...state.constraints.map((constraint) => ({
-        kind: "remove_constraint" as const,
-        constraintId: constraint.id,
-      })),
-      ...state.boardObjects.map((object) => ({
-        kind: "remove_object" as const,
-        objectId: object.id,
-        expectedCurrent: cloneSerializable(object),
-      })),
-      ...state.boardStrokes.map((stroke) => ({
-        kind: "remove_stroke" as const,
-        layer: "board" as const,
-        strokeId: stroke.id,
-        expectedCurrent: cloneSerializable(stroke),
-      }))
-    );
-    inverse = [
-      ...state.boardStrokes.map((stroke) => ({
-        kind: "upsert_stroke" as const,
-        layer: "board" as const,
-        stroke: cloneSerializable(stroke),
-        expectedCurrent: null,
-      })),
-      ...state.boardObjects.map((object) => ({
-        kind: "upsert_object" as const,
-        object: cloneSerializable(object),
-        expectedCurrent: null,
-      })),
-      ...state.constraints.map((constraint) => ({
-        kind: "upsert_constraint" as const,
-        constraint: cloneSerializable(constraint),
-      })),
-    ];
+    const payload = event.payload as { page?: unknown };
+    const targetPage =
+      typeof payload.page === "number" && Number.isFinite(payload.page)
+        ? toSafePage(payload.page)
+        : null;
+    if (targetPage === null) {
+      entryPage = fallbackPage;
+      forward.push(
+        ...state.constraints.map((constraint) => ({
+          kind: "remove_constraint" as const,
+          constraintId: constraint.id,
+        })),
+        ...state.boardObjects.map((object) => ({
+          kind: "remove_object" as const,
+          objectId: object.id,
+          expectedCurrent: cloneSerializable(object),
+        })),
+        ...state.boardStrokes.map((stroke) => ({
+          kind: "remove_stroke" as const,
+          layer: "board" as const,
+          strokeId: stroke.id,
+          expectedCurrent: cloneSerializable(stroke),
+        }))
+      );
+      inverse = [
+        ...state.boardStrokes.map((stroke) => ({
+          kind: "upsert_stroke" as const,
+          layer: "board" as const,
+          stroke: cloneSerializable(stroke),
+          expectedCurrent: null,
+        })),
+        ...state.boardObjects.map((object) => ({
+          kind: "upsert_object" as const,
+          object: cloneSerializable(object),
+          expectedCurrent: null,
+        })),
+        ...state.constraints.map((constraint) => ({
+          kind: "upsert_constraint" as const,
+          constraint: cloneSerializable(constraint),
+        })),
+      ];
+    } else {
+      const pageObjectIds = new Set(
+        state.boardObjects
+          .filter((object) => toSafePage(object.page) === targetPage)
+          .map((object) => object.id)
+      );
+      const pageObjects = state.boardObjects.filter((object) => pageObjectIds.has(object.id));
+      const pageConstraints = state.constraints.filter(
+        (constraint) =>
+          pageObjectIds.has(constraint.sourceObjectId) ||
+          pageObjectIds.has(constraint.targetObjectId)
+      );
+      const pageBoardStrokes = state.boardStrokes.filter(
+        (stroke) => toSafePage(stroke.page) === targetPage
+      );
+      const pageAnnotationStrokes = state.annotationStrokes.filter(
+        (stroke) => toSafePage(stroke.page) === targetPage
+      );
+      entryPage = targetPage;
+      forward.push(
+        ...pageConstraints.map((constraint) => ({
+          kind: "remove_constraint" as const,
+          constraintId: constraint.id,
+        })),
+        ...pageObjects.map((object) => ({
+          kind: "remove_object" as const,
+          objectId: object.id,
+          expectedCurrent: cloneSerializable(object),
+        })),
+        ...pageBoardStrokes.map((stroke) => ({
+          kind: "remove_stroke" as const,
+          layer: "board" as const,
+          strokeId: stroke.id,
+          expectedCurrent: cloneSerializable(stroke),
+        })),
+        ...pageAnnotationStrokes.map((stroke) => ({
+          kind: "remove_stroke" as const,
+          layer: "annotations" as const,
+          strokeId: stroke.id,
+          expectedCurrent: cloneSerializable(stroke),
+        }))
+      );
+      inverse = [
+        ...pageBoardStrokes.map((stroke) => ({
+          kind: "upsert_stroke" as const,
+          layer: "board" as const,
+          stroke: cloneSerializable(stroke),
+          expectedCurrent: null,
+        })),
+        ...pageAnnotationStrokes.map((stroke) => ({
+          kind: "upsert_stroke" as const,
+          layer: "annotations" as const,
+          stroke: cloneSerializable(stroke),
+          expectedCurrent: null,
+        })),
+        ...pageObjects.map((object) => ({
+          kind: "upsert_object" as const,
+          object: cloneSerializable(object),
+          expectedCurrent: null,
+        })),
+        ...pageConstraints.map((constraint) => ({
+          kind: "upsert_constraint" as const,
+          constraint: cloneSerializable(constraint),
+        })),
+      ];
+    }
   } else if (event.type === "annotations.clear") {
     entryPage = fallbackPage;
     forward.push(
@@ -857,35 +929,23 @@ const applyHistoryOperations = (
   return appliedOperationsCount;
 };
 
-const findMatchingEntryIndexForPage = (
-  entries: WorkbookHistoryEntry[],
-  page: number,
-  operations: unknown[] | null,
-  mode: "undo" | "redo"
-) => {
-  const safePage = toSafePage(page);
-  let fallbackIndex = -1;
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
-    if (!entry || toSafePage(entry.page) !== safePage) continue;
-    if (fallbackIndex < 0) {
-      fallbackIndex = index;
-    }
-    if (!operations || operations.length === 0) continue;
-    const expectedOperations = mode === "undo" ? entry.inverse : entry.forward;
-    if (areSerializableValuesStructurallyEqual(expectedOperations, operations)) {
-      return index;
-    }
-  }
-  return fallbackIndex;
-};
-
 const pushUndoEntry = (state: WorkbookServerHistoryState, entry: WorkbookHistoryEntry) => {
   const page = toSafePage(entry.page);
   const undoStack = state.undoByPage.get(page) ?? [];
   undoStack.push(entry);
   state.undoByPage.set(page, undoStack.slice(-MAX_HISTORY_ENTRIES_PER_PAGE));
   state.redoByPage.set(page, []);
+};
+
+const popLastHistoryEntryForPage = (
+  map: Map<number, WorkbookHistoryEntry[]>,
+  page: number
+) => {
+  const stack = map.get(page);
+  if (!stack || stack.length === 0) return null;
+  const entry = stack.pop() ?? null;
+  map.set(page, stack);
+  return entry;
 };
 
 const applyUndoRedoEventToHistoryState = (
@@ -901,46 +961,40 @@ const applyUndoRedoEventToHistoryState = (
     typeof payload.page === "number" && Number.isFinite(payload.page)
       ? toSafePage(payload.page)
       : toSafePage(state.scene.boardSettings.currentPage);
-  const operations = Array.isArray(payload.operations) ? payload.operations : null;
   if (event.type === "board.undo") {
-    const undoStack = state.undoByPage.get(targetPage) ?? [];
-    const targetIndex = findMatchingEntryIndexForPage(
-      undoStack,
-      targetPage,
-      operations,
-      "undo"
-    );
-    if (targetIndex >= 0) {
-      const [entry] = undoStack.splice(targetIndex, 1);
-      state.undoByPage.set(targetPage, undoStack);
-      if (entry) {
-        const redoStack = state.redoByPage.get(targetPage) ?? [];
-        redoStack.push(entry);
-        state.redoByPage.set(targetPage, redoStack.slice(-MAX_HISTORY_ENTRIES_PER_PAGE));
-      }
+    const entry = popLastHistoryEntryForPage(state.undoByPage, targetPage);
+    if (entry) {
+      const redoStack = state.redoByPage.get(targetPage) ?? [];
+      redoStack.push(entry);
+      state.redoByPage.set(targetPage, redoStack.slice(-MAX_HISTORY_ENTRIES_PER_PAGE));
+    }
+    const operations = entry
+      ? entry.inverse
+      : Array.isArray(payload.operations)
+        ? (payload.operations as WorkbookHistoryOperation[])
+        : [];
+    if (operations.length > 0) {
+      applyHistoryOperations(state.scene, operations, {
+        ignoreExpectedCurrent: true,
+      });
     }
   } else {
-    const redoStack = state.redoByPage.get(targetPage) ?? [];
-    const targetIndex = findMatchingEntryIndexForPage(
-      redoStack,
-      targetPage,
-      operations,
-      "redo"
-    );
-    if (targetIndex >= 0) {
-      const [entry] = redoStack.splice(targetIndex, 1);
-      state.redoByPage.set(targetPage, redoStack);
-      if (entry) {
-        const undoStack = state.undoByPage.get(targetPage) ?? [];
-        undoStack.push(entry);
-        state.undoByPage.set(targetPage, undoStack.slice(-MAX_HISTORY_ENTRIES_PER_PAGE));
-      }
+    const entry = popLastHistoryEntryForPage(state.redoByPage, targetPage);
+    if (entry) {
+      const undoStack = state.undoByPage.get(targetPage) ?? [];
+      undoStack.push(entry);
+      state.undoByPage.set(targetPage, undoStack.slice(-MAX_HISTORY_ENTRIES_PER_PAGE));
     }
-  }
-  if (operations && operations.length > 0) {
-    applyHistoryOperations(state.scene, operations as WorkbookHistoryOperation[], {
-      ignoreExpectedCurrent: true,
-    });
+    const operations = entry
+      ? entry.forward
+      : Array.isArray(payload.operations)
+        ? (payload.operations as WorkbookHistoryOperation[])
+        : [];
+    if (operations.length > 0) {
+      applyHistoryOperations(state.scene, operations, {
+        ignoreExpectedCurrent: true,
+      });
+    }
   }
 };
 
@@ -1108,17 +1162,6 @@ const buildHistoryStateFromPersistence = async (params: {
   );
   applyPersistedEventsToHistoryState(historyState, tailEvents);
   return historyState;
-};
-
-const popLastHistoryEntryForPage = (
-  map: Map<number, WorkbookHistoryEntry[]>,
-  page: number
-) => {
-  const stack = map.get(page);
-  if (!stack || stack.length === 0) return null;
-  const entry = stack.pop() ?? null;
-  map.set(page, stack);
-  return entry;
 };
 
 export const resolveWorkbookUndoRedoEvents = async ({

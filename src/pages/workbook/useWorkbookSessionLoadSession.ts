@@ -480,6 +480,9 @@ export const useWorkbookSessionLoadSession = ({
             });
             focusResetTimersByUserRef.current.clear();
           }
+          if (!isBackground) {
+            setLoading(false);
+          }
           setRecoveryMode("catching_up");
           try {
             const MAX_TAIL_BATCHES = 8;
@@ -584,9 +587,6 @@ export const useWorkbookSessionLoadSession = ({
               setLibraryState(deferredBoardState.library);
               setDocumentState(deferredBoardState.document);
             });
-          }
-          if (!isBackground) {
-            setLoading(false);
           }
           setRecoveryMode("live");
           setBootstrapReady(true);

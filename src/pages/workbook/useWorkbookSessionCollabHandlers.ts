@@ -116,7 +116,7 @@ export const useWorkbookSessionCollabHandlers = ({
       await clearLayerNow("board");
       setError(null);
     } catch {
-      setError("Не удалось очистить доску.");
+      setError("Не удалось очистить страницу.");
     }
   }, [canClear, clearLayerNow, isEnded, setError, setMenuAnchor]);
 

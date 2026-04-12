@@ -21,46 +21,47 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
           HEAD_REF: ${{ github.head_ref }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
 
           echo "Base: ${BASE_REF}"
           echo "Head: ${HEAD_REF}"
-          echo "Title: ${PR_TITLE}"
 
           fail() {
             echo "::error::$1"
             exit 1
           }
 
-          allowed="false"
+          has_next_ref="false"
+          if [[ "${BASE_REF}" == "next" ]] || [[ "${HEAD_REF}" == "next" ]]; then
+            has_next_ref="true"
+          fi
+          if [[ "${BASE_REF}" =~ (^|/)next($|/) ]] || [[ "${HEAD_REF}" =~ (^|/)next($|/) ]]; then
+            has_next_ref="true"
+          fi
+          if [[ "${has_next_ref}" == "true" ]]; then
+            fail "Branch 'next' is deprecated and must not be used in PR flow."
+          fi
 
-          if [[ "${BASE_REF}" == "main" ]]; then
+          allowed="false"
+          if [[ "${BASE_REF}" == "staging" ]]; then
             if [[ "${HEAD_REF}" =~ ^feature/ ]] \
               || [[ "${HEAD_REF}" =~ ^refactor/ ]] \
               || [[ "${HEAD_REF}" =~ ^perf/ ]] \
               || [[ "${HEAD_REF}" =~ ^chore/ ]] \
               || [[ "${HEAD_REF}" =~ ^fix/ ]] \
               || [[ "${HEAD_REF}" =~ ^docs/ ]] \
-              || [[ "${HEAD_REF}" =~ ^hotfix/ ]] \
               || [[ "${HEAD_REF}" =~ ^dependabot/ ]]; then
               allowed="true"
             fi
           fi
 
-          if [[ "${allowed}" != "true" ]]; then
-            fail "Invalid branch flow: '${HEAD_REF}' -> '${BASE_REF}'. Expected main-only flow. See docs/branching-policy.md"
+          if [[ "${BASE_REF}" == "main" ]] && [[ "${HEAD_REF}" == "staging" ]]; then
+            allowed="true"
           fi
 
-          if [[ "${HEAD_REF}" =~ ^hotfix/ ]] && [[ "${BASE_REF}" == "main" ]]; then
-            if [[ ! "${PR_TITLE}" =~ [Ee][Mm][Ee][Rr][Gg][Ee][Nn][Cc][Yy] ]] \
-              && [[ ! "${PR_TITLE}" =~ [Pp]0 ]] \
-              && [[ ! "${PR_BODY}" =~ [Ee][Mm][Ee][Rr][Gg][Ee][Nn][Cc][Yy] ]] \
-              && [[ ! "${PR_BODY}" =~ [Pp]0 ]]; then
-              fail "Emergency hotfix PR must include 'EMERGENCY' or 'P0' in title/body."
-            fi
+          if [[ "${allowed}" != "true" ]]; then
+            fail "Invalid branch flow: '${HEAD_REF}' -> '${BASE_REF}'. Allowed: feature/refactor/perf/chore/fix/docs/dependabot -> staging, and staging -> main."
           fi
 
           echo "Branch flow policy passed."

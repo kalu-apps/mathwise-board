@@ -61,6 +61,7 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
 }: WorkbookSessionBoardSettingsPanelProps) {
   const isCompactViewport = useMediaQuery("(max-width: 760px)");
   const mobileToolSettings = compactToolSettings ?? null;
+  const showDrawingToolsSection = Boolean(mobileToolSettings) && !isCompactViewport;
   const safePageOptions =
     pageOptions.length > 0
       ? pageOptions
@@ -235,7 +236,7 @@ export const WorkbookSessionBoardSettingsPanel = memo(function WorkbookSessionBo
           </section>
         )}
 
-        {mobileToolSettings ? (
+        {showDrawingToolsSection && mobileToolSettings ? (
           <section className="workbook-session__board-settings-card">
             <div className="workbook-session__board-settings-card-head">
               <div className="workbook-session__board-settings-card-title">

@@ -8,7 +8,10 @@ import { useAuth } from "@/features/auth/model/AuthContext";
 import { AuthAmbientScene } from "@/features/auth-ambient/ui/AuthAmbientScene";
 import { ApiError } from "@/shared/api/client";
 import { t } from "@/shared/i18n";
-import { prefetchWorkbookSessionRuntime } from "./prefetchWorkbookSessionRuntime";
+import {
+  prefetchWorkbookSessionRuntime,
+  prefetchWorkbookSessionRuntimeOnIdle,
+} from "./prefetchWorkbookSessionRuntime";
 import { InlineMobiusLoader } from "@/shared/ui/loading";
 
 export default function WorkbookInviteJoinPage() {
@@ -93,7 +96,7 @@ export default function WorkbookInviteJoinPage() {
           }));
           return;
         }
-        void prefetchWorkbookSessionRuntime();
+        prefetchWorkbookSessionRuntimeOnIdle();
         setState((prev) => ({
           ...prev,
           loading: false,

@@ -6,6 +6,40 @@ import {
   isWorkbookPreviewEventType,
 } from "./events";
 
+const resolveObjectUpdateCompactionScopeKey = (event: WorkbookEvent) => {
+  const authorUserId =
+    typeof event.authorUserId === "string" ? event.authorUserId.trim() : "";
+  const createdAt = typeof event.createdAt === "string" ? event.createdAt.trim() : "";
+  if (authorUserId && createdAt) {
+    // Keep compaction inside a single persisted append batch only.
+    return `${authorUserId}:${createdAt}`;
+  }
+  const safeSeq =
+    typeof event.seq === "number" && Number.isFinite(event.seq)
+      ? Math.max(0, Math.trunc(event.seq))
+      : 0;
+  return `seq:${safeSeq}`;
+};
+
+const isCompactableObjectUpdatePatch = (patch: Partial<WorkbookBoardObject>) => {
+  if (!Object.prototype.hasOwnProperty.call(patch, "meta")) {
+    return true;
+  }
+  const meta = patch.meta;
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
+    return true;
+  }
+  const metaRecord = meta as Record<string, unknown>;
+  // Object eraser updates (image/object mask) must preserve per-gesture history atomarity.
+  if (
+    Object.prototype.hasOwnProperty.call(metaRecord, "eraserPaths") ||
+    Object.prototype.hasOwnProperty.call(metaRecord, "eraserCuts")
+  ) {
+    return false;
+  }
+  return true;
+};
+
 export const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
   if (events.length <= 1) return events;
   const compacted: WorkbookEvent[] = [];
@@ -43,7 +77,12 @@ export const compactWorkbookObjectUpdateEvents = (events: WorkbookEvent[]) => {
         compacted.push(event);
         return;
       }
-      const eventKey = `${event.type}:${objectId}`;
+      if (!isCompactableObjectUpdatePatch(patch)) {
+        flushPending();
+        compacted.push(event);
+        return;
+      }
+      const eventKey = `${event.type}:${objectId}:${resolveObjectUpdateCompactionScopeKey(event)}`;
       const previous = pendingByTypeAndObjectId.get(eventKey);
       if (previous) {
         const previousPayload =

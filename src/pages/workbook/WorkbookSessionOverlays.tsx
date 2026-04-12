@@ -752,7 +752,7 @@ export function WorkbookSessionOverlays({
               onClick={() => cropImageByAreaSelection()}
               disabled={!canCropAreaSelectionImage}
             >
-              Обрезать изображение по выделению
+              Обрезать изображение
             </MenuItem>
             <MenuItem
               onClick={() => {

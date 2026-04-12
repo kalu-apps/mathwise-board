@@ -230,41 +230,115 @@ export const buildWorkbookHistoryEntryFromEvents = ({
         },
       ];
     } else if (event.type === "board.clear") {
-      eventPage = fallbackPage;
-      eventForward = [
-        ...currentConstraints.map((constraint) => ({
-          kind: "remove_constraint" as const,
-          constraintId: constraint.id,
-        })),
-        ...currentObjects.map((object) => ({
-          kind: "remove_object" as const,
-          objectId: object.id,
-          expectedCurrent: cloneSerializable(object),
-        })),
-        ...currentBoardStrokes.map((stroke) => ({
-          kind: "remove_stroke" as const,
-          layer: "board" as const,
-          strokeId: stroke.id,
-          expectedCurrent: cloneSerializable(stroke),
-        })),
-      ];
-      eventInverse = [
-        ...currentBoardStrokes.map((stroke) => ({
-          kind: "upsert_stroke" as const,
-          layer: "board" as const,
-          stroke: cloneSerializable(stroke),
-          expectedCurrent: null,
-        })),
-        ...currentObjects.map((object) => ({
-          kind: "upsert_object" as const,
-          object: cloneSerializable(object),
-          expectedCurrent: null,
-        })),
-        ...currentConstraints.map((constraint) => ({
-          kind: "upsert_constraint" as const,
-          constraint: cloneSerializable(constraint),
-        })),
-      ];
+      const payload = event.payload as { page?: unknown };
+      const targetPage =
+        typeof payload.page === "number" && Number.isFinite(payload.page)
+          ? toSafePage(payload.page)
+          : null;
+      if (targetPage === null) {
+        eventPage = fallbackPage;
+        eventForward = [
+          ...currentConstraints.map((constraint) => ({
+            kind: "remove_constraint" as const,
+            constraintId: constraint.id,
+          })),
+          ...currentObjects.map((object) => ({
+            kind: "remove_object" as const,
+            objectId: object.id,
+            expectedCurrent: cloneSerializable(object),
+          })),
+          ...currentBoardStrokes.map((stroke) => ({
+            kind: "remove_stroke" as const,
+            layer: "board" as const,
+            strokeId: stroke.id,
+            expectedCurrent: cloneSerializable(stroke),
+          })),
+        ];
+        eventInverse = [
+          ...currentBoardStrokes.map((stroke) => ({
+            kind: "upsert_stroke" as const,
+            layer: "board" as const,
+            stroke: cloneSerializable(stroke),
+            expectedCurrent: null,
+          })),
+          ...currentObjects.map((object) => ({
+            kind: "upsert_object" as const,
+            object: cloneSerializable(object),
+            expectedCurrent: null,
+          })),
+          ...currentConstraints.map((constraint) => ({
+            kind: "upsert_constraint" as const,
+            constraint: cloneSerializable(constraint),
+          })),
+        ];
+      } else {
+        const pageObjectIds = new Set(
+          currentObjects
+            .filter((object) => toSafePage(object.page) === targetPage)
+            .map((object) => object.id)
+        );
+        const pageObjects = currentObjects.filter((object) =>
+          pageObjectIds.has(object.id)
+        );
+        const pageConstraints = currentConstraints.filter(
+          (constraint) =>
+            pageObjectIds.has(constraint.sourceObjectId) ||
+            pageObjectIds.has(constraint.targetObjectId)
+        );
+        const pageBoardStrokes = currentBoardStrokes.filter(
+          (stroke) => toSafePage(stroke.page) === targetPage
+        );
+        const pageAnnotationStrokes = currentAnnotationStrokes.filter(
+          (stroke) => toSafePage(stroke.page) === targetPage
+        );
+        eventPage = targetPage;
+        eventForward = [
+          ...pageConstraints.map((constraint) => ({
+            kind: "remove_constraint" as const,
+            constraintId: constraint.id,
+          })),
+          ...pageObjects.map((object) => ({
+            kind: "remove_object" as const,
+            objectId: object.id,
+            expectedCurrent: cloneSerializable(object),
+          })),
+          ...pageBoardStrokes.map((stroke) => ({
+            kind: "remove_stroke" as const,
+            layer: "board" as const,
+            strokeId: stroke.id,
+            expectedCurrent: cloneSerializable(stroke),
+          })),
+          ...pageAnnotationStrokes.map((stroke) => ({
+            kind: "remove_stroke" as const,
+            layer: "annotations" as const,
+            strokeId: stroke.id,
+            expectedCurrent: cloneSerializable(stroke),
+          })),
+        ];
+        eventInverse = [
+          ...pageBoardStrokes.map((stroke) => ({
+            kind: "upsert_stroke" as const,
+            layer: "board" as const,
+            stroke: cloneSerializable(stroke),
+            expectedCurrent: null,
+          })),
+          ...pageAnnotationStrokes.map((stroke) => ({
+            kind: "upsert_stroke" as const,
+            layer: "annotations" as const,
+            stroke: cloneSerializable(stroke),
+            expectedCurrent: null,
+          })),
+          ...pageObjects.map((object) => ({
+            kind: "upsert_object" as const,
+            object: cloneSerializable(object),
+            expectedCurrent: null,
+          })),
+          ...pageConstraints.map((constraint) => ({
+            kind: "upsert_constraint" as const,
+            constraint: cloneSerializable(constraint),
+          })),
+        ];
+      }
     } else if (event.type === "annotations.clear") {
       eventPage = fallbackPage;
       eventForward = currentAnnotationStrokes.map((stroke) => ({

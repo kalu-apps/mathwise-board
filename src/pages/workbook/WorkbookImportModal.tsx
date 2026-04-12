@@ -698,7 +698,7 @@ export function WorkbookImportModal({
     setBatchError(null);
     let successCount = 0;
     let failureCount = 0;
-    for (const item of queue) {
+    for (const [queueIndex, item] of queue.entries()) {
       try {
         let itemFailureMessage = "";
         setItemPatch(item.id, { status: "uploading", error: undefined });
@@ -723,6 +723,7 @@ export function WorkbookImportModal({
           preparedDataUrl: item.preparedDataUrl,
           imageWidth: item.isImage ? item.width : undefined,
           imageHeight: item.isImage ? item.height : undefined,
+          batchInsertIndex: queueIndex,
           pdfSourceId: item.isPdf ? item.pdfSourceId : undefined,
           pdfPageRange: item.isPdf ? item.pdfPageRange : undefined,
           pdfPageCount: item.isPdf ? item.pdfPageCount : undefined,

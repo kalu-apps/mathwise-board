@@ -45,6 +45,7 @@ export type WorkbookKnownEventPayloadMap = {
   "board.object.delete": { objectId: string };
   "board.object.pin": { objectId: string; pinned: boolean };
   "board.object.reorder": { objectId: string; zOrder: number };
+  "board.clear": { page?: number; scope?: "page" | "all" };
   "board.undo": { operations?: unknown[]; scene?: unknown; page?: number };
   "board.redo": { operations?: unknown[]; scene?: unknown; page?: number };
   "annotations.stroke": { stroke: WorkbookStroke };
@@ -62,6 +63,7 @@ export type WorkbookKnownEventPayloadMap = {
     target: "board";
     mode: "move" | "clear";
     point?: WorkbookPoint;
+    page?: number;
   };
   "chat.message": { message: WorkbookChatMessage | WorkbookUnknownPayload };
   "chat.clear": WorkbookUnknownPayload;
@@ -125,6 +127,8 @@ export const WORKBOOK_URGENT_LIVE_EVENT_TYPES = [
   "board.object.update",
   "board.object.delete",
   "board.object.reorder",
+  "board.clear",
+  "annotations.clear",
   "board.settings.update",
   "board.undo",
   "board.redo",

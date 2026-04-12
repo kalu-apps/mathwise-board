@@ -3,6 +3,7 @@ import { compactWorkbookObjectUpdateEvents } from "@/features/workbook/model/run
 import { applyWorkbookIncomingRealtimeEvent } from "@/features/workbook/model/incomingRealtime";
 import { applyWorkbookIncomingSessionMetaEvent } from "@/features/workbook/model/incomingSessionMeta";
 import {
+  isHistoryTrackedWorkbookEventType,
   isLiveReplayableWorkbookEventType,
   isVolatileWorkbookEventType,
 } from "@/features/workbook/model/events";
@@ -10,7 +11,14 @@ import {
   reportWorkbookCorrectnessEvent,
   reportWorkbookPerfPhaseMetric,
 } from "@/features/workbook/model/workbookPerformance";
-import type { WorkbookEvent } from "@/features/workbook/model/types";
+import type {
+  WorkbookBoardObject,
+  WorkbookBoardSettings,
+  WorkbookConstraint,
+  WorkbookDocumentState,
+  WorkbookEvent,
+  WorkbookStroke,
+} from "@/features/workbook/model/types";
 import type { WorkbookSessionStoreActions } from "@/features/workbook/model/workbookSessionStoreTypes";
 import { generateId } from "@/shared/lib/id";
 import type { useWorkbookIncomingRuntimeController } from "@/features/workbook/model/useWorkbookIncomingRuntimeController";
@@ -29,9 +37,9 @@ import {
 type IncomingRuntimeControllerResult = ReturnType<typeof useWorkbookIncomingRuntimeController>;
 type WorkbookSessionRefs = ReturnType<typeof useWorkbookSessionRefs>;
 type RestoreSceneSnapshot = ReturnType<typeof useWorkbookSessionHistoryRuntime>["restoreSceneSnapshot"];
-type PushIncomingHistoryEntryFromEvent = ReturnType<
+type PushIncomingHistoryEntryFromEventsBatch = ReturnType<
   typeof useWorkbookSessionHistoryRuntime
->["pushIncomingHistoryEntryFromEvent"];
+>["pushIncomingHistoryEntryFromEventsBatch"];
 type SyncHistoryStacksFromIncomingUndoRedoEvent = ReturnType<
   typeof useWorkbookSessionHistoryRuntime
 >["syncHistoryStacksFromIncomingUndoRedoEvent"];
@@ -41,6 +49,7 @@ type ApplyWorkbookIncomingEventsBatchParams = {
   sessionId: string;
   events: WorkbookEvent[];
   userId: string | undefined;
+  currentBoardPageRef: MutableRefObject<number>;
   selectedObjectId: string | null;
   awaitingClearRequest: {
     requestId: string;
@@ -53,7 +62,7 @@ type ApplyWorkbookIncomingEventsBatchParams = {
   actions: WorkbookSessionStoreActions;
   areParticipantsEqual: AreParticipantsEqual;
   restoreSceneSnapshot: RestoreSceneSnapshot;
-  pushIncomingHistoryEntryFromEvent: PushIncomingHistoryEntryFromEvent;
+  pushIncomingHistoryEntryFromEventsBatch: PushIncomingHistoryEntryFromEventsBatch;
   syncHistoryStacksFromIncomingUndoRedoEvent: SyncHistoryStacksFromIncomingUndoRedoEvent;
   onUndoRedoApplyMismatch: (payload: {
     eventType: "board.undo" | "board.redo";
@@ -78,6 +87,7 @@ export const applyWorkbookIncomingEventsBatch = ({
   sessionId,
   events,
   userId,
+  currentBoardPageRef,
   selectedObjectId,
   awaitingClearRequest,
   lastAppliedSeqRef,
@@ -86,7 +96,7 @@ export const applyWorkbookIncomingEventsBatch = ({
   actions,
   areParticipantsEqual,
   restoreSceneSnapshot,
-  pushIncomingHistoryEntryFromEvent,
+  pushIncomingHistoryEntryFromEventsBatch,
   syncHistoryStacksFromIncomingUndoRedoEvent,
   onUndoRedoApplyMismatch,
   clearLocalPreviewPatchRuntime,
@@ -123,6 +133,38 @@ export const applyWorkbookIncomingEventsBatch = ({
   let pageApplyAccepted = 0;
   let pageApplyRejected = 0;
   let maxAppliedSeq = lastAppliedSeqRef.current;
+  let pendingIncomingHistoryEvents: WorkbookEvent[] = [];
+  let pendingIncomingHistoryBatchKey: string | null = null;
+  let pendingIncomingHistorySourceState:
+    | {
+        currentBoardStrokes: WorkbookStroke[];
+        currentAnnotationStrokes: WorkbookStroke[];
+        currentObjects: WorkbookBoardObject[];
+        currentConstraints: WorkbookConstraint[];
+        currentBoardSettings: WorkbookBoardSettings;
+        currentDocumentState: WorkbookDocumentState;
+      }
+    | null = null;
+  const flushIncomingHistoryBatch = () => {
+    if (pendingIncomingHistoryEvents.length === 0) return;
+    pushIncomingHistoryEntryFromEventsBatch(
+      pendingIncomingHistoryEvents,
+      userId,
+      pendingIncomingHistorySourceState ?? undefined
+    );
+    pendingIncomingHistoryEvents = [];
+    pendingIncomingHistoryBatchKey = null;
+    pendingIncomingHistorySourceState = null;
+  };
+  const resolveIncomingHistoryBatchKey = (event: WorkbookEvent, eventSeq: number | null) => {
+    const authorUserId =
+      typeof event.authorUserId === "string" ? event.authorUserId.trim() : "";
+    const createdAt = typeof event.createdAt === "string" ? event.createdAt.trim() : "";
+    if (authorUserId && createdAt) {
+      return `${authorUserId}::${createdAt}`;
+    }
+    return `seq:${Math.max(0, Math.trunc(eventSeq ?? 0))}`;
+  };
   orderedEvents.forEach((event) => {
     try {
       const eventSeq =
@@ -166,12 +208,34 @@ export const applyWorkbookIncomingEventsBatch = ({
       }
       const parsedEventTs = Date.parse(event.createdAt);
       const eventTimestamp = Number.isFinite(parsedEventTs) ? parsedEventTs : Date.now();
-      pushIncomingHistoryEntryFromEvent(event, userId);
+      if (event.type === "board.undo" || event.type === "board.redo") {
+        flushIncomingHistoryBatch();
+      } else if (isHistoryTrackedWorkbookEventType(event.type)) {
+        const batchKey = resolveIncomingHistoryBatchKey(event, eventSeq);
+        if (pendingIncomingHistoryBatchKey !== null && batchKey !== pendingIncomingHistoryBatchKey) {
+          flushIncomingHistoryBatch();
+        }
+        if (pendingIncomingHistoryEvents.length === 0) {
+          pendingIncomingHistorySourceState = {
+            currentBoardStrokes: refs.boardStrokesRef.current,
+            currentAnnotationStrokes: refs.annotationStrokesRef.current,
+            currentObjects: refs.boardObjectsRef.current,
+            currentConstraints: refs.constraintsRef.current,
+            currentBoardSettings: refs.boardSettingsRef.current,
+            currentDocumentState: refs.documentStateRef.current,
+          };
+        }
+        pendingIncomingHistoryEvents.push(event);
+        pendingIncomingHistoryBatchKey = batchKey;
+      } else {
+        flushIncomingHistoryBatch();
+      }
       if (
         applyWorkbookIncomingRealtimeEvent({
           event,
           eventTimestamp,
           userId,
+          currentBoardPageRef,
           selectedObjectId,
           selectedTextDraftDirty: refs.selectedTextDraftDirtyRef.current,
           selectedTextDraftObjectId: refs.selectedTextDraftObjectIdRef.current,
@@ -194,6 +258,7 @@ export const applyWorkbookIncomingEventsBatch = ({
           queueIncomingPreviewPatch,
           applyLocalBoardObjects,
           boardSettingsRef: refs.boardSettingsRef,
+          boardObjectsRef: refs.boardObjectsRef,
           setSession: actions.setSession,
           setCanvasViewport: actions.setCanvasViewport,
           setIncomingEraserPreviews: actions.setIncomingEraserPreviews,
@@ -278,6 +343,7 @@ export const applyWorkbookIncomingEventsBatch = ({
       console.warn("Workbook event apply failed", event.type, error);
     }
   });
+  flushIncomingHistoryBatch();
   if (maxAppliedSeq > lastAppliedSeqRef.current) {
     lastAppliedSeqRef.current = maxAppliedSeq;
   }

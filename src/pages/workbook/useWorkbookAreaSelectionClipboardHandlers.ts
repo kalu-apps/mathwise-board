@@ -67,12 +67,25 @@ type UseWorkbookAreaSelectionClipboardHandlersParams = {
 };
 
 const AREA_SELECTION_COVER_EPSILON = 0.5;
+const AREA_SELECTION_INTERSECTION_EPSILON = 1e-3;
 
 const doesRectCoverRect = (outerRect: RectLike, innerRect: RectLike) =>
   outerRect.x <= innerRect.x + AREA_SELECTION_COVER_EPSILON &&
   outerRect.y <= innerRect.y + AREA_SELECTION_COVER_EPSILON &&
   outerRect.x + outerRect.width >= innerRect.x + innerRect.width - AREA_SELECTION_COVER_EPSILON &&
   outerRect.y + outerRect.height >= innerRect.y + innerRect.height - AREA_SELECTION_COVER_EPSILON;
+
+const resolveRectIntersectionArea = (leftRect: RectLike, rightRect: RectLike) => {
+  const x1 = Math.max(leftRect.x, rightRect.x);
+  const y1 = Math.max(leftRect.y, rightRect.y);
+  const x2 = Math.min(leftRect.x + leftRect.width, rightRect.x + rightRect.width);
+  const y2 = Math.min(leftRect.y + leftRect.height, rightRect.y + rightRect.height);
+  const width = x2 - x1;
+  const height = y2 - y1;
+  if (width <= AREA_SELECTION_INTERSECTION_EPSILON) return 0;
+  if (height <= AREA_SELECTION_INTERSECTION_EPSILON) return 0;
+  return width * height;
+};
 
 const applyBoardObjectPatch = (
   object: WorkbookBoardObject,
@@ -134,11 +147,13 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
     const objectIds: string[] = [];
     const objectUpdateEvents: WorkbookClientEventInput[] = [];
     selectedObjects.forEach((object) => {
+      const objectRect = resolveWorkbookObjectAxisAlignedRect(object);
+      const overlapArea = resolveRectIntersectionArea(areaSelection.rect, objectRect);
+      if (overlapArea <= 0) return;
       if (object.type !== "image") {
         objectIds.push(object.id);
         return;
       }
-      const objectRect = resolveWorkbookObjectAxisAlignedRect(object);
       if (doesRectCoverRect(areaSelection.rect, objectRect)) {
         objectIds.push(object.id);
         return;
@@ -246,11 +261,13 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
       .map((id) => currentBoardObjects.find((object) => object.id === id))
       .reduce<WorkbookBoardObject[]>((acc, object) => {
         if (!object) return acc;
+        const objectRect = resolveWorkbookObjectAxisAlignedRect(object);
+        const overlapArea = resolveRectIntersectionArea(areaSelection.rect, objectRect);
+        if (overlapArea <= 0) return acc;
         if (object.type !== "image") {
           acc.push(structuredClone<WorkbookBoardObject>(object));
           return acc;
         }
-        const objectRect = resolveWorkbookObjectAxisAlignedRect(object);
         if (doesRectCoverRect(areaSelection.rect, objectRect)) {
           acc.push(structuredClone<WorkbookBoardObject>(object));
           return acc;

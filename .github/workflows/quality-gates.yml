@@ -3,6 +3,7 @@ name: Quality Gates
 on:
   pull_request:
     branches:
+      - staging
       - main
 
 permissions:

@@ -44,6 +44,7 @@ type UseWorkbookLayerClearActionsParams = {
   constraintsRef: MutableRefObject<WorkbookConstraint[]>;
   annotationStrokesRef: MutableRefObject<WorkbookStroke[]>;
   boardSettingsRef: MutableRefObject<WorkbookBoardSettings>;
+  currentBoardPage: number;
   documentStateRef: MutableRefObject<WorkbookDocumentState>;
   focusResetTimersByUserRef: MutableRefObject<Map<string, number>>;
   setBoardStrokes: SetState<WorkbookStroke[]>;
@@ -65,10 +66,14 @@ type UseWorkbookLayerClearActionsParams = {
   setAwaitingClearRequest: SetState<ClearRequest | null>;
   setConfirmedClearRequest: SetState<ClearRequest | null>;
   appendEventsAndApply: AppendEventsAndApply;
+  buildHistoryEntryFromEvents: (events: WorkbookClientEventInput[]) => unknown;
   markDirty: () => void;
   restoreSceneSnapshot: (snapshot: WorkbookSceneSnapshot) => void;
   setError: (value: string | null) => void;
 };
+
+const toSafePage = (value: number | null | undefined) =>
+  Math.max(1, Math.round(value || 1));
 
 export const useWorkbookLayerClearActions = ({
   chatMessages,
@@ -83,6 +88,7 @@ export const useWorkbookLayerClearActions = ({
   constraintsRef,
   annotationStrokesRef,
   boardSettingsRef,
+  currentBoardPage,
   documentStateRef,
   focusResetTimersByUserRef,
   setBoardStrokes,
@@ -102,12 +108,14 @@ export const useWorkbookLayerClearActions = ({
   setAwaitingClearRequest,
   setConfirmedClearRequest,
   appendEventsAndApply,
+  buildHistoryEntryFromEvents,
   markDirty,
   restoreSceneSnapshot,
   setError,
 }: UseWorkbookLayerClearActionsParams) => {
   const clearLayerNow = useCallback(
     async (target: WorkbookLayer) => {
+      const targetPage = toSafePage(currentBoardPage);
       const previousSnapshot: WorkbookSceneSnapshot = {
         boardStrokes: cloneSerializable(boardStrokesRef.current),
         boardObjects: cloneSerializable(boardObjectsRef.current),
@@ -120,11 +128,37 @@ export const useWorkbookLayerClearActions = ({
         libraryState: cloneSerializable(libraryState),
         documentState: cloneSerializable(documentStateRef.current),
       };
+      const clearEvents: WorkbookClientEventInput[] = [
+        {
+          type: target === "board" ? "board.clear" : "annotations.clear",
+          payload:
+            target === "board"
+              ? {
+                  scope: "page",
+                  page: targetPage,
+                }
+              : {},
+        },
+      ];
+      const clearHistoryEntry = buildHistoryEntryFromEvents(clearEvents);
 
       if (target === "board") {
-        setBoardStrokes([]);
-        applyLocalBoardObjects(() => []);
+        const removedObjectIds = new Set(
+          boardObjectsRef.current
+            .filter((object) => toSafePage(object.page) === targetPage)
+            .map((object) => object.id)
+        );
+        // Drop queued preview/object sync frames before applying page clear state.
         clearObjectSyncRuntime();
+        setBoardStrokes((current) =>
+          current.filter((stroke) => toSafePage(stroke.page) !== targetPage)
+        );
+        setAnnotationStrokes((current) =>
+          current.filter((stroke) => toSafePage(stroke.page) !== targetPage)
+        );
+        applyLocalBoardObjects((current) =>
+          current.filter((object) => toSafePage(object.page) !== targetPage)
+        );
         clearStrokePreviewRuntime();
         clearIncomingEraserPreviewRuntime();
         setFocusPoint(null);
@@ -135,7 +169,13 @@ export const useWorkbookLayerClearActions = ({
           window.clearTimeout(timerId);
         });
         focusResetTimersByUserRef.current.clear();
-        setConstraints([]);
+        setConstraints((current) =>
+          current.filter(
+            (constraint) =>
+              !removedObjectIds.has(constraint.sourceObjectId) &&
+              !removedObjectIds.has(constraint.targetObjectId)
+          )
+        );
         setSelectedObjectId(null);
         setSelectedConstraintId(null);
       } else {
@@ -148,15 +188,19 @@ export const useWorkbookLayerClearActions = ({
       setAwaitingClearRequest(null);
 
       try {
-        await appendEventsAndApply([
-          {
-            type: target === "board" ? "board.clear" : "annotations.clear",
-            payload: {},
-          },
-        ]);
+        await appendEventsAndApply(
+          clearEvents,
+          clearHistoryEntry ? { historyEntry: clearHistoryEntry } : undefined
+        );
       } catch (error) {
         if (isRecoverableApiError(error)) {
+          // Keep clear operation strongly consistent across participants:
+          // if persist failed, rollback optimistic local clear.
+          restoreSceneSnapshot(previousSnapshot);
           markDirty();
+          setError(
+            "Сервис временно недоступен (503). Очистка страницы не подтверждена и отменена локально."
+          );
           return;
         }
         restoreSceneSnapshot(previousSnapshot);
@@ -170,17 +214,20 @@ export const useWorkbookLayerClearActions = ({
       boardObjectsRef,
       boardSettingsRef,
       boardStrokesRef,
+      buildHistoryEntryFromEvents,
       chatMessages,
       clearIncomingEraserPreviewRuntime,
       clearObjectSyncRuntime,
       clearStrokePreviewRuntime,
       comments,
       constraintsRef,
+      currentBoardPage,
       documentStateRef,
       focusResetTimersByUserRef,
       libraryState,
       markDirty,
       restoreSceneSnapshot,
+      setError,
       setAnnotationStrokes,
       setAwaitingClearRequest,
       setBoardStrokes,

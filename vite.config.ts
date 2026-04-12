@@ -110,11 +110,34 @@ export default defineConfig(({ mode, command }) => {
                 return "vendor-export";
               }
             }
+            if (
+              normalizedId.includes("/src/shared/api/") ||
+              normalizedId.includes("/src/shared/lib/localDb") ||
+              normalizedId.includes("/src/shared/lib/dataUpdateBus") ||
+              normalizedId.includes("/src/shared/lib/outbox") ||
+              normalizedId.includes("/src/shared/lib/retryLastAction") ||
+              normalizedId.includes("/src/shared/lib/performanceMonitoring") ||
+              normalizedId.includes("/src/shared/lib/realtimeMonitoring") ||
+              normalizedId.includes("/src/shared/lib/mediaMonitoring") ||
+              normalizedId.includes("/src/shared/lib/useActionGuard") ||
+              normalizedId.includes("/src/features/workbook/model/workbookPerformance")
+            ) {
+              return "app-runtime-core";
+            }
             if (normalizedId.includes("/src/features/workbook/model/solid3d")) {
               return "workbook-solid3d";
             }
             if (normalizedId.includes("/src/features/workbook/lessonRecording/")) {
               return "workbook-recording";
+            }
+            if (
+              normalizedId.includes(
+                "/src/features/auth-ambient/lib/createAuthAmbientScene"
+              ) ||
+              normalizedId.includes("/src/features/auth-ambient/lib/threeGeometry") ||
+              normalizedId.includes("/src/features/auth-ambient/model/scenePresets")
+            ) {
+              return "auth-ambient-runtime";
             }
             if (normalizedId.includes("/src/features/auth-ambient/")) {
               return "auth-ambient";
@@ -130,8 +153,7 @@ export default defineConfig(({ mode, command }) => {
             }
             if (
               normalizedId.includes("/src/pages/workbook/useWorkbookSession") ||
-              normalizedId.includes("/src/pages/workbook/buildWorkbookSession") ||
-              normalizedId.includes("/src/pages/workbook/workbookSession")
+              normalizedId.includes("/src/pages/workbook/buildWorkbookSession")
             ) {
               return "workbook-session-runtime";
             }

@@ -2268,6 +2268,14 @@ const sanitizeWorkbookLiveEvents = (
         continue;
       }
       if (mode !== "move") continue;
+      const pageRaw =
+        payload && typeof payload === "object"
+          ? (payload as { page?: unknown }).page
+          : undefined;
+      const page =
+        typeof pageRaw === "number" && Number.isFinite(pageRaw)
+          ? Math.max(1, Math.trunc(pageRaw))
+          : null;
       const point =
         payload && typeof payload === "object"
           ? (payload as { point?: unknown }).point
@@ -2292,6 +2300,7 @@ const sanitizeWorkbookLiveEvents = (
             x: (point as { x: number }).x,
             y: (point as { y: number }).y,
           },
+          ...(page !== null ? { page } : {}),
         },
       });
       continue;

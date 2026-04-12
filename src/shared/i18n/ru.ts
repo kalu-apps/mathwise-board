@@ -12,7 +12,7 @@ export const ru = {
     logout: "Выйти",
   },
   auth: {
-    emailLoginTitle: "Вход по email",
+    emailLoginTitle: "Вход",
     emailLabel: "Email",
     emailHint: "Email преподавателя: {email}",
     passwordLabel: "Пароль",

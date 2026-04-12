@@ -123,6 +123,7 @@ export const buildWorkbookSessionSelectionViewportParams = ({
     setLineEndpointLabelDraft: actions.setLineEndpointLabelDraft,
   },
   pageVisibilityParams: {
+    sessionId,
     documentState: data.documentState,
     boardObjects: data.boardObjects,
     boardStrokes: data.boardStrokes,

@@ -90,10 +90,10 @@ export const useWorkbookSessionConfirmActions = ({
     if (!confirmAction) return null;
     if (confirmAction.kind === "clear_board") {
       return {
-        title: "Очистить доску?",
+        title: "Очистить страницу?",
         description:
-          "Это действие удалит все объекты и штрихи с текущего рабочего слоя для всех участников.",
-        confirmLabel: "Очистить",
+          "Это действие удалит все объекты и штрихи текущей страницы для всех участников.",
+        confirmLabel: "Очистить страницу",
         tone: "destructive",
       };
     }

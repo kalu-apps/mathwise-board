@@ -620,7 +620,8 @@ export default function WorkbookSessionPage() {
   const fromPath = searchParams.get("from") || fallbackBackPath;
   const isWorkbookSessionAuthLost = isAuthReady && !user;
   const isSessionAccessBlocked = refs.authRequiredRef.current;
-  const isWorkspaceInteractionBlocked = isSessionTabPassive || isSessionAccessBlocked;
+  const isWorkspaceInteractionBlocked =
+    isSessionTabPassive || isSessionAccessBlocked || !bootstrapReady;
 
   useEffect(() => {
     if (!isWorkbookSessionAuthLost) return;
@@ -678,6 +679,7 @@ export default function WorkbookSessionPage() {
   } = useWorkbookSessionDerivedState({
     sessionId,
     user,
+    currentBoardPage,
     session,
     setError,
     isSessionTabPassive: isWorkspaceInteractionBlocked,
@@ -1032,7 +1034,7 @@ export default function WorkbookSessionPage() {
     pushHistoryEntry,
     rollbackHistoryEntry,
     buildHistoryEntryFromEvents,
-    pushIncomingHistoryEntryFromEvent,
+    pushIncomingHistoryEntryFromEventsBatch,
     syncHistoryStacksFromIncomingUndoRedoEvent,
   } = useWorkbookSessionHistoryRuntime({
     boardObjectsRef,
@@ -1080,6 +1082,7 @@ export default function WorkbookSessionPage() {
         sessionId,
         events,
         userId: user?.id,
+        currentBoardPageRef,
         selectedObjectId: selectedObjectIdRef.current,
         awaitingClearRequest: awaitingClearRequestRef.current,
         lastAppliedSeqRef: refs.lastAppliedSeqRef,
@@ -1088,7 +1091,7 @@ export default function WorkbookSessionPage() {
         actions: workbookSessionActions,
         areParticipantsEqual,
         restoreSceneSnapshot,
-        pushIncomingHistoryEntryFromEvent,
+        pushIncomingHistoryEntryFromEventsBatch,
         syncHistoryStacksFromIncomingUndoRedoEvent,
         onUndoRedoApplyMismatch: () => {
           incomingUndoRedoMismatchHandlerRef.current();
@@ -1107,11 +1110,12 @@ export default function WorkbookSessionPage() {
     [
       user?.id,
       sessionId,
+      currentBoardPageRef,
       refs,
       workbookSessionActions,
       areParticipantsEqual,
       restoreSceneSnapshot,
-      pushIncomingHistoryEntryFromEvent,
+      pushIncomingHistoryEntryFromEventsBatch,
       syncHistoryStacksFromIncomingUndoRedoEvent,
       clearLocalPreviewPatchRuntime,
       clearObjectSyncRuntime,
@@ -1349,6 +1353,7 @@ export default function WorkbookSessionPage() {
           !isWorkspaceInteractionBlocked
       ),
       userId: user?.id,
+      currentBoardPageRef,
       sendWorkbookLiveEvents,
     });
 
@@ -1407,6 +1412,7 @@ export default function WorkbookSessionPage() {
     constraintsRef,
     annotationStrokesRef,
     boardSettingsRef,
+    currentBoardPage,
     documentStateRef,
     focusResetTimersByUserRef,
     setBoardStrokes,
@@ -1426,6 +1432,7 @@ export default function WorkbookSessionPage() {
     setAwaitingClearRequest,
     setConfirmedClearRequest,
     appendEventsAndApply,
+    buildHistoryEntryFromEvents,
     markDirty,
     restoreSceneSnapshot,
     setError,

@@ -188,7 +188,7 @@ export function WorkbookSessionContextbar({
             }}
             disabled={!canClear || isEnded}
           >
-            Очистить доску
+            Очистить страницу
           </MenuItem>
         </Menu>
         <Tooltip title="Меню доски" placement="bottom" arrow>
