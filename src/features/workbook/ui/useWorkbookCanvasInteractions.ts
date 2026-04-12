@@ -318,8 +318,9 @@ const refineImageScissorsSelection = (params: {
   selection: WorkbookAreaSelection | null;
   draft: WorkbookAreaSelectionDraft;
   resolveTopObject: (point: WorkbookPoint) => WorkbookBoardObject | null;
+  objectById: Map<string, WorkbookBoardObject>;
 }): WorkbookAreaSelection | null => {
-  const { tool, selection, draft, resolveTopObject } = params;
+  const { tool, selection, draft, resolveTopObject, objectById } = params;
   if (tool !== "area_select" || !selection) return selection;
   if (selection.objectIds.length === 0) return selection;
 
@@ -339,6 +340,31 @@ const refineImageScissorsSelection = (params: {
     return {
       ...selection,
       objectIds: [topObject.id],
+      strokeIds: [],
+    };
+  }
+
+  // If selection contains only images, prefer top-most image to avoid touching neighbors.
+  if (selection.strokeIds.length > 0) return selection;
+  let topImageId: string | null = null;
+  let hasNonImageObject = false;
+  for (let index = selection.objectIds.length - 1; index >= 0; index -= 1) {
+    const objectId = selection.objectIds[index];
+    const object = objectById.get(objectId);
+    if (!object) continue;
+    if (object.type === "image") {
+      if (!topImageId) {
+        topImageId = object.id;
+      }
+      continue;
+    }
+    hasNonImageObject = true;
+    break;
+  }
+  if (topImageId && !hasNonImageObject) {
+    return {
+      ...selection,
+      objectIds: [topImageId],
       strokeIds: [],
     };
   }
@@ -1101,6 +1127,7 @@ export const useWorkbookCanvasInteractions = (
           selection: nextSelection,
           draft: latestAreaSelectionDraft,
           resolveTopObject: callbacks.resolveTopObject,
+          objectById: data.objectById,
         });
         api.onAreaSelectionChange?.(
           refinedSelection
