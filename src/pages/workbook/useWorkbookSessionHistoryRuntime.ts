@@ -325,15 +325,20 @@ export const useWorkbookSessionHistoryRuntime = ({
     ]
   );
 
-  const pushIncomingHistoryEntryFromEvent = useCallback(
-    (event: WorkbookEvent, localUserId?: string) => {
-      if (!isHistoryTrackedWorkbookEventType(event.type)) return;
-      if (localUserId && event.authorUserId === localUserId) return;
-      const historyEvent = {
-        type: event.type,
-        payload: event.payload,
-      } as WorkbookClientEventInput;
-      const entry = buildHistoryEntryFromEvents([historyEvent]);
+  const pushIncomingHistoryEntryFromEventsBatch = useCallback(
+    (events: WorkbookEvent[], localUserId?: string) => {
+      if (!Array.isArray(events) || events.length === 0) return;
+      const historyEvents = events.reduce<WorkbookClientEventInput[]>((acc, event) => {
+        if (!isHistoryTrackedWorkbookEventType(event.type)) return acc;
+        if (localUserId && event.authorUserId === localUserId) return acc;
+        acc.push({
+          type: event.type,
+          payload: event.payload,
+        } as WorkbookClientEventInput);
+        return acc;
+      }, []);
+      if (historyEvents.length === 0) return;
+      const entry = buildHistoryEntryFromEvents(historyEvents);
       if (!entry) return;
       pushHistoryEntry(entry, { clearRedo: true });
     },
@@ -347,7 +352,7 @@ export const useWorkbookSessionHistoryRuntime = ({
     pushHistoryEntry,
     rollbackHistoryEntry,
     buildHistoryEntryFromEvents,
-    pushIncomingHistoryEntryFromEvent,
+    pushIncomingHistoryEntryFromEventsBatch,
     syncHistoryStacksFromIncomingUndoRedoEvent,
   };
 };

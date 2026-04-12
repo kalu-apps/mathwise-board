@@ -1033,7 +1033,7 @@ export default function WorkbookSessionPage() {
     pushHistoryEntry,
     rollbackHistoryEntry,
     buildHistoryEntryFromEvents,
-    pushIncomingHistoryEntryFromEvent,
+    pushIncomingHistoryEntryFromEventsBatch,
     syncHistoryStacksFromIncomingUndoRedoEvent,
   } = useWorkbookSessionHistoryRuntime({
     boardObjectsRef,
@@ -1090,7 +1090,7 @@ export default function WorkbookSessionPage() {
         actions: workbookSessionActions,
         areParticipantsEqual,
         restoreSceneSnapshot,
-        pushIncomingHistoryEntryFromEvent,
+        pushIncomingHistoryEntryFromEventsBatch,
         syncHistoryStacksFromIncomingUndoRedoEvent,
         onUndoRedoApplyMismatch: () => {
           incomingUndoRedoMismatchHandlerRef.current();
@@ -1114,7 +1114,7 @@ export default function WorkbookSessionPage() {
       workbookSessionActions,
       areParticipantsEqual,
       restoreSceneSnapshot,
-      pushIncomingHistoryEntryFromEvent,
+      pushIncomingHistoryEntryFromEventsBatch,
       syncHistoryStacksFromIncomingUndoRedoEvent,
       clearLocalPreviewPatchRuntime,
       clearObjectSyncRuntime,
