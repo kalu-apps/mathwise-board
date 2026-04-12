@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import type { WorkbookPoint } from "@/features/workbook/model/types";
 
@@ -9,12 +9,14 @@ const TEACHER_CURSOR_HEARTBEAT_INTERVAL_MS = 900;
 type UseWorkbookTeacherCursorBroadcastParams = {
   enabled: boolean;
   userId?: string;
+  currentBoardPageRef: MutableRefObject<number>;
   sendWorkbookLiveEvents: (events: WorkbookClientEventInput[]) => void;
 };
 
 export const useWorkbookTeacherCursorBroadcast = ({
   enabled,
   userId,
+  currentBoardPageRef,
   sendWorkbookLiveEvents,
 }: UseWorkbookTeacherCursorBroadcastParams) => {
   const lastSentAtRef = useRef(0);
@@ -28,6 +30,11 @@ export const useWorkbookTeacherCursorBroadcast = ({
     heartbeatTimerRef.current = null;
   }, []);
 
+  const getCurrentBoardPage = useCallback(
+    () => Math.max(1, Math.round(currentBoardPageRef.current || 1)),
+    [currentBoardPageRef]
+  );
+
   const sendTeacherCursorMove = useCallback(
     (point: WorkbookPoint) => {
       sendWorkbookLiveEvents([
@@ -40,13 +47,14 @@ export const useWorkbookTeacherCursorBroadcast = ({
               x: point.x,
               y: point.y,
             },
+            page: getCurrentBoardPage(),
           },
         },
       ]);
       lastSentAtRef.current = Date.now();
       lastSentPointRef.current = point;
     },
-    [sendWorkbookLiveEvents]
+    [getCurrentBoardPage, sendWorkbookLiveEvents]
   );
 
   const ensureHeartbeat = useCallback(() => {

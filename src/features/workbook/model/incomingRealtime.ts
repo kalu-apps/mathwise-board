@@ -70,6 +70,7 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
   event: WorkbookEvent;
   eventTimestamp: number;
   userId?: string;
+  currentBoardPageRef: MutableRefObject<number>;
   selectedObjectId: string | null;
   selectedTextDraftDirty: boolean;
   selectedTextDraftObjectId: string | null;
@@ -153,6 +154,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     event,
     eventTimestamp,
     userId,
+    currentBoardPageRef,
     selectedObjectId,
     selectedTextDraftDirty,
     selectedTextDraftObjectId,
@@ -746,7 +748,12 @@ export const applyWorkbookIncomingRealtimeEvent = (
 
   if (event.type === "teacher.cursor") {
     const TEACHER_CURSOR_REMOTE_TIMEOUT_MS = 4_000;
-    const payload = event.payload as { target?: unknown; point?: unknown; mode?: unknown };
+    const payload = event.payload as {
+      target?: unknown;
+      point?: unknown;
+      mode?: unknown;
+      page?: unknown;
+    };
     if (payload.target !== "board") return true;
     const authorKey = event.authorUserId || "unknown";
     const timerKey = `teacher-cursor:${authorKey}`;
@@ -770,6 +777,18 @@ export const applyWorkbookIncomingRealtimeEvent = (
       return true;
     }
     if (mode === "clear") {
+      clearTeacherCursor();
+      return true;
+    }
+    const eventPageRaw = payload.page;
+    const eventPage =
+      typeof eventPageRaw === "number" && Number.isFinite(eventPageRaw)
+        ? Math.max(1, Math.trunc(eventPageRaw))
+        : null;
+    if (
+      eventPage !== null
+      && eventPage !== toSafePage(currentBoardPageRef.current)
+    ) {
       clearTeacherCursor();
       return true;
     }

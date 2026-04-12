@@ -1080,6 +1080,7 @@ export default function WorkbookSessionPage() {
         sessionId,
         events,
         userId: user?.id,
+        currentBoardPageRef,
         selectedObjectId: selectedObjectIdRef.current,
         awaitingClearRequest: awaitingClearRequestRef.current,
         lastAppliedSeqRef: refs.lastAppliedSeqRef,
@@ -1107,6 +1108,7 @@ export default function WorkbookSessionPage() {
     [
       user?.id,
       sessionId,
+      currentBoardPageRef,
       refs,
       workbookSessionActions,
       areParticipantsEqual,
@@ -1349,6 +1351,7 @@ export default function WorkbookSessionPage() {
           !isWorkspaceInteractionBlocked
       ),
       userId: user?.id,
+      currentBoardPageRef,
       sendWorkbookLiveEvents,
     });
 

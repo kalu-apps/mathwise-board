@@ -63,6 +63,7 @@ export type WorkbookKnownEventPayloadMap = {
     target: "board";
     mode: "move" | "clear";
     point?: WorkbookPoint;
+    page?: number;
   };
   "chat.message": { message: WorkbookChatMessage | WorkbookUnknownPayload };
   "chat.clear": WorkbookUnknownPayload;

@@ -41,6 +41,7 @@ type ApplyWorkbookIncomingEventsBatchParams = {
   sessionId: string;
   events: WorkbookEvent[];
   userId: string | undefined;
+  currentBoardPageRef: MutableRefObject<number>;
   selectedObjectId: string | null;
   awaitingClearRequest: {
     requestId: string;
@@ -78,6 +79,7 @@ export const applyWorkbookIncomingEventsBatch = ({
   sessionId,
   events,
   userId,
+  currentBoardPageRef,
   selectedObjectId,
   awaitingClearRequest,
   lastAppliedSeqRef,
@@ -172,6 +174,7 @@ export const applyWorkbookIncomingEventsBatch = ({
           event,
           eventTimestamp,
           userId,
+          currentBoardPageRef,
           selectedObjectId,
           selectedTextDraftDirty: refs.selectedTextDraftDirtyRef.current,
           selectedTextDraftObjectId: refs.selectedTextDraftObjectIdRef.current,
