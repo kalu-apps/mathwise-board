@@ -8,7 +8,10 @@ import {
   createWorkbookSession,
   getWorkbookDrafts,
 } from "@/features/workbook/model/api";
-import { prefetchWorkbookSessionRuntime } from "./prefetchWorkbookSessionRuntime";
+import {
+  prefetchWorkbookSessionRuntime,
+  prefetchWorkbookSessionRuntimeOnIdle,
+} from "./prefetchWorkbookSessionRuntime";
 import { t } from "@/shared/i18n";
 import { InlineMobiusLoader } from "@/shared/ui/loading";
 
@@ -27,7 +30,7 @@ export default function WorkbookLaunchPage() {
       openAuthModal();
       return;
     }
-    void prefetchWorkbookSessionRuntime();
+    prefetchWorkbookSessionRuntimeOnIdle();
 
     let active = true;
     const routeTeacherToLesson = async () => {
