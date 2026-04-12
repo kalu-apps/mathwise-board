@@ -27,40 +27,6 @@ import {
 } from "./WorkbookSessionPage.geometry";
 import { buildWorkbookHistoryEntryFromEvents } from "./workbookSessionHistoryEntry";
 
-const isPlainSerializableObject = (value: unknown): value is Record<string, unknown> =>
-  Boolean(value) && typeof value === "object" && !Array.isArray(value);
-
-const areSerializableValuesStructurallyEqual = (left: unknown, right: unknown): boolean => {
-  if (Object.is(left, right)) return true;
-  if (left === null || right === null) return left === right;
-  if (typeof left !== typeof right) return false;
-  if (Array.isArray(left) || Array.isArray(right)) {
-    if (!Array.isArray(left) || !Array.isArray(right)) return false;
-    if (left.length !== right.length) return false;
-    for (let index = 0; index < left.length; index += 1) {
-      if (!areSerializableValuesStructurallyEqual(left[index], right[index])) {
-        return false;
-      }
-    }
-    return true;
-  }
-  if (!isPlainSerializableObject(left) || !isPlainSerializableObject(right)) {
-    return false;
-  }
-  const leftKeys = Object.keys(left).sort();
-  const rightKeys = Object.keys(right).sort();
-  if (leftKeys.length !== rightKeys.length) return false;
-  for (let index = 0; index < leftKeys.length; index += 1) {
-    const leftKey = leftKeys[index];
-    const rightKey = rightKeys[index];
-    if (leftKey !== rightKey) return false;
-    if (!areSerializableValuesStructurallyEqual(left[leftKey], right[rightKey])) {
-      return false;
-    }
-  }
-  return true;
-};
-
 type UseWorkbookSessionHistoryRuntimeParams = {
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
   boardObjectIndexByIdRef: MutableRefObject<Map<string, number>>;
@@ -265,32 +231,6 @@ export const useWorkbookSessionHistoryRuntime = ({
     ]
   );
 
-  const findMatchingEntryIndexForPage = useCallback(
-    (
-      entries: WorkbookHistoryEntry[],
-      page: number,
-      operations: unknown[] | null,
-      mode: "undo" | "redo"
-    ) => {
-      const fallbackIndex = findLastEntryIndexForPage(entries, page);
-      if (!operations || operations.length === 0) {
-        return fallbackIndex;
-      }
-      const safePage = toSafePage(page);
-      for (let index = entries.length - 1; index >= 0; index -= 1) {
-        const entry = entries[index];
-        if (!entry) continue;
-        if (resolveEntryPage(entry) !== safePage) continue;
-        const expectedOperations = mode === "undo" ? entry.inverse : entry.forward;
-        if (areSerializableValuesStructurallyEqual(expectedOperations, operations)) {
-          return index;
-        }
-      }
-      return fallbackIndex;
-    },
-    [findLastEntryIndexForPage, resolveEntryPage, toSafePage]
-  );
-
   const syncHistoryStacksFromIncomingUndoRedoEvent = useCallback(
     (event: WorkbookEvent) => {
       if (event.type !== "board.undo" && event.type !== "board.redo") return;
@@ -302,14 +242,8 @@ export const useWorkbookSessionHistoryRuntime = ({
         typeof payload.page === "number" && Number.isFinite(payload.page)
           ? toSafePage(payload.page)
           : toSafePage(currentBoardPageRef.current);
-      const operations = Array.isArray(payload.operations) ? payload.operations : null;
       if (event.type === "board.undo") {
-        const targetIndex = findMatchingEntryIndexForPage(
-          undoStackRef.current,
-          targetPage,
-          operations,
-          "undo"
-        );
+        const targetIndex = findLastEntryIndexForPage(undoStackRef.current, targetPage);
         if (targetIndex < 0) return;
         const entry = undoStackRef.current[targetIndex];
         if (!entry) return;
@@ -319,12 +253,7 @@ export const useWorkbookSessionHistoryRuntime = ({
         ];
         redoStackRef.current = [...redoStackRef.current, entry].slice(-80);
       } else {
-        const targetIndex = findMatchingEntryIndexForPage(
-          redoStackRef.current,
-          targetPage,
-          operations,
-          "redo"
-        );
+        const targetIndex = findLastEntryIndexForPage(redoStackRef.current, targetPage);
         if (targetIndex < 0) return;
         const entry = redoStackRef.current[targetIndex];
         if (!entry) return;
@@ -341,7 +270,7 @@ export const useWorkbookSessionHistoryRuntime = ({
     [
       countEntriesForPage,
       currentBoardPageRef,
-      findMatchingEntryIndexForPage,
+      findLastEntryIndexForPage,
       redoStackRef,
       setRedoDepth,
       setUndoDepth,

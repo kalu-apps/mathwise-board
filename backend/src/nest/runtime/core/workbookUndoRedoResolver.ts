@@ -929,35 +929,23 @@ const applyHistoryOperations = (
   return appliedOperationsCount;
 };
 
-const findMatchingEntryIndexForPage = (
-  entries: WorkbookHistoryEntry[],
-  page: number,
-  operations: unknown[] | null,
-  mode: "undo" | "redo"
-) => {
-  const safePage = toSafePage(page);
-  let fallbackIndex = -1;
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
-    if (!entry || toSafePage(entry.page) !== safePage) continue;
-    if (fallbackIndex < 0) {
-      fallbackIndex = index;
-    }
-    if (!operations || operations.length === 0) continue;
-    const expectedOperations = mode === "undo" ? entry.inverse : entry.forward;
-    if (areSerializableValuesStructurallyEqual(expectedOperations, operations)) {
-      return index;
-    }
-  }
-  return fallbackIndex;
-};
-
 const pushUndoEntry = (state: WorkbookServerHistoryState, entry: WorkbookHistoryEntry) => {
   const page = toSafePage(entry.page);
   const undoStack = state.undoByPage.get(page) ?? [];
   undoStack.push(entry);
   state.undoByPage.set(page, undoStack.slice(-MAX_HISTORY_ENTRIES_PER_PAGE));
   state.redoByPage.set(page, []);
+};
+
+const popLastHistoryEntryForPage = (
+  map: Map<number, WorkbookHistoryEntry[]>,
+  page: number
+) => {
+  const stack = map.get(page);
+  if (!stack || stack.length === 0) return null;
+  const entry = stack.pop() ?? null;
+  map.set(page, stack);
+  return entry;
 };
 
 const applyUndoRedoEventToHistoryState = (
@@ -973,46 +961,40 @@ const applyUndoRedoEventToHistoryState = (
     typeof payload.page === "number" && Number.isFinite(payload.page)
       ? toSafePage(payload.page)
       : toSafePage(state.scene.boardSettings.currentPage);
-  const operations = Array.isArray(payload.operations) ? payload.operations : null;
   if (event.type === "board.undo") {
-    const undoStack = state.undoByPage.get(targetPage) ?? [];
-    const targetIndex = findMatchingEntryIndexForPage(
-      undoStack,
-      targetPage,
-      operations,
-      "undo"
-    );
-    if (targetIndex >= 0) {
-      const [entry] = undoStack.splice(targetIndex, 1);
-      state.undoByPage.set(targetPage, undoStack);
-      if (entry) {
-        const redoStack = state.redoByPage.get(targetPage) ?? [];
-        redoStack.push(entry);
-        state.redoByPage.set(targetPage, redoStack.slice(-MAX_HISTORY_ENTRIES_PER_PAGE));
-      }
+    const entry = popLastHistoryEntryForPage(state.undoByPage, targetPage);
+    if (entry) {
+      const redoStack = state.redoByPage.get(targetPage) ?? [];
+      redoStack.push(entry);
+      state.redoByPage.set(targetPage, redoStack.slice(-MAX_HISTORY_ENTRIES_PER_PAGE));
+    }
+    const operations = entry
+      ? entry.inverse
+      : Array.isArray(payload.operations)
+        ? (payload.operations as WorkbookHistoryOperation[])
+        : [];
+    if (operations.length > 0) {
+      applyHistoryOperations(state.scene, operations, {
+        ignoreExpectedCurrent: true,
+      });
     }
   } else {
-    const redoStack = state.redoByPage.get(targetPage) ?? [];
-    const targetIndex = findMatchingEntryIndexForPage(
-      redoStack,
-      targetPage,
-      operations,
-      "redo"
-    );
-    if (targetIndex >= 0) {
-      const [entry] = redoStack.splice(targetIndex, 1);
-      state.redoByPage.set(targetPage, redoStack);
-      if (entry) {
-        const undoStack = state.undoByPage.get(targetPage) ?? [];
-        undoStack.push(entry);
-        state.undoByPage.set(targetPage, undoStack.slice(-MAX_HISTORY_ENTRIES_PER_PAGE));
-      }
+    const entry = popLastHistoryEntryForPage(state.redoByPage, targetPage);
+    if (entry) {
+      const undoStack = state.undoByPage.get(targetPage) ?? [];
+      undoStack.push(entry);
+      state.undoByPage.set(targetPage, undoStack.slice(-MAX_HISTORY_ENTRIES_PER_PAGE));
     }
-  }
-  if (operations && operations.length > 0) {
-    applyHistoryOperations(state.scene, operations as WorkbookHistoryOperation[], {
-      ignoreExpectedCurrent: true,
-    });
+    const operations = entry
+      ? entry.forward
+      : Array.isArray(payload.operations)
+        ? (payload.operations as WorkbookHistoryOperation[])
+        : [];
+    if (operations.length > 0) {
+      applyHistoryOperations(state.scene, operations, {
+        ignoreExpectedCurrent: true,
+      });
+    }
   }
 };
 
@@ -1182,17 +1164,6 @@ const buildHistoryStateFromPersistence = async (params: {
   return historyState;
 };
 
-const popLastHistoryEntryForPage = (
-  map: Map<number, WorkbookHistoryEntry[]>,
-  page: number
-) => {
-  const stack = map.get(page);
-  if (!stack || stack.length === 0) return null;
-  const entry = stack.pop() ?? null;
-  map.set(page, stack);
-  return entry;
-};
-
 export const resolveWorkbookUndoRedoEvents = async ({
   sessionId,
   events,
@@ -1231,13 +1202,10 @@ export const resolveWorkbookUndoRedoEvents = async ({
         typeof payload.page === "number" && Number.isFinite(payload.page)
           ? toSafePage(payload.page)
           : toSafePage(historyState.scene.boardSettings.currentPage);
-      const requestedOperations = Array.isArray(payload.operations)
-        ? cloneSerializable(payload.operations as WorkbookHistoryOperation[])
-        : [];
 
       if (event.type === "board.undo") {
         const entry = popLastHistoryEntryForPage(historyState.undoByPage, targetPage);
-        const operations = entry ? cloneSerializable(entry.inverse) : requestedOperations;
+        const operations = entry ? cloneSerializable(entry.inverse) : [];
         if (entry) {
           const redoStack = historyState.redoByPage.get(targetPage) ?? [];
           redoStack.push(entry);
@@ -1258,7 +1226,7 @@ export const resolveWorkbookUndoRedoEvents = async ({
         });
       } else {
         const entry = popLastHistoryEntryForPage(historyState.redoByPage, targetPage);
-        const operations = entry ? cloneSerializable(entry.forward) : requestedOperations;
+        const operations = entry ? cloneSerializable(entry.forward) : [];
         if (entry) {
           const undoStack = historyState.undoByPage.get(targetPage) ?? [];
           undoStack.push(entry);
