@@ -1407,6 +1407,7 @@ export default function WorkbookSessionPage() {
     constraintsRef,
     annotationStrokesRef,
     boardSettingsRef,
+    currentBoardPageRef,
     documentStateRef,
     focusResetTimersByUserRef,
     setBoardStrokes,

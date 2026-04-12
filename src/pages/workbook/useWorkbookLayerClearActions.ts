@@ -44,6 +44,7 @@ type UseWorkbookLayerClearActionsParams = {
   constraintsRef: MutableRefObject<WorkbookConstraint[]>;
   annotationStrokesRef: MutableRefObject<WorkbookStroke[]>;
   boardSettingsRef: MutableRefObject<WorkbookBoardSettings>;
+  currentBoardPageRef: MutableRefObject<number>;
   documentStateRef: MutableRefObject<WorkbookDocumentState>;
   focusResetTimersByUserRef: MutableRefObject<Map<string, number>>;
   setBoardStrokes: SetState<WorkbookStroke[]>;
@@ -86,6 +87,7 @@ export const useWorkbookLayerClearActions = ({
   constraintsRef,
   annotationStrokesRef,
   boardSettingsRef,
+  currentBoardPageRef,
   documentStateRef,
   focusResetTimersByUserRef,
   setBoardStrokes,
@@ -125,7 +127,7 @@ export const useWorkbookLayerClearActions = ({
       };
 
       if (target === "board") {
-        const targetPage = toSafePage(boardSettingsRef.current.currentPage);
+        const targetPage = toSafePage(currentBoardPageRef.current);
         const removedObjectIds = new Set(
           boardObjectsRef.current
             .filter((object) => toSafePage(object.page) === targetPage)
@@ -178,7 +180,7 @@ export const useWorkbookLayerClearActions = ({
               target === "board"
                 ? {
                     scope: "page",
-                    page: toSafePage(boardSettingsRef.current.currentPage),
+                    page: toSafePage(currentBoardPageRef.current),
                   }
                 : {},
           },
@@ -186,6 +188,7 @@ export const useWorkbookLayerClearActions = ({
       } catch (error) {
         if (isRecoverableApiError(error)) {
           markDirty();
+          setError("Сервис временно недоступен (503). Очистка страницы будет повторена автоматически.");
           return;
         }
         restoreSceneSnapshot(previousSnapshot);
@@ -205,11 +208,13 @@ export const useWorkbookLayerClearActions = ({
       clearStrokePreviewRuntime,
       comments,
       constraintsRef,
+      currentBoardPageRef,
       documentStateRef,
       focusResetTimersByUserRef,
       libraryState,
       markDirty,
       restoreSceneSnapshot,
+      setError,
       setAnnotationStrokes,
       setAwaitingClearRequest,
       setBoardStrokes,
