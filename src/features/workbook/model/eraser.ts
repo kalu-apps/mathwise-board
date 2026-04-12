@@ -1,4 +1,8 @@
-import { distanceToSegment, getLineBasis } from "./sceneGeometry";
+import {
+  distanceToSegment,
+  getLineBasis,
+  rotatePointAround,
+} from "./sceneGeometry";
 import type { WorkbookBoardObject, WorkbookPoint, WorkbookStroke } from "./types";
 
 type RectLike = {
@@ -113,6 +117,30 @@ const resolvePathCoordinateSpace = (
   pathSpace: unknown
 ): ObjectEraserCoordinateSpace =>
   pathSpace === "line" && isLineLikeObject(object) ? "line" : "rect";
+
+const resolveObjectRotation = (object: WorkbookBoardObject) =>
+  typeof object.rotation === "number" && Number.isFinite(object.rotation)
+    ? object.rotation
+    : 0;
+
+const rotatePathsWithObject = (
+  object: WorkbookBoardObject,
+  paths: ObjectEraserPreviewPath[],
+  getObjectRect: GetObjectRect
+) => {
+  if (paths.length === 0) return paths;
+  const rotation = resolveObjectRotation(object);
+  if (Math.abs(rotation) <= 1e-6) return paths;
+  const rect = getObjectRect(object);
+  const center = {
+    x: rect.x + rect.width / 2,
+    y: rect.y + rect.height / 2,
+  };
+  return paths.map((path) => ({
+    ...path,
+    points: path.points.map((point) => rotatePointAround(point, center, rotation)),
+  }));
+};
 
 export const buildEraserSegmentPoints = (
   from: WorkbookPoint,
@@ -860,15 +888,26 @@ export const resolveObjectEraserMaskPathsForRender = (params: {
     committedStoredPaths.length > 0
       ? resolveObjectEraserPathsForRender(object, committedStoredPaths, getObjectRect)
       : [];
-  if (previewPaths && previewPaths.length > 0) {
-    return committedPaths.length > 0 ? [...committedPaths, ...previewPaths] : previewPaths;
-  }
-  if (committedPaths.length > 0) {
-    return committedPaths;
-  }
-  return resolveObjectEraserCutPathsForRender(
+  const rotatedCommittedPaths = rotatePathsWithObject(
     object,
-    cuts ?? sanitizeObjectEraserCuts(object, getObjectRect),
+    committedPaths,
+    getObjectRect
+  );
+  if (previewPaths && previewPaths.length > 0) {
+    return rotatedCommittedPaths.length > 0
+      ? [...rotatedCommittedPaths, ...previewPaths]
+      : previewPaths;
+  }
+  if (rotatedCommittedPaths.length > 0) {
+    return rotatedCommittedPaths;
+  }
+  return rotatePathsWithObject(
+    object,
+    resolveObjectEraserCutPathsForRender(
+      object,
+      cuts ?? sanitizeObjectEraserCuts(object, getObjectRect),
+      getObjectRect
+    ),
     getObjectRect
   );
 };

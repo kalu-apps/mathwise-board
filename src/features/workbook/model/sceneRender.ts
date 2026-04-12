@@ -19,6 +19,7 @@ import {
   getObjectRect,
   mapConstraintLabel,
   normalizeRect,
+  rotatePointAround,
 } from "./sceneGeometry";
 import {
   getAreaSelectionDraftRect,
@@ -162,6 +163,41 @@ const expandRectByPadding = (
   width: rect.width + padding * 2,
   height: rect.height + padding * 2,
 });
+
+const resolveRotatedObjectRect = (object: WorkbookBoardObject) => {
+  const rect = getObjectRect(object);
+  const rotation =
+    typeof object.rotation === "number" && Number.isFinite(object.rotation)
+      ? object.rotation
+      : 0;
+  if (Math.abs(rotation) <= 1e-6) return rect;
+  const center = {
+    x: rect.x + rect.width / 2,
+    y: rect.y + rect.height / 2,
+  };
+  const corners = [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y + rect.height },
+    { x: rect.x, y: rect.y + rect.height },
+  ].map((point) => rotatePointAround(point, center, rotation));
+  let minX = corners[0].x;
+  let minY = corners[0].y;
+  let maxX = corners[0].x;
+  let maxY = corners[0].y;
+  corners.forEach((point) => {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  });
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+};
 
 export const prepareWorkbookRenderObject = (params: {
   objectSource: WorkbookBoardObject;
@@ -324,7 +360,7 @@ export const buildMaskedObjectSceneEntry = (params: {
       maskBounds: null,
     };
   }
-  const objectRect = getObjectRect(renderSource);
+  const objectRect = resolveRotatedObjectRect(renderSource);
   let minX = objectRect.x - ERASER_MASK_PADDING;
   let minY = objectRect.y - ERASER_MASK_PADDING;
   let maxX = objectRect.x + objectRect.width + ERASER_MASK_PADDING;
