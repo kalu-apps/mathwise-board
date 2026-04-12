@@ -26,7 +26,6 @@ type SetAreaSelection = (
 ) => void;
 
 type UseWorkbookPageVisibilityStateParams = {
-  sessionId: string;
   documentState: WorkbookDocumentState;
   boardObjects: WorkbookBoardObject[];
   boardStrokes: WorkbookStroke[];
@@ -45,13 +44,6 @@ type UseWorkbookPageVisibilityStateParams = {
 
 const prewarmedImageAssetUrls = new Set<string>();
 const IMAGE_VISIBILITY_READY_TIMEOUT_MS = 900;
-const buildWorkbookAssetUrlById = (sessionId: string, assetId: string) => {
-  const safeSessionId = encodeURIComponent(sessionId.trim());
-  const safeAssetId = encodeURIComponent(assetId.trim());
-  return normalizeWorkbookAssetContentUrl(
-    `/api/workbook/sessions/${safeSessionId}/assets/${safeAssetId}/content`
-  );
-};
 
 const loadImageForVisibility = (assetUrl: string): Promise<void> =>
   new Promise<void>((resolve) => {
@@ -88,7 +80,6 @@ const loadImageForVisibility = (assetUrl: string): Promise<void> =>
   });
 
 export const useWorkbookPageVisibilityState = ({
-  sessionId,
   documentState,
   boardObjects,
   boardStrokes,
@@ -153,11 +144,6 @@ export const useWorkbookPageVisibilityState = ({
           : "";
       if (assetImageUrl) {
         imageByPage.set(page, assetImageUrl);
-        return;
-      }
-      const reconstructedAssetUrl = buildWorkbookAssetUrlById(sessionId, assetId);
-      if (reconstructedAssetUrl) {
-        imageByPage.set(page, reconstructedAssetUrl);
       }
     });
     boardStrokes.forEach((stroke) => {
@@ -213,7 +199,6 @@ export const useWorkbookPageVisibilityState = ({
     boardSettings.pagesCount,
     boardStrokes,
     imageAssetUrls,
-    sessionId,
   ]);
 
   const {
@@ -252,18 +237,10 @@ export const useWorkbookPageVisibilityState = ({
       if (assetImageUrl && !seen.has(assetImageUrl)) {
         seen.add(assetImageUrl);
         urls.push(assetImageUrl);
-        return;
-      }
-      if (assetId) {
-        const reconstructedAssetUrl = buildWorkbookAssetUrlById(sessionId, assetId);
-        if (reconstructedAssetUrl && !seen.has(reconstructedAssetUrl)) {
-          seen.add(reconstructedAssetUrl);
-          urls.push(reconstructedAssetUrl);
-        }
       }
     });
     return urls;
-  }, [imageAssetUrls, sessionId, visibleBoardObjects]);
+  }, [imageAssetUrls, visibleBoardObjects]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
