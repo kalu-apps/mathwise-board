@@ -620,7 +620,8 @@ export default function WorkbookSessionPage() {
   const fromPath = searchParams.get("from") || fallbackBackPath;
   const isWorkbookSessionAuthLost = isAuthReady && !user;
   const isSessionAccessBlocked = refs.authRequiredRef.current;
-  const isWorkspaceInteractionBlocked = isSessionTabPassive || isSessionAccessBlocked;
+  const isWorkspaceInteractionBlocked =
+    isSessionTabPassive || isSessionAccessBlocked || !bootstrapReady;
 
   useEffect(() => {
     if (!isWorkbookSessionAuthLost) return;
