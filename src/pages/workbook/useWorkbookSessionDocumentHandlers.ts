@@ -60,6 +60,7 @@ export type WorkbookPreparedDocumentImport = {
   preparedDataUrl?: string;
   imageWidth?: number;
   imageHeight?: number;
+  batchInsertIndex?: number;
   pdfSourceId?: string;
   pdfPageRange?: {
     from: number;
@@ -122,6 +123,36 @@ type UseWorkbookSessionDocumentHandlersParams = {
 
 const PDF_IMPORT_RENDER_CHUNK_SIZE = 3;
 const PDF_IMPORT_UPLOAD_CONCURRENCY = 3;
+const IMAGE_IMPORT_BATCH_COLUMNS = 3;
+const IMAGE_IMPORT_BATCH_STEP_X = 440;
+const IMAGE_IMPORT_BATCH_STEP_Y = 320;
+const PDF_IMPORT_BATCH_COLUMNS = 2;
+const PDF_IMPORT_BATCH_STEP_X = 980;
+const PDF_IMPORT_BATCH_STEP_Y = 760;
+
+const resolveWorkbookImportBatchInsertPosition = (params: {
+  basePosition: { x: number; y: number };
+  batchIndex?: number;
+  isPdf: boolean;
+}) => {
+  const rawIndex = Number(params.batchIndex);
+  if (!Number.isFinite(rawIndex)) {
+    return params.basePosition;
+  }
+  const batchIndex = Math.max(0, Math.trunc(rawIndex));
+  if (batchIndex === 0) {
+    return params.basePosition;
+  }
+  const columns = params.isPdf ? PDF_IMPORT_BATCH_COLUMNS : IMAGE_IMPORT_BATCH_COLUMNS;
+  const stepX = params.isPdf ? PDF_IMPORT_BATCH_STEP_X : IMAGE_IMPORT_BATCH_STEP_X;
+  const stepY = params.isPdf ? PDF_IMPORT_BATCH_STEP_Y : IMAGE_IMPORT_BATCH_STEP_Y;
+  const column = batchIndex % columns;
+  const row = Math.floor(batchIndex / columns);
+  return {
+    x: params.basePosition.x + column * stepX,
+    y: params.basePosition.y + row * stepY,
+  };
+};
 
 const readImageMeta = async (dataUrl: string) =>
   new Promise<{ width: number; height: number }>((resolve, reject) => {
@@ -331,6 +362,7 @@ export const useWorkbookSessionDocumentHandlers = ({
       preparedDataUrl,
       imageWidth,
       imageHeight,
+      batchInsertIndex,
       pdfSourceId,
       pdfPageRange,
       pdfPageCount,
@@ -432,10 +464,11 @@ export const useWorkbookSessionDocumentHandlers = ({
           const safeTo = totalPages !== null ? Math.min(totalPages, requestedTo) : requestedTo;
           const pageCount = Math.max(1, Math.min(12, safeTo - safeFrom + 1));
           reportProgress(28);
-          const insertPosition = resolveWorkbookBoardInsertPosition(
-            canvasViewport,
-            boardObjectCount
-          );
+          const insertPosition = resolveWorkbookImportBatchInsertPosition({
+            basePosition: resolveWorkbookBoardInsertPosition(canvasViewport, boardObjectCount),
+            batchIndex: batchInsertIndex,
+            isPdf: true,
+          });
           const renderProfile = resolvePdfImportRenderProfile({
             selectedPages: pageCount,
             totalPages,
@@ -591,10 +624,11 @@ export const useWorkbookSessionDocumentHandlers = ({
           });
           reportProgress(72);
         }
-        const insertPosition = resolveWorkbookBoardInsertPosition(
-          canvasViewport,
-          boardObjectCount
-        );
+        const insertPosition = resolveWorkbookImportBatchInsertPosition({
+          basePosition: resolveWorkbookBoardInsertPosition(canvasViewport, boardObjectCount),
+          batchIndex: batchInsertIndex,
+          isPdf,
+        });
         const renderedPage = isPdf
           ? resolvePrimaryDocumentRenderedPage(syncedRenderedPages, 1)
           : null;
