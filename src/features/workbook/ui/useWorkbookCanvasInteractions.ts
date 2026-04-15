@@ -467,7 +467,6 @@ export const useWorkbookCanvasInteractions = (
 
       if (startMode === "pan") {
         const target = callbacks.resolveTopObject(point);
-        const strokeTarget = !target ? callbacks.resolveTopStroke(point) : null;
         const targetFunctionId =
           target && target.type === "function_graph" && !target.pinned
             ? callbacks.resolveGraphFunctionHit(target, point)
@@ -488,27 +487,6 @@ export const useWorkbookCanvasInteractions = (
           api.onSelectedObjectChange(target.id);
           callbacks.startGraphPan(target, targetFunctionId, point, event, svg);
           return;
-        }
-        if (panAction === "move" && target) {
-          api.onSelectedObjectChange(target.id);
-          callbacks.startMoving(target, event, svg);
-          return;
-        }
-        if (strokeTarget) {
-          api.onAreaSelectionChange?.(null);
-          api.onSelectedObjectChange(null);
-          api.onSelectedStrokeChange({
-            id: strokeTarget.id,
-            layer: strokeTarget.layer,
-          });
-          const strokeProxy = buildWorkbookStrokeMoveProxyObject(
-            strokeTarget,
-            data.authorUserId
-          );
-          if (strokeProxy) {
-            callbacks.startMoving(strokeProxy, event, svg, [strokeProxy]);
-            return;
-          }
         }
         api.onSelectedObjectChange(null);
         pointerIdRef.current = event.pointerId;

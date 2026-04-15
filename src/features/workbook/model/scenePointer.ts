@@ -52,7 +52,6 @@ export type WorkbookStartInteractionMode =
 export type WorkbookPanStartAction =
   | "rotate_solid3d"
   | "graph_pan"
-  | "move"
   | "pan";
 
 export type WorkbookSelectStartAction =
@@ -129,7 +128,7 @@ export const resolveWorkbookPanStartAction = (params: {
   if (params.targetType === "function_graph" && params.hasTargetFunctionId) {
     return "graph_pan";
   }
-  return "move";
+  return "pan";
 };
 
 export const resolveWorkbookSelectStartAction = (params: {
