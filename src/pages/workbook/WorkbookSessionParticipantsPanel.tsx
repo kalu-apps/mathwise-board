@@ -1,4 +1,11 @@
-import { memo, useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { Avatar, IconButton, Tooltip } from "@mui/material";
 import ForumRoundedIcon from "@mui/icons-material/ForumRounded";
 import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
@@ -144,6 +151,13 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
   );
 
   const isFloating = !isCompactViewport && Boolean(floatingPosition);
+  const visibleParticipantCards = useMemo(
+    () =>
+      participantCards.filter(
+        (participant) => participant.roleInSession === "teacher" || participant.isOnline
+      ),
+    [participantCards]
+  );
 
   return (
     <div
@@ -229,7 +243,7 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
         </div>
       </div>
       <div className="workbook-session__participants-scroll">
-        {participantCards.map((participant) => {
+        {visibleParticipantCards.map((participant) => {
           const isSelfParticipant = participant.userId === currentUserId;
           const boardToolsEnabled = isParticipantBoardToolsEnabled(participant);
           const participantRoleLabel =
