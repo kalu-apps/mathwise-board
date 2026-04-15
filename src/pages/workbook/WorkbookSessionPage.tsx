@@ -3026,7 +3026,8 @@ export default function WorkbookSessionPage() {
     incomingEraserPreviews: selectionViewportState.visibleIncomingEraserPreviews,
     showPageNumbers: boardSettings.showPageNumbers,
     currentPage: safeCurrentBoardPage,
-    disabled: !canEdit || boardLocked,
+    // Keep hand navigation available for locked students while preserving edit lock.
+    disabled: boardLocked || (!canEdit && tool !== "pan" && !spacePanActive),
     selectedObjectId,
     selectedConstraintId,
     focusPoint,
