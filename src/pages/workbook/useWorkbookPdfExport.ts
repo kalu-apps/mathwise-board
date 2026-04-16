@@ -9,6 +9,7 @@ import { normalizeWorkbookAssetContentUrl } from "@/features/workbook/model/work
 import {
   WORKBOOK_BOARD_BACKGROUND_COLOR,
   WORKBOOK_BOARD_GRID_COLOR,
+  WORKBOOK_BOARD_PRIMARY_COLOR,
 } from "@/features/workbook/model/workbookVisualColors";
 import { resolveWorkbookPageFrameBounds } from "@/features/workbook/model/pageFrame";
 import type {
@@ -70,6 +71,9 @@ const EXPORT_PDF_FOOTER_SIDE_PADDING_PT = 24;
 const EXPORT_PDF_FOOTER_LINE_Y_OFFSET_PT = 8;
 const EXPORT_PDF_FOOTER_PRIMARY_FONT_SIZE_PT = 8;
 const EXPORT_PDF_FOOTER_PRIMARY_TEXT_RGB = 56;
+const EXPORT_PDF_FOOTER_SECONDARY_FONT_SIZE_PT = 8;
+const EXPORT_PDF_FOOTER_HANDLE_TEXT = "@annaviktorovna.mathege";
+const EXPORT_PDF_FOOTER_HANDLE_GAP_PT = 8;
 const EXPORT_PDF_FOOTER_TEXT_TOP_GAP_PT = 4;
 const EXPORT_PDF_FOOTER_TEXT_BOTTOM_PADDING_PT = 3;
 const inlinedExportImageUrls = new Map<string, Promise<string | null>>();
@@ -230,6 +234,8 @@ const drawWorkbookPdfFooter = (params: {
 
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.clearRect(0, 0, pageWidth, EXPORT_PDF_FOOTER_HEIGHT_PT);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, pageWidth, EXPORT_PDF_FOOTER_HEIGHT_PT);
 
   const lineY = Math.min(EXPORT_PDF_FOOTER_HEIGHT_PT - 2, EXPORT_PDF_FOOTER_LINE_Y_OFFSET_PT);
   const currentYear = new Date().getFullYear();
@@ -258,6 +264,19 @@ const drawWorkbookPdfFooter = (params: {
   const baselineMaxY = EXPORT_PDF_FOOTER_HEIGHT_PT - EXPORT_PDF_FOOTER_TEXT_BOTTOM_PADDING_PT - textDescent;
   const primaryBaselineY = Math.min(baselineMaxY, baselineMinY);
   ctx.fillText(primaryText, EXPORT_PDF_FOOTER_SIDE_PADDING_PT, primaryBaselineY);
+
+  ctx.fillStyle = WORKBOOK_BOARD_PRIMARY_COLOR;
+  ctx.font = `600 ${EXPORT_PDF_FOOTER_SECONDARY_FONT_SIZE_PT}px "Arial", "Segoe UI", sans-serif`;
+  const secondaryTextMetrics = ctx.measureText(EXPORT_PDF_FOOTER_HANDLE_TEXT);
+  const preferredSecondaryX =
+    EXPORT_PDF_FOOTER_SIDE_PADDING_PT + textMetrics.width + EXPORT_PDF_FOOTER_HANDLE_GAP_PT;
+  const maxSecondaryX =
+    pageWidth - EXPORT_PDF_FOOTER_SIDE_PADDING_PT - secondaryTextMetrics.width;
+  const secondaryTextX = Math.max(
+    EXPORT_PDF_FOOTER_SIDE_PADDING_PT,
+    Math.min(preferredSecondaryX, maxSecondaryX)
+  );
+  ctx.fillText(EXPORT_PDF_FOOTER_HANDLE_TEXT, secondaryTextX, primaryBaselineY);
 
   const footerDataUrl = canvas.toDataURL("image/png");
   pdf.addImage(
