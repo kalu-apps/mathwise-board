@@ -104,6 +104,17 @@
     z-index: 90;
   }
 
+  @supports not (height: 100dvh) {
+    .workbook-session__layout--sidebar-overlay .workbook-session__sidebar {
+      position: static;
+      top: auto;
+      right: auto;
+      width: 100%;
+      max-height: none;
+      z-index: auto;
+    }
+  }
+
   .workbook-session__board-shell {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;

@@ -89,14 +89,6 @@ export const resolveWorkbookViewportFlags = () => {
   };
 };
 
-export const supportsWorkbookDynamicViewportUnits = () => {
-  if (typeof window === "undefined") return true;
-  if (typeof window.CSS?.supports === "function") {
-    return window.CSS.supports("height: 100dvh");
-  }
-  return false;
-};
-
 export const toSafeWorkbookPage = (value: number | null | undefined) =>
   Math.max(1, Math.round(value || 1));
 
