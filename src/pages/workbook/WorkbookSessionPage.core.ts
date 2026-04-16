@@ -42,6 +42,7 @@ export const ADAPTIVE_POLLING_MIN_MS = 320;
 export const ADAPTIVE_POLLING_MAX_MS = 8_000;
 export const PRESENCE_INTERVAL_MS = 1_000;
 export const AUTOSAVE_INTERVAL_MS = 15_000;
+export const COMPACT_VIEWPORT_MAX_WIDTH = 760;
 export const CONTEXTBAR_DOCKED_VIEWPORT_MAX_WIDTH = 1024;
 export const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
 export const VOLATILE_SYNC_FLUSH_INTERVAL_MS = 16;
@@ -68,6 +69,25 @@ export const TAB_LOCK_HEARTBEAT_MS = 2_000;
 export const TAB_LOCK_TTL_MS = 8_000;
 export const MAIN_SCENE_LAYER_ID = "main";
 export const MAIN_SCENE_LAYER_NAME = "Основной слой";
+
+const resolveSafeViewportDimension = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+
+export const resolveWorkbookViewportWidth = () => {
+  if (typeof window === "undefined") return Number.POSITIVE_INFINITY;
+  const windowWidth = resolveSafeViewportDimension(window.innerWidth) ?? Number.POSITIVE_INFINITY;
+  const visualWidth = resolveSafeViewportDimension(window.visualViewport?.width);
+  return visualWidth ? Math.min(windowWidth, visualWidth) : windowWidth;
+};
+
+export const resolveWorkbookViewportFlags = () => {
+  const width = resolveWorkbookViewportWidth();
+  return {
+    width,
+    isCompactViewport: width <= COMPACT_VIEWPORT_MAX_WIDTH,
+    isDockedContextbarViewport: width <= CONTEXTBAR_DOCKED_VIEWPORT_MAX_WIDTH,
+  };
+};
 
 export const toSafeWorkbookPage = (value: number | null | undefined) =>
   Math.max(1, Math.round(value || 1));

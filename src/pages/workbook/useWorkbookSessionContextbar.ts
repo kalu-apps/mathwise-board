@@ -10,8 +10,8 @@ import type { WorkbookPoint } from "@/features/workbook/model/types";
 import type { StateUpdater } from "@/features/workbook/model/workbookSessionStoreTypes";
 import { readStorage, writeStorage } from "@/shared/lib/localDb";
 import {
-  CONTEXTBAR_DOCKED_VIEWPORT_MAX_WIDTH,
   CONTEXTBAR_VIEWPORT_MARGIN_PX,
+  resolveWorkbookViewportFlags,
 } from "./WorkbookSessionPage.core";
 
 type WorkbookSetUpdater<T> = (updater: StateUpdater<T>) => void;
@@ -53,16 +53,20 @@ export const useWorkbookSessionContextbar = ({
 }: UseWorkbookSessionContextbarParams) => {
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const handleResize = () => {
-      setIsCompactViewport(window.innerWidth <= 760);
-      setIsDockedContextbarViewport(
-        window.innerWidth <= CONTEXTBAR_DOCKED_VIEWPORT_MAX_WIDTH
-      );
+    const visualViewport = window.visualViewport;
+    const updateViewportFlags = () => {
+      const viewportFlags = resolveWorkbookViewportFlags();
+      setIsCompactViewport(viewportFlags.isCompactViewport);
+      setIsDockedContextbarViewport(viewportFlags.isDockedContextbarViewport);
     };
-    handleResize();
-    window.addEventListener("resize", handleResize, { passive: true });
+    updateViewportFlags();
+    window.addEventListener("resize", updateViewportFlags, { passive: true });
+    visualViewport?.addEventListener("resize", updateViewportFlags, { passive: true });
+    visualViewport?.addEventListener("scroll", updateViewportFlags, { passive: true });
     return () => {
-      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("resize", updateViewportFlags);
+      visualViewport?.removeEventListener("resize", updateViewportFlags);
+      visualViewport?.removeEventListener("scroll", updateViewportFlags);
     };
   }, [setIsCompactViewport, setIsDockedContextbarViewport]);
 

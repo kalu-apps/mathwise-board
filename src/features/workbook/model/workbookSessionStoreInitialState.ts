@@ -10,16 +10,16 @@ import type {
   WorkbookSessionUiSlice,
 } from "./workbookSessionStoreTypes";
 import {
+  COMPACT_VIEWPORT_MAX_WIDTH,
+  CONTEXTBAR_DOCKED_VIEWPORT_MAX_WIDTH,
   DEFAULT_BOARD_SETTINGS,
   DEFAULT_LIBRARY,
+  resolveWorkbookViewportWidth,
 } from "@/pages/workbook/WorkbookSessionPage.core";
 import {
   WORKBOOK_BOARD_HIGHLIGHTER_COLOR,
   WORKBOOK_BOARD_PRIMARY_COLOR,
 } from "@/features/workbook/model/workbookVisualColors";
-
-const COMPACT_VIEWPORT_MAX_WIDTH = 760;
-const DOCKED_CONTEXTBAR_MAX_WIDTH = 1024;
 
 export const initialUiSlice = (): WorkbookSessionUiSlice => ({
   isSessionChatOpen: false,
@@ -98,9 +98,13 @@ export const initialPageSlice = (): WorkbookSessionPageSlice => ({
   spacePanActive: false,
   isFullscreen: false,
   isCompactViewport:
-    typeof window !== "undefined" ? window.innerWidth <= COMPACT_VIEWPORT_MAX_WIDTH : false,
+    typeof window !== "undefined"
+      ? resolveWorkbookViewportWidth() <= COMPACT_VIEWPORT_MAX_WIDTH
+      : false,
   isDockedContextbarViewport:
-    typeof window !== "undefined" ? window.innerWidth <= DOCKED_CONTEXTBAR_MAX_WIDTH : false,
+    typeof window !== "undefined"
+      ? resolveWorkbookViewportWidth() <= CONTEXTBAR_DOCKED_VIEWPORT_MAX_WIDTH
+      : false,
   utilityTab: "settings",
   isUtilityPanelOpen: false,
   isUtilityPanelCollapsed: false,

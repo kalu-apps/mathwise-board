@@ -391,7 +391,7 @@ export const useWorkbookRealtimeTransport = ({
           notifyAuthRequired();
         } else {
           setRealtimeSyncWarning(
-            "Realtime-канал нестабилен. Продолжаем синхронизацию через резервные механизмы."
+            "Realtime-канал нестабилен. Продолжаем синхронизацию через резервные механизмы. Если используется VPN/прокси, отключите его и обновите страницу."
           );
         }
       }
