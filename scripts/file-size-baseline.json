@@ -1,6 +1,6 @@
 {
   "backend/src/nest/runtime/workbook-runtime-engine.ts": 3665,
-  "src/pages/workbook/WorkbookSessionPage.tsx": 3545,
+  "src/pages/workbook/WorkbookSessionPage.tsx": 3546,
   "backend/src/nest/runtime/core/db.ts": 2335,
   "src/features/workbook/ui/WorkbookCanvas.tsx": 2136,
   "src/styles/design-system.css": 1629,
@@ -24,7 +24,7 @@
   "src/pages/workbook/WorkbookSessionTransformPanel.tsx": 817,
   "src/pages/workbook/useWorkbookLivekit.ts": 717,
   "src/pages/workbook/useWorkbookSessionLoadSession.ts": 708,
-  "src/pages/workbook/useWorkbookPdfExport.ts": 703,
+  "src/pages/workbook/useWorkbookPdfExport.ts": 722,
   "src/features/workbook/model/sceneVisibility.ts": 692,
   "src/features/workbook/model/sceneRender.ts": 668,
   "src/pages/workbook/useWorkbookBoardSettingsPages.ts": 654,
