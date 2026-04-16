@@ -91,6 +91,7 @@
   margin: 0;
   padding-top: 0;
   gap: calc(var(--fluid-gap-md) * 0.5);
+  min-height: 100vh;
   min-height: 100dvh;
   background: transparent;
 }

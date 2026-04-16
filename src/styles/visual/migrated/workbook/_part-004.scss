@@ -178,6 +178,7 @@
   gap: calc(var(--fluid-gap-sm) * 0.5);
   grid-template-columns: minmax(0, 1fr) minmax(clamp(220px, 22vw, 320px), 0.26fr);
   align-items: stretch;
+  min-height: calc(100vh - var(--fluid-gap-md));
   min-height: calc(100dvh - var(--fluid-gap-md));
 }
 .workbook-session__layout--workspace {
@@ -204,6 +205,7 @@
   gap: 5px;
   grid-template-rows: auto minmax(0, 1fr);
   position: relative;
+  min-height: calc(100vh - var(--fluid-gap-md));
   min-height: calc(100dvh - var(--fluid-gap-md));
   min-width: 0;
   max-width: 100%;

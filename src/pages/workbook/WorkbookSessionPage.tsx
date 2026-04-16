@@ -106,6 +106,7 @@ import {
   defaultColorByLayer,
   normalizeWorkbookPageOrder,
   resolveMaxKnownWorkbookPage,
+  supportsWorkbookDynamicViewportUnits,
   toSafeWorkbookPage,
   getSectionVertexLabel,
   getSolidVertexLabel,
@@ -692,7 +693,13 @@ export default function WorkbookSessionPage() {
     boardSettings,
     boardObjects,
   });
+  const supportsDynamicViewportUnits = useMemo(() => supportsWorkbookDynamicViewportUnits(), []);
   const showSidebarParticipantsInLayout = showSidebarParticipants;
+  const forceStackedSidebarLayout =
+    showSidebarParticipantsInLayout &&
+    isDockedContextbarViewport &&
+    !supportsDynamicViewportUnits;
+  const useSidebarOverlayLayout = showSidebarParticipantsInLayout && !forceStackedSidebarLayout;
   const canAccessLessonRecording = useMemo(() => {
     if (session?.kind === "PERSONAL") return true;
     if (session?.kind === "CLASS") return isTeacherActor;
@@ -3401,7 +3408,7 @@ export default function WorkbookSessionPage() {
 
       <div
         className={`workbook-session__layout${
-          showSidebarParticipantsInLayout
+          useSidebarOverlayLayout
             ? " workbook-session__layout--sidebar-overlay"
             : " workbook-session__layout--workspace"
         }`}
@@ -3423,7 +3430,7 @@ export default function WorkbookSessionPage() {
           docsWindowProps={docsWindowProps}
         />
         <WorkbookSessionSidebar
-          isCompactViewport={isCompactViewport}
+          isCompactViewport={isCompactViewport || forceStackedSidebarLayout}
           showSidebarParticipants={showSidebarParticipantsInLayout}
           floatingPanelsTop={floatingPanelsTop}
           participantsPanelProps={participantsPanelProps}
