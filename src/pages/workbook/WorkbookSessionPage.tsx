@@ -162,6 +162,25 @@ const WorkbookImportModal = lazy(() =>
 
 const AUTO_PAGE_FRAME_GROW_DELAY_MS = 2_500;
 const DEFAULT_BROWSER_TAB_TITLE = "Умная доска";
+const CRITICAL_WORKBOOK_UI_ERROR_PATTERNS = [
+  /требуется повторная авторизация/i,
+  /нет доступа к этой сессии/i,
+  /сессия не найдена/i,
+  /не удалось открыть сессию/i,
+  /доступ к микрофону запрещ/i,
+  /не найдено доступное устройство микрофона/i,
+  /микрофон занят другим приложением/i,
+  /браузер заблокировал микрофон/i,
+  /откройте страницу по https/i,
+  /vpn/i,
+  /прокси/i,
+  /обновите страницу/i,
+  /не удалось сохранить изменения перед выходом из тетради/i,
+  /не удалось завершить выход из тетради/i,
+] as const;
+
+const shouldShowCriticalWorkbookUiError = (message: string) =>
+  CRITICAL_WORKBOOK_UI_ERROR_PATTERNS.some((pattern) => pattern.test(message));
 
 export default function WorkbookSessionPage() {
   const { user, isAuthReady, openAuthModal } = useAuth();
@@ -345,7 +364,7 @@ export default function WorkbookSessionPage() {
     setSolid3dSectionVertexContextMenu,
     setSolid3dSectionContextMenu,
     setSelectedTextDraft,
-    setError,
+    setError: setErrorRaw,
     setSaveSyncWarning,
     setCopyingInviteLink,
     setMenuAnchor,
@@ -380,6 +399,28 @@ export default function WorkbookSessionPage() {
     setLibraryState,
     setDocumentState,
   } = workbookSessionActions;
+
+  const setError = useCallback(
+    (updater: Parameters<typeof setErrorRaw>[0]) => {
+      setErrorRaw((current) => {
+        const nextValue = typeof updater === "function" ? updater(current) : updater;
+        if (nextValue === null) {
+          return null;
+        }
+        const normalizedMessage = String(nextValue).trim();
+        if (!normalizedMessage) {
+          return null;
+        }
+        if (!shouldShowCriticalWorkbookUiError(normalizedMessage)) {
+          console.error("[WorkbookSession][suppressed-ui-error]", normalizedMessage);
+          return current;
+        }
+        console.error("[WorkbookSession][critical-ui-error]", normalizedMessage);
+        return normalizedMessage;
+      });
+    },
+    [setErrorRaw]
+  );
   const {
     spacePanActive,
     isFullscreen,
@@ -1148,7 +1189,7 @@ export default function WorkbookSessionPage() {
       clearIncomingEraserPreviewRuntime,
       recoverChatMessagesFromEvents,
       setSaveState: workbookSessionActions.setSaveState,
-      setError: workbookSessionActions.setError,
+      setError,
       setSaveSyncWarning: workbookSessionActions.setSaveSyncWarning,
       setBootstrapReady: workbookSessionActions.setBootstrapReady,
       setLoading: workbookSessionActions.setLoading,
@@ -3036,6 +3077,7 @@ export default function WorkbookSessionPage() {
     pointerPoints,
     viewportOffset: canvasViewport,
     onViewportOffsetChange: handleCanvasViewportOffsetChange,
+    onViewportZoomChange: setViewportZoom,
     onEraserRadiusChange: handleEraserRadiusChange,
     forcePanMode: spacePanActive,
     autoDividersEnabled: boardSettings.autoSectionDividers,

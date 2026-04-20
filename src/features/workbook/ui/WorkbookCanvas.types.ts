@@ -106,6 +106,7 @@ export type WorkbookCanvasProps = {
   pointerPoints?: WorkbookPoint[];
   viewportOffset?: WorkbookPoint;
   onViewportOffsetChange?: (offset: WorkbookPoint) => void;
+  onViewportZoomChange?: (zoom: number) => void;
   forcePanMode?: boolean;
   autoDividerStep?: number;
   autoDividersEnabled?: boolean;
