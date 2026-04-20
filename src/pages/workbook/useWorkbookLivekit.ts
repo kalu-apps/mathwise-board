@@ -179,7 +179,7 @@ export const useWorkbookLivekit = ({
   userId,
   setError,
 }: UseWorkbookLivekitParams) => {
-  const [micEnabled, setMicEnabled] = useState(false);
+  const [micEnabled, setMicEnabled] = useState(true);
   const [isLivekitConnected, setIsLivekitConnected] = useState(false);
 
   const livekitRuntimeRef = useRef<LivekitModule | null>(null);
@@ -190,6 +190,7 @@ export const useWorkbookLivekit = ({
   const livekitConnectAttemptRef = useRef(0);
   const livekitDisconnectAttemptRef = useRef(0);
   const livekitShouldBeConnectedRef = useRef(false);
+  const micDefaultSessionKeyRef = useRef<string | null>(null);
   const remoteAudioGestureUnlockedRef = useRef(false);
   const remoteAudioBindingsRef = useRef<Map<string, RemoteAudioBinding>>(new Map());
 
@@ -665,6 +666,18 @@ export const useWorkbookLivekit = ({
     }
     void syncLivekitMicState();
   }, [isEnded, isLivekitConnected, sessionKind, syncLivekitMicState]);
+
+  useEffect(() => {
+    const sessionKey =
+      sessionId && sessionKind === "CLASS" && !isEnded && userId ? `${sessionId}:${userId}` : null;
+    if (!sessionKey) {
+      micDefaultSessionKeyRef.current = null;
+      return;
+    }
+    if (micDefaultSessionKeyRef.current === sessionKey) return;
+    micDefaultSessionKeyRef.current = sessionKey;
+    setMicEnabled(Boolean(canUseMedia));
+  }, [canUseMedia, isEnded, sessionId, sessionKind, userId]);
 
   useEffect(() => {
     if (canUseMedia || !micEnabled) return;

@@ -142,8 +142,30 @@ type ActiveStrokeDraft = ReturnType<typeof buildWorkbookActiveStrokeDraft>;
 
 type AreaSelectionDraft = WorkbookAreaSelectionDraft;
 type AreaSelectionResizeState = WorkbookAreaSelectionResizeState;
+type PinchGestureState = {
+  initialDistance: number;
+  initialViewportZoom: number;
+  initialSafeZoom: number;
+  anchorWorld: WorkbookPoint;
+};
 
 const EMPTY_STROKE_REPLACEMENT_BY_SELECTION_KEY = new Map<string, WorkbookStroke>();
+const MIN_VIEWPORT_ZOOM = 0.3;
+const MAX_VIEWPORT_ZOOM = 3;
+const MIN_PINCH_DISTANCE_PX = 8;
+
+const resolvePinchCenterAndDistance = (points: Array<{ x: number; y: number }>) => {
+  if (points.length < 2) return null;
+  const [pointA, pointB] = points;
+  if (!pointA || !pointB) return null;
+  return {
+    center: {
+      x: (pointA.x + pointB.x) / 2,
+      y: (pointA.y + pointB.y) / 2,
+    },
+    distance: Math.hypot(pointA.x - pointB.x, pointA.y - pointB.y),
+  };
+};
 
 const replaceRenderedStrokesBySelection = (params: {
   baseStrokes: WorkbookStroke[];
@@ -226,6 +248,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   pointerPoints = [],
   viewportOffset = { x: 0, y: 0 },
   onViewportOffsetChange,
+  onViewportZoomChange,
   forcePanMode = false,
   autoDividerStep = 960,
   autoDividersEnabled = false,
@@ -266,6 +289,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 }: WorkbookCanvasProps) {
   const [containerNode, setContainerNode] = useState<HTMLDivElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
+  const activeTouchPointsRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchGestureRef = useRef<PinchGestureState | null>(null);
   const strokePointsRef = useRef<WorkbookPoint[]>([]);
   const activeStrokeRef = useRef<ActiveStrokeDraft | null>(null);
   const draftStrokePathRef = useRef<SVGPathElement | null>(null);
@@ -397,6 +422,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     autoDividerStep,
     autoDividersEnabled,
   });
+  const normalizeViewportZoom = useCallback((value: number) => {
+    if (!Number.isFinite(value)) return 1;
+    return Math.max(
+      MIN_VIEWPORT_ZOOM,
+      Math.min(MAX_VIEWPORT_ZOOM, Number(value.toFixed(2)))
+    );
+  }, []);
   const newRendererEnabled = useMemo(() => isWorkbookNewRendererEnabled(), []);
 
   const {
@@ -1741,6 +1773,105 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       },
     });
 
+  const cancelCurrentInteractionForPinch = useCallback(
+    (svg: SVGSVGElement | null) => {
+      pointerIdRef.current = null;
+      setPanning(null);
+      setGraphPan(null);
+      setSolid3dGesture(null);
+      setSolid3dResize(null);
+      setAreaSelectionDraft(null);
+      setAreaSelectionResize(null);
+      setMoving(null);
+      setResizing(null);
+      setShapeDraft(null);
+      setErasing(false);
+      setEraserCursorPoint(null);
+      clearEraserPreviewRuntime();
+      erasedStrokeIdsRef.current.clear();
+      eraserGestureIdRef.current = null;
+      eraserLastAppliedPointRef.current = null;
+      eraserLastPreviewPointRef.current = null;
+      strokePointsRef.current = [];
+      activeStrokeRef.current = null;
+      if (draftStrokePathRef.current) {
+        draftStrokePathRef.current.setAttribute("d", "");
+      }
+      if (!svg) return;
+      activeTouchPointsRef.current.forEach((_point, pointerId) => {
+        if (svg.hasPointerCapture(pointerId)) {
+          svg.releasePointerCapture(pointerId);
+        }
+      });
+    },
+    [
+      clearEraserPreviewRuntime,
+      setAreaSelectionDraft,
+      setAreaSelectionResize,
+      setEraserCursorPoint,
+      setErasing,
+      setGraphPan,
+      setMoving,
+      setPanning,
+      setResizing,
+      setShapeDraft,
+      setSolid3dGesture,
+      setSolid3dResize,
+    ]
+  );
+  const startPinchGesture = useCallback(
+    (svg: SVGSVGElement) => {
+      const pinchData = resolvePinchCenterAndDistance(
+        Array.from(activeTouchPointsRef.current.values())
+      );
+      if (!pinchData) return false;
+      if (pinchData.distance < MIN_PINCH_DISTANCE_PX) return false;
+      const bounds = svg.getBoundingClientRect();
+      const localX = pinchData.center.x - bounds.left - displayBias.x;
+      const localY = pinchData.center.y - bounds.top - displayBias.y;
+      const normalizedSafeZoom = Math.max(0.0001, safeZoom);
+      pinchGestureRef.current = {
+        initialDistance: pinchData.distance,
+        initialViewportZoom: viewportZoom,
+        initialSafeZoom: normalizedSafeZoom,
+        anchorWorld: {
+          x: resolvedViewportOffset.x + localX / normalizedSafeZoom,
+          y: resolvedViewportOffset.y + localY / normalizedSafeZoom,
+        },
+      };
+      return true;
+    },
+    [displayBias.x, displayBias.y, resolvedViewportOffset.x, resolvedViewportOffset.y, safeZoom, viewportZoom]
+  );
+  const applyPinchGesture = useCallback(
+    (svg: SVGSVGElement) => {
+      const pinchState = pinchGestureRef.current;
+      if (!pinchState || !onViewportZoomChange) return false;
+      const pinchData = resolvePinchCenterAndDistance(
+        Array.from(activeTouchPointsRef.current.values())
+      );
+      if (!pinchData) return false;
+      const normalizedInitialDistance = Math.max(MIN_PINCH_DISTANCE_PX, pinchState.initialDistance);
+      const rawZoom =
+        pinchState.initialViewportZoom * (pinchData.distance / normalizedInitialDistance);
+      const nextViewportZoom = normalizeViewportZoom(rawZoom);
+      onViewportZoomChange(nextViewportZoom);
+      if (onViewportOffsetChange) {
+        const bounds = svg.getBoundingClientRect();
+        const localX = pinchData.center.x - bounds.left - displayBias.x;
+        const localY = pinchData.center.y - bounds.top - displayBias.y;
+        const zoomRatio = nextViewportZoom / Math.max(0.0001, pinchState.initialViewportZoom);
+        const nextSafeZoom = Math.max(0.0001, pinchState.initialSafeZoom * zoomRatio);
+        onViewportOffsetChange({
+          x: pinchState.anchorWorld.x - localX / nextSafeZoom,
+          y: pinchState.anchorWorld.y - localY / nextSafeZoom,
+        });
+      }
+      return true;
+    },
+    [displayBias.x, displayBias.y, normalizeViewportZoom, onViewportOffsetChange, onViewportZoomChange]
+  );
+
   const touchTapStartRef = useRef<{
     pointerId: number;
     x: number;
@@ -1755,6 +1886,26 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   } | null>(null);
   const handlePointerDown = useCallback(
     (event: PointerEvent<SVGSVGElement>) => {
+      if (event.pointerType === "touch") {
+        activeTouchPointsRef.current.set(event.pointerId, {
+          x: event.clientX,
+          y: event.clientY,
+        });
+        if (activeTouchPointsRef.current.size >= 2) {
+          const svg = event.currentTarget ?? null;
+          touchTapStartRef.current = null;
+          lastTouchTapRef.current = null;
+          if (svg && onViewportZoomChange) {
+            if (event.cancelable) {
+              event.preventDefault();
+            }
+            cancelCurrentInteractionForPinch(svg);
+            startPinchGesture(svg);
+            applyPinchGesture(svg);
+          }
+          return;
+        }
+      }
       if (event.pointerType !== "mouse" && event.button === 0) {
         touchTapStartRef.current = {
           pointerId: event.pointerId,
@@ -1777,7 +1928,16 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       }
       startInteraction(event);
     },
-    [disabled, mapPointer, onTeacherCursorPoint, startInteraction]
+    [
+      applyPinchGesture,
+      cancelCurrentInteractionForPinch,
+      disabled,
+      mapPointer,
+      onTeacherCursorPoint,
+      onViewportZoomChange,
+      startInteraction,
+      startPinchGesture,
+    ]
   );
   const isClientPointInsideSvg = useCallback(
     (svg: SVGSVGElement, clientX: number, clientY: number) => {
@@ -1805,6 +1965,27 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   );
   const handlePointerMove = useCallback(
     (event: PointerEvent<SVGSVGElement>) => {
+      if (event.pointerType === "touch" && activeTouchPointsRef.current.has(event.pointerId)) {
+        activeTouchPointsRef.current.set(event.pointerId, {
+          x: event.clientX,
+          y: event.clientY,
+        });
+      }
+      if (pinchGestureRef.current || activeTouchPointsRef.current.size >= 2) {
+        const svg = event.currentTarget ?? null;
+        touchTapStartRef.current = null;
+        if (svg && onViewportZoomChange) {
+          if (event.cancelable) {
+            event.preventDefault();
+          }
+          if (!pinchGestureRef.current) {
+            cancelCurrentInteractionForPinch(svg);
+            startPinchGesture(svg);
+          }
+          applyPinchGesture(svg);
+        }
+        return;
+      }
       const touchStart = touchTapStartRef.current;
       if (touchStart && touchStart.pointerId === event.pointerId) {
         const distance = Math.hypot(event.clientX - touchStart.x, event.clientY - touchStart.y);
@@ -1826,10 +2007,40 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       }
       continueInteraction(event);
     },
-    [continueInteraction, disabled, mapPointer, onTeacherCursorPoint]
+    [
+      applyPinchGesture,
+      cancelCurrentInteractionForPinch,
+      continueInteraction,
+      disabled,
+      mapPointer,
+      onTeacherCursorPoint,
+      onViewportZoomChange,
+      startPinchGesture,
+    ]
   );
   const handlePointerUp = useCallback(
     (event: PointerEvent<SVGSVGElement>) => {
+      if (event.pointerType === "touch") {
+        activeTouchPointsRef.current.delete(event.pointerId);
+      }
+      if (pinchGestureRef.current) {
+        if (event.cancelable) {
+          event.preventDefault();
+        }
+        if (activeTouchPointsRef.current.size >= 2) {
+          const svg = event.currentTarget ?? null;
+          if (svg) {
+            startPinchGesture(svg);
+            applyPinchGesture(svg);
+          }
+        } else {
+          pinchGestureRef.current = null;
+          activeTouchPointsRef.current.clear();
+          touchTapStartRef.current = null;
+        }
+        onTeacherCursorClear?.();
+        return;
+      }
       const touchStart = touchTapStartRef.current;
       const isTouchTap =
         event.pointerType !== "mouse" &&
@@ -1882,6 +2093,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       };
     },
     [
+      applyPinchGesture,
       disabled,
       finishInteraction,
       isClientPointInsideSvg,
@@ -1889,6 +2101,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       onObjectDoubleClick,
       onTeacherCursorClear,
       resolveTopObject,
+      startPinchGesture,
       tool,
     ]
   );
@@ -1971,10 +2184,28 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   });
   const handlePointerCancel = useCallback(
     (event: PointerEvent<SVGSVGElement>) => {
+      if (event.pointerType === "touch") {
+        activeTouchPointsRef.current.delete(event.pointerId);
+      }
+      if (pinchGestureRef.current) {
+        if (activeTouchPointsRef.current.size >= 2) {
+          const svg = event.currentTarget ?? null;
+          if (svg) {
+            startPinchGesture(svg);
+            applyPinchGesture(svg);
+          }
+        } else {
+          pinchGestureRef.current = null;
+          activeTouchPointsRef.current.clear();
+          touchTapStartRef.current = null;
+        }
+        onTeacherCursorClear?.();
+        return;
+      }
       finishInteraction(event);
       onTeacherCursorClear?.();
     },
-    [finishInteraction, onTeacherCursorClear]
+    [applyPinchGesture, finishInteraction, onTeacherCursorClear, startPinchGesture]
   );
   const handleCanvasPointerLeave = useCallback(() => {
     handlePointerLeave();
