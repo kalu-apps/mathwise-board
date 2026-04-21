@@ -34,6 +34,14 @@ export const isWorkbookAdaptivePollingEnabled = () =>
     )
   );
 
+export const isWorkbookRealtimeModeAwarePollingEnabled = () =>
+  toBooleanFlag(
+    readFeatureFlagValue(
+      "VITE_FF_REALTIME_MODE_AWARE_POLLING",
+      "VITE_FF_MODE_AWARE_POLLING"
+    )
+  );
+
 export const isWorkbookRealtimeBackpressureV2Enabled = () =>
   toBooleanFlag(
     readFeatureFlagValue(

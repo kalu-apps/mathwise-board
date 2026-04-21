@@ -37,6 +37,7 @@ export const getNowMs = () =>
 // Fallback poll should stay lightweight; realtime stream/live channels carry primary sync.
 export const POLL_INTERVAL_MS = 1_200;
 export const POLL_INTERVAL_STREAM_CONNECTED_MS = 4_000;
+export const POLL_INTERVAL_STREAM_ONLY_MS = 1_800;
 export const RESYNC_MIN_INTERVAL_MS = 4_000;
 export const ADAPTIVE_POLLING_MIN_MS = 320;
 export const ADAPTIVE_POLLING_MAX_MS = 8_000;

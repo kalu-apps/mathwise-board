@@ -1,6 +1,10 @@
 import { useCallback, useMemo } from "react";
 import { useMediaQuery } from "@mui/material";
-import { isWorkbookAdaptivePollingEnabled, isWorkbookRealtimeBackpressureV2Enabled } from "@/features/workbook/model/featureFlags";
+import {
+  isWorkbookAdaptivePollingEnabled,
+  isWorkbookRealtimeBackpressureV2Enabled,
+  isWorkbookRealtimeModeAwarePollingEnabled,
+} from "@/features/workbook/model/featureFlags";
 import type {
   WorkbookBoardObject,
   WorkbookBoardSettings,
@@ -121,6 +125,10 @@ export const useWorkbookSessionDerivedState = ({
   );
   const showCollaborationPanels = Boolean(isClassSession);
   const adaptivePollingEnabled = useMemo(() => isWorkbookAdaptivePollingEnabled(), []);
+  const realtimeModeAwarePollingEnabled = useMemo(
+    () => isWorkbookRealtimeModeAwarePollingEnabled(),
+    []
+  );
   const realtimeBackpressureV2Enabled = useMemo(
     () => isWorkbookRealtimeBackpressureV2Enabled(),
     []
@@ -251,6 +259,7 @@ export const useWorkbookSessionDerivedState = ({
     canManageSharedBoardSettings,
     showCollaborationPanels,
     adaptivePollingEnabled,
+    realtimeModeAwarePollingEnabled,
     realtimeBackpressureV2Enabled,
     volatilePreviewMaxPerFlush,
     volatilePreviewQueueMax,
