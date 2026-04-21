@@ -13,6 +13,8 @@ import "./workbookRouteStyles";
 import {
   Alert,
   Button,
+  Fade,
+  Snackbar,
   TextField,
 } from "@mui/material";
 import { useThemeMode } from "@/app/theme/themeModeContext";
@@ -163,6 +165,7 @@ const WorkbookImportModal = lazy(() =>
 
 const AUTO_PAGE_FRAME_GROW_DELAY_MS = 2_500;
 const DEFAULT_BROWSER_TAB_TITLE = "Умная доска";
+const INVITE_LINK_NOTICE_AUTO_HIDE_MS = 3_200;
 const CRITICAL_WORKBOOK_UI_ERROR_PATTERNS = [
   /требуется повторная авторизация/i,
   /нет доступа к этой сессии/i,
@@ -190,6 +193,8 @@ export default function WorkbookSessionPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [isBackNavigationPending, setIsBackNavigationPending] = useState(false);
+  const [inviteLinkNoticeOpen, setInviteLinkNoticeOpen] = useState(false);
+  const [inviteLinkNoticeVersion, setInviteLinkNoticeVersion] = useState(0);
 
   useEffect(() => {
     if (!sessionId.trim()) return;
@@ -421,6 +426,17 @@ export default function WorkbookSessionPage() {
       });
     },
     [setErrorRaw]
+  );
+  const handleInviteLinkCopiedNoticeOpen = useCallback(() => {
+    setInviteLinkNoticeVersion((current) => current + 1);
+    setInviteLinkNoticeOpen(true);
+  }, []);
+  const handleInviteLinkCopiedNoticeClose = useCallback(
+    (_event?: unknown, reason?: string) => {
+      if (reason === "clickaway") return;
+      setInviteLinkNoticeOpen(false);
+    },
+    []
   );
   const {
     spacePanActive,
@@ -2010,6 +2026,7 @@ export default function WorkbookSessionPage() {
     isSessionChatMaximized,
     sessionChatRef,
     sessionChatDragStateRef,
+    onInviteLinkCopied: handleInviteLinkCopiedNoticeOpen,
     setCopyingInviteLink,
     setError,
     setMenuAnchor,
@@ -3521,6 +3538,24 @@ export default function WorkbookSessionPage() {
           />
         </Suspense>
       ) : null}
+
+      <Snackbar
+        key={inviteLinkNoticeVersion}
+        open={inviteLinkNoticeOpen}
+        autoHideDuration={INVITE_LINK_NOTICE_AUTO_HIDE_MS}
+        onClose={handleInviteLinkCopiedNoticeClose}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        TransitionComponent={Fade}
+      >
+        <Alert
+          onClose={handleInviteLinkCopiedNoticeClose}
+          severity="success"
+          variant="filled"
+          sx={{ width: "100%" }}
+        >
+          Ссылка-приглашение успешно создана и скопирована.
+        </Alert>
+      </Snackbar>
 
       <WorkbookLessonRecordingDialogs
         overlayContainer={overlayContainer}

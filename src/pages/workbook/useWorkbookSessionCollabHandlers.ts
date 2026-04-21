@@ -34,6 +34,7 @@ type UseWorkbookSessionCollabHandlersParams = {
     offsetX: number;
     offsetY: number;
   } | null>;
+  onInviteLinkCopied?: () => void;
   setCopyingInviteLink: (value: boolean) => void;
   setError: (value: string | null) => void;
   setMenuAnchor: (value: HTMLElement | null) => void;
@@ -69,6 +70,7 @@ export const useWorkbookSessionCollabHandlers = ({
   isSessionChatMaximized,
   sessionChatRef,
   sessionChatDragStateRef,
+  onInviteLinkCopied,
   setCopyingInviteLink,
   setError,
   setMenuAnchor,
@@ -102,12 +104,13 @@ export const useWorkbookSessionCollabHandlers = ({
           : new URL(invitePath, window.location.origin).toString();
       await navigator.clipboard.writeText(absoluteInviteUrl);
       setError(null);
+      onInviteLinkCopied?.();
     } catch {
       setError("Не удалось скопировать ссылку приглашения.");
     } finally {
       setCopyingInviteLink(false);
     }
-  }, [sessionId, setCopyingInviteLink, setError]);
+  }, [onInviteLinkCopied, sessionId, setCopyingInviteLink, setError]);
 
   const handleMenuClearBoard = useCallback(async () => {
     if (!canClear || isEnded) return;
