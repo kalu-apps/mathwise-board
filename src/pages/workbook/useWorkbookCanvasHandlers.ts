@@ -213,7 +213,7 @@ export const useWorkbookCanvasHandlers = ({
   ]);
 
   const handleCollapseParticipants = useCallback(() => {
-    setIsParticipantsCollapsed(true);
+    setIsParticipantsCollapsed((current) => !current);
   }, [setIsParticipantsCollapsed]);
 
   const handleToggleOwnMic = useCallback(() => {

@@ -533,9 +533,23 @@ const handleWorkbookEventsRoute = async (
         deps.badRequest(res, "teacher_cursor_live_only");
         return true;
       }
-      if (event.type === "media.signal" && !participant.permissions.canUseMedia) {
-        deps.forbidden(res, "media_disabled");
-        return true;
+      if (event.type === "media.signal") {
+        const participantPermissions =
+          typeof deps.normalizeParticipantPermissions === "function"
+            ? deps.normalizeParticipantPermissions(
+                participant.roleInSession,
+                participant.permissions
+              )
+            : participant.permissions;
+        const canSignalMedia = Boolean(
+          participantPermissions.canUseMicrophone ||
+            participantPermissions.canUseCamera ||
+            participantPermissions.canUseMedia
+        );
+        if (!canSignalMedia) {
+          deps.forbidden(res, "media_disabled");
+          return true;
+        }
       }
       if (
         (event.type === "chat.message.delete" || event.type === "chat.clear") &&

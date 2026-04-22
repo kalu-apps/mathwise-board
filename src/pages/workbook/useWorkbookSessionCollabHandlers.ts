@@ -162,10 +162,22 @@ export const useWorkbookSessionCollabHandlers = ({
     [updateParticipantPermissions]
   );
 
-  const handleToggleParticipantMic = useCallback(
+  const handleToggleParticipantMicrophone = useCallback(
     async (participant: WorkbookSessionParticipant, enabled: boolean) => {
       if (participant.roleInSession !== "student") return;
-      await updateParticipantPermissions(participant.userId, { canUseMedia: enabled });
+      await updateParticipantPermissions(participant.userId, {
+        canUseMicrophone: enabled,
+      });
+    },
+    [updateParticipantPermissions]
+  );
+
+  const handleToggleParticipantCamera = useCallback(
+    async (participant: WorkbookSessionParticipant, enabled: boolean) => {
+      if (participant.roleInSession !== "student") return;
+      await updateParticipantPermissions(participant.userId, {
+        canUseCamera: enabled,
+      });
     },
     [updateParticipantPermissions]
   );
@@ -270,7 +282,8 @@ export const useWorkbookSessionCollabHandlers = ({
     handleMenuClearBoard,
     updateParticipantPermissions,
     handleToggleParticipantBoardTools,
-    handleToggleParticipantMic,
+    handleToggleParticipantMicrophone,
+    handleToggleParticipantCamera,
     handleSendSessionChatMessage,
     handleClearSessionChat,
     handleSessionChatDragStart,

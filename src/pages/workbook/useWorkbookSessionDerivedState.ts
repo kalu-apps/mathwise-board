@@ -77,6 +77,14 @@ export const useWorkbookSessionDerivedState = ({
     return {
       canDraw,
       canAnnotate: asBool(source?.canAnnotate, canDraw),
+      canUseMicrophone: asBool(
+        source?.canUseMicrophone,
+        asBool(source?.canUseMedia, FALLBACK_PERMISSIONS.canUseMedia)
+      ),
+      canUseCamera: asBool(
+        source?.canUseCamera,
+        asBool(source?.canUseMedia, FALLBACK_PERMISSIONS.canUseMedia)
+      ),
       canUseMedia: asBool(source?.canUseMedia, FALLBACK_PERMISSIONS.canUseMedia),
       canUseChat: true,
       canInvite: asBool(source?.canInvite, FALLBACK_PERMISSIONS.canInvite),
@@ -113,7 +121,11 @@ export const useWorkbookSessionDerivedState = ({
     actorPermissions.canClear && canManageSession && !isEnded && !isSessionTabPassive
   );
   const canUseLaser = Boolean(actorPermissions.canUseLaser && !isEnded && !isSessionTabPassive);
-  const canUseMedia = Boolean(actorPermissions.canUseMedia);
+  const canUseMicrophone = Boolean(actorPermissions.canUseMicrophone);
+  const canUseCamera = Boolean(actorPermissions.canUseCamera);
+  const canUseMedia = Boolean(
+    canUseMicrophone || canUseCamera || actorPermissions.canUseMedia
+  );
   const canUseSessionChat = Boolean(actorPermissions.canUseChat);
   const canSendSessionChat = canUseSessionChat && !isEnded && !isSessionTabPassive;
   const isClassSession = session?.kind === "CLASS";
@@ -150,7 +162,8 @@ export const useWorkbookSessionDerivedState = ({
   } = useWorkbookLivekit({
     sessionId,
     sessionKind: session?.kind,
-    canUseMedia,
+    canUseMicrophone,
+    canUseCamera,
     isEnded,
     userId: user?.id,
     setError,
@@ -260,6 +273,8 @@ export const useWorkbookSessionDerivedState = ({
     canDelete,
     canClear,
     canUseLaser,
+    canUseMicrophone,
+    canUseCamera,
     canUseMedia,
     canUseSessionChat,
     canSendSessionChat,

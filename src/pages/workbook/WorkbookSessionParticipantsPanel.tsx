@@ -48,7 +48,8 @@ type WorkbookSessionParticipantsPanelProps = {
   onToggleMic: () => void;
   cameraEnabled: boolean;
   onToggleCamera: () => void;
-  canUseMedia: boolean;
+  canUseMicrophone: boolean;
+  canUseCamera: boolean;
   isEnded: boolean;
   participantsPanelMode: WorkbookParticipantsPanelMode;
   onParticipantsPanelModeChange: (mode: WorkbookParticipantsPanelMode) => void;
@@ -59,8 +60,16 @@ type WorkbookSessionParticipantsPanelProps = {
     participant: WorkbookSessionParticipant,
     enabled: boolean
   ) => void;
-  onToggleParticipantMic: (participant: WorkbookSessionParticipant, enabled: boolean) => void;
-  onSetStudentsMediaEnabled: (enabled: boolean) => void;
+  onToggleParticipantMicrophone: (
+    participant: WorkbookSessionParticipant,
+    enabled: boolean
+  ) => void;
+  onToggleParticipantCamera: (
+    participant: WorkbookSessionParticipant,
+    enabled: boolean
+  ) => void;
+  onSetStudentsMicrophoneEnabled: (enabled: boolean) => void;
+  onSetStudentsCameraEnabled: (enabled: boolean) => void;
   onSetStudentsBoardToolsEnabled: (enabled: boolean) => void;
   isCompactViewport?: boolean;
 };
@@ -167,7 +176,8 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
   onToggleMic,
   cameraEnabled,
   onToggleCamera,
-  canUseMedia,
+  canUseMicrophone,
+  canUseCamera,
   isEnded,
   participantsPanelMode,
   onParticipantsPanelModeChange,
@@ -175,8 +185,10 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
   remoteVideoTracks,
   isParticipantBoardToolsEnabled,
   onToggleParticipantBoardTools,
-  onToggleParticipantMic,
-  onSetStudentsMediaEnabled,
+  onToggleParticipantMicrophone,
+  onToggleParticipantCamera,
+  onSetStudentsMicrophoneEnabled,
+  onSetStudentsCameraEnabled,
   onSetStudentsBoardToolsEnabled,
   isCompactViewport = false,
 }: WorkbookSessionParticipantsPanelProps) {
@@ -332,9 +344,12 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
     [sortedParticipantCards]
   );
   const hasStudentParticipants = allStudentParticipants.length > 0;
-  const areAllStudentsMediaDisabled =
+  const areAllStudentsMicrophonesDisabled =
     hasStudentParticipants &&
-    allStudentParticipants.every((participant) => !participant.permissions.canUseMedia);
+    allStudentParticipants.every((participant) => !participant.permissions.canUseMicrophone);
+  const areAllStudentsCamerasDisabled =
+    hasStudentParticipants &&
+    allStudentParticipants.every((participant) => !participant.permissions.canUseCamera);
   const areAllStudentsBoardToolsDisabled =
     hasStudentParticipants &&
     allStudentParticipants.every(
@@ -654,7 +669,11 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
                   track={participantTrack}
                   muted={isSelfParticipant}
                   mirrored={isSelfParticipant}
-                  label={participant.permissions.canUseMedia ? "Камера выключена" : "Медиа отключено"}
+                  label={
+                    participant.permissions.canUseCamera
+                      ? "Камера выключена"
+                      : "Камера отключена преподавателем"
+                  }
                 />
                 <div className="workbook-session__participant-video-nameplate">
                   <Avatar
@@ -684,7 +703,7 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
                                 micEnabled ? "is-enabled" : "is-disabled"
                               }`}
                               onClick={onToggleMic}
-                              disabled={!canUseMedia || isEnded}
+                              disabled={!canUseMicrophone || isEnded}
                             >
                               {micEnabled ? (
                                 <MicRoundedIcon fontSize="small" />
@@ -705,7 +724,7 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
                                 cameraEnabled ? "is-enabled" : "is-disabled"
                               }`}
                               onClick={onToggleCamera}
-                              disabled={!canUseMedia || isEnded}
+                              disabled={!canUseCamera || isEnded}
                             >
                               {cameraEnabled ? (
                                 <VideocamRoundedIcon fontSize="small" />
@@ -721,7 +740,7 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
                       <>
                         <Tooltip
                           title={
-                            participant.permissions.canUseMedia
+                            participant.permissions.canUseMicrophone
                               ? "Ограничить микрофон"
                               : "Разрешить микрофон"
                           }
@@ -731,19 +750,19 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
                             <IconButton
                               size="small"
                               className={`workbook-session__participant-overlay-control workbook-session__participant-nameplate-control ${
-                                participant.permissions.canUseMedia
+                                participant.permissions.canUseMicrophone
                                   ? "is-enabled"
                                   : "is-disabled"
                               }`}
                               onClick={() =>
-                                onToggleParticipantMic(
+                                onToggleParticipantMicrophone(
                                   participant,
-                                  !participant.permissions.canUseMedia
+                                  !participant.permissions.canUseMicrophone
                                 )
                               }
                               disabled={isEnded}
                             >
-                              {participant.permissions.canUseMedia ? (
+                              {participant.permissions.canUseMicrophone ? (
                                 <MicRoundedIcon fontSize="small" />
                               ) : (
                                 <MicOffRoundedIcon fontSize="small" />
@@ -753,7 +772,7 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
                         </Tooltip>
                         <Tooltip
                           title={
-                            participant.permissions.canUseMedia
+                            participant.permissions.canUseCamera
                               ? "Ограничить камеру"
                               : "Разрешить камеру"
                           }
@@ -763,19 +782,19 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
                             <IconButton
                               size="small"
                               className={`workbook-session__participant-overlay-control workbook-session__participant-nameplate-control ${
-                                participant.permissions.canUseMedia
+                                participant.permissions.canUseCamera
                                   ? "is-enabled"
                                   : "is-disabled"
                               }`}
                               onClick={() =>
-                                onToggleParticipantMic(
+                                onToggleParticipantCamera(
                                   participant,
-                                  !participant.permissions.canUseMedia
+                                  !participant.permissions.canUseCamera
                                 )
                               }
                               disabled={isEnded}
                             >
-                              {participant.permissions.canUseMedia ? (
+                              {participant.permissions.canUseCamera ? (
                                 <VideocamRoundedIcon fontSize="small" />
                               ) : (
                                 <VideocamOffRoundedIcon fontSize="small" />
@@ -830,14 +849,25 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
       >
         <MenuItem
           onClick={() => {
-            onSetStudentsMediaEnabled(areAllStudentsMediaDisabled);
+            onSetStudentsMicrophoneEnabled(areAllStudentsMicrophonesDisabled);
             setHostMenuAnchor(null);
           }}
           disabled={!canManageSession || isEnded || !hasStudentParticipants}
         >
-          {areAllStudentsMediaDisabled
-            ? "Включить микрофон и камеру всем"
-            : "Отключить микрофон и камеру всем"}
+          {areAllStudentsMicrophonesDisabled
+            ? "Включить микрофоны всем"
+            : "Отключить микрофоны всем"}
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            onSetStudentsCameraEnabled(areAllStudentsCamerasDisabled);
+            setHostMenuAnchor(null);
+          }}
+          disabled={!canManageSession || isEnded || !hasStudentParticipants}
+        >
+          {areAllStudentsCamerasDisabled
+            ? "Включить камеры всем"
+            : "Отключить камеры всем"}
         </MenuItem>
         <MenuItem
           onClick={() => {

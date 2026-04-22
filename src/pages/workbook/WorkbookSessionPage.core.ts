@@ -315,6 +315,8 @@ export const FALLBACK_PERMISSIONS: WorkbookSessionParticipant["permissions"] = {
   canDraw: false,
   canAnnotate: false,
   canUseMedia: true,
+  canUseMicrophone: true,
+  canUseCamera: true,
   canUseChat: true,
   canInvite: false,
   canManageSession: false,

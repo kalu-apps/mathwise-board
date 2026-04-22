@@ -339,13 +339,35 @@ export const applyWorkbookIncomingSessionMetaEvent = (
         ...current,
         participants: current.participants.map((participant) =>
           participant.userId === targetUserId
-            ? {
-                ...participant,
-                permissions: {
+            ? (() => {
+                const nextPermissions = {
                   ...participant.permissions,
                   ...patch,
-                },
-              }
+                };
+                if (typeof patch.canUseMedia === "boolean") {
+                  if (typeof patch.canUseMicrophone !== "boolean") {
+                    nextPermissions.canUseMicrophone = patch.canUseMedia;
+                  }
+                  if (typeof patch.canUseCamera !== "boolean") {
+                    nextPermissions.canUseCamera = patch.canUseMedia;
+                  }
+                }
+                const canUseMicrophone =
+                  typeof nextPermissions.canUseMicrophone === "boolean"
+                    ? nextPermissions.canUseMicrophone
+                    : Boolean(nextPermissions.canUseMedia);
+                const canUseCamera =
+                  typeof nextPermissions.canUseCamera === "boolean"
+                    ? nextPermissions.canUseCamera
+                    : Boolean(nextPermissions.canUseMedia);
+                nextPermissions.canUseMicrophone = canUseMicrophone;
+                nextPermissions.canUseCamera = canUseCamera;
+                nextPermissions.canUseMedia = canUseMicrophone && canUseCamera;
+                return {
+                  ...participant,
+                  permissions: nextPermissions,
+                };
+              })()
             : participant
         ),
       };

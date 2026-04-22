@@ -24,8 +24,6 @@ import CenterFocusStrongRoundedIcon from "@mui/icons-material/CenterFocusStrongR
 import FullscreenRoundedIcon from "@mui/icons-material/FullscreenRounded";
 import FullscreenExitRoundedIcon from "@mui/icons-material/FullscreenExitRounded";
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
-import VideocamRoundedIcon from "@mui/icons-material/VideocamRounded";
-import VideocamOffRoundedIcon from "@mui/icons-material/VideocamOffRounded";
 import NavigateBeforeRoundedIcon from "@mui/icons-material/NavigateBeforeRounded";
 import NavigateNextRoundedIcon from "@mui/icons-material/NavigateNextRounded";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
@@ -79,9 +77,6 @@ interface WorkbookSessionContextbarProps {
   showCollaborationPanels: boolean;
   isParticipantsCollapsed: boolean;
   onToggleParticipantsCollapsed: () => void;
-  cameraEnabled: boolean;
-  canUseMedia: boolean;
-  onToggleCamera: () => void;
   showInviteLinkButton: boolean;
   copyingInviteLink: boolean;
   onCopyInviteLink: () => Promise<void> | void;
@@ -132,9 +127,6 @@ export function WorkbookSessionContextbar({
   showCollaborationPanels,
   isParticipantsCollapsed,
   onToggleParticipantsCollapsed,
-  cameraEnabled,
-  canUseMedia,
-  onToggleCamera,
   showInviteLinkButton,
   copyingInviteLink,
   onCopyInviteLink,
@@ -210,29 +202,6 @@ export function WorkbookSessionContextbar({
             </IconButton>
           </span>
         </Tooltip>
-        {showCollaborationPanels ? (
-          <Tooltip
-            title={
-              isParticipantsCollapsed
-                ? "Открыть блок участников"
-                : "Свернуть блок участников"
-            }
-            placement="bottom"
-            arrow
-          >
-            <span>
-              <IconButton
-                size="small"
-                className={`workbook-session__toolbar-icon ${
-                  !isParticipantsCollapsed ? "is-active" : ""
-                }`}
-                onClick={onToggleParticipantsCollapsed}
-              >
-                <GroupRoundedIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
-        ) : null}
         <Tooltip
           title={
             canAccessBoardSettingsPanel
@@ -429,7 +398,11 @@ export function WorkbookSessionContextbar({
         </Tooltip>
         {showCollaborationPanels ? (
           <Tooltip
-            title={cameraEnabled ? "Выключить камеру" : "Включить камеру"}
+            title={
+              isParticipantsCollapsed
+                ? "Открыть блок участников"
+                : "Свернуть блок участников"
+            }
             placement="bottom"
             arrow
           >
@@ -437,12 +410,11 @@ export function WorkbookSessionContextbar({
               <IconButton
                 size="small"
                 className={`workbook-session__toolbar-icon ${
-                  cameraEnabled ? "is-active" : ""
+                  !isParticipantsCollapsed ? "is-active" : ""
                 }`}
-                disabled={!canUseMedia || isEnded}
-                onClick={onToggleCamera}
+                onClick={onToggleParticipantsCollapsed}
               >
-                {cameraEnabled ? <VideocamRoundedIcon /> : <VideocamOffRoundedIcon />}
+                <GroupRoundedIcon />
               </IconButton>
             </span>
           </Tooltip>

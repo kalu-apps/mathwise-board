@@ -143,6 +143,10 @@
   z-index: 1201;
 }
 
+.workbook-session.is-video-only-mode .workbook-session__session-chat {
+  z-index: 1202;
+}
+
 .workbook-session__session-chat.is-minimized {
   min-height: unset;
   width: min(340px, calc(100vw - 24px));

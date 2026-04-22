@@ -16,7 +16,8 @@ type LivekitModule = typeof import("livekit-client");
 type UseWorkbookLivekitParams = {
   sessionId: string;
   sessionKind?: WorkbookSessionKind;
-  canUseMedia: boolean;
+  canUseMicrophone: boolean;
+  canUseCamera: boolean;
   isEnded: boolean;
   userId?: string;
   setError: Dispatch<SetStateAction<string | null>>;
@@ -183,7 +184,8 @@ const summarizeLivekitConnectFailure = (reason: unknown): LivekitConnectFailureS
 export const useWorkbookLivekit = ({
   sessionId,
   sessionKind,
-  canUseMedia,
+  canUseMicrophone,
+  canUseCamera,
   isEnded,
   userId,
   setError,
@@ -745,7 +747,7 @@ export const useWorkbookLivekit = ({
     const runtime = livekitRuntimeRef.current;
     const room = livekitRoomRef.current;
     if (!runtime || !room || room.state !== runtime.ConnectionState.Connected) return;
-    const shouldPublishMicrophone = Boolean(canUseMedia && micEnabled);
+    const shouldPublishMicrophone = Boolean(canUseMicrophone && micEnabled);
     try {
       await room.localParticipant.setMicrophoneEnabled(shouldPublishMicrophone);
       if (shouldPublishMicrophone) {
@@ -759,7 +761,7 @@ export const useWorkbookLivekit = ({
     } catch (reason) {
       handleMicrophoneError(reason);
     }
-  }, [canUseMedia, handleMicrophoneError, micEnabled, setError]);
+  }, [canUseMicrophone, handleMicrophoneError, micEnabled, setError]);
 
   const syncLivekitCameraState = useCallback(async () => {
     const runtime = livekitRuntimeRef.current;
@@ -768,7 +770,7 @@ export const useWorkbookLivekit = ({
       setLocalVideoTrack(null);
       return;
     }
-    const shouldPublishCamera = Boolean(canUseMedia && cameraEnabled);
+    const shouldPublishCamera = Boolean(canUseCamera && cameraEnabled);
     try {
       await room.localParticipant.setCameraEnabled(shouldPublishCamera);
       syncLocalVideoTrackFromRoom();
@@ -781,7 +783,7 @@ export const useWorkbookLivekit = ({
     } catch (reason) {
       handleCameraError(reason);
     }
-  }, [cameraEnabled, canUseMedia, handleCameraError, setError, syncLocalVideoTrackFromRoom]);
+  }, [cameraEnabled, canUseCamera, handleCameraError, setError, syncLocalVideoTrackFromRoom]);
 
   const shouldKeepLivekitConnected = Boolean(
     sessionId && sessionKind === "CLASS" && !isEnded && userId
@@ -836,19 +838,19 @@ export const useWorkbookLivekit = ({
     if (micDefaultSessionKeyRef.current === sessionKey) return;
     micDefaultSessionKeyRef.current = sessionKey;
     cameraDefaultSessionKeyRef.current = sessionKey;
-    setMicEnabled(Boolean(canUseMedia));
+    setMicEnabled(Boolean(canUseMicrophone));
     setCameraEnabled(false);
-  }, [canUseMedia, isEnded, sessionId, sessionKind, userId]);
+  }, [canUseMicrophone, isEnded, sessionId, sessionKind, userId]);
 
   useEffect(() => {
-    if (canUseMedia || !micEnabled) return;
+    if (canUseMicrophone || !micEnabled) return;
     setMicEnabled(false);
-  }, [canUseMedia, micEnabled]);
+  }, [canUseMicrophone, micEnabled]);
 
   useEffect(() => {
-    if (canUseMedia || !cameraEnabled) return;
+    if (canUseCamera || !cameraEnabled) return;
     setCameraEnabled(false);
-  }, [cameraEnabled, canUseMedia]);
+  }, [cameraEnabled, canUseCamera]);
 
   useEffect(
     () => () => {

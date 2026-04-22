@@ -2,20 +2,33 @@
 .workbook-session__participants-scroll {
   display: grid;
   gap: 8px;
-  max-height: min(54vh, 520px);
+  max-height: min(49vh, 468px);
   overflow: auto;
-  padding-right: 2px;
+  padding: 0;
 }
 
 .workbook-session__participants-card {
   background: color-mix(in srgb, var(--surface-elevated) 96%, transparent);
   border: 1px solid color-mix(in srgb, var(--border-subtle) 84%, transparent);
   transition: background-color 0.18s ease, border-color 0.18s ease;
+  padding: 8px;
+  gap: 8px;
 }
 
 .workbook-session__participants-card.is-video-only {
-  height: calc(100vh - 24px);
-  height: calc(100dvh - 24px);
+  height: 100%;
+  min-height: 0;
+  padding: 6px;
+  gap: 6px;
+}
+
+.workbook-session__participants-card.is-video-only
+  .workbook-session__participants-scroll--video-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  max-height: none;
+  overflow: auto;
 }
 
 .workbook-session__participants-scroll--video-grid {
@@ -26,7 +39,8 @@
 .workbook-session__participants-scroll--video-grid.is-video-only-layout {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 10px;
-  align-content: start;
+  align-content: stretch;
+  grid-auto-rows: minmax(0, 1fr);
 }
 
 .workbook-session__participants-scroll--video-grid.is-video-only-layout .workbook-session__participant-card.is-video-card {
@@ -49,6 +63,7 @@
 
 .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-1 .workbook-session__participant-card.is-video-card {
   grid-column: 1 / -1;
+  height: 100%;
 }
 
 .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 .workbook-session__participant-card.is-video-card {
@@ -61,6 +76,43 @@
 
 .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-3 .workbook-session__participant-card.is-video-card:not(.is-video-primary) {
   grid-column: span 6;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-1,
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2,
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-3 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-1 {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 .workbook-session__participant-card.is-video-card,
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 .workbook-session__participant-card.is-video-card.is-video-primary {
+  grid-column: span 1;
+  height: 100%;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-3 {
+  grid-template-rows: minmax(0, 1.5fr) minmax(0, 1fr);
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-3 .workbook-session__participant-card.is-video-card {
+  height: 100%;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-3 .workbook-session__participant-card.is-video-card.is-video-primary {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-3 .workbook-session__participant-card.is-video-card:not(.is-video-primary) {
+  grid-row: 2;
 }
 
 .workbook-session__participant-card {
@@ -76,6 +128,7 @@
   padding: 0;
   overflow: hidden;
   background: color-mix(in srgb, var(--surface-elevated) 98%, transparent);
+  min-height: 0;
   transition:
     transform 0.16s ease,
     border-color 0.16s ease,
@@ -104,6 +157,17 @@
       transparent 62%
     ),
     color-mix(in srgb, var(--surface-soft) 96%, transparent);
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-1
+  .workbook-session__participant-video-wrap,
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2
+  .workbook-session__participant-video-wrap,
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-3
+  .workbook-session__participant-video-wrap {
+  aspect-ratio: auto;
+  height: 100%;
+  min-height: 0;
 }
 
 .workbook-session__participant-video {
@@ -154,6 +218,7 @@
   left: 6px;
   right: 6px;
   bottom: 6px;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;

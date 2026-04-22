@@ -84,7 +84,7 @@ export function WorkbookSessionSidebar({
         </WorkbookSessionUtilityPanelChrome>
       ) : null}
 
-      {!isVideoOnlyMode ? <WorkbookSessionChatPanel {...sessionChatPanelProps} /> : null}
+      <WorkbookSessionChatPanel {...sessionChatPanelProps} />
 
       <WorkbookSessionOverlays {...overlaysProps} />
     </>

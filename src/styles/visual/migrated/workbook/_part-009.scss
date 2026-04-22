@@ -237,12 +237,12 @@
   width: 28px;
   height: 28px;
   border: none !important;
-  background: color-mix(in srgb, var(--surface-soft) 78%, transparent) !important;
+  background: transparent !important;
   color: var(--text-secondary);
 }
 
 .workbook-session__participants-view-cycle.MuiIconButton-root:hover {
-  background: color-mix(in srgb, var(--surface-soft) 92%, transparent) !important;
+  background: transparent !important;
   color: var(--text-primary);
 }
 

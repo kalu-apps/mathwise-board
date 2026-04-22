@@ -709,7 +709,8 @@ export default function WorkbookSessionPage() {
     canDelete,
     canClear,
     canUseLaser,
-    canUseMedia,
+    canUseMicrophone,
+    canUseCamera,
     canUseSessionChat,
     canSendSessionChat,
     canAccessBoardSettingsPanel,
@@ -774,7 +775,7 @@ export default function WorkbookSessionPage() {
       canAccessLessonRecording &&
       !isEnded &&
       !isWorkspaceInteractionBlocked,
-    canUseMedia,
+    canUseMedia: canUseMicrophone,
     micEnabled,
     setMicEnabled,
     sessionTitle: session?.title,
@@ -2011,7 +2012,8 @@ export default function WorkbookSessionPage() {
     handleCopyInviteLink,
     handleMenuClearBoard,
     handleToggleParticipantBoardTools,
-    handleToggleParticipantMic,
+    handleToggleParticipantMicrophone,
+    handleToggleParticipantCamera,
     handleSendSessionChatMessage,
     handleClearSessionChat,
     handleSessionChatDragStart,
@@ -3212,7 +3214,8 @@ export default function WorkbookSessionPage() {
 
   const setStudentsPermissionState = async (
     patch: Partial<{
-      canUseMedia: boolean;
+      canUseMicrophone: boolean;
+      canUseCamera: boolean;
       canDraw: boolean;
       canAnnotate: boolean;
       canSelect: boolean;
@@ -3242,8 +3245,12 @@ export default function WorkbookSessionPage() {
     }
   };
 
-  const handleSetStudentsMediaEnabled = (enabled: boolean) => {
-    void setStudentsPermissionState({ canUseMedia: enabled });
+  const handleSetStudentsMicrophoneEnabled = (enabled: boolean) => {
+    void setStudentsPermissionState({ canUseMicrophone: enabled });
+  };
+
+  const handleSetStudentsCameraEnabled = (enabled: boolean) => {
+    void setStudentsPermissionState({ canUseCamera: enabled });
   };
 
   const handleSetStudentsBoardToolsEnabled = (enabled: boolean) => {
@@ -3258,6 +3265,13 @@ export default function WorkbookSessionPage() {
     });
   };
 
+  const handleToggleParticipantsCollapsed = () => {
+    if (isParticipantsCollapsed) {
+      setParticipantsPanelMode("sidebar");
+    }
+    workbookSessionActions.setIsParticipantsCollapsed((current: boolean) => !current);
+  };
+
   const participantsPanelProps = {
     participantCards,
     currentUserId: user?.id,
@@ -3269,12 +3283,13 @@ export default function WorkbookSessionPage() {
     onToggleSessionChat: canvasHandlers.handleToggleSessionChat,
     participantJoinSoundEnabled,
     onToggleParticipantJoinSound: toggleParticipantJoinSound,
-    onCollapseParticipants: canvasHandlers.handleCollapseParticipants,
+    onCollapseParticipants: handleToggleParticipantsCollapsed,
     micEnabled,
     onToggleMic: canvasHandlers.handleToggleOwnMic,
     cameraEnabled,
     onToggleCamera: canvasHandlers.handleToggleOwnCamera,
-    canUseMedia,
+    canUseMicrophone,
+    canUseCamera,
     isEnded,
     participantsPanelMode: effectiveParticipantsPanelMode,
     onParticipantsPanelModeChange: setParticipantsPanelMode,
@@ -3282,8 +3297,10 @@ export default function WorkbookSessionPage() {
     remoteVideoTracks,
     isParticipantBoardToolsEnabled,
     onToggleParticipantBoardTools: handleToggleParticipantBoardTools,
-    onToggleParticipantMic: handleToggleParticipantMic,
-    onSetStudentsMediaEnabled: handleSetStudentsMediaEnabled,
+    onToggleParticipantMicrophone: handleToggleParticipantMicrophone,
+    onToggleParticipantCamera: handleToggleParticipantCamera,
+    onSetStudentsMicrophoneEnabled: handleSetStudentsMicrophoneEnabled,
+    onSetStudentsCameraEnabled: handleSetStudentsCameraEnabled,
     onSetStudentsBoardToolsEnabled: handleSetStudentsBoardToolsEnabled,
   };
 
@@ -3361,15 +3378,7 @@ export default function WorkbookSessionPage() {
     isExitSessionPending: isBackNavigationPending,
     showCollaborationPanels,
     isParticipantsCollapsed,
-    onToggleParticipantsCollapsed: () => {
-      if (isParticipantsCollapsed) {
-        setParticipantsPanelMode("sidebar");
-      }
-      workbookSessionActions.setIsParticipantsCollapsed((current: boolean) => !current);
-    },
-    cameraEnabled,
-    canUseMedia,
-    onToggleCamera: canvasHandlers.handleToggleOwnCamera,
+    onToggleParticipantsCollapsed: handleToggleParticipantsCollapsed,
     showInviteLinkButton: canManageSession && session?.kind === "CLASS",
     copyingInviteLink,
     onCopyInviteLink: handleCopyInviteLink,

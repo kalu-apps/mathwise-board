@@ -98,21 +98,22 @@
     position: fixed;
     top: var(--workbook-floating-top, 86px);
     right: 12px;
-    width: min(320px, calc(100vw - 24px));
+    width: min(288px, calc(100vw - 24px));
     max-height: calc(100vh - var(--workbook-floating-top, 86px) - 12px);
     max-height: calc(100dvh - var(--workbook-floating-top, 86px) - 12px);
     z-index: 90;
   }
 
   .workbook-session__layout--sidebar-overlay .workbook-session__sidebar.mode-expanded {
-    width: min(420px, calc(100vw - 24px));
+    width: min(378px, calc(100vw - 24px));
   }
 
   .workbook-session__layout--sidebar-overlay .workbook-session__sidebar.mode-video-only {
-    top: 8px;
-    left: 8px;
-    right: 8px;
-    bottom: 8px;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     width: auto;
     max-height: none;
   }
@@ -230,7 +231,7 @@
   }
 
   .workbook-session__participants-scroll {
-    max-height: min(40vh, 360px);
+    max-height: min(36vh, 324px);
   }
 
   .workbook-session__video-dock {
@@ -265,6 +266,11 @@
     padding: 10px;
   }
 
+  .workbook-session__participants-card {
+    padding: 6px;
+    gap: 6px;
+  }
+
   .workbook-session__layout--sidebar-overlay .workbook-session__sidebar {
     left: 8px;
     right: 8px;
@@ -274,8 +280,11 @@
   }
 
   .workbook-session__layout--sidebar-overlay .workbook-session__sidebar.mode-video-only {
-    top: 8px;
-    bottom: 8px;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     max-height: none;
   }
 
@@ -303,6 +312,16 @@
 
   .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 .workbook-session__participant-card.is-video-card.is-video-primary {
     grid-column: span 2;
+  }
+
+  .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
+
+  .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 .workbook-session__participant-card.is-video-card,
+  .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 .workbook-session__participant-card.is-video-card.is-video-primary {
+    grid-column: 1 / -1;
   }
 
   .workbook-session__participant-video-nameplate-meta strong {
