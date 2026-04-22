@@ -50,6 +50,7 @@ type WorkbookSessionChatPanelProps = {
   canManageSession: boolean;
   canSendSessionChat: boolean;
   sessionChatUnreadCount: number;
+  isSessionChatAtBottom: boolean;
   sessionChatDraft: string;
   isSessionChatEmojiOpen: boolean;
   setIsSessionChatMinimized: (value: boolean | ((current: boolean) => boolean)) => void;
@@ -80,6 +81,7 @@ export function WorkbookSessionChatPanel({
   canManageSession,
   canSendSessionChat,
   sessionChatUnreadCount,
+  isSessionChatAtBottom,
   sessionChatDraft,
   isSessionChatEmojiOpen,
   setIsSessionChatMinimized,
@@ -230,7 +232,7 @@ export function WorkbookSessionChatPanel({
                 </div>
               ))
             )}
-            {sessionChatUnreadCount > 0 ? (
+            {sessionChatUnreadCount > 0 && !isSessionChatAtBottom ? (
               <div className="workbook-session__chat-scroll-latest-wrap">
                 <Tooltip title="Перемотать к последнему сообщению" arrow>
                   <IconButton
@@ -301,7 +303,8 @@ export function WorkbookSessionChatPanel({
                     suggestedEmojisMode={SuggestionMode.RECENT}
                     previewConfig={{ showPreview: false }}
                     lazyLoadEmojis
-                    searchPlaceholder="Поиск эмодзи"
+                    searchDisabled
+                    skinTonesDisabled
                     onEmojiClick={handleSelectEmoji}
                   />
                 </div>

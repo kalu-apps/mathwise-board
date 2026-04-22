@@ -263,17 +263,19 @@
   height: 26px;
   border: none !important;
   background: transparent !important;
-  color: rgba(255, 255, 255, 0.99);
-  text-shadow: 0 3px 6px rgba(0, 0, 0, 0.44);
+  color: color-mix(in srgb, #ffffff 96%, #eaf2ff);
+  text-shadow:
+    0 3px 8px rgba(0, 0, 0, 0.6),
+    0 0 1px rgba(0, 0, 0, 0.56);
 }
 
 .workbook-session__participant-overlay-control.MuiIconButton-root:hover {
-  color: #fff;
+  color: #ffffff;
   background: transparent !important;
 }
 
 .workbook-session__participant-overlay-control.MuiIconButton-root.is-disabled {
-  color: rgba(246, 249, 255, 0.88);
+  color: color-mix(in srgb, #ffffff 90%, #dce8ff);
 }
 
 .workbook-session__participant-video-corner-controls {

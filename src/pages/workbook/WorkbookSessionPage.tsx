@@ -3325,6 +3325,7 @@ export default function WorkbookSessionPage() {
     canManageSession,
     canSendSessionChat,
     sessionChatUnreadCount,
+    isSessionChatAtBottom,
     sessionChatDraft,
     isSessionChatEmojiOpen,
     setIsSessionChatMinimized: workbookSessionActions.setIsSessionChatMinimized,
