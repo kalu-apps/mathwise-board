@@ -127,6 +127,7 @@ import { useWorkbookSessionIncomingRuntime } from "./useWorkbookSessionIncomingR
 import { useWorkbookSessionRealtimeLifecycle } from "./useWorkbookSessionRealtimeLifecycle";
 import { useWorkbookToolRuntimeHandlers } from "./useWorkbookToolRuntimeHandlers";
 import { WorkbookSessionWorkspace } from "./WorkbookSessionWorkspace";
+import { WorkbookSessionVideoDock } from "./WorkbookSessionVideoDock";
 import { WorkbookSessionSidebar } from "./WorkbookSessionSidebar";
 import { useWorkbookSessionSelectionViewportState } from "./useWorkbookSessionSelectionViewportState";
 import { buildWorkbookSessionSelectionViewportParams } from "./buildWorkbookSessionSelectionViewportParams";
@@ -721,6 +722,10 @@ export default function WorkbookSessionPage() {
     isLivekitConnected,
     micEnabled,
     setMicEnabled,
+    cameraEnabled,
+    setCameraEnabled,
+    localVideoTrack,
+    remoteVideoTracks,
     isCompactDialogViewport,
     showSidebarParticipants,
     focusPoints,
@@ -2768,6 +2773,7 @@ export default function WorkbookSessionPage() {
     sessionChatShouldScrollToUnreadRef,
     setIsParticipantsCollapsed,
     setMicEnabled,
+    setCameraEnabled,
   });
 
   const { settingsPanelProps, graphPanelProps } =
@@ -3213,6 +3219,8 @@ export default function WorkbookSessionPage() {
     onCollapseParticipants: canvasHandlers.handleCollapseParticipants,
     micEnabled,
     onToggleMic: canvasHandlers.handleToggleOwnMic,
+    cameraEnabled,
+    onToggleCamera: canvasHandlers.handleToggleOwnCamera,
     canUseMedia,
     isEnded,
     isParticipantBoardToolsEnabled,
@@ -3297,6 +3305,9 @@ export default function WorkbookSessionPage() {
     isParticipantsCollapsed,
     onToggleParticipantsCollapsed: () =>
       workbookSessionActions.setIsParticipantsCollapsed((current: boolean) => !current),
+    cameraEnabled,
+    canUseMedia,
+    onToggleCamera: canvasHandlers.handleToggleOwnCamera,
     showInviteLinkButton: canManageSession && session?.kind === "CLASS",
     copyingInviteLink,
     onCopyInviteLink: handleCopyInviteLink,
@@ -3473,6 +3484,16 @@ export default function WorkbookSessionPage() {
           workspaceRef={workspaceRef}
           graphCatalogCursorActive={graphCatalogCursorActive}
           contextbarProps={contextbarProps}
+          videoDock={
+            showCollaborationPanels ? (
+              <WorkbookSessionVideoDock
+                cameraEnabled={cameraEnabled}
+                localVideoTrack={localVideoTrack}
+                remoteVideoTracks={remoteVideoTracks}
+                isCompactViewport={isCompactViewport}
+              />
+            ) : null
+          }
           onWorkspaceDragOver={handleWorkspaceDragOver}
           onWorkspaceDrop={handleWorkspaceDrop}
           boardShellProps={{

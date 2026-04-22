@@ -139,7 +139,15 @@ export const useWorkbookSessionDerivedState = ({
   const volatilePreviewQueueMax = realtimeBackpressureV2Enabled
     ? VOLATILE_PREVIEW_QUEUE_MAX
     : Number.MAX_SAFE_INTEGER;
-  const { isLivekitConnected, micEnabled, setMicEnabled } = useWorkbookLivekit({
+  const {
+    isLivekitConnected,
+    micEnabled,
+    setMicEnabled,
+    cameraEnabled,
+    setCameraEnabled,
+    localVideoTrack,
+    remoteVideoTracks,
+  } = useWorkbookLivekit({
     sessionId,
     sessionKind: session?.kind,
     canUseMedia,
@@ -266,6 +274,10 @@ export const useWorkbookSessionDerivedState = ({
     isLivekitConnected,
     micEnabled,
     setMicEnabled,
+    cameraEnabled,
+    setCameraEnabled,
+    localVideoTrack,
+    remoteVideoTracks,
     isCompactDialogViewport,
     showSidebarParticipants,
     focusPoints,

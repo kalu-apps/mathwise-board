@@ -20,6 +20,7 @@ type WorkbookSessionWorkspaceProps = {
   boardShellProps: React.ComponentProps<typeof WorkbookSessionBoardShell>;
   docsWindowOpen: boolean;
   docsWindowProps: WorkbookSessionDocsWindowProps;
+  videoDock?: ReactNode;
   lessonRecordingWatermark?: ReactNode;
   onWorkspaceDragOver?: DragEventHandler<HTMLDivElement>;
   onWorkspaceDrop?: DragEventHandler<HTMLDivElement>;
@@ -32,6 +33,7 @@ export function WorkbookSessionWorkspace({
   boardShellProps,
   docsWindowOpen,
   docsWindowProps,
+  videoDock,
   lessonRecordingWatermark,
   onWorkspaceDragOver,
   onWorkspaceDrop,
@@ -49,6 +51,7 @@ export function WorkbookSessionWorkspace({
         <WorkbookSessionContextbar {...contextbarProps} />
       </div>
       <WorkbookSessionBoardShell {...boardShellProps} />
+      {videoDock}
       {lessonRecordingWatermark}
 
       {docsWindowOpen ? (

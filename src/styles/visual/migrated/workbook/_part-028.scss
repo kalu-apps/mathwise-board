@@ -219,6 +219,12 @@
   .workbook-session__participants-scroll {
     max-height: min(40vh, 360px);
   }
+
+  .workbook-session__video-dock {
+    right: 12px;
+    bottom: 12px;
+    width: min(360px, calc(100% - 24px));
+  }
 }
 
 @media (max-width: 760px) {
@@ -252,6 +258,25 @@
     width: auto;
     max-height: calc(100vh - var(--workbook-floating-top, 86px) - 8px);
     max-height: calc(100dvh - var(--workbook-floating-top, 86px) - 8px);
+  }
+
+  .workbook-session__video-dock {
+    left: 8px;
+    right: 8px;
+    bottom: 72px;
+    width: auto;
+    padding: 8px;
+    border-radius: 12px;
+  }
+
+  .workbook-session__video-dock-grid {
+    gap: 6px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workbook-session__video-tile {
+    border-radius: 10px;
+    min-height: 64px;
   }
 
   .workbook-hub__list {

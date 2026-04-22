@@ -224,3 +224,113 @@
   min-width: 0;
   max-width: 100%;
 }
+.workbook-session__video-dock {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 13;
+  width: min(420px, calc(100% - 28px));
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--brand-soft) 34%, var(--border-subtle));
+  background:
+    radial-gradient(
+      circle at 84% 12%,
+      color-mix(in srgb, var(--brand-soft) 12%, transparent),
+      transparent 60%
+    ),
+    color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 14px 26px color-mix(in srgb, var(--text-primary) 22%, transparent);
+  pointer-events: auto;
+}
+.workbook-session__video-dock.is-compact {
+  left: 12px;
+  right: 12px;
+  bottom: 78px;
+  width: auto;
+}
+.workbook-session__video-dock-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  strong {
+    font-size: 12px;
+    line-height: 1.2;
+    color: var(--text-primary);
+  }
+  span {
+    font-size: 10px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+}
+.workbook-session__video-dock-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 8px;
+  max-height: min(42vh, 320px);
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.workbook-session__video-dock.is-compact .workbook-session__video-dock-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-height: min(34vh, 260px);
+}
+.workbook-session__video-tile {
+  position: relative;
+  border-radius: 11px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 88%, transparent);
+  background:
+    radial-gradient(
+      circle at 84% 16%,
+      color-mix(in srgb, var(--brand-soft) 8%, transparent),
+      transparent 62%
+    ),
+    color-mix(in srgb, var(--surface-soft) 90%, transparent);
+  aspect-ratio: 16 / 10;
+  min-height: 72px;
+}
+.workbook-session__video-tile-media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.workbook-session__video-tile.is-mirrored .workbook-session__video-tile-media {
+  transform: scaleX(-1);
+}
+.workbook-session__video-tile-placeholder {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  align-content: center;
+  padding: 8px;
+  color: var(--text-secondary);
+  text-align: center;
+  font-size: 10px;
+  line-height: 1.3;
+}
+.workbook-session__video-tile-label {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  max-width: calc(100% - 12px);
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-primary) 56%, transparent);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}

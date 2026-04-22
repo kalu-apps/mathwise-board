@@ -13,6 +13,8 @@ import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
 import MicRoundedIcon from "@mui/icons-material/MicRounded";
 import MicOffRoundedIcon from "@mui/icons-material/MicOffRounded";
+import VideocamRoundedIcon from "@mui/icons-material/VideocamRounded";
+import VideocamOffRoundedIcon from "@mui/icons-material/VideocamOffRounded";
 import UnfoldLessRoundedIcon from "@mui/icons-material/UnfoldLessRounded";
 import VolumeOffRoundedIcon from "@mui/icons-material/VolumeOffRounded";
 import VolumeUpRoundedIcon from "@mui/icons-material/VolumeUpRounded";
@@ -32,6 +34,8 @@ export type WorkbookSessionParticipantsPanelProps = {
   onCollapseParticipants: () => void;
   micEnabled: boolean;
   onToggleMic: () => void;
+  cameraEnabled: boolean;
+  onToggleCamera: () => void;
   canUseMedia: boolean;
   isEnded: boolean;
   isParticipantBoardToolsEnabled: (participant: WorkbookSessionParticipant) => boolean;
@@ -71,6 +75,8 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
   onCollapseParticipants,
   micEnabled,
   onToggleMic,
+  cameraEnabled,
+  onToggleCamera,
   canUseMedia,
   isEnded,
   isParticipantBoardToolsEnabled,
@@ -290,6 +296,29 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
                                   <MicRoundedIcon fontSize="small" />
                                 ) : (
                                   <MicOffRoundedIcon fontSize="small" />
+                                )}
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                        ) : null}
+                        {isSelfParticipant ? (
+                          <Tooltip
+                            title={cameraEnabled ? "Выключить камеру" : "Включить камеру"}
+                            arrow
+                          >
+                            <span>
+                              <IconButton
+                                size="small"
+                                className={`workbook-session__participant-control ${
+                                  cameraEnabled ? "is-enabled" : "is-disabled"
+                                }`}
+                                onClick={onToggleCamera}
+                                disabled={!canUseMedia || isEnded}
+                              >
+                                {cameraEnabled ? (
+                                  <VideocamRoundedIcon fontSize="small" />
+                                ) : (
+                                  <VideocamOffRoundedIcon fontSize="small" />
                                 )}
                               </IconButton>
                             </span>
