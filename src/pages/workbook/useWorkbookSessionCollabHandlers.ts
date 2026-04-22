@@ -1,5 +1,6 @@
 import { useCallback, type MutableRefObject } from "react";
 import { createWorkbookInvite } from "@/features/workbook/model/api";
+import { upsertWorkbookChatMessage } from "@/features/workbook/model/chatMessageState";
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import type {
   WorkbookChatMessage,
@@ -195,9 +196,7 @@ export const useWorkbookSessionCollabHandlers = ({
       text: text.slice(0, 1000),
       createdAt: new Date().toISOString(),
     };
-    setChatMessages((current) =>
-      current.some((item) => item.id === message.id) ? current : [...current, message]
-    );
+    setChatMessages((current) => upsertWorkbookChatMessage(current, message));
     setSessionChatDraft("");
     setIsSessionChatEmojiOpen(false);
     setIsSessionChatAtBottom(true);
@@ -232,6 +231,99 @@ export const useWorkbookSessionCollabHandlers = ({
     user?.id,
     user?.lastName,
   ]);
+
+  const handleEditSessionChatMessage = useCallback(
+    async (messageId: string, rawText: string) => {
+      if (!sessionId || !user?.id || !canSendSessionChat) return false;
+      const text = rawText.trim().slice(0, 1000);
+      if (!text) return false;
+      const currentMessage = chatMessages.find((item) => item.id === messageId);
+      if (!currentMessage || currentMessage.authorUserId !== user.id) {
+        return false;
+      }
+      if (currentMessage.text === text) {
+        setSessionChatDraft("");
+        setIsSessionChatEmojiOpen(false);
+        return true;
+      }
+      const nextMessage: WorkbookChatMessage = {
+        ...currentMessage,
+        text,
+      };
+      setChatMessages((current) => upsertWorkbookChatMessage(current, nextMessage));
+      setSessionChatDraft("");
+      setIsSessionChatEmojiOpen(false);
+      try {
+        await appendEventsAndApply([
+          {
+            type: "chat.message",
+            payload: { message: nextMessage },
+          },
+        ]);
+        return true;
+      } catch {
+        setChatMessages((current) => upsertWorkbookChatMessage(current, currentMessage));
+        setSessionChatDraft(text);
+        setError("Не удалось изменить сообщение.");
+        return false;
+      }
+    },
+    [
+      appendEventsAndApply,
+      canSendSessionChat,
+      chatMessages,
+      sessionId,
+      setChatMessages,
+      setError,
+      setIsSessionChatEmojiOpen,
+      setSessionChatDraft,
+      user?.id,
+    ]
+  );
+
+  const handleDeleteSessionChatMessage = useCallback(
+    async (messageId: string) => {
+      if (!sessionId || !user?.id) return false;
+      const deletedMessageIndex = chatMessages.findIndex((item) => item.id === messageId);
+      const currentMessage =
+        deletedMessageIndex >= 0 ? chatMessages[deletedMessageIndex] : null;
+      if (!currentMessage) return false;
+      if (currentMessage.authorUserId !== user.id && !canManageSession) {
+        return false;
+      }
+      setChatMessages((current) => current.filter((item) => item.id !== messageId));
+      try {
+        await appendEventsAndApply([
+          {
+            type: "chat.message.delete",
+            payload: { messageId },
+          },
+        ]);
+        return true;
+      } catch {
+        setChatMessages((current) => {
+          if (current.some((item) => item.id === messageId)) {
+            return current;
+          }
+          const next = [...current];
+          const safeInsertIndex = Math.min(Math.max(deletedMessageIndex, 0), next.length);
+          next.splice(safeInsertIndex, 0, currentMessage);
+          return next;
+        });
+        setError("Не удалось удалить сообщение.");
+        return false;
+      }
+    },
+    [
+      appendEventsAndApply,
+      canManageSession,
+      chatMessages,
+      sessionId,
+      setChatMessages,
+      setError,
+      user?.id,
+    ]
+  );
 
   const handleClearSessionChat = useCallback(async () => {
     if (!canManageSession || chatMessages.length === 0) return;
@@ -282,6 +374,8 @@ export const useWorkbookSessionCollabHandlers = ({
     handleToggleParticipantMicrophone,
     handleToggleParticipantCamera,
     handleSendSessionChatMessage,
+    handleEditSessionChatMessage,
+    handleDeleteSessionChatMessage,
     handleClearSessionChat,
     handleSessionChatDragStart,
   };

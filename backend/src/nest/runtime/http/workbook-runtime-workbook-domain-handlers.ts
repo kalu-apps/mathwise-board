@@ -305,6 +305,71 @@ const normalizeEventsMediaPayloads = async (
   return normalizedEvents;
 };
 
+const readChatMessageIdFromDeletePayload = (payload: unknown) => {
+  if (!payload || typeof payload !== "object") return "";
+  const messageId = (payload as { messageId?: unknown }).messageId;
+  if (typeof messageId !== "string") return "";
+  const normalized = messageId.trim();
+  return normalized.length > 0 ? normalized : "";
+};
+
+const readChatMessageIdFromMessagePayload = (payload: unknown) => {
+  if (!payload || typeof payload !== "object") return "";
+  const message = (payload as { message?: unknown }).message;
+  if (!message || typeof message !== "object") return "";
+  const messageId = (message as { id?: unknown }).id;
+  if (typeof messageId !== "string") return "";
+  const normalized = messageId.trim();
+  return normalized.length > 0 ? normalized : "";
+};
+
+const resolveChatMessageOwnersById = async (
+  sessionId: string,
+  messageIds: string[],
+  deps: WorkbookDomainDeps
+) => {
+  const trackedIds = new Set(messageIds.filter((messageId) => messageId.length > 0));
+  const ownersByMessageId = new Map<string, string>();
+  if (trackedIds.size === 0) {
+    return ownersByMessageId;
+  }
+  const chunkLimit = Math.max(200, Math.trunc(Number(deps.WORKBOOK_EVENT_LIMIT) || 0));
+  let afterSeq = 0;
+  while (true) {
+    const { events, latestSeq } = await deps.workbookEventStore.read({
+      sessionId,
+      afterSeq,
+      limit: chunkLimit,
+    });
+    if (!Array.isArray(events) || events.length === 0) {
+      break;
+    }
+    for (const event of events) {
+      if (event.type === "chat.clear") {
+        ownersByMessageId.clear();
+        continue;
+      }
+      if (event.type === "chat.message.delete") {
+        const messageId = readChatMessageIdFromDeletePayload(event.payload);
+        if (messageId && trackedIds.has(messageId)) {
+          ownersByMessageId.delete(messageId);
+        }
+        continue;
+      }
+      if (event.type !== "chat.message") continue;
+      const messageId = readChatMessageIdFromMessagePayload(event.payload);
+      if (!messageId || !trackedIds.has(messageId)) continue;
+      if (ownersByMessageId.has(messageId)) continue;
+      ownersByMessageId.set(messageId, event.authorUserId);
+    }
+    afterSeq = Number(events[events.length - 1]?.seq ?? afterSeq);
+    if (!Number.isFinite(afterSeq) || afterSeq >= latestSeq) {
+      break;
+    }
+  }
+  return ownersByMessageId;
+};
+
 const handleWorkbookAssetsRoute = async (
   context: RuntimeRequestContext,
   deps: WorkbookDomainDeps
@@ -527,6 +592,17 @@ const handleWorkbookEventsRoute = async (
     const preparedEvents = Array.isArray(resolvedUndoRedoEvents)
       ? resolvedUndoRedoEvents
       : normalizedEvents;
+    const canManageSession = Boolean(participant.permissions.canManageSession);
+    const messageDeleteIdsForOwnershipCheck = !canManageSession
+      ? preparedEvents
+          .filter((event) => event.type === "chat.message.delete")
+          .map((event) => readChatMessageIdFromDeletePayload(event.payload))
+          .filter((messageId) => messageId.length > 0)
+      : [];
+    const chatMessageOwnersById =
+      messageDeleteIdsForOwnershipCheck.length > 0
+        ? await resolveChatMessageOwnersById(sessionId, messageDeleteIdsForOwnershipCheck, deps)
+        : null;
 
     for (const event of preparedEvents) {
       if (event.type === "teacher.cursor") {
@@ -551,15 +627,29 @@ const handleWorkbookEventsRoute = async (
           return true;
         }
       }
-      if (
-        (event.type === "chat.message.delete" || event.type === "chat.clear") &&
-        !participant.permissions.canManageSession
-      ) {
+      if (event.type === "chat.message.delete") {
+        const messageId = readChatMessageIdFromDeletePayload(event.payload);
+        if (!messageId) {
+          deps.badRequest(res, "chat_message_delete_invalid");
+          return true;
+        }
+        if (canManageSession) {
+          continue;
+        }
+        const messageOwnerUserId = chatMessageOwnersById?.get(messageId) ?? "";
+        if (!messageOwnerUserId || messageOwnerUserId !== actor.id) {
+          deps.forbidden(res, "chat_message_delete_forbidden");
+          return true;
+        }
+        chatMessageOwnersById?.delete(messageId);
+        continue;
+      }
+      if (event.type === "chat.clear" && !canManageSession) {
         deps.forbidden(res);
         return true;
       }
       if (event.type !== "permissions.update") continue;
-      if (!participant.permissions.canManageSession) {
+      if (!canManageSession) {
         deps.forbidden(res);
         return true;
       }

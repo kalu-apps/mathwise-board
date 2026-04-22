@@ -4,6 +4,7 @@ import {
   normalizeDocumentAnnotationPayload,
   normalizeDocumentAssetPayload,
 } from "./scene";
+import { upsertWorkbookChatMessage } from "./chatMessageState";
 import { normalizeWorkbookPageFrameWidth } from "./pageFrame";
 import {
   normalizeWorkbookBoardPageVisualSettingsByPage,
@@ -378,9 +379,7 @@ export const applyWorkbookIncomingSessionMetaEvent = (
   if (event.type === "chat.message") {
     const message = normalizeChatMessagePayload((event.payload as { message?: unknown })?.message);
     if (!message) return true;
-    setChatMessages((current) =>
-      current.some((item) => item.id === message.id) ? current : [...current, message]
-    );
+    setChatMessages((current) => upsertWorkbookChatMessage(current, message));
     return true;
   }
 

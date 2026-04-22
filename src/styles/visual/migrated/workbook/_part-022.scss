@@ -48,6 +48,10 @@
   --epr-bg-color: transparent;
   --epr-picker-border-color: transparent;
   --epr-category-label-bg-color: color-mix(in srgb, var(--surface-elevated) 86%, transparent);
+  --epr-emoji-size: 17px;
+  --epr-emoji-padding: 5px;
+  --epr-category-navigation-button-size: 26px;
+  --epr-category-icon-size: 14px;
   --epr-hover-bg-color: color-mix(in srgb, #b7a2ff 32%, transparent);
   --epr-focus-bg-color: color-mix(in srgb, #ffb26f 34%, transparent);
   --epr-highlight-color: color-mix(in srgb, var(--brand-solid) 74%, #a173ff);
@@ -73,6 +77,10 @@
 
 .workbook-session__session-chat-emoji .EmojiPickerReact .epr-category-nav button {
   border-radius: 8px;
+}
+
+.workbook-session__session-chat-emoji .EmojiPickerReact .epr-category-nav {
+  padding-block: 2px;
 }
 
 .workbook-session__docs-window {

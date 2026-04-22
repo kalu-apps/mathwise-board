@@ -2017,6 +2017,8 @@ export default function WorkbookSessionPage() {
     handleToggleParticipantMicrophone,
     handleToggleParticipantCamera,
     handleSendSessionChatMessage,
+    handleEditSessionChatMessage,
+    handleDeleteSessionChatMessage,
     handleClearSessionChat,
     handleSessionChatDragStart,
   } = useWorkbookSessionCollabHandlers({
@@ -3338,6 +3340,8 @@ export default function WorkbookSessionPage() {
     onScrollSessionChatToLatest: scrollSessionChatToLatest,
     onMarkSessionChatReadToLatest: markSessionChatReadToLatest,
     onSendSessionChatMessage: handleSendSessionChatMessage,
+    onEditSessionChatMessage: handleEditSessionChatMessage,
+    onDeleteSessionChatMessage: handleDeleteSessionChatMessage,
   };
   const contextbarProps = {
     overlayContainer,
