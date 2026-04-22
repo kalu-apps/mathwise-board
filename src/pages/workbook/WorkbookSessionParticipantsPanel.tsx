@@ -339,6 +339,22 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
 
   const resolvedSelfParticipantId = useMemo(() => {
     const normalizedCurrentUserId = (currentUserId ?? "").trim();
+    const resolveTeacherFallback = () => {
+      const teacherParticipants = sortedParticipantCards.filter(
+        (participant) => participant.roleInSession === "teacher"
+      );
+      if (teacherParticipants.length === 1) {
+        return teacherParticipants[0].userId;
+      }
+      if (teacherParticipants.length > 1) {
+        return (
+          teacherParticipants.find((participant) => participant.isOnline)?.userId ??
+          teacherParticipants[0].userId
+        );
+      }
+      return null;
+    };
+
     if (normalizedCurrentUserId.length > 0) {
       const matchedParticipant = sortedParticipantCards.find(
         (participant) => participant.userId.trim() === normalizedCurrentUserId
@@ -346,14 +362,49 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
       if (matchedParticipant) {
         return matchedParticipant.userId;
       }
-      return normalizedCurrentUserId;
+      if (canManageSession) {
+        const teacherFallbackId = resolveTeacherFallback();
+        if (teacherFallbackId) {
+          return teacherFallbackId;
+        }
+      }
+      if (currentUserRole) {
+        const targetRole = currentUserRole === "teacher" ? "teacher" : "student";
+        const sameRoleParticipants = sortedParticipantCards.filter(
+          (participant) => participant.roleInSession === targetRole
+        );
+        if (sameRoleParticipants.length === 1) {
+          return sameRoleParticipants[0].userId;
+        }
+      }
+      return null;
     }
-    if (currentUserRole === "teacher" && canManageSession) {
-      return (
-        sortedParticipantCards.find((participant) => participant.roleInSession === "teacher")
-          ?.userId ?? null
+
+    if (canManageSession) {
+      const teacherFallbackId = resolveTeacherFallback();
+      if (teacherFallbackId) {
+        return teacherFallbackId;
+      }
+    }
+
+    if (currentUserRole) {
+      const targetRole = currentUserRole === "teacher" ? "teacher" : "student";
+      const sameRoleParticipants = sortedParticipantCards.filter(
+        (participant) => participant.roleInSession === targetRole
       );
+      if (sameRoleParticipants.length === 1) {
+        return sameRoleParticipants[0].userId;
+      }
+      if (sameRoleParticipants.length > 1) {
+        const onlineSameRoleParticipant = sameRoleParticipants.find(
+          (participant) => participant.isOnline
+        );
+        if (onlineSameRoleParticipant) {
+          return onlineSameRoleParticipant.userId;
+        }
+      }
     }
+
     return null;
   }, [canManageSession, currentUserId, currentUserRole, sortedParticipantCards]);
 
