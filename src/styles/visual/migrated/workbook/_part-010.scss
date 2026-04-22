@@ -256,9 +256,9 @@
   right: 6px;
   bottom: 6px;
   z-index: 2;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 7px;
   padding: 5px 7px;
   border-radius: 9px;
@@ -295,13 +295,44 @@
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: nowrap;
   gap: 2px;
-  margin-left: auto;
+  min-width: max-content;
 }
 
 .workbook-session__participant-nameplate-control.MuiIconButton-root {
   width: 24px;
   height: 24px;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout:not(.is-video-only-count-1)
+  .workbook-session__participant-video-nameplate {
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  gap: 5px;
+  padding: 4px 6px;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout:not(.is-video-only-count-1)
+  .workbook-session__participant-video-nameplate-meta strong {
+  font-size: 10px;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout:not(.is-video-only-count-1)
+  .workbook-session__participant-video-nameplate-meta span {
+  font-size: 9px;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout:not(.is-video-only-count-1)
+  .workbook-session__participant-video-nameplate-controls {
+  gap: 1px;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout:not(.is-video-only-count-1)
+  .workbook-session__participant-nameplate-control.MuiIconButton-root {
+  width: 22px;
+  height: 22px;
 }
 
 .workbook-session__participant-card-top {
