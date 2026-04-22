@@ -195,10 +195,36 @@
   width: min(320px, 28vw);
   max-height: calc(100vh - var(--workbook-floating-top, 86px) - 12px);
   z-index: 14;
-  transition: top 0.18s ease;
+  transition:
+    top 0.18s ease,
+    width 0.2s ease,
+    left 0.2s ease,
+    right 0.2s ease,
+    bottom 0.2s ease;
+}
+.workbook-session__layout--sidebar-overlay .workbook-session__sidebar.mode-expanded {
+  width: min(520px, 44vw);
+}
+.workbook-session__layout--sidebar-overlay .workbook-session__sidebar.mode-video-only {
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  width: auto;
+  max-height: none;
+  z-index: 110;
 }
 .workbook-session__layout--sidebar-overlay .workbook-session__sidebar > * {
   pointer-events: auto;
+}
+.workbook-session.is-video-only-mode .workbook-session__board-shell {
+  opacity: 0.22;
+  filter: saturate(0.72);
+  pointer-events: none;
+}
+.workbook-session.is-video-only-mode .workbook-session__tools {
+  opacity: 0;
+  pointer-events: none;
 }
 .workbook-session__workspace {
   display: grid;

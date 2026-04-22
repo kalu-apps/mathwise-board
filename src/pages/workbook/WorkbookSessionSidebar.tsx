@@ -3,7 +3,10 @@ import { WorkbookSessionUtilityPanelChrome } from "./WorkbookSessionUtilityPanel
 import { WorkbookSessionUtilityPanelTabs } from "./WorkbookSessionUtilityPanelTabs";
 import { WorkbookSessionChatPanel } from "./WorkbookSessionChatPanel";
 import { WorkbookSessionOverlays } from "./WorkbookSessionOverlays";
-import type { WorkbookSessionParticipantsPanelProps } from "./WorkbookSessionParticipantsPanel";
+import type {
+  WorkbookParticipantsPanelMode,
+  WorkbookSessionParticipantsPanelProps,
+} from "./WorkbookSessionParticipantsPanel";
 import { InlineMobiusLoader } from "@/shared/ui/loading";
 
 const WorkbookSessionParticipantsPanel = lazy(async () => ({
@@ -13,6 +16,7 @@ const WorkbookSessionParticipantsPanel = lazy(async () => ({
 type WorkbookSessionSidebarProps = {
   isCompactViewport: boolean;
   showSidebarParticipants: boolean;
+  participantsPanelMode: WorkbookParticipantsPanelMode;
   floatingPanelsTop: number;
   participantsPanelProps: WorkbookSessionParticipantsPanelProps;
   utilityPanelChromeProps: Omit<
@@ -27,6 +31,7 @@ type WorkbookSessionSidebarProps = {
 export function WorkbookSessionSidebar({
   isCompactViewport,
   showSidebarParticipants,
+  participantsPanelMode,
   floatingPanelsTop,
   participantsPanelProps,
   utilityPanelChromeProps,
@@ -34,13 +39,20 @@ export function WorkbookSessionSidebar({
   sessionChatPanelProps,
   overlaysProps,
 }: WorkbookSessionSidebarProps) {
+  const isVideoOnlyMode = participantsPanelMode === "video_only";
   return (
     <>
       {showSidebarParticipants ? (
         <div
-          className="workbook-session__sidebar"
+          className={`workbook-session__sidebar workbook-session__sidebar--participants ${
+            participantsPanelMode === "expanded"
+              ? "mode-expanded"
+              : participantsPanelMode === "video_only"
+                ? "mode-video-only"
+                : "mode-sidebar"
+          }`}
           style={
-            !isCompactViewport
+            !isCompactViewport && !isVideoOnlyMode
               ? ({
                   ["--workbook-floating-top" as string]: `${floatingPanelsTop}px`,
                 } as CSSProperties)
@@ -66,11 +78,13 @@ export function WorkbookSessionSidebar({
         </div>
       ) : null}
 
-      <WorkbookSessionUtilityPanelChrome {...utilityPanelChromeProps}>
-        <WorkbookSessionUtilityPanelTabs {...utilityPanelTabsProps} />
-      </WorkbookSessionUtilityPanelChrome>
+      {!isVideoOnlyMode ? (
+        <WorkbookSessionUtilityPanelChrome {...utilityPanelChromeProps}>
+          <WorkbookSessionUtilityPanelTabs {...utilityPanelTabsProps} />
+        </WorkbookSessionUtilityPanelChrome>
+      ) : null}
 
-      <WorkbookSessionChatPanel {...sessionChatPanelProps} />
+      {!isVideoOnlyMode ? <WorkbookSessionChatPanel {...sessionChatPanelProps} /> : null}
 
       <WorkbookSessionOverlays {...overlaysProps} />
     </>

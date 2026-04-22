@@ -210,6 +210,29 @@ export function WorkbookSessionContextbar({
             </IconButton>
           </span>
         </Tooltip>
+        {showCollaborationPanels ? (
+          <Tooltip
+            title={
+              isParticipantsCollapsed
+                ? "Открыть блок участников"
+                : "Свернуть блок участников"
+            }
+            placement="bottom"
+            arrow
+          >
+            <span>
+              <IconButton
+                size="small"
+                className={`workbook-session__toolbar-icon ${
+                  !isParticipantsCollapsed ? "is-active" : ""
+                }`}
+                onClick={onToggleParticipantsCollapsed}
+              >
+                <GroupRoundedIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
+        ) : null}
         <Tooltip
           title={
             canAccessBoardSettingsPanel
@@ -405,49 +428,24 @@ export function WorkbookSessionContextbar({
           </span>
         </Tooltip>
         {showCollaborationPanels ? (
-          <>
-            <Tooltip
-              title={cameraEnabled ? "Выключить камеру" : "Включить камеру"}
-              placement="bottom"
-              arrow
-            >
-              <span>
-                <IconButton
-                  size="small"
-                  className={`workbook-session__toolbar-icon ${
-                    cameraEnabled ? "is-active" : ""
-                  }`}
-                  disabled={!canUseMedia || isEnded}
-                  onClick={onToggleCamera}
-                >
-                  {cameraEnabled ? <VideocamRoundedIcon /> : <VideocamOffRoundedIcon />}
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip
-              title={
-                isParticipantsCollapsed
-                  ? "Открыть блок участников"
-                  : "Свернуть блок участников"
-              }
-              placement="bottom"
-              arrow
-            >
-              <span
-                className={showInviteLinkButton ? "workbook-session__participants-toggle-wrap" : ""}
+          <Tooltip
+            title={cameraEnabled ? "Выключить камеру" : "Включить камеру"}
+            placement="bottom"
+            arrow
+          >
+            <span>
+              <IconButton
+                size="small"
+                className={`workbook-session__toolbar-icon ${
+                  cameraEnabled ? "is-active" : ""
+                }`}
+                disabled={!canUseMedia || isEnded}
+                onClick={onToggleCamera}
               >
-                <IconButton
-                  size="small"
-                  className={`workbook-session__toolbar-icon ${
-                    !isParticipantsCollapsed ? "is-active" : ""
-                  }`}
-                  onClick={onToggleParticipantsCollapsed}
-                >
-                  <GroupRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-          </>
+                {cameraEnabled ? <VideocamRoundedIcon /> : <VideocamOffRoundedIcon />}
+              </IconButton>
+            </span>
+          </Tooltip>
         ) : null}
         <span className="workbook-session__contextbar-right-actions">
           <Tooltip

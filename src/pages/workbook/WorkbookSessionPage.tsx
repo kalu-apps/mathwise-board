@@ -129,6 +129,7 @@ import { useWorkbookToolRuntimeHandlers } from "./useWorkbookToolRuntimeHandlers
 import { WorkbookSessionWorkspace } from "./WorkbookSessionWorkspace";
 import { WorkbookSessionVideoDock } from "./WorkbookSessionVideoDock";
 import { WorkbookSessionSidebar } from "./WorkbookSessionSidebar";
+import type { WorkbookParticipantsPanelMode } from "./WorkbookSessionParticipantsPanel";
 import { useWorkbookSessionSelectionViewportState } from "./useWorkbookSessionSelectionViewportState";
 import { buildWorkbookSessionSelectionViewportParams } from "./buildWorkbookSessionSelectionViewportParams";
 import { useWorkbookSessionDerivedState } from "./useWorkbookSessionDerivedState";
@@ -757,6 +758,11 @@ export default function WorkbookSessionPage() {
     boardObjects,
   });
   const showSidebarParticipantsInLayout = showSidebarParticipants;
+  const [participantsPanelMode, setParticipantsPanelMode] =
+    useState<WorkbookParticipantsPanelMode>("sidebar");
+  const effectiveParticipantsPanelMode: WorkbookParticipantsPanelMode =
+    isParticipantsCollapsed ? "sidebar" : participantsPanelMode;
+
   const canAccessLessonRecording = useMemo(() => {
     if (session?.kind === "PERSONAL") return true;
     if (session?.kind === "CLASS") return isTeacherActor;
@@ -3205,6 +3211,40 @@ export default function WorkbookSessionPage() {
     </div>
   );
 
+  const setStudentsPermissionState = async (
+    patch: Partial<{
+      canUseMedia: boolean;
+      canUseChat: boolean;
+    }>
+  ) => {
+    if (!canManageSession || !session || isEnded) return;
+    const targetStudents = participantCards.filter(
+      (participant) => participant.roleInSession === "student"
+    );
+    if (targetStudents.length === 0) return;
+    try {
+      await appendEventsAndApply(
+        targetStudents.map((participant) => ({
+          type: "permissions.update" as const,
+          payload: {
+            userId: participant.userId,
+            permissions: patch,
+          },
+        }))
+      );
+    } catch {
+      setError("Не удалось обновить права участников.");
+    }
+  };
+
+  const handleSetStudentsMediaEnabled = (enabled: boolean) => {
+    void setStudentsPermissionState({ canUseMedia: enabled });
+  };
+
+  const handleSetStudentsChatEnabled = (enabled: boolean) => {
+    void setStudentsPermissionState({ canUseChat: enabled });
+  };
+
   const participantsPanelProps = {
     participantCards,
     currentUserId: user?.id,
@@ -3223,10 +3263,16 @@ export default function WorkbookSessionPage() {
     onToggleCamera: canvasHandlers.handleToggleOwnCamera,
     canUseMedia,
     isEnded,
+    participantsPanelMode: effectiveParticipantsPanelMode,
+    onParticipantsPanelModeChange: setParticipantsPanelMode,
+    localVideoTrack,
+    remoteVideoTracks,
     isParticipantBoardToolsEnabled,
     onToggleParticipantBoardTools: handleToggleParticipantBoardTools,
     onToggleParticipantChat: handleToggleParticipantChat,
     onToggleParticipantMic: handleToggleParticipantMic,
+    onSetStudentsMediaEnabled: handleSetStudentsMediaEnabled,
+    onSetStudentsChatEnabled: handleSetStudentsChatEnabled,
   };
 
   const sessionChatPanelProps = {
@@ -3303,8 +3349,12 @@ export default function WorkbookSessionPage() {
     isExitSessionPending: isBackNavigationPending,
     showCollaborationPanels,
     isParticipantsCollapsed,
-    onToggleParticipantsCollapsed: () =>
-      workbookSessionActions.setIsParticipantsCollapsed((current: boolean) => !current),
+    onToggleParticipantsCollapsed: () => {
+      if (isParticipantsCollapsed) {
+        setParticipantsPanelMode("sidebar");
+      }
+      workbookSessionActions.setIsParticipantsCollapsed((current: boolean) => !current);
+    },
     cameraEnabled,
     canUseMedia,
     onToggleCamera: canvasHandlers.handleToggleOwnCamera,
@@ -3451,7 +3501,11 @@ export default function WorkbookSessionPage() {
 
   return (
     <section
-      className={`workbook-session ${isFullscreen ? "is-fullscreen" : ""}`}
+      className={`workbook-session ${isFullscreen ? "is-fullscreen" : ""}${
+        showSidebarParticipantsInLayout && effectiveParticipantsPanelMode === "video_only"
+          ? " is-video-only-mode"
+          : ""
+      }`}
       ref={handleSessionRootRef}
     >
       <WorkbookSessionTopScaffold
@@ -3485,7 +3539,7 @@ export default function WorkbookSessionPage() {
           graphCatalogCursorActive={graphCatalogCursorActive}
           contextbarProps={contextbarProps}
           videoDock={
-            showCollaborationPanels ? (
+            showCollaborationPanels && isParticipantsCollapsed ? (
               <WorkbookSessionVideoDock
                 cameraEnabled={cameraEnabled}
                 localVideoTrack={localVideoTrack}
@@ -3509,6 +3563,7 @@ export default function WorkbookSessionPage() {
         <WorkbookSessionSidebar
           isCompactViewport={isCompactViewport}
           showSidebarParticipants={showSidebarParticipantsInLayout}
+          participantsPanelMode={effectiveParticipantsPanelMode}
           floatingPanelsTop={floatingPanelsTop}
           participantsPanelProps={participantsPanelProps}
           utilityPanelChromeProps={utilityPanelChromeProps}
