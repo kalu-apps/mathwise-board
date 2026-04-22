@@ -15,6 +15,12 @@ import UnfoldMoreRoundedIcon from "@mui/icons-material/UnfoldMoreRounded";
 import FullscreenRoundedIcon from "@mui/icons-material/FullscreenRounded";
 import FullscreenExitRoundedIcon from "@mui/icons-material/FullscreenExitRounded";
 import KeyboardDoubleArrowDownRoundedIcon from "@mui/icons-material/KeyboardDoubleArrowDownRounded";
+import EmojiPicker, {
+  EmojiStyle,
+  SuggestionMode,
+  Theme,
+  type EmojiClickData,
+} from "emoji-picker-react";
 import type { WorkbookChatMessage } from "@/features/workbook/model/types";
 
 type SessionChatPosition = {
@@ -46,7 +52,6 @@ type WorkbookSessionChatPanelProps = {
   sessionChatUnreadCount: number;
   sessionChatDraft: string;
   isSessionChatEmojiOpen: boolean;
-  chatEmojis: string[];
   setIsSessionChatMinimized: (value: boolean | ((current: boolean) => boolean)) => void;
   setIsSessionChatMaximized: (value: boolean | ((current: boolean) => boolean)) => void;
   setIsSessionChatOpen: (value: boolean) => void;
@@ -77,7 +82,6 @@ export function WorkbookSessionChatPanel({
   sessionChatUnreadCount,
   sessionChatDraft,
   isSessionChatEmojiOpen,
-  chatEmojis,
   setIsSessionChatMinimized,
   setIsSessionChatMaximized,
   setIsSessionChatOpen,
@@ -92,6 +96,31 @@ export function WorkbookSessionChatPanel({
   if (!showCollaborationPanels || !isSessionChatOpen) {
     return null;
   }
+  const handleToggleMinimized = () => {
+    if (isSessionChatMinimized) {
+      setIsSessionChatMinimized(false);
+      return;
+    }
+    if (isSessionChatMaximized) {
+      setIsSessionChatMaximized(false);
+    }
+    setIsSessionChatMinimized(true);
+  };
+
+  const handleToggleMaximized = () => {
+    if (isSessionChatMaximized) {
+      setIsSessionChatMaximized(false);
+      return;
+    }
+    if (isSessionChatMinimized) {
+      setIsSessionChatMinimized(false);
+    }
+    setIsSessionChatMaximized(true);
+  };
+
+  const handleSelectEmoji = (emojiData: EmojiClickData) => {
+    setSessionChatDraft((current) => `${current}${emojiData.emoji}`);
+  };
 
   return (
     <div
@@ -127,7 +156,7 @@ export function WorkbookSessionChatPanel({
             size="small"
             className="workbook-session__session-chat-head-icon"
             aria-label={isSessionChatMinimized ? "Развернуть чат" : "Свернуть чат"}
-            onClick={() => setIsSessionChatMinimized((current) => !current)}
+            onClick={handleToggleMinimized}
           >
             {isSessionChatMinimized ? (
               <UnfoldMoreRoundedIcon fontSize="small" />
@@ -141,7 +170,7 @@ export function WorkbookSessionChatPanel({
             aria-label={
               isSessionChatMaximized ? "Обычный размер чата" : "Развернуть чат на максимум"
             }
-            onClick={() => setIsSessionChatMaximized((current) => !current)}
+            onClick={handleToggleMaximized}
             disabled={isSessionChatMinimized}
           >
             {isSessionChatMaximized ? (
@@ -264,15 +293,17 @@ export function WorkbookSessionChatPanel({
               </div>
               {isSessionChatEmojiOpen ? (
                 <div className="workbook-session__session-chat-emoji">
-                  {chatEmojis.map((emoji) => (
-                    <button
-                      key={`session-chat-emoji-${emoji}`}
-                      type="button"
-                      onClick={() => setSessionChatDraft((current) => `${current}${emoji}`)}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
+                  <EmojiPicker
+                    width="100%"
+                    height={332}
+                    theme={Theme.AUTO}
+                    emojiStyle={EmojiStyle.NATIVE}
+                    suggestedEmojisMode={SuggestionMode.RECENT}
+                    previewConfig={{ showPreview: false }}
+                    lazyLoadEmojis
+                    searchPlaceholder="Поиск эмодзи"
+                    onEmojiClick={handleSelectEmoji}
+                  />
                 </div>
               ) : null}
             </div>

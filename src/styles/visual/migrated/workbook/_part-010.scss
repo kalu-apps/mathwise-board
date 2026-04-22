@@ -112,22 +112,25 @@
   grid-auto-flow: column;
   grid-auto-columns: minmax(var(--video-rail-tile-min-width), 1fr);
   align-items: stretch;
-  justify-content: center;
+  justify-content: start;
   gap: var(--video-rail-gap);
   overflow-x: auto;
   overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
   padding-bottom: 2px;
+  padding-inline: 2px;
   min-width: 0;
   width: 100%;
   scroll-snap-type: x proximity;
-  scroll-padding-inline: 8px;
+  scroll-padding-inline: 0;
 }
 
 .workbook-session__participants-video-rail .workbook-session__participant-card.is-video-card {
   width: 100%;
   min-width: 0;
   height: clamp(132px, 24vh, 210px);
-  scroll-snap-align: center;
+  scroll-snap-align: start;
 }
 
 .workbook-session__participants-video-rail .workbook-session__participant-video-wrap {
@@ -302,6 +305,21 @@
   border-radius: 9px;
   background: color-mix(in srgb, var(--text-primary) 52%, transparent);
   color: #fff;
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+.workbook-session__participant-card.is-video-card:hover
+  .workbook-session__participant-video-nameplate,
+.workbook-session__participant-card.is-video-card:focus-within
+  .workbook-session__participant-video-nameplate {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 
 .workbook-session__participant-video-nameplate-meta {

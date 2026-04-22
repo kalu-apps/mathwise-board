@@ -160,39 +160,6 @@ export const resolveMaxKnownWorkbookPage = (params: {
     ...params.annotationStrokes.map((stroke) => toSafeWorkbookPage(stroke.page))
   );
 
-export const WORKBOOK_CHAT_EMOJIS = [
-  "👍",
-  "✅",
-  "👏",
-  "🔥",
-  "💡",
-  "🤝",
-  "🙂",
-  "😊",
-  "🎯",
-  "📌",
-  "💬",
-  "🧠",
-  "⭐",
-  "📚",
-  "📝",
-  "📐",
-  "📎",
-  "🚀",
-  "💥",
-  "🙌",
-  "👌",
-  "😎",
-  "🤔",
-  "❗",
-  "❓",
-  "🎓",
-  "🧩",
-  "📈",
-  "🔍",
-  "⏱️",
-];
-
 export const parseChatTimestamp = (value: string | null | undefined) => {
   if (!value) return 0;
   const parsed = Date.parse(value);

@@ -704,3 +704,11 @@
     min-height: 0;
   }
 }
+
+@media (hover: none), (pointer: coarse) {
+  .workbook-session__participant-video-nameplate {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+}

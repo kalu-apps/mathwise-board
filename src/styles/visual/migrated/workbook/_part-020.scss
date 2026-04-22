@@ -161,6 +161,15 @@
   max-height: calc(100vh - 24px);
 }
 
+.workbook-session__session-chat.is-maximized.is-minimized {
+  top: 96px;
+  left: 24px;
+  transform: none;
+  width: min(340px, calc(100vw - 24px));
+  height: auto;
+  max-height: calc(100vh - 24px);
+}
+
 .workbook-session__session-chat-head {
   display: flex;
   align-items: center;

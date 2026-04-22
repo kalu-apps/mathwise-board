@@ -1,7 +1,22 @@
 .workbook-session__chat-list {
   border: 1px solid color-mix(in srgb, var(--border-subtle) 24%, transparent);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-soft) 88%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #ffb26f 9%, var(--surface-soft)) 0%,
+      color-mix(in srgb, #b7a2ff 8%, var(--surface-soft)) 100%
+    ),
+    repeating-linear-gradient(
+      0deg,
+      transparent 0 23px,
+      color-mix(in srgb, #b8a3ff 28%, transparent) 23px 24px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 23px,
+      color-mix(in srgb, #ffba83 26%, transparent) 23px 24px
+    );
   padding: 6px;
   display: flex;
   flex-direction: column;

@@ -37,29 +37,33 @@
 }
 
 .workbook-session__session-chat-emoji {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 40%, transparent);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--surface-soft) 86%, transparent);
-  padding: 6px;
+  background: color-mix(in srgb, var(--surface-soft) 90%, transparent);
+  padding: 4px;
+  overflow: hidden;
+}
 
-  button {
-    border: 1px solid transparent;
-    background: transparent;
-    border-radius: 8px;
-    font-size: 17px;
-    line-height: 1;
-    padding: 4px 7px;
-    cursor: pointer;
-  }
+.workbook-session__session-chat-emoji .EmojiPickerReact {
+  --epr-bg-color: transparent;
+  --epr-picker-border-color: transparent;
+  --epr-category-label-bg-color: color-mix(in srgb, var(--surface-elevated) 86%, transparent);
+  --epr-hover-bg-color: color-mix(in srgb, #b7a2ff 32%, transparent);
+  --epr-focus-bg-color: color-mix(in srgb, #ffb26f 34%, transparent);
+  --epr-highlight-color: color-mix(in srgb, var(--brand-solid) 74%, #a173ff);
+  --epr-text-color: var(--text-primary);
+  --epr-search-input-bg-color: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
+  border: 0 !important;
+  box-shadow: none !important;
+}
 
-  button:hover {
-    border-color: color-mix(in srgb, var(--brand-solid) 48%, var(--border-strong));
-    background: color-mix(in srgb, var(--brand-soft) 16%, transparent);
-  }
+.workbook-session__session-chat-emoji .EmojiPickerReact .epr-search-container input {
+  border-color: color-mix(in srgb, var(--input-border) 82%, transparent) !important;
+  box-shadow: none !important;
+}
+
+.workbook-session__session-chat-emoji .EmojiPickerReact .epr-category-nav button {
+  border-radius: 8px;
 }
 
 .workbook-session__docs-window {

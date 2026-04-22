@@ -26,7 +26,6 @@ type UseWorkbookSessionCollabHandlersParams = {
   sessionChatDraft: string;
   chatMessages: WorkbookChatMessage[];
   isCompactViewport: boolean;
-  isSessionChatMinimized: boolean;
   isSessionChatMaximized: boolean;
   sessionChatRef: MutableRefObject<HTMLDivElement | null>;
   sessionChatDragStateRef: MutableRefObject<{
@@ -66,7 +65,6 @@ export const useWorkbookSessionCollabHandlers = ({
   sessionChatDraft,
   chatMessages,
   isCompactViewport,
-  isSessionChatMinimized,
   isSessionChatMaximized,
   sessionChatRef,
   sessionChatDragStateRef,
@@ -254,7 +252,7 @@ export const useWorkbookSessionCollabHandlers = ({
 
   const handleSessionChatDragStart = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (isCompactViewport || isSessionChatMinimized || isSessionChatMaximized) return;
+      if (isCompactViewport || isSessionChatMaximized) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("button")) return;
       const panel = sessionChatRef.current;
@@ -271,7 +269,6 @@ export const useWorkbookSessionCollabHandlers = ({
     [
       isCompactViewport,
       isSessionChatMaximized,
-      isSessionChatMinimized,
       sessionChatDragStateRef,
       sessionChatRef,
     ]
