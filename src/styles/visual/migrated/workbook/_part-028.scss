@@ -294,34 +294,28 @@
   }
 
   .workbook-session__participants-scroll--video-grid.is-video-only-layout {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 6px;
   }
 
-  .workbook-session__participants-scroll--video-grid.is-video-only-layout .workbook-session__participant-card.is-video-card {
-    grid-column: span 2;
-  }
-
-  .workbook-session__participants-scroll--video-grid.is-video-only-layout .workbook-session__participant-card.is-video-card.is-video-primary {
-    grid-column: 1 / -1;
-  }
-
-  .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 .workbook-session__participant-card.is-video-card {
-    grid-column: span 2;
-  }
-
-  .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 .workbook-session__participant-card.is-video-card.is-video-primary {
-    grid-column: span 2;
-  }
-
   .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: minmax(0, 1fr);
   }
 
-  .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 .workbook-session__participant-card.is-video-card,
-  .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 .workbook-session__participant-card.is-video-card.is-video-primary {
-    grid-column: 1 / -1;
+  .workbook-session__participants-scroll--video-grid.is-video-only-layout.has-video-only-rail {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .workbook-session__participants-video-rail {
+    gap: 6px;
+  }
+
+  .workbook-session__participants-video-rail .workbook-session__participant-card.is-video-card {
+    flex-basis: min(70vw, 220px);
+    width: min(70vw, 220px);
+    height: clamp(118px, 22vh, 172px);
   }
 
   .workbook-session__participant-video-nameplate-meta strong {

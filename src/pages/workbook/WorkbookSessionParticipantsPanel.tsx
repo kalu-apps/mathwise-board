@@ -519,6 +519,7 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
     isVideoOnlyMode && orderedParticipantCards.length > 0
       ? ` is-video-only-count-${Math.min(6, orderedParticipantCards.length)}`
       : "";
+  const hasVideoOnlyRail = isVideoOnlyMode && orderedParticipantCards.length > 2;
 
   const remoteTrackByIdentity = useMemo(() => {
     const map = new Map<string, RemoteVideoTrack>();
@@ -564,6 +565,231 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
     },
     [isVideoOnlyMode]
   );
+
+  const renderVideoCard = (participant: WorkbookSessionParticipant, extraClassName = "") => {
+    const isSelfParticipant =
+      resolvedSelfParticipantId !== null &&
+      participant.userId === resolvedSelfParticipantId;
+    const boardToolsEnabled = isParticipantBoardToolsEnabled(participant);
+    const participantRoleLabel =
+      participant.roleInSession === "teacher" ? "Преподаватель" : "Студент";
+    const participantRoleWithSelf =
+      isSelfParticipant && currentUserRole !== "teacher"
+        ? `${participantRoleLabel} • Вы`
+        : participantRoleLabel;
+    const participantTrack = resolveParticipantTrack(participant);
+    const participantInitial =
+      participant.displayName.trim().charAt(0).toUpperCase() || "?";
+    const canControlStudent = canManageSession && participant.roleInSession === "student";
+    const isVideoPrimary =
+      isVideoOnlyMode && participant.userId === resolvedPrimaryVideoParticipantId;
+
+    return (
+      <article
+        key={participant.userId}
+        className={`workbook-session__participant-card is-video-card${
+          isVideoOnlyMode ? " is-video-selectable" : ""
+        }${isVideoPrimary ? " is-video-primary" : ""}${extraClassName}`}
+        onClick={(event) => handleParticipantCardClick(event, participant.userId)}
+      >
+        <div className="workbook-session__participant-video-wrap">
+          <ParticipantVideoSurface
+            track={participantTrack}
+            muted={isSelfParticipant}
+            mirrored={isSelfParticipant}
+            label={
+              participant.permissions.canUseCamera
+                ? "Камера выключена"
+                : "Камера отключена преподавателем"
+            }
+            placeholderInitial={participantInitial}
+          />
+          {isSelfParticipant && canSwitchCameraFacing ? (
+            <div className="workbook-session__participant-video-corner-controls">
+              <Tooltip
+                title={
+                  isRearCameraActive
+                    ? "Переключить на фронтальную камеру"
+                    : "Переключить на заднюю камеру"
+                }
+                arrow
+              >
+                <span>
+                  <IconButton
+                    size="small"
+                    className={`workbook-session__participant-overlay-control workbook-session__participant-corner-control ${
+                      !cameraEnabled || isSwitchingCameraFacing ? "is-disabled" : "is-enabled"
+                    }`}
+                    onClick={onSwitchCameraFacing}
+                    disabled={
+                      isSwitchingCameraFacing ||
+                      !canUseCamera ||
+                      !cameraEnabled ||
+                      isEnded
+                    }
+                  >
+                    <CameraswitchRoundedIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </div>
+          ) : null}
+          <div className="workbook-session__participant-video-nameplate">
+            <div className="workbook-session__participant-video-nameplate-meta">
+              <strong>{participant.displayName}</strong>
+              <span>{participantRoleWithSelf}</span>
+            </div>
+            <div className="workbook-session__participant-video-nameplate-controls">
+              {isSelfParticipant ? (
+                <>
+                  <Tooltip
+                    title={micEnabled ? "Выключить микрофон" : "Включить микрофон"}
+                    arrow
+                  >
+                    <span>
+                      <IconButton
+                        size="small"
+                        className={`workbook-session__participant-overlay-control workbook-session__participant-nameplate-control ${
+                          micEnabled ? "is-enabled" : "is-disabled"
+                        }`}
+                        onClick={onToggleMic}
+                        disabled={!canUseMicrophone || isEnded}
+                      >
+                        {micEnabled ? (
+                          <MicRoundedIcon fontSize="small" />
+                        ) : (
+                          <MicOffRoundedIcon fontSize="small" />
+                        )}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip
+                    title={cameraEnabled ? "Выключить камеру" : "Включить камеру"}
+                    arrow
+                  >
+                    <span>
+                      <IconButton
+                        size="small"
+                        className={`workbook-session__participant-overlay-control workbook-session__participant-nameplate-control ${
+                          cameraEnabled ? "is-enabled" : "is-disabled"
+                        }`}
+                        onClick={onToggleCamera}
+                        disabled={!canUseCamera || isEnded}
+                      >
+                        {cameraEnabled ? (
+                          <VideocamRoundedIcon fontSize="small" />
+                        ) : (
+                          <VideocamOffRoundedIcon fontSize="small" />
+                        )}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </>
+              ) : null}
+              {canControlStudent ? (
+                <>
+                  <Tooltip
+                    title={
+                      participant.permissions.canUseMicrophone
+                        ? "Ограничить микрофон"
+                        : "Разрешить микрофон"
+                    }
+                    arrow
+                  >
+                    <span>
+                      <IconButton
+                        size="small"
+                        className={`workbook-session__participant-overlay-control workbook-session__participant-nameplate-control ${
+                          participant.permissions.canUseMicrophone
+                            ? "is-enabled"
+                            : "is-disabled"
+                        }`}
+                        onClick={() =>
+                          onToggleParticipantMicrophone(
+                            participant,
+                            !participant.permissions.canUseMicrophone
+                          )
+                        }
+                        disabled={isEnded}
+                      >
+                        {participant.permissions.canUseMicrophone ? (
+                          <MicRoundedIcon fontSize="small" />
+                        ) : (
+                          <MicOffRoundedIcon fontSize="small" />
+                        )}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip
+                    title={
+                      participant.permissions.canUseCamera
+                        ? "Ограничить камеру"
+                        : "Разрешить камеру"
+                    }
+                    arrow
+                  >
+                    <span>
+                      <IconButton
+                        size="small"
+                        className={`workbook-session__participant-overlay-control workbook-session__participant-nameplate-control ${
+                          participant.permissions.canUseCamera
+                            ? "is-enabled"
+                            : "is-disabled"
+                        }`}
+                        onClick={() =>
+                          onToggleParticipantCamera(
+                            participant,
+                            !participant.permissions.canUseCamera
+                          )
+                        }
+                        disabled={isEnded}
+                      >
+                        {participant.permissions.canUseCamera ? (
+                          <VideocamRoundedIcon fontSize="small" />
+                        ) : (
+                          <VideocamOffRoundedIcon fontSize="small" />
+                        )}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip
+                    title={
+                      boardToolsEnabled
+                        ? "Ограничить инструменты на доске"
+                        : "Разрешить инструменты на доске"
+                    }
+                    arrow
+                  >
+                    <span>
+                      <IconButton
+                        size="small"
+                        className={`workbook-session__participant-overlay-control workbook-session__participant-nameplate-control ${
+                          boardToolsEnabled ? "is-enabled" : "is-disabled"
+                        }`}
+                        onClick={() =>
+                          onToggleParticipantBoardTools(
+                            participant,
+                            !boardToolsEnabled
+                          )
+                        }
+                        disabled={isEnded}
+                      >
+                        {boardToolsEnabled ? (
+                          <LockOpenRoundedIcon fontSize="small" />
+                        ) : (
+                          <LockRoundedIcon fontSize="small" />
+                        )}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </article>
+    );
+  };
 
   return (
     <div
@@ -727,231 +953,20 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
       <div
         className={`workbook-session__participants-scroll workbook-session__participants-scroll--video-grid${
           isVideoOnlyMode ? " is-video-only-layout" : ""
-        }${videoOnlyCountClass}`}
+        }${videoOnlyCountClass}${hasVideoOnlyRail ? " has-video-only-rail" : ""}`}
       >
-        {orderedParticipantCards.map((participant) => {
-          const isSelfParticipant =
-            resolvedSelfParticipantId !== null &&
-            participant.userId === resolvedSelfParticipantId;
-          const boardToolsEnabled = isParticipantBoardToolsEnabled(participant);
-          const participantRoleLabel =
-            participant.roleInSession === "teacher" ? "Преподаватель" : "Студент";
-          const participantRoleWithSelf =
-            isSelfParticipant && currentUserRole !== "teacher"
-              ? `${participantRoleLabel} • Вы`
-              : participantRoleLabel;
-          const participantTrack = resolveParticipantTrack(participant);
-          const participantInitial =
-            participant.displayName.trim().charAt(0).toUpperCase() || "?";
-          const canControlStudent = canManageSession && participant.roleInSession === "student";
-          const isVideoPrimary =
-            isVideoOnlyMode && participant.userId === resolvedPrimaryVideoParticipantId;
-          return (
-            <article
-              key={participant.userId}
-              className={`workbook-session__participant-card is-video-card${
-                isVideoOnlyMode ? " is-video-selectable" : ""
-              }${isVideoPrimary ? " is-video-primary" : ""}`}
-              onClick={(event) => handleParticipantCardClick(event, participant.userId)}
-            >
-              <div className="workbook-session__participant-video-wrap">
-                <ParticipantVideoSurface
-                  track={participantTrack}
-                  muted={isSelfParticipant}
-                  mirrored={isSelfParticipant}
-                  label={
-                    participant.permissions.canUseCamera
-                      ? "Камера выключена"
-                      : "Камера отключена преподавателем"
-                  }
-                  placeholderInitial={participantInitial}
-                />
-                {isSelfParticipant && canSwitchCameraFacing ? (
-                  <div className="workbook-session__participant-video-corner-controls">
-                    <Tooltip
-                      title={
-                        isRearCameraActive
-                          ? "Переключить на фронтальную камеру"
-                          : "Переключить на заднюю камеру"
-                      }
-                      arrow
-                    >
-                      <span>
-                        <IconButton
-                          size="small"
-                          className={`workbook-session__participant-overlay-control workbook-session__participant-corner-control ${
-                            !cameraEnabled || isSwitchingCameraFacing ? "is-disabled" : "is-enabled"
-                          }`}
-                          onClick={onSwitchCameraFacing}
-                          disabled={
-                            isSwitchingCameraFacing ||
-                            !canUseCamera ||
-                            !cameraEnabled ||
-                            isEnded
-                          }
-                        >
-                          <CameraswitchRoundedIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                  </div>
-                ) : null}
-                <div className="workbook-session__participant-video-nameplate">
-                  <div className="workbook-session__participant-video-nameplate-meta">
-                    <strong>{participant.displayName}</strong>
-                    <span>{participantRoleWithSelf}</span>
-                  </div>
-                  <div className="workbook-session__participant-video-nameplate-controls">
-                    {isSelfParticipant ? (
-                      <>
-                        <Tooltip
-                          title={micEnabled ? "Выключить микрофон" : "Включить микрофон"}
-                          arrow
-                        >
-                          <span>
-                            <IconButton
-                              size="small"
-                              className={`workbook-session__participant-overlay-control workbook-session__participant-nameplate-control ${
-                                micEnabled ? "is-enabled" : "is-disabled"
-                              }`}
-                              onClick={onToggleMic}
-                              disabled={!canUseMicrophone || isEnded}
-                            >
-                              {micEnabled ? (
-                                <MicRoundedIcon fontSize="small" />
-                              ) : (
-                                <MicOffRoundedIcon fontSize="small" />
-                              )}
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                        <Tooltip
-                          title={cameraEnabled ? "Выключить камеру" : "Включить камеру"}
-                          arrow
-                        >
-                          <span>
-                            <IconButton
-                              size="small"
-                              className={`workbook-session__participant-overlay-control workbook-session__participant-nameplate-control ${
-                                cameraEnabled ? "is-enabled" : "is-disabled"
-                              }`}
-                              onClick={onToggleCamera}
-                              disabled={!canUseCamera || isEnded}
-                            >
-                              {cameraEnabled ? (
-                                <VideocamRoundedIcon fontSize="small" />
-                              ) : (
-                                <VideocamOffRoundedIcon fontSize="small" />
-                              )}
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      </>
-                    ) : null}
-                    {canControlStudent ? (
-                      <>
-                        <Tooltip
-                          title={
-                            participant.permissions.canUseMicrophone
-                              ? "Ограничить микрофон"
-                              : "Разрешить микрофон"
-                          }
-                          arrow
-                        >
-                          <span>
-                            <IconButton
-                              size="small"
-                              className={`workbook-session__participant-overlay-control workbook-session__participant-nameplate-control ${
-                                participant.permissions.canUseMicrophone
-                                  ? "is-enabled"
-                                  : "is-disabled"
-                              }`}
-                              onClick={() =>
-                                onToggleParticipantMicrophone(
-                                  participant,
-                                  !participant.permissions.canUseMicrophone
-                                )
-                              }
-                              disabled={isEnded}
-                            >
-                              {participant.permissions.canUseMicrophone ? (
-                                <MicRoundedIcon fontSize="small" />
-                              ) : (
-                                <MicOffRoundedIcon fontSize="small" />
-                              )}
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                        <Tooltip
-                          title={
-                            participant.permissions.canUseCamera
-                              ? "Ограничить камеру"
-                              : "Разрешить камеру"
-                          }
-                          arrow
-                        >
-                          <span>
-                            <IconButton
-                              size="small"
-                              className={`workbook-session__participant-overlay-control workbook-session__participant-nameplate-control ${
-                                participant.permissions.canUseCamera
-                                  ? "is-enabled"
-                                  : "is-disabled"
-                              }`}
-                              onClick={() =>
-                                onToggleParticipantCamera(
-                                  participant,
-                                  !participant.permissions.canUseCamera
-                                )
-                              }
-                              disabled={isEnded}
-                            >
-                              {participant.permissions.canUseCamera ? (
-                                <VideocamRoundedIcon fontSize="small" />
-                              ) : (
-                                <VideocamOffRoundedIcon fontSize="small" />
-                              )}
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                        <Tooltip
-                          title={
-                            boardToolsEnabled
-                              ? "Ограничить инструменты на доске"
-                              : "Разрешить инструменты на доске"
-                          }
-                          arrow
-                        >
-                          <span>
-                            <IconButton
-                              size="small"
-                              className={`workbook-session__participant-overlay-control workbook-session__participant-nameplate-control ${
-                                boardToolsEnabled ? "is-enabled" : "is-disabled"
-                              }`}
-                              onClick={() =>
-                                onToggleParticipantBoardTools(
-                                  participant,
-                                  !boardToolsEnabled
-                                )
-                              }
-                              disabled={isEnded}
-                            >
-                              {boardToolsEnabled ? (
-                                <LockOpenRoundedIcon fontSize="small" />
-                              ) : (
-                                <LockRoundedIcon fontSize="small" />
-                              )}
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      </>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            </article>
-          );
-        })}
+        {hasVideoOnlyRail ? (
+          <>
+            {orderedParticipantCards[0] ? renderVideoCard(orderedParticipantCards[0]) : null}
+            <div className="workbook-session__participants-video-rail">
+              {orderedParticipantCards.slice(1).map((participant) =>
+                renderVideoCard(participant, " is-video-rail-item")
+              )}
+            </div>
+          </>
+        ) : (
+          orderedParticipantCards.map((participant) => renderVideoCard(participant))
+        )}
       </div>
 
       <Menu
