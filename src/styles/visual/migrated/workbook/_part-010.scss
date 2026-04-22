@@ -52,7 +52,8 @@
   grid-column: 1 / -1;
 }
 
-.workbook-session__participants-scroll--video-grid.is-video-only-layout .workbook-session__participant-card.is-video-card.is-video-primary .workbook-session__participant-video-wrap {
+.workbook-session__participants-scroll--video-grid.is-video-only-layout:not(.is-video-only-count-1):not(.is-video-only-count-2):not(.is-video-only-count-3)
+  .workbook-session__participant-card.is-video-card.is-video-primary .workbook-session__participant-video-wrap {
   aspect-ratio: 16 / 9;
 }
 

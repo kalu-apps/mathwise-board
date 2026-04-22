@@ -127,7 +127,6 @@ import { useWorkbookSessionIncomingRuntime } from "./useWorkbookSessionIncomingR
 import { useWorkbookSessionRealtimeLifecycle } from "./useWorkbookSessionRealtimeLifecycle";
 import { useWorkbookToolRuntimeHandlers } from "./useWorkbookToolRuntimeHandlers";
 import { WorkbookSessionWorkspace } from "./WorkbookSessionWorkspace";
-import { WorkbookSessionVideoDock } from "./WorkbookSessionVideoDock";
 import { WorkbookSessionSidebar } from "./WorkbookSessionSidebar";
 import type { WorkbookParticipantsPanelMode } from "./WorkbookSessionParticipantsPanel";
 import { useWorkbookSessionSelectionViewportState } from "./useWorkbookSessionSelectionViewportState";
@@ -3559,16 +3558,6 @@ export default function WorkbookSessionPage() {
           workspaceRef={workspaceRef}
           graphCatalogCursorActive={graphCatalogCursorActive}
           contextbarProps={contextbarProps}
-          videoDock={
-            showCollaborationPanels && isParticipantsCollapsed ? (
-              <WorkbookSessionVideoDock
-                cameraEnabled={cameraEnabled}
-                localVideoTrack={localVideoTrack}
-                remoteVideoTracks={remoteVideoTracks}
-                isCompactViewport={isCompactViewport}
-              />
-            ) : null
-          }
           onWorkspaceDragOver={handleWorkspaceDragOver}
           onWorkspaceDrop={handleWorkspaceDrop}
           boardShellProps={{
