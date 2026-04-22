@@ -8,13 +8,14 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Avatar, IconButton, Menu, MenuItem, Tooltip } from "@mui/material";
+import { IconButton, Menu, MenuItem, Tooltip } from "@mui/material";
 import AutorenewRoundedIcon from "@mui/icons-material/AutorenewRounded";
 import ChevronLeftRoundedIcon from "@mui/icons-material/ChevronLeftRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import ForumRoundedIcon from "@mui/icons-material/ForumRounded";
 import FullscreenRoundedIcon from "@mui/icons-material/FullscreenRounded";
 import FullscreenExitRoundedIcon from "@mui/icons-material/FullscreenExitRounded";
+import CameraswitchRoundedIcon from "@mui/icons-material/CameraswitchRounded";
 import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
 import MicRoundedIcon from "@mui/icons-material/MicRounded";
@@ -48,6 +49,10 @@ type WorkbookSessionParticipantsPanelProps = {
   onToggleMic: () => void;
   cameraEnabled: boolean;
   onToggleCamera: () => void;
+  canSwitchCameraFacing: boolean;
+  isRearCameraActive: boolean;
+  isSwitchingCameraFacing: boolean;
+  onSwitchCameraFacing: () => void;
   canUseMicrophone: boolean;
   canUseCamera: boolean;
   isEnded: boolean;
@@ -102,6 +107,7 @@ type ParticipantVideoSurfaceProps = {
   muted?: boolean;
   mirrored?: boolean;
   label: string;
+  placeholderInitial: string;
 };
 
 const ParticipantVideoSurface = memo(function ParticipantVideoSurface({
@@ -109,6 +115,7 @@ const ParticipantVideoSurface = memo(function ParticipantVideoSurface({
   muted = false,
   mirrored = false,
   label,
+  placeholderInitial,
 }: ParticipantVideoSurfaceProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -143,8 +150,12 @@ const ParticipantVideoSurface = memo(function ParticipantVideoSurface({
   if (!track) {
     return (
       <div className="workbook-session__participant-video-placeholder" aria-label={label}>
-        <VideocamOffRoundedIcon fontSize="small" />
-        <span>{label}</span>
+        <span
+          className="workbook-session__participant-video-placeholder-avatar"
+          aria-hidden
+        >
+          {placeholderInitial}
+        </span>
       </div>
     );
   }
@@ -176,6 +187,10 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
   onToggleMic,
   cameraEnabled,
   onToggleCamera,
+  canSwitchCameraFacing,
+  isRearCameraActive,
+  isSwitchingCameraFacing,
+  onSwitchCameraFacing,
   canUseMicrophone,
   canUseCamera,
   isEnded,
@@ -653,6 +668,8 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
               ? `${participantRoleLabel} • Вы`
               : participantRoleLabel;
           const participantTrack = resolveParticipantTrack(participant);
+          const participantInitial =
+            participant.displayName.trim().charAt(0).toUpperCase() || "?";
           const canControlStudent = canManageSession && participant.roleInSession === "student";
           const isVideoPrimary =
             isVideoOnlyMode && participant.userId === resolvedPrimaryVideoParticipantId;
@@ -674,17 +691,39 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
                       ? "Камера выключена"
                       : "Камера отключена преподавателем"
                   }
+                  placeholderInitial={participantInitial}
                 />
+                {isSelfParticipant && canSwitchCameraFacing ? (
+                  <div className="workbook-session__participant-video-corner-controls">
+                    <Tooltip
+                      title={
+                        isRearCameraActive
+                          ? "Переключить на фронтальную камеру"
+                          : "Переключить на заднюю камеру"
+                      }
+                      arrow
+                    >
+                      <span>
+                        <IconButton
+                          size="small"
+                          className={`workbook-session__participant-overlay-control workbook-session__participant-corner-control ${
+                            !cameraEnabled || isSwitchingCameraFacing ? "is-disabled" : "is-enabled"
+                          }`}
+                          onClick={onSwitchCameraFacing}
+                          disabled={
+                            isSwitchingCameraFacing ||
+                            !canUseCamera ||
+                            !cameraEnabled ||
+                            isEnded
+                          }
+                        >
+                          <CameraswitchRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </div>
+                ) : null}
                 <div className="workbook-session__participant-video-nameplate">
-                  <Avatar
-                    src={participant.photo}
-                    alt={participant.displayName}
-                    className={`workbook-session__participant-avatar ${
-                      participant.isOnline ? "is-online" : "is-offline"
-                    }`}
-                  >
-                    {participant.displayName.slice(0, 1)}
-                  </Avatar>
                   <div className="workbook-session__participant-video-nameplate-meta">
                     <strong>{participant.displayName}</strong>
                     <span>{participantRoleWithSelf}</span>

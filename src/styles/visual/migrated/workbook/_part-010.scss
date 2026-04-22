@@ -186,14 +186,35 @@
   width: 100%;
   height: 100%;
   display: grid;
-  gap: 6px;
   place-items: center;
   align-content: center;
-  color: var(--text-secondary);
-  text-align: center;
+  color: color-mix(in srgb, var(--text-primary) 92%, #fff 8%);
   padding: 10px;
-  font-size: 12px;
-  line-height: 1.3;
+}
+
+.workbook-session__participant-video-placeholder-avatar {
+  width: clamp(56px, 9vw, 86px);
+  height: clamp(56px, 9vw, 86px);
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: clamp(20px, 3vw, 30px);
+  line-height: 1;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--text-primary) 90%, #fff 10%);
+  border: 1px solid color-mix(in srgb, var(--border-strong) 58%, transparent);
+  background:
+    radial-gradient(
+      circle at 32% 22%,
+      color-mix(in srgb, #ffffff 34%, transparent),
+      transparent 54%
+    ),
+    color-mix(in srgb, var(--surface-elevated) 90%, transparent);
+  box-shadow:
+    0 10px 24px color-mix(in srgb, var(--text-primary) 20%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 38%, transparent);
 }
 
 .workbook-session__participant-overlay-control.MuiIconButton-root {
@@ -201,8 +222,8 @@
   height: 26px;
   border: none !important;
   background: transparent !important;
-  color: rgba(255, 255, 255, 0.92);
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.36);
+  color: rgba(255, 255, 255, 0.99);
+  text-shadow: 0 3px 6px rgba(0, 0, 0, 0.44);
 }
 
 .workbook-session__participant-overlay-control.MuiIconButton-root:hover {
@@ -211,7 +232,22 @@
 }
 
 .workbook-session__participant-overlay-control.MuiIconButton-root.is-disabled {
-  color: rgba(231, 234, 240, 0.76);
+  color: rgba(246, 249, 255, 0.88);
+}
+
+.workbook-session__participant-video-corner-controls {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.workbook-session__participant-corner-control.MuiIconButton-root {
+  width: 26px;
+  height: 26px;
 }
 
 .workbook-session__participant-video-nameplate {
@@ -228,12 +264,6 @@
   border-radius: 9px;
   background: color-mix(in srgb, var(--text-primary) 52%, transparent);
   color: #fff;
-}
-
-.workbook-session__participant-video-nameplate .workbook-session__participant-avatar {
-  width: 22px !important;
-  height: 22px !important;
-  border: 1px solid color-mix(in srgb, #ffffff 60%, transparent);
 }
 
 .workbook-session__participant-video-nameplate-meta {

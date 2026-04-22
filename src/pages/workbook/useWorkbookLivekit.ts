@@ -12,6 +12,7 @@ import type {
 } from "livekit-client";
 
 type LivekitModule = typeof import("livekit-client");
+type CameraFacingMode = "user" | "environment";
 
 type UseWorkbookLivekitParams = {
   sessionId: string;
@@ -45,6 +46,17 @@ type LivekitConnectFailureSummary = {
 };
 
 const LIVEKIT_CONNECT_RETRY_DELAYS_MS = [800, 2_000] as const;
+
+const isLikelyMobileOrTabletDevice = () => {
+  if (typeof navigator === "undefined") return false;
+  const userAgent = navigator.userAgent ?? "";
+  if (/android|iphone|ipad|ipod|mobile|tablet/i.test(userAgent)) {
+    return true;
+  }
+  // iPadOS may report itself as macOS in userAgent/platform.
+  const platform = navigator.platform ?? "";
+  return /mac/i.test(platform) && navigator.maxTouchPoints > 1;
+};
 
 const isLocalSecureContext = () => {
   if (typeof window === "undefined") return true;
@@ -192,6 +204,9 @@ export const useWorkbookLivekit = ({
 }: UseWorkbookLivekitParams) => {
   const [micEnabled, setMicEnabled] = useState(true);
   const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [canSwitchCameraFacing, setCanSwitchCameraFacing] = useState(false);
+  const [isRearCameraActive, setIsRearCameraActive] = useState(false);
+  const [isSwitchingCameraFacing, setIsSwitchingCameraFacing] = useState(false);
   const [isLivekitConnected, setIsLivekitConnected] = useState(false);
   const [remoteVideoTracks, setRemoteVideoTracks] = useState<WorkbookRemoteVideoTrack[]>([]);
   const [localVideoTrack, setLocalVideoTrack] = useState<LocalVideoTrack | null>(null);
@@ -204,6 +219,8 @@ export const useWorkbookLivekit = ({
   const livekitConnectAttemptRef = useRef(0);
   const livekitDisconnectAttemptRef = useRef(0);
   const livekitShouldBeConnectedRef = useRef(false);
+  const preferredCameraFacingRef = useRef<CameraFacingMode>("user");
+  const isLikelyMobileOrTabletRef = useRef(isLikelyMobileOrTabletDevice());
   const micDefaultSessionKeyRef = useRef<string | null>(null);
   const cameraDefaultSessionKeyRef = useRef<string | null>(null);
   const remoteAudioGestureUnlockedRef = useRef(false);
@@ -223,6 +240,20 @@ export const useWorkbookLivekit = ({
     livekitRuntimeRef.current = runtime;
     return runtime;
   }, []);
+
+  const refreshCameraFacingCapability = useCallback(async () => {
+    if (!isLikelyMobileOrTabletRef.current) {
+      setCanSwitchCameraFacing(false);
+      return;
+    }
+    try {
+      const runtime = await ensureLivekitRuntime();
+      const devices = await runtime.Room.getLocalDevices("videoinput");
+      setCanSwitchCameraFacing(devices.length > 1);
+    } catch {
+      setCanSwitchCameraFacing(false);
+    }
+  }, [ensureLivekitRuntime]);
 
   const syncRemoteVideoTracksState = useCallback(() => {
     const snapshot = Array.from(remoteVideoTracksRef.current.values()).sort((left, right) => {
@@ -772,8 +803,15 @@ export const useWorkbookLivekit = ({
     }
     const shouldPublishCamera = Boolean(canUseCamera && cameraEnabled);
     try {
-      await room.localParticipant.setCameraEnabled(shouldPublishCamera);
+      const cameraOptions =
+        shouldPublishCamera && isLikelyMobileOrTabletRef.current
+          ? { facingMode: preferredCameraFacingRef.current }
+          : undefined;
+      await room.localParticipant.setCameraEnabled(shouldPublishCamera, cameraOptions);
       syncLocalVideoTrackFromRoom();
+      if (shouldPublishCamera) {
+        await refreshCameraFacingCapability();
+      }
       if (shouldPublishCamera) {
         setError((current) => {
           if (!current) return current;
@@ -783,7 +821,61 @@ export const useWorkbookLivekit = ({
     } catch (reason) {
       handleCameraError(reason);
     }
-  }, [cameraEnabled, canUseCamera, handleCameraError, setError, syncLocalVideoTrackFromRoom]);
+  }, [
+    cameraEnabled,
+    canUseCamera,
+    handleCameraError,
+    refreshCameraFacingCapability,
+    setError,
+    syncLocalVideoTrackFromRoom,
+  ]);
+
+  const switchCameraFacing = useCallback(async () => {
+    if (!isLikelyMobileOrTabletRef.current) return;
+    if (!canUseCamera || !cameraEnabled) return;
+    if (isSwitchingCameraFacing) return;
+    const runtime = livekitRuntimeRef.current;
+    const room = livekitRoomRef.current;
+    if (!runtime || !room || room.state !== runtime.ConnectionState.Connected) return;
+
+    const previousFacing = preferredCameraFacingRef.current;
+    const nextFacing: CameraFacingMode = previousFacing === "user" ? "environment" : "user";
+    preferredCameraFacingRef.current = nextFacing;
+    setIsRearCameraActive(nextFacing === "environment");
+    setIsSwitchingCameraFacing(true);
+
+    try {
+      const publication = room.localParticipant.getTrackPublication(runtime.Track.Source.Camera);
+      const localCameraTrack = publication?.videoTrack ?? null;
+      if (localCameraTrack) {
+        await localCameraTrack.restartTrack({ facingMode: nextFacing });
+      } else {
+        await room.localParticipant.setCameraEnabled(true, {
+          facingMode: nextFacing,
+        });
+      }
+      syncLocalVideoTrackFromRoom();
+      await refreshCameraFacingCapability();
+      setError((current) => {
+        if (!current) return current;
+        return current.includes("камер") || current.includes("Камер") ? null : current;
+      });
+    } catch (reason) {
+      preferredCameraFacingRef.current = previousFacing;
+      setIsRearCameraActive(previousFacing === "environment");
+      handleCameraError(reason);
+    } finally {
+      setIsSwitchingCameraFacing(false);
+    }
+  }, [
+    cameraEnabled,
+    canUseCamera,
+    handleCameraError,
+    isSwitchingCameraFacing,
+    refreshCameraFacingCapability,
+    setError,
+    syncLocalVideoTrackFromRoom,
+  ]);
 
   const shouldKeepLivekitConnected = Boolean(
     sessionId && sessionKind === "CLASS" && !isEnded && userId
@@ -828,16 +920,38 @@ export const useWorkbookLivekit = ({
   }, [isEnded, isLivekitConnected, sessionKind, syncLivekitCameraState]);
 
   useEffect(() => {
+    if (sessionKind !== "CLASS" || isEnded || !isLivekitConnected || !cameraEnabled) {
+      setCanSwitchCameraFacing(false);
+      return;
+    }
+    void refreshCameraFacingCapability();
+  }, [
+    cameraEnabled,
+    isEnded,
+    isLivekitConnected,
+    refreshCameraFacingCapability,
+    sessionKind,
+  ]);
+
+  useEffect(() => {
     const sessionKey =
       sessionId && sessionKind === "CLASS" && !isEnded && userId ? `${sessionId}:${userId}` : null;
     if (!sessionKey) {
       micDefaultSessionKeyRef.current = null;
       cameraDefaultSessionKeyRef.current = null;
+      preferredCameraFacingRef.current = "user";
+      setIsRearCameraActive(false);
+      setIsSwitchingCameraFacing(false);
+      setCanSwitchCameraFacing(false);
       return;
     }
     if (micDefaultSessionKeyRef.current === sessionKey) return;
     micDefaultSessionKeyRef.current = sessionKey;
     cameraDefaultSessionKeyRef.current = sessionKey;
+    preferredCameraFacingRef.current = "user";
+    setIsRearCameraActive(false);
+    setIsSwitchingCameraFacing(false);
+    setCanSwitchCameraFacing(false);
     setMicEnabled(Boolean(canUseMicrophone));
     setCameraEnabled(false);
   }, [canUseMicrophone, isEnded, sessionId, sessionKind, userId]);
@@ -895,6 +1009,10 @@ export const useWorkbookLivekit = ({
     setMicEnabled,
     cameraEnabled,
     setCameraEnabled,
+    canSwitchCameraFacing,
+    isRearCameraActive,
+    isSwitchingCameraFacing,
+    switchCameraFacing,
     localVideoTrack,
     remoteVideoTracks,
   };
