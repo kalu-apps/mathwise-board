@@ -688,3 +688,18 @@
     transform: none;
   }
 }
+
+@media (orientation: portrait) and (hover: none) and (pointer: coarse) {
+  .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
+
+  .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2
+    .workbook-session__participant-card.is-video-card,
+  .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2
+    .workbook-session__participant-card.is-video-card.is-video-primary {
+    grid-column: 1 / -1;
+    min-height: 0;
+  }
+}
