@@ -309,12 +309,13 @@
   }
 
   .workbook-session__participants-video-rail {
-    gap: 6px;
+    --video-rail-gap: 6px;
+    --video-rail-tile-min-width: min(70vw, 220px);
   }
 
   .workbook-session__participants-video-rail .workbook-session__participant-card.is-video-card {
-    flex-basis: min(70vw, 220px);
-    width: min(70vw, 220px);
+    width: 100%;
+    min-width: 0;
     height: clamp(118px, 22vh, 172px);
   }
 

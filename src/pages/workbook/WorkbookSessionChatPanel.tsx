@@ -1,6 +1,5 @@
 import type { MutableRefObject, PointerEvent as ReactPointerEvent, RefObject } from "react";
 import {
-  Avatar,
   IconButton,
   InputAdornment,
   TextField,
@@ -29,13 +28,6 @@ type SessionChatDragState = {
   offsetY: number;
 };
 
-type ParticipantCard = {
-  userId: string;
-  displayName: string;
-  photo: string;
-  isOnline: boolean;
-};
-
 type WorkbookSessionChatPanelProps = {
   showCollaborationPanels: boolean;
   isSessionChatOpen: boolean;
@@ -46,14 +38,12 @@ type WorkbookSessionChatPanelProps = {
   isSessionChatMaximized: boolean;
   isCompactViewport: boolean;
   sessionChatPosition: SessionChatPosition;
-  participantCards: ParticipantCard[];
   chatMessages: WorkbookChatMessage[];
   firstUnreadSessionChatMessageId: string | null;
   currentUserId?: string;
   canManageSession: boolean;
   canSendSessionChat: boolean;
   sessionChatUnreadCount: number;
-  isSessionChatAtBottom: boolean;
   sessionChatDraft: string;
   isSessionChatEmojiOpen: boolean;
   chatEmojis: string[];
@@ -79,14 +69,12 @@ export function WorkbookSessionChatPanel({
   isSessionChatMaximized,
   isCompactViewport,
   sessionChatPosition,
-  participantCards,
   chatMessages,
   firstUnreadSessionChatMessageId,
   currentUserId,
   canManageSession,
   canSendSessionChat,
   sessionChatUnreadCount,
-  isSessionChatAtBottom,
   sessionChatDraft,
   isSessionChatEmojiOpen,
   chatEmojis,
@@ -120,9 +108,21 @@ export function WorkbookSessionChatPanel({
       <div className="workbook-session__session-chat-head" onPointerDown={onSessionChatDragStart}>
         <h4>
           <ForumRoundedIcon fontSize="small" />
-          Чат сессии
+          Чат
         </h4>
         <div className="workbook-session__session-chat-head-actions">
+          {canManageSession && chatMessages.length > 0 ? (
+            <Tooltip title="Очистить чат" arrow>
+              <IconButton
+                size="small"
+                className="workbook-session__session-chat-head-icon"
+                onClick={() => setIsClearSessionChatDialogOpen(true)}
+                aria-label="Очистить чат"
+              >
+                <DeleteSweepRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          ) : null}
           <IconButton
             size="small"
             className="workbook-session__session-chat-head-icon"
@@ -167,46 +167,6 @@ export function WorkbookSessionChatPanel({
 
       {!isSessionChatMinimized ? (
         <>
-          <div className="workbook-session__session-chat-meta">
-            <div className="workbook-session__session-chat-avatars">
-              {participantCards.slice(0, 10).map((participant) => (
-                <Tooltip
-                  key={`chat-avatar-${participant.userId}`}
-                  title={participant.displayName}
-                  arrow
-                >
-                  <span
-                    className={`workbook-session__session-chat-avatar-wrap ${
-                      participant.isOnline ? "is-online" : "is-offline"
-                    }`}
-                  >
-                    <Avatar
-                      src={participant.photo}
-                      alt={participant.displayName}
-                      className="workbook-session__session-chat-avatar"
-                    >
-                      {participant.displayName.slice(0, 1)}
-                    </Avatar>
-                    <span className="workbook-session__session-chat-avatar-presence" />
-                  </span>
-                </Tooltip>
-              ))}
-            </div>
-            <div className="workbook-session__session-chat-meta-right">
-              {canManageSession && chatMessages.length > 0 ? (
-                <Tooltip title="Очистить чат" arrow>
-                  <IconButton
-                    size="small"
-                    className="workbook-session__chat-action-icon"
-                    onClick={() => setIsClearSessionChatDialogOpen(true)}
-                    aria-label="Очистить чат"
-                  >
-                    <DeleteSweepRoundedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              ) : null}
-            </div>
-          </div>
           <div className="workbook-session__chat-list" ref={sessionChatListRef}>
             {chatMessages.length === 0 ? (
               <p className="workbook-session__hint">
@@ -241,7 +201,7 @@ export function WorkbookSessionChatPanel({
                 </div>
               ))
             )}
-            {sessionChatUnreadCount > 0 || !isSessionChatAtBottom ? (
+            {sessionChatUnreadCount > 0 ? (
               <div className="workbook-session__chat-scroll-latest-wrap">
                 <Tooltip title="Перемотать к последнему сообщению" arrow>
                   <IconButton

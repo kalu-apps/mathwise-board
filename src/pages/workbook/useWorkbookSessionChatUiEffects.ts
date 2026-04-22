@@ -104,11 +104,6 @@ export function useWorkbookSessionChatUiEffects({
             if (!scrollToFirstUnread()) {
               scrollSessionChatToLatest();
             }
-            markSessionChatReadToLatest();
-          });
-        } else {
-          window.requestAnimationFrame(() => {
-            markSessionChatReadToLatest();
           });
         }
         return;

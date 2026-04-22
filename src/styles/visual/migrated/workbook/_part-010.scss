@@ -104,22 +104,30 @@
 }
 
 .workbook-session__participants-video-rail {
-  display: flex;
+  --video-rail-columns: 2;
+  --video-rail-gap: 8px;
+  --video-rail-tile-min-width: clamp(170px, 22vw, 290px);
+  display: grid;
+  grid-template-columns: repeat(var(--video-rail-columns), minmax(var(--video-rail-tile-min-width), 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(var(--video-rail-tile-min-width), 1fr);
   align-items: stretch;
-  gap: 8px;
+  justify-content: center;
+  gap: var(--video-rail-gap);
   overflow-x: auto;
   overflow-y: hidden;
   padding-bottom: 2px;
   min-width: 0;
+  width: 100%;
   scroll-snap-type: x proximity;
+  scroll-padding-inline: 8px;
 }
 
 .workbook-session__participants-video-rail .workbook-session__participant-card.is-video-card {
-  flex: 0 0 clamp(170px, 22vw, 290px);
-  width: clamp(170px, 22vw, 290px);
+  width: 100%;
   min-width: 0;
   height: clamp(132px, 24vh, 210px);
-  scroll-snap-align: start;
+  scroll-snap-align: center;
 }
 
 .workbook-session__participants-video-rail .workbook-session__participant-video-wrap {
@@ -194,6 +202,18 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout
+  .workbook-session__participant-video-wrap {
+  background: color-mix(in srgb, var(--text-primary) 14%, #000);
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout
+  .workbook-session__participant-video {
+  object-fit: contain;
+  object-position: center;
+  background: color-mix(in srgb, var(--text-primary) 16%, #000);
 }
 
 .workbook-session__participant-video.is-mirrored {

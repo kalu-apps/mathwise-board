@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -576,6 +577,18 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
       ? ` is-video-only-count-${Math.min(6, orderedParticipantCards.length)}`
       : "";
   const hasVideoOnlyRail = isVideoOnlyMode && orderedParticipantCards.length > 2;
+  const videoOnlyRailCount = hasVideoOnlyRail ? orderedParticipantCards.length - 1 : 0;
+  const videoOnlyRailColumns = useMemo(() => {
+    if (!hasVideoOnlyRail) return 1;
+    const maxColumns = isCompactViewport ? 2 : 4;
+    return Math.max(1, Math.min(videoOnlyRailCount, maxColumns));
+  }, [hasVideoOnlyRail, isCompactViewport, videoOnlyRailCount]);
+  const videoOnlyRailStyle = useMemo<CSSProperties | undefined>(() => {
+    if (!hasVideoOnlyRail) return undefined;
+    return {
+      "--video-rail-columns": String(videoOnlyRailColumns),
+    } as CSSProperties;
+  }, [hasVideoOnlyRail, videoOnlyRailColumns]);
 
   const remoteTrackByIdentity = useMemo(() => {
     const map = new Map<string, RemoteVideoTrack>();
@@ -1014,7 +1027,7 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
         {hasVideoOnlyRail ? (
           <>
             {orderedParticipantCards[0] ? renderVideoCard(orderedParticipantCards[0]) : null}
-            <div className="workbook-session__participants-video-rail">
+            <div className="workbook-session__participants-video-rail" style={videoOnlyRailStyle}>
               {orderedParticipantCards.slice(1).map((participant) =>
                 renderVideoCard(participant, " is-video-rail-item")
               )}
