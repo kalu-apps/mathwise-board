@@ -337,6 +337,26 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
     [participantCards]
   );
 
+  const resolvedSelfParticipantId = useMemo(() => {
+    const normalizedCurrentUserId = (currentUserId ?? "").trim();
+    if (normalizedCurrentUserId.length > 0) {
+      const matchedParticipant = sortedParticipantCards.find(
+        (participant) => participant.userId.trim() === normalizedCurrentUserId
+      );
+      if (matchedParticipant) {
+        return matchedParticipant.userId;
+      }
+      return normalizedCurrentUserId;
+    }
+    if (currentUserRole === "teacher" && canManageSession) {
+      return (
+        sortedParticipantCards.find((participant) => participant.roleInSession === "teacher")
+          ?.userId ?? null
+      );
+    }
+    return null;
+  }, [canManageSession, currentUserId, currentUserRole, sortedParticipantCards]);
+
   const baseVisibleParticipantCards = useMemo(
     () =>
       sortedParticipantCards.filter(
@@ -420,13 +440,13 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
       return primaryVideoParticipantId;
     }
     if (
-      currentUserId &&
-      renderParticipantCards.some((participant) => participant.userId === currentUserId)
+      resolvedSelfParticipantId &&
+      renderParticipantCards.some((participant) => participant.userId === resolvedSelfParticipantId)
     ) {
-      return currentUserId;
+      return resolvedSelfParticipantId;
     }
     return renderParticipantCards[0]?.userId ?? null;
-  }, [currentUserId, isVideoOnlyMode, primaryVideoParticipantId, renderParticipantCards]);
+  }, [isVideoOnlyMode, primaryVideoParticipantId, renderParticipantCards, resolvedSelfParticipantId]);
 
   const orderedParticipantCards = useMemo(() => {
     if (!isVideoOnlyMode || !resolvedPrimaryVideoParticipantId) {
@@ -460,12 +480,12 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
 
   const resolveParticipantTrack = useCallback(
     (participant: WorkbookSessionParticipant) => {
-      if (participant.userId === currentUserId) {
+      if (resolvedSelfParticipantId && participant.userId === resolvedSelfParticipantId) {
         return localVideoTrack;
       }
       return remoteTrackByIdentity.get(participant.userId) ?? null;
     },
-    [currentUserId, localVideoTrack, remoteTrackByIdentity]
+    [localVideoTrack, remoteTrackByIdentity, resolvedSelfParticipantId]
   );
 
   const isFloating = !isCompactViewport && !isVideoOnlyMode && Boolean(floatingPosition);
@@ -659,7 +679,9 @@ export const WorkbookSessionParticipantsPanel = memo(function WorkbookSessionPar
         }${videoOnlyCountClass}`}
       >
         {orderedParticipantCards.map((participant) => {
-          const isSelfParticipant = participant.userId === currentUserId;
+          const isSelfParticipant =
+            resolvedSelfParticipantId !== null &&
+            participant.userId === resolvedSelfParticipantId;
           const boardToolsEnabled = isParticipantBoardToolsEnabled(participant);
           const participantRoleLabel =
             participant.roleInSession === "teacher" ? "Преподаватель" : "Студент";
