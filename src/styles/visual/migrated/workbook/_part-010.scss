@@ -2,7 +2,7 @@
 .workbook-session__participants-scroll {
   display: grid;
   gap: 6px;
-  max-height: min(49vh, 468px);
+  max-height: min(53vh, 468px);
   overflow: auto;
   padding: 0;
 }
@@ -171,6 +171,11 @@
       transparent 62%
     ),
     color-mix(in srgb, var(--surface-soft) 96%, transparent);
+}
+
+.workbook-session__participants-scroll--video-grid:not(.is-video-only-layout)
+  .workbook-session__participant-video-wrap {
+  aspect-ratio: 16 / 10;
 }
 
 .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-1
