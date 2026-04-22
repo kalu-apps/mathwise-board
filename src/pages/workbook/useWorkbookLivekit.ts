@@ -7,6 +7,7 @@ import type {
   Room as LivekitRoom,
   LocalVideoTrack,
   RemoteAudioTrack,
+  RemoteTrackPublication,
   RemoteParticipant,
   RemoteVideoTrack,
 } from "livekit-client";
@@ -46,6 +47,38 @@ type LivekitConnectFailureSummary = {
 };
 
 const LIVEKIT_CONNECT_RETRY_DELAYS_MS = [800, 2_000] as const;
+
+type NetworkInformationLike = {
+  saveData?: boolean;
+  effectiveType?: string;
+  downlink?: number;
+};
+
+const isLikelyConstrainedNetwork = () => {
+  if (typeof navigator === "undefined") return false;
+  const connection = (navigator as Navigator & { connection?: NetworkInformationLike }).connection;
+  if (!connection) return false;
+  if (connection.saveData) return true;
+  const effectiveType = (connection.effectiveType ?? "").toLowerCase();
+  if (effectiveType === "slow-2g" || effectiveType === "2g" || effectiveType === "3g") {
+    return true;
+  }
+  const downlink = Number(connection.downlink ?? Number.NaN);
+  return Number.isFinite(downlink) && downlink > 0 && downlink < 2;
+};
+
+const resolveAdaptivePixelDensity = (isMobileOrTablet: boolean) => {
+  if (typeof window === "undefined") return 1;
+  const rawDevicePixelRatio = Number(window.devicePixelRatio ?? 1);
+  const normalizedDevicePixelRatio =
+    Number.isFinite(rawDevicePixelRatio) && rawDevicePixelRatio > 0 ? rawDevicePixelRatio : 1;
+  const cappedDensity = isMobileOrTablet
+    ? Math.min(2, normalizedDevicePixelRatio)
+    : Math.min(2.5, normalizedDevicePixelRatio);
+  return Math.max(1, cappedDensity);
+};
+
+const isPresent = <T,>(value: T | null | undefined): value is T => value != null;
 
 const isLikelyMobileOrTabletDevice = () => {
   if (typeof navigator === "undefined") return false;
@@ -309,8 +342,49 @@ export const useWorkbookLivekit = ({
     detachRemoteVideo();
   }, [detachRemoteVideo]);
 
+  const requestHighQualityForRemotePublication = useCallback((publicationLike: unknown) => {
+    const runtime = livekitRuntimeRef.current;
+    if (!runtime) return;
+    if (!publicationLike || typeof publicationLike !== "object") return;
+    const publication = publicationLike as RemoteTrackPublication & {
+      kind?: unknown;
+      setEnabled?: (enabled: boolean) => void;
+      setVideoQuality?: (quality: number) => void;
+    };
+    if (
+      publication.kind !== runtime.Track.Kind.Video &&
+      typeof publication.setVideoQuality !== "function"
+    ) {
+      return;
+    }
+    try {
+      publication.setEnabled?.(true);
+    } catch {
+      // Ignore publication state race during reconnect.
+    }
+    if (!runtime.VideoQuality || typeof publication.setVideoQuality !== "function") return;
+    try {
+      publication.setVideoQuality(runtime.VideoQuality.HIGH);
+    } catch {
+      // Ignore unsupported/manual-operation cases.
+    }
+  }, []);
+
+  const requestHighQualityForRemoteParticipant = useCallback(
+    (participantLike: unknown) => {
+      if (!participantLike || typeof participantLike !== "object") return;
+      const participant = participantLike as RemoteParticipant & {
+        trackPublications?: Map<string, RemoteTrackPublication>;
+      };
+      participant.trackPublications?.forEach((publication) => {
+        requestHighQualityForRemotePublication(publication);
+      });
+    },
+    [requestHighQualityForRemotePublication]
+  );
+
   const handleTrackSubscribed = useCallback(
-    (track: unknown, _publication: unknown, participantLike: unknown) => {
+    (track: unknown, publicationLike: unknown, participantLike: unknown) => {
       const runtime = livekitRuntimeRef.current;
       if (!runtime) return;
       if (!track || typeof track !== "object") return;
@@ -351,6 +425,7 @@ export const useWorkbookLivekit = ({
       if (trackKind !== runtime.Track.Kind.Video) {
         return;
       }
+      requestHighQualityForRemotePublication(publicationLike);
       const remoteVideoTrack = track as RemoteVideoTrack;
       const trackSid = remoteVideoTrack.sid || `${participantIdentity}-video`;
       const bindingKey = `${participantIdentity}:${trackSid}`;
@@ -363,7 +438,7 @@ export const useWorkbookLivekit = ({
       });
       syncRemoteVideoTracksState();
     },
-    [syncRemoteVideoTracksState]
+    [requestHighQualityForRemotePublication, syncRemoteVideoTracksState]
   );
 
   const handleTrackUnsubscribed = useCallback(
@@ -567,9 +642,33 @@ export const useWorkbookLivekit = ({
         await disconnectLivekitRoom({ forceStopTracks: false, resetRetryState: false });
       }
 
+      const constrainedNetwork = isLikelyConstrainedNetwork();
+      const adaptivePixelDensity = constrainedNetwork
+        ? 1
+        : resolveAdaptivePixelDensity(isLikelyMobileOrTabletRef.current);
+      const preferredCapturePreset = constrainedNetwork
+        ? runtime.VideoPresets.h720 ?? runtime.VideoPresets.h540
+        : runtime.VideoPresets.h1080 ?? runtime.VideoPresets.h720;
+      const preferredSimulcastLayers = constrainedNetwork
+        ? [runtime.VideoPresets.h360, runtime.VideoPresets.h216].filter(isPresent)
+        : [runtime.VideoPresets.h720, runtime.VideoPresets.h360].filter(isPresent);
+
       const room = new runtime.Room({
-        adaptiveStream: true,
+        adaptiveStream: {
+          pixelDensity: adaptivePixelDensity,
+          pauseVideoInBackground: true,
+        },
         dynacast: true,
+        videoCaptureDefaults: preferredCapturePreset
+          ? {
+              resolution: preferredCapturePreset.resolution,
+            }
+          : undefined,
+        publishDefaults: {
+          videoEncoding: preferredCapturePreset?.encoding,
+          videoSimulcastLayers:
+            preferredSimulcastLayers.length > 0 ? preferredSimulcastLayers : undefined,
+        },
       });
       livekitRoomRef.current = room;
       livekitRoomSessionIdRef.current = sessionId;
@@ -592,6 +691,14 @@ export const useWorkbookLivekit = ({
       };
       room.on(runtime.RoomEvent.TrackSubscribed, onTrackSubscribed);
       room.on(runtime.RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
+      room.on(runtime.RoomEvent.TrackPublished, (publication: RemoteTrackPublication) => {
+        if (!isCurrentRoom()) return;
+        requestHighQualityForRemotePublication(publication);
+      });
+      room.on(runtime.RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
+        if (!isCurrentRoom()) return;
+        requestHighQualityForRemoteParticipant(participant);
+      });
       room.on(runtime.RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
         if (!isCurrentRoom()) return;
         detachRemoteAudio(participant.identity || participant.sid || "");
@@ -679,6 +786,9 @@ export const useWorkbookLivekit = ({
         autoSubscribe: true,
       });
       if (!isCurrentRoom()) return;
+      room.remoteParticipants.forEach((participant) => {
+        requestHighQualityForRemoteParticipant(participant);
+      });
       setIsLivekitConnected(true);
       syncLocalVideoTrackFromRoom();
       livekitConnectAttemptRef.current = 0;
@@ -767,6 +877,8 @@ export const useWorkbookLivekit = ({
     ensureLivekitRuntime,
     handleTrackSubscribed,
     handleTrackUnsubscribed,
+    requestHighQualityForRemoteParticipant,
+    requestHighQualityForRemotePublication,
     sessionId,
     sessionKind,
     setError,
