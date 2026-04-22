@@ -118,10 +118,66 @@ const ParticipantVideoSurface = memo(function ParticipantVideoSurface({
   placeholderInitial,
 }: ParticipantVideoSurfaceProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [, setTrackStateRevision] = useState(0);
+
+  useEffect(() => {
+    if (!track || typeof track !== "object") return;
+
+    const trackLike = track as {
+      on?: (event: string, listener: () => void) => void;
+      off?: (event: string, listener: () => void) => void;
+      mediaStreamTrack?: MediaStreamTrack;
+    };
+    const bumpRevision = () => {
+      setTrackStateRevision((current) => current + 1);
+    };
+
+    const cleanupHandlers: Array<() => void> = [];
+    if (typeof trackLike.on === "function" && typeof trackLike.off === "function") {
+      const trackEvents = ["muted", "unmuted", "ended"];
+      trackEvents.forEach((eventName) => {
+        trackLike.on?.(eventName, bumpRevision);
+        cleanupHandlers.push(() => {
+          trackLike.off?.(eventName, bumpRevision);
+        });
+      });
+    }
+
+    const mediaTrack = trackLike.mediaStreamTrack;
+    if (mediaTrack) {
+      mediaTrack.addEventListener("mute", bumpRevision);
+      mediaTrack.addEventListener("unmute", bumpRevision);
+      mediaTrack.addEventListener("ended", bumpRevision);
+      cleanupHandlers.push(() => {
+        mediaTrack.removeEventListener("mute", bumpRevision);
+        mediaTrack.removeEventListener("unmute", bumpRevision);
+        mediaTrack.removeEventListener("ended", bumpRevision);
+      });
+    }
+
+    return () => {
+      cleanupHandlers.forEach((cleanup) => {
+        cleanup();
+      });
+    };
+  }, [track]);
+
+  const isTrackAvailable = Boolean(track);
+  const trackLike = (track ?? null) as {
+    isMuted?: boolean;
+    mediaStreamTrack?: MediaStreamTrack;
+  } | null;
+  const mediaTrack = trackLike?.mediaStreamTrack;
+  const isTrackInactive =
+    !isTrackAvailable ||
+    Boolean(trackLike?.isMuted) ||
+    (mediaTrack
+      ? mediaTrack.readyState !== "live" || mediaTrack.enabled === false || mediaTrack.muted
+      : false);
 
   useEffect(() => {
     const element = videoRef.current;
-    if (!element || !track) return;
+    if (!element || !track || isTrackInactive) return;
     element.autoplay = true;
     element.playsInline = true;
     element.muted = muted;
@@ -145,9 +201,9 @@ const ParticipantVideoSurface = memo(function ParticipantVideoSurface({
       }
       element.srcObject = null;
     };
-  }, [muted, track]);
+  }, [isTrackInactive, muted, track]);
 
-  if (!track) {
+  if (isTrackInactive) {
     return (
       <div className="workbook-session__participant-video-placeholder" aria-label={label}>
         <span
