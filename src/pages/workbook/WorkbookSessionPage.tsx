@@ -2011,7 +2011,6 @@ export default function WorkbookSessionPage() {
     handleCopyInviteLink,
     handleMenuClearBoard,
     handleToggleParticipantBoardTools,
-    handleToggleParticipantChat,
     handleToggleParticipantMic,
     handleSendSessionChatMessage,
     handleClearSessionChat,
@@ -3214,7 +3213,13 @@ export default function WorkbookSessionPage() {
   const setStudentsPermissionState = async (
     patch: Partial<{
       canUseMedia: boolean;
-      canUseChat: boolean;
+      canDraw: boolean;
+      canAnnotate: boolean;
+      canSelect: boolean;
+      canDelete: boolean;
+      canInsertImage: boolean;
+      canClear: boolean;
+      canUseLaser: boolean;
     }>
   ) => {
     if (!canManageSession || !session || isEnded) return;
@@ -3241,8 +3246,16 @@ export default function WorkbookSessionPage() {
     void setStudentsPermissionState({ canUseMedia: enabled });
   };
 
-  const handleSetStudentsChatEnabled = (enabled: boolean) => {
-    void setStudentsPermissionState({ canUseChat: enabled });
+  const handleSetStudentsBoardToolsEnabled = (enabled: boolean) => {
+    void setStudentsPermissionState({
+      canDraw: enabled,
+      canAnnotate: enabled,
+      canSelect: enabled,
+      canDelete: enabled,
+      canInsertImage: enabled,
+      canClear: enabled,
+      canUseLaser: enabled,
+    });
   };
 
   const participantsPanelProps = {
@@ -3269,10 +3282,9 @@ export default function WorkbookSessionPage() {
     remoteVideoTracks,
     isParticipantBoardToolsEnabled,
     onToggleParticipantBoardTools: handleToggleParticipantBoardTools,
-    onToggleParticipantChat: handleToggleParticipantChat,
     onToggleParticipantMic: handleToggleParticipantMic,
     onSetStudentsMediaEnabled: handleSetStudentsMediaEnabled,
-    onSetStudentsChatEnabled: handleSetStudentsChatEnabled,
+    onSetStudentsBoardToolsEnabled: handleSetStudentsBoardToolsEnabled,
   };
 
   const sessionChatPanelProps = {

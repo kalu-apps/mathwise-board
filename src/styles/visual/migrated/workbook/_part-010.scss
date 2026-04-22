@@ -23,6 +23,46 @@
   align-content: start;
 }
 
+.workbook-session__participants-scroll--video-grid.is-video-only-layout {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 10px;
+  align-content: start;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout .workbook-session__participant-card.is-video-card {
+  grid-column: span 4;
+  cursor: pointer;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout .workbook-session__participant-card.is-video-card.is-video-primary {
+  grid-column: 1 / -1;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout .workbook-session__participant-card.is-video-card.is-video-primary .workbook-session__participant-video-wrap {
+  aspect-ratio: 16 / 9;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout .workbook-session__participant-card.is-video-card.is-video-primary {
+  border-color: color-mix(in srgb, var(--brand-solid) 42%, var(--border-strong));
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--text-primary) 18%, transparent);
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-1 .workbook-session__participant-card.is-video-card {
+  grid-column: 1 / -1;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 .workbook-session__participant-card.is-video-card {
+  grid-column: span 6;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 .workbook-session__participant-card.is-video-card.is-video-primary .workbook-session__participant-video-wrap {
+  aspect-ratio: 4 / 3;
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-3 .workbook-session__participant-card.is-video-card:not(.is-video-primary) {
+  grid-column: span 6;
+}
+
 .workbook-session__participant-card {
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
@@ -47,6 +87,11 @@
   border-color: color-mix(in srgb, var(--brand-solid) 32%, var(--border-subtle));
   box-shadow: 0 10px 20px color-mix(in srgb, var(--text-primary) 14%, transparent);
   transform: translateY(-1px);
+}
+
+.workbook-session__participants-scroll--video-grid.is-video-only-layout
+  .workbook-session__participant-card.is-video-card:hover {
+  transform: none;
 }
 
 .workbook-session__participant-video-wrap {
@@ -86,15 +131,6 @@
   line-height: 1.3;
 }
 
-.workbook-session__participant-overlay-controls {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-
 .workbook-session__participant-overlay-control.MuiIconButton-root {
   width: 26px;
   height: 26px;
@@ -120,6 +156,7 @@
   bottom: 6px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 7px;
   padding: 5px 7px;
   border-radius: 9px;
@@ -135,6 +172,7 @@
 
 .workbook-session__participant-video-nameplate-meta {
   min-width: 0;
+  flex: 1 1 auto;
   display: grid;
   gap: 1px;
 }
@@ -157,29 +195,17 @@
   text-overflow: ellipsis;
 }
 
-.workbook-session__participant-card-footer {
-  padding: 6px 7px;
-}
-
-.workbook-session__participant-footer-toggle {
-  appearance: none;
-  border: none;
-  background: transparent;
+.workbook-session__participant-video-nameplate-controls {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  cursor: pointer;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-left: auto;
 }
 
-.workbook-session__participant-footer-toggle.is-enabled {
-  color: color-mix(in srgb, var(--brand-solid) 62%, var(--text-primary));
-}
-
-.workbook-session__participant-footer-toggle.is-disabled {
-  color: var(--text-muted);
+.workbook-session__participant-nameplate-control.MuiIconButton-root {
+  width: 24px;
+  height: 24px;
 }
 
 .workbook-session__participant-card-top {

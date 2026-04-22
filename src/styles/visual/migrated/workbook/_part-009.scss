@@ -172,7 +172,7 @@
 .workbook-session__participants-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -233,64 +233,17 @@
   box-shadow: 0 8px 14px rgba(16, 24, 40, 0.22);
 }
 
-.workbook-session__participants-layout-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.workbook-session__participants-view-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-soft) 82%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
-}
-
-.workbook-session__participants-view-switch button {
-  appearance: none;
-  border: none;
-  background: transparent;
-  min-height: 28px;
-  padding: 0 9px;
-  border-radius: 999px;
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.16s ease, color 0.16s ease;
-}
-
-.workbook-session__participants-view-switch button.is-active {
-  background: color-mix(in srgb, var(--brand-soft) 18%, var(--surface-elevated));
-  color: var(--text-primary);
-}
-
-.workbook-session__participants-mode-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.workbook-session__participants-mode-switch .MuiIconButton-root {
+.workbook-session__participants-view-cycle.MuiIconButton-root {
   width: 28px;
   height: 28px;
   border: none !important;
-  background: transparent !important;
+  background: color-mix(in srgb, var(--surface-soft) 78%, transparent) !important;
   color: var(--text-secondary);
 }
 
-.workbook-session__participants-mode-switch .MuiIconButton-root:hover {
-  background: color-mix(in srgb, var(--surface-soft) 72%, transparent) !important;
+.workbook-session__participants-view-cycle.MuiIconButton-root:hover {
+  background: color-mix(in srgb, var(--surface-soft) 92%, transparent) !important;
   color: var(--text-primary);
-}
-
-.workbook-session__participants-mode-switch .MuiIconButton-root.is-active {
-  background: color-mix(in srgb, var(--brand-soft) 20%, transparent) !important;
-  color: color-mix(in srgb, var(--brand-solid) 62%, var(--text-primary));
 }
 
 .workbook-session__participants-duo-nav {

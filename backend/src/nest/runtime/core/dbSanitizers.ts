@@ -111,7 +111,7 @@ const defaultPermissionsByRole = (roleInSession: string): Record<PermissionKey, 
         canDraw: false,
         canAnnotate: false,
         canUseMedia: true,
-        canUseChat: false,
+        canUseChat: true,
         canInvite: false,
         canManageSession: false,
         canSelect: false,
@@ -128,6 +128,9 @@ const sanitizeParticipantPermissions = (value: unknown, roleInSession: string) =
   const normalized = { ...defaults };
   for (const key of workbookParticipantPermissionKeys) {
     normalized[key] = readBoolean(source[key], defaults[key]);
+  }
+  if (roleInSession !== "teacher") {
+    normalized.canUseChat = true;
   }
   return normalized;
 };

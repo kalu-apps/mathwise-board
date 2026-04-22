@@ -937,7 +937,7 @@ const defaultPermissions = (role: "teacher" | "student"): WorkbookParticipantPer
     canDraw: false,
     canAnnotate: false,
     canUseMedia: true,
-    canUseChat: false,
+    canUseChat: true,
     canInvite: false,
     canManageSession: false,
     canSelect: false,
@@ -952,10 +952,16 @@ const defaultPermissions = (role: "teacher" | "student"): WorkbookParticipantPer
 const normalizeParticipantPermissions = (
   roleInSession: "teacher" | "student",
   permissions: Partial<WorkbookParticipantPermissions> | null | undefined
-): WorkbookParticipantPermissions => ({
-  ...defaultPermissions(roleInSession),
-  ...(permissions ?? {}),
-});
+): WorkbookParticipantPermissions => {
+  const normalized = {
+    ...defaultPermissions(roleInSession),
+    ...(permissions ?? {}),
+  };
+  if (roleInSession === "student") {
+    normalized.canUseChat = true;
+  }
+  return normalized;
+};
 
 const normalizeParticipantPermissionsInPlace = (
   participant: WorkbookSessionParticipantRecord
@@ -2306,7 +2312,6 @@ const sanitizeWorkbookLiveEvents = (
       continue;
     }
     if (type === "chat.message") {
-      if (!participant.permissions.canUseChat) continue;
       const message =
         payload && typeof payload === "object"
           ? (payload as { message?: unknown }).message

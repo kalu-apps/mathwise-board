@@ -78,7 +78,7 @@ export const useWorkbookSessionDerivedState = ({
       canDraw,
       canAnnotate: asBool(source?.canAnnotate, canDraw),
       canUseMedia: asBool(source?.canUseMedia, FALLBACK_PERMISSIONS.canUseMedia),
-      canUseChat: asBool(source?.canUseChat, FALLBACK_PERMISSIONS.canUseChat),
+      canUseChat: true,
       canInvite: asBool(source?.canInvite, FALLBACK_PERMISSIONS.canInvite),
       canManageSession: asBool(
         source?.canManageSession,

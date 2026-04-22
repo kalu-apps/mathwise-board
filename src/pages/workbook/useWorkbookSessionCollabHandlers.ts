@@ -162,14 +162,6 @@ export const useWorkbookSessionCollabHandlers = ({
     [updateParticipantPermissions]
   );
 
-  const handleToggleParticipantChat = useCallback(
-    async (participant: WorkbookSessionParticipant, enabled: boolean) => {
-      if (participant.roleInSession !== "student") return;
-      await updateParticipantPermissions(participant.userId, { canUseChat: enabled });
-    },
-    [updateParticipantPermissions]
-  );
-
   const handleToggleParticipantMic = useCallback(
     async (participant: WorkbookSessionParticipant, enabled: boolean) => {
       if (participant.roleInSession !== "student") return;
@@ -278,7 +270,6 @@ export const useWorkbookSessionCollabHandlers = ({
     handleMenuClearBoard,
     updateParticipantPermissions,
     handleToggleParticipantBoardTools,
-    handleToggleParticipantChat,
     handleToggleParticipantMic,
     handleSendSessionChatMessage,
     handleClearSessionChat,

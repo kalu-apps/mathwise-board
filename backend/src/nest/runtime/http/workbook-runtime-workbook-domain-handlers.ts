@@ -537,10 +537,6 @@ const handleWorkbookEventsRoute = async (
         deps.forbidden(res, "media_disabled");
         return true;
       }
-      if (event.type === "chat.message" && !participant.permissions.canUseChat) {
-        deps.forbidden(res, "chat_disabled");
-        return true;
-      }
       if (
         (event.type === "chat.message.delete" || event.type === "chat.clear") &&
         !participant.permissions.canManageSession
