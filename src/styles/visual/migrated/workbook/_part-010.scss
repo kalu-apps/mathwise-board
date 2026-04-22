@@ -151,9 +151,9 @@
 
 .workbook-session__participants-scroll--video-grid
   .workbook-session__participant-card.is-video-card:hover {
-  border-color: color-mix(in srgb, var(--brand-solid) 32%, var(--border-subtle));
-  box-shadow: 0 10px 20px color-mix(in srgb, var(--text-primary) 14%, transparent);
-  transform: translateY(-1px);
+  border-color: inherit;
+  box-shadow: none;
+  transform: none;
 }
 
 .workbook-session__participants-scroll--video-grid.is-video-only-layout
