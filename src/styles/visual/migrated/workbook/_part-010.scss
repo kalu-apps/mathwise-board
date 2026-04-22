@@ -1,7 +1,7 @@
 
 .workbook-session__participants-scroll {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   max-height: min(49vh, 468px);
   overflow: auto;
   padding: 0;
@@ -9,17 +9,17 @@
 
 .workbook-session__participants-card {
   background: color-mix(in srgb, var(--surface-elevated) 96%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border-subtle) 84%, transparent);
+  border: 0.75px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
   transition: background-color 0.18s ease, border-color 0.18s ease;
-  padding: 8px;
-  gap: 8px;
+  padding: 5px;
+  gap: 5px;
 }
 
 .workbook-session__participants-card.is-video-only {
   height: 100%;
   min-height: 0;
-  padding: 6px;
-  gap: 6px;
+  padding: 4px;
+  gap: 4px;
 }
 
 .workbook-session__participants-card.is-video-only
@@ -39,7 +39,7 @@
 .workbook-session__participants-scroll--video-grid.is-video-only-layout {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
-  gap: 10px;
+  gap: 8px;
   align-content: stretch;
   grid-auto-rows: minmax(0, 1fr);
 }
@@ -106,7 +106,7 @@
 .workbook-session__participants-video-rail {
   display: flex;
   align-items: stretch;
-  gap: 10px;
+  gap: 8px;
   overflow-x: auto;
   overflow-y: hidden;
   padding-bottom: 2px;
@@ -130,12 +130,12 @@
 }
 
 .workbook-session__participant-card {
-  border: 1px solid var(--border-subtle);
+  border: 0.75px solid color-mix(in srgb, var(--border-subtle) 84%, transparent);
   border-radius: 12px;
   background: color-mix(in srgb, var(--surface-soft) 88%, transparent);
-  padding: 8px 9px;
+  padding: 6px 7px;
   display: grid;
-  gap: 6px;
+  gap: 5px;
 }
 
 .workbook-session__participant-card.is-video-card {
