@@ -181,6 +181,15 @@
   white-space: nowrap;
 }
 
+:root[data-theme="dark"] .workbook-hub__card-title-row h3 {
+  color: color-mix(in srgb, #ffffff 94%, var(--text-primary));
+}
+
+:root[data-theme="dark"] .workbook-hub__card-meta {
+  color: color-mix(in srgb, #ffffff 84%, var(--text-secondary));
+  font-weight: 600;
+}
+
 .workbook-hub__card-activity-badge.is-active {
   border-color: color-mix(in srgb, var(--feedback-success) 58%, var(--brand-mint));
   background:

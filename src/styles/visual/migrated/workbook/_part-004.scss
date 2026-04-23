@@ -38,6 +38,18 @@
   font-weight: 700;
   letter-spacing: 0.01em;
 }
+
+:root[data-theme="dark"] .workbook-hub__card-timeline {
+  color: color-mix(in srgb, #ffffff 80%, var(--text-secondary));
+}
+
+:root[data-theme="dark"] .workbook-hub__card-timeline-label {
+  color: color-mix(in srgb, #ffffff 80%, var(--text-secondary));
+}
+
+:root[data-theme="dark"] .workbook-hub__card-timeline-value {
+  color: color-mix(in srgb, #ffffff 96%, var(--text-primary));
+}
 .workbook-hub__details-meta {
   display: flex;
   flex-wrap: wrap;
