@@ -981,7 +981,6 @@ export default function WorkbookHubPage() {
                           fetchPriority={cardIndex < 3 ? "high" : "auto"}
                           onError={() => markPreviewLoadFailure(card.sessionId, previewUrl)}
                         />
-                        <span className="workbook-hub__card-preview-scrim" />
                       </div>
                     ) : null}
                     {isPreviewRefreshing ? (

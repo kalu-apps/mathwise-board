@@ -25,23 +25,6 @@
   transform: scale(1.015);
   filter: saturate(1.04) contrast(1.03);
 }
-.workbook-hub__card-preview-scrim {
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--surface-elevated) 12%, transparent) 0%,
-      color-mix(in srgb, var(--surface-elevated) 54%, transparent) 48%,
-      color-mix(in srgb, var(--surface-elevated) 86%, transparent) 100%
-    ),
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--surface-elevated) 28%, transparent) 0%,
-      color-mix(in srgb, var(--surface-elevated) 4%, transparent) 42%,
-      color-mix(in srgb, var(--surface-elevated) 28%, transparent) 100%
-    );
-}
 .workbook-hub__card-preview-refresh {
   position: absolute;
   inset: 0;

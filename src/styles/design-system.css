@@ -422,7 +422,7 @@ html,
 body,
 #root {
   min-height: 100%;
-  background: var(--gradient-page);
+  background: var(--bg-canvas);
   color: var(--text-primary);
 }
 
@@ -434,37 +434,15 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  background: var(--gradient-aurora);
-}
-
+body::before,
 body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  opacity: var(--noise-opacity);
-  background-image: radial-gradient(rgba(255, 255, 255, 0.9) 0.45px, transparent 0.45px);
-  background-size: 3px 3px;
+  content: none;
+  display: none;
 }
 
 @media (max-width: 768px) {
   body {
     transition: color 180ms ease;
-  }
-
-  body::before {
-    opacity: 0.22;
-  }
-
-  body::after {
-    display: none;
   }
 }
 

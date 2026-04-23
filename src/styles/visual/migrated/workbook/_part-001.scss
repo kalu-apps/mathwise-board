@@ -47,7 +47,6 @@
   --workbook-hub-geo-line: color-mix(in srgb, var(--feedback-info) 14%, transparent);
   --workbook-hub-geo-line-strong: color-mix(in srgb, var(--brand-soft) 20%, transparent);
 }
-.workbook-hub::before,
 .workbook-session::before,
 .workbook-invite::before {
   content: "";
@@ -60,30 +59,12 @@
     radial-gradient(circle at 86% 10%, var(--workbook-glass-orb-b), transparent 60%);
 }
 .workbook-hub::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  background:
-    radial-gradient(circle at 78% 72%, color-mix(in srgb, var(--feedback-info) 10%, transparent), transparent 44%),
-    radial-gradient(circle at 22% 78%, color-mix(in srgb, var(--brand-soft) 12%, transparent), transparent 46%),
-    repeating-linear-gradient(
-      60deg,
-      transparent 0 42px,
-      var(--workbook-hub-geo-line) 42px 43px
-    ),
-    repeating-linear-gradient(
-      -60deg,
-      transparent 0 42px,
-      var(--workbook-hub-geo-line) 42px 43px
-    ),
-    repeating-linear-gradient(
-      0deg,
-      transparent 0 24px,
-      var(--workbook-hub-geo-line-strong) 24px 25px
-    );
-  opacity: 0.78;
+  content: none;
+  display: none;
+}
+.workbook-hub::before {
+  content: none;
+  display: none;
 }
 .workbook-session {
   width: 100%;
