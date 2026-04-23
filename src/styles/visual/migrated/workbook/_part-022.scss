@@ -92,6 +92,13 @@
   box-shadow: none !important;
 }
 
+.workbook-session__session-chat-emoji .EmojiPickerReact .epr-category-nav button.epr-cat-btn:focus::before,
+.workbook-session__session-chat-emoji .EmojiPickerReact .epr-category-nav button.epr-cat-btn:focus-visible::before {
+  content: none !important;
+  display: none !important;
+  border: none !important;
+}
+
 .workbook-session__session-chat-emoji .EmojiPickerReact .epr-category-nav {
   padding-block: 2px;
 }
