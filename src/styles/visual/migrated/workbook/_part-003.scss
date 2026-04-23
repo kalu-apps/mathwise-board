@@ -65,11 +65,6 @@
 }
 .workbook-hub__card--with-preview {
   border-color: color-mix(in srgb, var(--workbook-card-border) 66%, var(--feedback-info));
-  --workbook-card-text-primary: #1f252b;
-  --workbook-card-text-secondary: #344352;
-  --workbook-card-text-muted: #526171;
-  --workbook-metric-label: #344352;
-  --workbook-metric-value: #1f252b;
 }
 
 .workbook-hub__card--with-preview .workbook-hub__card-main {
@@ -209,11 +204,11 @@
 }
 
 :root[data-theme="dark"] .workbook-hub__card {
-  --workbook-card-text-primary: #1f252b;
-  --workbook-card-text-secondary: #344352;
-  --workbook-card-text-muted: #526171;
-  --workbook-metric-label: #344352;
-  --workbook-metric-value: #1f252b;
+  --workbook-card-text-primary: var(--text-primary);
+  --workbook-card-text-secondary: var(--text-secondary);
+  --workbook-card-text-muted: var(--text-muted);
+  --workbook-metric-label: var(--text-secondary);
+  --workbook-metric-value: var(--text-primary);
 }
 
 .workbook-hub__card-activity-badge.is-active {
@@ -250,37 +245,37 @@
 }
 
 :root[data-theme="dark"] .workbook-hub__card--with-preview .workbook-hub__card-main {
-  border: 1px solid rgba(255, 255, 255, 0.62);
-  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(248, 251, 255, 0.2);
+  background: rgba(8, 12, 18, 0.62);
   box-shadow: none;
 }
 
 :root[data-theme="dark"] .workbook-hub__card-activity-badge {
-  border-color: rgba(255, 255, 255, 0.56);
-  background: rgba(255, 255, 255, 0.62);
-  color: #1f252b;
+  border-color: rgba(248, 251, 255, 0.28);
+  background: rgba(8, 12, 18, 0.56);
+  color: var(--workbook-card-text-primary);
   box-shadow: none;
   backdrop-filter: none;
 }
 
 :root[data-theme="dark"] .workbook-hub__card-activity-badge.is-active {
-  border-color: rgba(130, 201, 161, 0.7);
-  background: rgba(208, 239, 222, 0.74);
-  color: #1f4933;
+  border-color: rgba(126, 210, 162, 0.66);
+  background: rgba(25, 76, 51, 0.56);
+  color: #def5e8;
   box-shadow: none;
 }
 
 :root[data-theme="dark"] .workbook-hub__card-activity-badge.is-recent {
-  border-color: rgba(225, 171, 92, 0.72);
-  background: rgba(246, 225, 189, 0.74);
-  color: #5a3b11;
+  border-color: rgba(224, 176, 94, 0.68);
+  background: rgba(89, 62, 20, 0.56);
+  color: #ffe7c2;
   box-shadow: none;
 }
 
 :root[data-theme="dark"] .workbook-hub__card-activity-badge.is-idle {
-  border-color: rgba(166, 179, 194, 0.66);
-  background: rgba(225, 231, 239, 0.68);
-  color: #344352;
+  border-color: rgba(184, 197, 212, 0.42);
+  background: rgba(28, 37, 49, 0.56);
+  color: var(--workbook-card-text-secondary);
   box-shadow: none;
 }
 
