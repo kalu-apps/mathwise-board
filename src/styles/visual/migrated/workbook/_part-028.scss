@@ -98,10 +98,24 @@
     position: fixed;
     top: var(--workbook-floating-top, 86px);
     right: 12px;
-    width: min(320px, calc(100vw - 24px));
+    width: min(288px, calc(100vw - 24px));
     max-height: calc(100vh - var(--workbook-floating-top, 86px) - 12px);
     max-height: calc(100dvh - var(--workbook-floating-top, 86px) - 12px);
     z-index: 90;
+  }
+
+  .workbook-session__layout--sidebar-overlay .workbook-session__sidebar.mode-expanded {
+    width: min(378px, calc(100vw - 24px));
+  }
+
+  .workbook-session__layout--sidebar-overlay .workbook-session__sidebar.mode-video-only {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: none;
   }
 
   @supports not (height: 100dvh) {
@@ -217,7 +231,13 @@
   }
 
   .workbook-session__participants-scroll {
-    max-height: min(40vh, 360px);
+    max-height: min(36vh, 324px);
+  }
+
+  .workbook-session__video-dock {
+    right: 12px;
+    bottom: 12px;
+    width: min(360px, calc(100% - 24px));
   }
 }
 
@@ -246,12 +266,84 @@
     padding: 10px;
   }
 
+  .workbook-session__participants-card {
+    padding: 4px;
+    gap: 4px;
+  }
+
   .workbook-session__layout--sidebar-overlay .workbook-session__sidebar {
     left: 8px;
     right: 8px;
     width: auto;
     max-height: calc(100vh - var(--workbook-floating-top, 86px) - 8px);
     max-height: calc(100dvh - var(--workbook-floating-top, 86px) - 8px);
+  }
+
+  .workbook-session__layout--sidebar-overlay .workbook-session__sidebar.mode-video-only {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: none;
+  }
+
+  .workbook-session__participants-scroll--video-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .workbook-session__participants-scroll--video-grid.is-video-only-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .workbook-session__participants-scroll--video-grid.is-video-only-layout.has-video-only-rail {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .workbook-session__participants-video-rail {
+    --video-rail-gap: 6px;
+    --video-rail-tile-min-width: min(70vw, 220px);
+  }
+
+  .workbook-session__participants-video-rail .workbook-session__participant-card.is-video-card {
+    width: 100%;
+    min-width: 0;
+    height: clamp(118px, 22vh, 172px);
+  }
+
+  .workbook-session__participant-video-nameplate-meta strong {
+    font-size: 10px;
+  }
+
+  .workbook-session__participant-video-nameplate-meta span {
+    font-size: 9px;
+  }
+
+  .workbook-session__video-dock {
+    left: 8px;
+    right: 8px;
+    bottom: 72px;
+    width: auto;
+    padding: 8px;
+    border-radius: 12px;
+  }
+
+  .workbook-session__video-dock-grid {
+    gap: 6px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workbook-session__video-tile {
+    border-radius: 10px;
+    min-height: 64px;
   }
 
   .workbook-hub__list {
@@ -595,5 +687,28 @@
     width: auto !important;
     height: calc(100vh - 16px);
     transform: none;
+  }
+}
+
+@media (orientation: portrait) and (hover: none) and (pointer: coarse) {
+  .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2 {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
+
+  .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2
+    .workbook-session__participant-card.is-video-card,
+  .workbook-session__participants-scroll--video-grid.is-video-only-layout.is-video-only-count-2
+    .workbook-session__participant-card.is-video-card.is-video-primary {
+    grid-column: 1 / -1;
+    min-height: 0;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .workbook-session__participant-video-nameplate {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
   }
 }

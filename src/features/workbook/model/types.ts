@@ -334,6 +334,8 @@ export type WorkbookSessionParticipant = {
     canDraw: boolean;
     canAnnotate: boolean;
     canUseMedia: boolean;
+    canUseMicrophone: boolean;
+    canUseCamera: boolean;
     canUseChat: boolean;
     canInvite: boolean;
     canManageSession: boolean;

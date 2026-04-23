@@ -4,6 +4,7 @@ import {
   normalizeDocumentAnnotationPayload,
   normalizeDocumentAssetPayload,
 } from "./scene";
+import { upsertWorkbookChatMessage } from "./chatMessageState";
 import { normalizeWorkbookPageFrameWidth } from "./pageFrame";
 import {
   normalizeWorkbookBoardPageVisualSettingsByPage,
@@ -339,13 +340,35 @@ export const applyWorkbookIncomingSessionMetaEvent = (
         ...current,
         participants: current.participants.map((participant) =>
           participant.userId === targetUserId
-            ? {
-                ...participant,
-                permissions: {
+            ? (() => {
+                const nextPermissions = {
                   ...participant.permissions,
                   ...patch,
-                },
-              }
+                };
+                if (typeof patch.canUseMedia === "boolean") {
+                  if (typeof patch.canUseMicrophone !== "boolean") {
+                    nextPermissions.canUseMicrophone = patch.canUseMedia;
+                  }
+                  if (typeof patch.canUseCamera !== "boolean") {
+                    nextPermissions.canUseCamera = patch.canUseMedia;
+                  }
+                }
+                const canUseMicrophone =
+                  typeof nextPermissions.canUseMicrophone === "boolean"
+                    ? nextPermissions.canUseMicrophone
+                    : Boolean(nextPermissions.canUseMedia);
+                const canUseCamera =
+                  typeof nextPermissions.canUseCamera === "boolean"
+                    ? nextPermissions.canUseCamera
+                    : Boolean(nextPermissions.canUseMedia);
+                nextPermissions.canUseMicrophone = canUseMicrophone;
+                nextPermissions.canUseCamera = canUseCamera;
+                nextPermissions.canUseMedia = canUseMicrophone && canUseCamera;
+                return {
+                  ...participant,
+                  permissions: nextPermissions,
+                };
+              })()
             : participant
         ),
       };
@@ -356,9 +379,7 @@ export const applyWorkbookIncomingSessionMetaEvent = (
   if (event.type === "chat.message") {
     const message = normalizeChatMessagePayload((event.payload as { message?: unknown })?.message);
     if (!message) return true;
-    setChatMessages((current) =>
-      current.some((item) => item.id === message.id) ? current : [...current, message]
-    );
+    setChatMessages((current) => upsertWorkbookChatMessage(current, message));
     return true;
   }
 

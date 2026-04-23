@@ -1,6 +1,10 @@
 import { useCallback, useMemo } from "react";
 import { useMediaQuery } from "@mui/material";
-import { isWorkbookAdaptivePollingEnabled, isWorkbookRealtimeBackpressureV2Enabled } from "@/features/workbook/model/featureFlags";
+import {
+  isWorkbookAdaptivePollingEnabled,
+  isWorkbookRealtimeBackpressureV2Enabled,
+  isWorkbookRealtimeModeAwarePollingEnabled,
+} from "@/features/workbook/model/featureFlags";
 import type {
   WorkbookBoardObject,
   WorkbookBoardSettings,
@@ -73,8 +77,16 @@ export const useWorkbookSessionDerivedState = ({
     return {
       canDraw,
       canAnnotate: asBool(source?.canAnnotate, canDraw),
+      canUseMicrophone: asBool(
+        source?.canUseMicrophone,
+        asBool(source?.canUseMedia, FALLBACK_PERMISSIONS.canUseMedia)
+      ),
+      canUseCamera: asBool(
+        source?.canUseCamera,
+        asBool(source?.canUseMedia, FALLBACK_PERMISSIONS.canUseMedia)
+      ),
       canUseMedia: asBool(source?.canUseMedia, FALLBACK_PERMISSIONS.canUseMedia),
-      canUseChat: asBool(source?.canUseChat, FALLBACK_PERMISSIONS.canUseChat),
+      canUseChat: true,
       canInvite: asBool(source?.canInvite, FALLBACK_PERMISSIONS.canInvite),
       canManageSession: asBool(
         source?.canManageSession,
@@ -109,7 +121,11 @@ export const useWorkbookSessionDerivedState = ({
     actorPermissions.canClear && canManageSession && !isEnded && !isSessionTabPassive
   );
   const canUseLaser = Boolean(actorPermissions.canUseLaser && !isEnded && !isSessionTabPassive);
-  const canUseMedia = Boolean(actorPermissions.canUseMedia);
+  const canUseMicrophone = Boolean(actorPermissions.canUseMicrophone);
+  const canUseCamera = Boolean(actorPermissions.canUseCamera);
+  const canUseMedia = Boolean(
+    canUseMicrophone || canUseCamera || actorPermissions.canUseMedia
+  );
   const canUseSessionChat = Boolean(actorPermissions.canUseChat);
   const canSendSessionChat = canUseSessionChat && !isEnded && !isSessionTabPassive;
   const isClassSession = session?.kind === "CLASS";
@@ -121,6 +137,10 @@ export const useWorkbookSessionDerivedState = ({
   );
   const showCollaborationPanels = Boolean(isClassSession);
   const adaptivePollingEnabled = useMemo(() => isWorkbookAdaptivePollingEnabled(), []);
+  const realtimeModeAwarePollingEnabled = useMemo(
+    () => isWorkbookRealtimeModeAwarePollingEnabled(),
+    []
+  );
   const realtimeBackpressureV2Enabled = useMemo(
     () => isWorkbookRealtimeBackpressureV2Enabled(),
     []
@@ -131,10 +151,23 @@ export const useWorkbookSessionDerivedState = ({
   const volatilePreviewQueueMax = realtimeBackpressureV2Enabled
     ? VOLATILE_PREVIEW_QUEUE_MAX
     : Number.MAX_SAFE_INTEGER;
-  const { isLivekitConnected, micEnabled, setMicEnabled } = useWorkbookLivekit({
+  const {
+    isLivekitConnected,
+    micEnabled,
+    setMicEnabled,
+    cameraEnabled,
+    setCameraEnabled,
+    canSwitchCameraFacing,
+    isRearCameraActive,
+    isSwitchingCameraFacing,
+    switchCameraFacing,
+    localVideoTrack,
+    remoteVideoTracks,
+  } = useWorkbookLivekit({
     sessionId,
     sessionKind: session?.kind,
-    canUseMedia,
+    canUseMicrophone,
+    canUseCamera,
     isEnded,
     userId: user?.id,
     setError,
@@ -244,6 +277,8 @@ export const useWorkbookSessionDerivedState = ({
     canDelete,
     canClear,
     canUseLaser,
+    canUseMicrophone,
+    canUseCamera,
     canUseMedia,
     canUseSessionChat,
     canSendSessionChat,
@@ -251,12 +286,21 @@ export const useWorkbookSessionDerivedState = ({
     canManageSharedBoardSettings,
     showCollaborationPanels,
     adaptivePollingEnabled,
+    realtimeModeAwarePollingEnabled,
     realtimeBackpressureV2Enabled,
     volatilePreviewMaxPerFlush,
     volatilePreviewQueueMax,
     isLivekitConnected,
     micEnabled,
     setMicEnabled,
+    cameraEnabled,
+    setCameraEnabled,
+    canSwitchCameraFacing,
+    isRearCameraActive,
+    isSwitchingCameraFacing,
+    switchCameraFacing,
+    localVideoTrack,
+    remoteVideoTracks,
     isCompactDialogViewport,
     showSidebarParticipants,
     focusPoints,

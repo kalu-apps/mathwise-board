@@ -1,8 +1,17 @@
-import type { MutableRefObject, PointerEvent as ReactPointerEvent, RefObject } from "react";
 import {
-  Avatar,
+  useCallback,
+  useMemo,
+  useState,
+  type MutableRefObject,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from "react";
+import {
   IconButton,
   InputAdornment,
+  Menu,
+  MenuItem,
   TextField,
   Tooltip,
 } from "@mui/material";
@@ -16,6 +25,14 @@ import UnfoldMoreRoundedIcon from "@mui/icons-material/UnfoldMoreRounded";
 import FullscreenRoundedIcon from "@mui/icons-material/FullscreenRounded";
 import FullscreenExitRoundedIcon from "@mui/icons-material/FullscreenExitRounded";
 import KeyboardDoubleArrowDownRoundedIcon from "@mui/icons-material/KeyboardDoubleArrowDownRounded";
+import EditRoundedIcon from "@mui/icons-material/EditRounded";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
+import EmojiPicker, {
+  EmojiStyle,
+  SuggestionMode,
+  Theme,
+  type EmojiClickData,
+} from "emoji-picker-react";
 import type { WorkbookChatMessage } from "@/features/workbook/model/types";
 
 type SessionChatPosition = {
@@ -29,11 +46,10 @@ type SessionChatDragState = {
   offsetY: number;
 };
 
-type ParticipantCard = {
-  userId: string;
-  displayName: string;
-  photo: string;
-  isOnline: boolean;
+type ChatMessageContextMenu = {
+  messageId: string;
+  x: number;
+  y: number;
 };
 
 type WorkbookSessionChatPanelProps = {
@@ -46,7 +62,6 @@ type WorkbookSessionChatPanelProps = {
   isSessionChatMaximized: boolean;
   isCompactViewport: boolean;
   sessionChatPosition: SessionChatPosition;
-  participantCards: ParticipantCard[];
   chatMessages: WorkbookChatMessage[];
   firstUnreadSessionChatMessageId: string | null;
   currentUserId?: string;
@@ -56,7 +71,6 @@ type WorkbookSessionChatPanelProps = {
   isSessionChatAtBottom: boolean;
   sessionChatDraft: string;
   isSessionChatEmojiOpen: boolean;
-  chatEmojis: string[];
   setIsSessionChatMinimized: (value: boolean | ((current: boolean) => boolean)) => void;
   setIsSessionChatMaximized: (value: boolean | ((current: boolean) => boolean)) => void;
   setIsSessionChatOpen: (value: boolean) => void;
@@ -67,6 +81,8 @@ type WorkbookSessionChatPanelProps = {
   onScrollSessionChatToLatest: (behavior?: ScrollBehavior) => void;
   onMarkSessionChatReadToLatest: () => void;
   onSendSessionChatMessage: () => Promise<void>;
+  onEditSessionChatMessage: (messageId: string, text: string) => Promise<boolean>;
+  onDeleteSessionChatMessage: (messageId: string) => Promise<boolean>;
 };
 
 export function WorkbookSessionChatPanel({
@@ -79,7 +95,6 @@ export function WorkbookSessionChatPanel({
   isSessionChatMaximized,
   isCompactViewport,
   sessionChatPosition,
-  participantCards,
   chatMessages,
   firstUnreadSessionChatMessageId,
   currentUserId,
@@ -89,7 +104,6 @@ export function WorkbookSessionChatPanel({
   isSessionChatAtBottom,
   sessionChatDraft,
   isSessionChatEmojiOpen,
-  chatEmojis,
   setIsSessionChatMinimized,
   setIsSessionChatMaximized,
   setIsSessionChatOpen,
@@ -100,10 +114,132 @@ export function WorkbookSessionChatPanel({
   onScrollSessionChatToLatest,
   onMarkSessionChatReadToLatest,
   onSendSessionChatMessage,
+  onEditSessionChatMessage,
+  onDeleteSessionChatMessage,
 }: WorkbookSessionChatPanelProps) {
+  const [messageContextMenu, setMessageContextMenu] = useState<ChatMessageContextMenu | null>(
+    null
+  );
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+
+  const editingMessage = useMemo(() => {
+    if (!editingMessageId) return null;
+    return chatMessages.find((message) => message.id === editingMessageId) ?? null;
+  }, [chatMessages, editingMessageId]);
+
+  const handleCloseMessageContextMenu = useCallback(() => {
+    setMessageContextMenu(null);
+  }, []);
+
+  const handleMessageContextMenu = useCallback(
+    (event: ReactMouseEvent<HTMLElement>, message: WorkbookChatMessage) => {
+      if (!currentUserId || message.authorUserId !== currentUserId) return;
+      event.preventDefault();
+      setMessageContextMenu({
+        messageId: message.id,
+        x: event.clientX + 4,
+        y: event.clientY - 2,
+      });
+    },
+    [currentUserId]
+  );
+
+  const handleCancelMessageEdit = useCallback(() => {
+    setEditingMessageId(null);
+    setSessionChatDraft("");
+  }, [setSessionChatDraft]);
+
+  const handleStartMessageEdit = useCallback(() => {
+    if (!messageContextMenu || !currentUserId) return;
+    const targetMessage = chatMessages.find((message) => message.id === messageContextMenu.messageId);
+    if (!targetMessage || targetMessage.authorUserId !== currentUserId) {
+      handleCloseMessageContextMenu();
+      return;
+    }
+    setEditingMessageId(targetMessage.id);
+    setSessionChatDraft(targetMessage.text);
+    setIsSessionChatEmojiOpen(false);
+    handleCloseMessageContextMenu();
+  }, [
+    chatMessages,
+    currentUserId,
+    handleCloseMessageContextMenu,
+    messageContextMenu,
+    setIsSessionChatEmojiOpen,
+    setSessionChatDraft,
+  ]);
+
+  const handleDeleteMessage = useCallback(async () => {
+    if (!messageContextMenu) return;
+    const messageId = messageContextMenu.messageId;
+    handleCloseMessageContextMenu();
+    const isDeleted = await onDeleteSessionChatMessage(messageId);
+    if (!isDeleted) return;
+    if (editingMessageId === messageId) {
+      setEditingMessageId(null);
+      setSessionChatDraft("");
+      setIsSessionChatEmojiOpen(false);
+    }
+  }, [
+    editingMessageId,
+    handleCloseMessageContextMenu,
+    messageContextMenu,
+    onDeleteSessionChatMessage,
+    setIsSessionChatEmojiOpen,
+    setSessionChatDraft,
+  ]);
+
+  const handleSubmitSessionChatDraft = useCallback(async () => {
+    if (editingMessageId) {
+      if (!editingMessage) {
+        setEditingMessageId(null);
+        setSessionChatDraft("");
+        return;
+      }
+      const isUpdated = await onEditSessionChatMessage(editingMessageId, sessionChatDraft);
+      if (isUpdated) {
+        setEditingMessageId(null);
+      }
+      return;
+    }
+    await onSendSessionChatMessage();
+  }, [
+    editingMessageId,
+    editingMessage,
+    onEditSessionChatMessage,
+    onSendSessionChatMessage,
+    sessionChatDraft,
+    setSessionChatDraft,
+  ]);
+
   if (!showCollaborationPanels || !isSessionChatOpen) {
     return null;
   }
+  const handleToggleMinimized = () => {
+    if (isSessionChatMinimized) {
+      setIsSessionChatMinimized(false);
+      return;
+    }
+    if (isSessionChatMaximized) {
+      setIsSessionChatMaximized(false);
+    }
+    setIsSessionChatMinimized(true);
+  };
+
+  const handleToggleMaximized = () => {
+    if (isSessionChatMaximized) {
+      setIsSessionChatMaximized(false);
+      return;
+    }
+    if (isSessionChatMinimized) {
+      setIsSessionChatMinimized(false);
+    }
+    setIsSessionChatMaximized(true);
+  };
+
+  const handleSelectEmoji = (emojiData: EmojiClickData) => {
+    setSessionChatDraft((current) => `${current}${emojiData.emoji}`);
+  };
 
   return (
     <div
@@ -120,14 +256,26 @@ export function WorkbookSessionChatPanel({
       <div className="workbook-session__session-chat-head" onPointerDown={onSessionChatDragStart}>
         <h4>
           <ForumRoundedIcon fontSize="small" />
-          Чат сессии
+          Чат
         </h4>
         <div className="workbook-session__session-chat-head-actions">
+          {canManageSession && chatMessages.length > 0 ? (
+            <Tooltip title="Очистить чат" arrow>
+              <IconButton
+                size="small"
+                className="workbook-session__session-chat-head-icon"
+                onClick={() => setIsClearSessionChatDialogOpen(true)}
+                aria-label="Очистить чат"
+              >
+                <DeleteSweepRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          ) : null}
           <IconButton
             size="small"
             className="workbook-session__session-chat-head-icon"
             aria-label={isSessionChatMinimized ? "Развернуть чат" : "Свернуть чат"}
-            onClick={() => setIsSessionChatMinimized((current) => !current)}
+            onClick={handleToggleMinimized}
           >
             {isSessionChatMinimized ? (
               <UnfoldMoreRoundedIcon fontSize="small" />
@@ -141,7 +289,7 @@ export function WorkbookSessionChatPanel({
             aria-label={
               isSessionChatMaximized ? "Обычный размер чата" : "Развернуть чат на максимум"
             }
-            onClick={() => setIsSessionChatMaximized((current) => !current)}
+            onClick={handleToggleMaximized}
             disabled={isSessionChatMinimized}
           >
             {isSessionChatMaximized ? (
@@ -157,6 +305,7 @@ export function WorkbookSessionChatPanel({
             onClick={() => {
               setIsSessionChatOpen(false);
               setIsSessionChatEmojiOpen(false);
+              setEditingMessageId(null);
               sessionChatDragStateRef.current = null;
             }}
           >
@@ -167,46 +316,6 @@ export function WorkbookSessionChatPanel({
 
       {!isSessionChatMinimized ? (
         <>
-          <div className="workbook-session__session-chat-meta">
-            <div className="workbook-session__session-chat-avatars">
-              {participantCards.slice(0, 10).map((participant) => (
-                <Tooltip
-                  key={`chat-avatar-${participant.userId}`}
-                  title={participant.displayName}
-                  arrow
-                >
-                  <span
-                    className={`workbook-session__session-chat-avatar-wrap ${
-                      participant.isOnline ? "is-online" : "is-offline"
-                    }`}
-                  >
-                    <Avatar
-                      src={participant.photo}
-                      alt={participant.displayName}
-                      className="workbook-session__session-chat-avatar"
-                    >
-                      {participant.displayName.slice(0, 1)}
-                    </Avatar>
-                    <span className="workbook-session__session-chat-avatar-presence" />
-                  </span>
-                </Tooltip>
-              ))}
-            </div>
-            <div className="workbook-session__session-chat-meta-right">
-              {canManageSession && chatMessages.length > 0 ? (
-                <Tooltip title="Очистить чат" arrow>
-                  <IconButton
-                    size="small"
-                    className="workbook-session__chat-action-icon"
-                    onClick={() => setIsClearSessionChatDialogOpen(true)}
-                    aria-label="Очистить чат"
-                  >
-                    <DeleteSweepRoundedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              ) : null}
-            </div>
-          </div>
           <div className="workbook-session__chat-list" ref={sessionChatListRef}>
             {chatMessages.length === 0 ? (
               <p className="workbook-session__hint">
@@ -228,6 +337,7 @@ export function WorkbookSessionChatPanel({
                     className={`workbook-session__chat-message${
                       message.authorUserId === currentUserId ? " is-own" : ""
                     }`}
+                    onContextMenu={(event) => handleMessageContextMenu(event, message)}
                   >
                     <strong>{message.authorName}</strong>
                     <p>{message.text}</p>
@@ -241,7 +351,7 @@ export function WorkbookSessionChatPanel({
                 </div>
               ))
             )}
-            {sessionChatUnreadCount > 0 || !isSessionChatAtBottom ? (
+            {sessionChatUnreadCount > 0 && !isSessionChatAtBottom ? (
               <div className="workbook-session__chat-scroll-latest-wrap">
                 <Tooltip title="Перемотать к последнему сообщению" arrow>
                   <IconButton
@@ -261,17 +371,27 @@ export function WorkbookSessionChatPanel({
           </div>
           {canSendSessionChat ? (
             <div className="workbook-session__session-chat-input-wrap">
+              {editingMessage ? (
+                <div className="workbook-session__session-chat-editing">
+                  <span>Редактирование сообщения</span>
+                  <button type="button" onClick={handleCancelMessageEdit}>
+                    Отменить
+                  </button>
+                </div>
+              ) : null}
               <div className="workbook-session__session-chat-input">
                 <TextField
                   size="small"
                   fullWidth
-                  placeholder="Введите сообщение..."
+                  placeholder={
+                    editingMessageId ? "Измените сообщение..." : "Введите сообщение..."
+                  }
                   value={sessionChatDraft}
                   onChange={(event) => setSessionChatDraft(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key !== "Enter" || event.shiftKey) return;
                     event.preventDefault();
-                    void onSendSessionChatMessage();
+                    void handleSubmitSessionChatDraft();
                   }}
                   InputProps={{
                     startAdornment: (
@@ -291,11 +411,15 @@ export function WorkbookSessionChatPanel({
                         <IconButton
                           size="small"
                           className="workbook-session__chat-action-icon workbook-session__chat-send-icon"
-                          aria-label="Отправить"
-                          onClick={() => void onSendSessionChatMessage()}
+                          aria-label={editingMessageId ? "Сохранить сообщение" : "Отправить"}
+                          onClick={() => void handleSubmitSessionChatDraft()}
                           disabled={!sessionChatDraft.trim()}
                         >
-                          <SendRoundedIcon fontSize="small" />
+                          {editingMessageId ? (
+                            <EditRoundedIcon fontSize="small" />
+                          ) : (
+                            <SendRoundedIcon fontSize="small" />
+                          )}
                         </IconButton>
                       </InputAdornment>
                     ),
@@ -304,15 +428,18 @@ export function WorkbookSessionChatPanel({
               </div>
               {isSessionChatEmojiOpen ? (
                 <div className="workbook-session__session-chat-emoji">
-                  {chatEmojis.map((emoji) => (
-                    <button
-                      key={`session-chat-emoji-${emoji}`}
-                      type="button"
-                      onClick={() => setSessionChatDraft((current) => `${current}${emoji}`)}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
+                  <EmojiPicker
+                    width="100%"
+                    height={332}
+                    theme={Theme.AUTO}
+                    emojiStyle={EmojiStyle.NATIVE}
+                    suggestedEmojisMode={SuggestionMode.RECENT}
+                    previewConfig={{ showPreview: false }}
+                    lazyLoadEmojis
+                    searchDisabled
+                    skinTonesDisabled
+                    onEmojiClick={handleSelectEmoji}
+                  />
                 </div>
               ) : null}
             </div>
@@ -323,6 +450,26 @@ export function WorkbookSessionChatPanel({
           )}
         </>
       ) : null}
+      <Menu
+        open={Boolean(messageContextMenu)}
+        onClose={handleCloseMessageContextMenu}
+        anchorReference="anchorPosition"
+        anchorPosition={
+          messageContextMenu
+            ? { top: messageContextMenu.y, left: messageContextMenu.x }
+            : undefined
+        }
+        classes={{ paper: "workbook-session__chat-context-menu" }}
+      >
+        <MenuItem onClick={handleStartMessageEdit}>
+          <EditRoundedIcon fontSize="small" />
+          Редактировать
+        </MenuItem>
+        <MenuItem onClick={() => void handleDeleteMessage()}>
+          <DeleteOutlineRoundedIcon fontSize="small" />
+          Удалить
+        </MenuItem>
+      </Menu>
     </div>
   );
 }

@@ -223,6 +223,8 @@ export const useWorkbookSessionLocalRuntime = ({
             isOnline: participant.isOnline,
             canUseChat: participant.permissions.canUseChat,
             canUseMedia: participant.permissions.canUseMedia,
+            canUseMicrophone: participant.permissions.canUseMicrophone,
+            canUseCamera: participant.permissions.canUseCamera,
             canDraw: participant.permissions.canDraw,
             canSelect: participant.permissions.canSelect,
             canDelete: participant.permissions.canDelete,

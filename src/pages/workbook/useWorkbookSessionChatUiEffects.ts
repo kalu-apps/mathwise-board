@@ -104,11 +104,6 @@ export function useWorkbookSessionChatUiEffects({
             if (!scrollToFirstUnread()) {
               scrollSessionChatToLatest();
             }
-            markSessionChatReadToLatest();
-          });
-        } else {
-          window.requestAnimationFrame(() => {
-            markSessionChatReadToLatest();
           });
         }
         return;
@@ -164,12 +159,7 @@ export function useWorkbookSessionChatUiEffects({
   ]);
 
   useEffect(() => {
-    if (
-      isCompactViewport ||
-      !isSessionChatOpen ||
-      isSessionChatMinimized ||
-      isSessionChatMaximized
-    ) {
+    if (isCompactViewport || !isSessionChatOpen || isSessionChatMaximized) {
       return;
     }
     const panel = sessionChatRef.current;
@@ -185,19 +175,13 @@ export function useWorkbookSessionChatUiEffects({
   }, [
     isCompactViewport,
     isSessionChatMaximized,
-    isSessionChatMinimized,
     isSessionChatOpen,
     sessionChatRef,
     setSessionChatPosition,
   ]);
 
   useEffect(() => {
-    if (
-      isCompactViewport ||
-      !isSessionChatOpen ||
-      isSessionChatMaximized ||
-      isSessionChatMinimized
-    ) {
+    if (isCompactViewport || !isSessionChatOpen || isSessionChatMaximized) {
       return;
     }
     const onPointerMove = (event: PointerEvent) => {
@@ -231,7 +215,6 @@ export function useWorkbookSessionChatUiEffects({
   }, [
     isCompactViewport,
     isSessionChatMaximized,
-    isSessionChatMinimized,
     isSessionChatOpen,
     sessionChatDragStateRef,
     sessionChatRef,

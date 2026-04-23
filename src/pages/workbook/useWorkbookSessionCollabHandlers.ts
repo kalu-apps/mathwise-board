@@ -1,5 +1,6 @@
 import { useCallback, type MutableRefObject } from "react";
 import { createWorkbookInvite } from "@/features/workbook/model/api";
+import { upsertWorkbookChatMessage } from "@/features/workbook/model/chatMessageState";
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import type {
   WorkbookChatMessage,
@@ -26,7 +27,6 @@ type UseWorkbookSessionCollabHandlersParams = {
   sessionChatDraft: string;
   chatMessages: WorkbookChatMessage[];
   isCompactViewport: boolean;
-  isSessionChatMinimized: boolean;
   isSessionChatMaximized: boolean;
   sessionChatRef: MutableRefObject<HTMLDivElement | null>;
   sessionChatDragStateRef: MutableRefObject<{
@@ -34,6 +34,7 @@ type UseWorkbookSessionCollabHandlersParams = {
     offsetX: number;
     offsetY: number;
   } | null>;
+  onInviteLinkCopied?: () => void;
   setCopyingInviteLink: (value: boolean) => void;
   setError: (value: string | null) => void;
   setMenuAnchor: (value: HTMLElement | null) => void;
@@ -65,10 +66,10 @@ export const useWorkbookSessionCollabHandlers = ({
   sessionChatDraft,
   chatMessages,
   isCompactViewport,
-  isSessionChatMinimized,
   isSessionChatMaximized,
   sessionChatRef,
   sessionChatDragStateRef,
+  onInviteLinkCopied,
   setCopyingInviteLink,
   setError,
   setMenuAnchor,
@@ -102,12 +103,13 @@ export const useWorkbookSessionCollabHandlers = ({
           : new URL(invitePath, window.location.origin).toString();
       await navigator.clipboard.writeText(absoluteInviteUrl);
       setError(null);
+      onInviteLinkCopied?.();
     } catch {
       setError("Не удалось скопировать ссылку приглашения.");
     } finally {
       setCopyingInviteLink(false);
     }
-  }, [sessionId, setCopyingInviteLink, setError]);
+  }, [onInviteLinkCopied, sessionId, setCopyingInviteLink, setError]);
 
   const handleMenuClearBoard = useCallback(async () => {
     if (!canClear || isEnded) return;
@@ -159,18 +161,22 @@ export const useWorkbookSessionCollabHandlers = ({
     [updateParticipantPermissions]
   );
 
-  const handleToggleParticipantChat = useCallback(
+  const handleToggleParticipantMicrophone = useCallback(
     async (participant: WorkbookSessionParticipant, enabled: boolean) => {
       if (participant.roleInSession !== "student") return;
-      await updateParticipantPermissions(participant.userId, { canUseChat: enabled });
+      await updateParticipantPermissions(participant.userId, {
+        canUseMicrophone: enabled,
+      });
     },
     [updateParticipantPermissions]
   );
 
-  const handleToggleParticipantMic = useCallback(
+  const handleToggleParticipantCamera = useCallback(
     async (participant: WorkbookSessionParticipant, enabled: boolean) => {
       if (participant.roleInSession !== "student") return;
-      await updateParticipantPermissions(participant.userId, { canUseMedia: enabled });
+      await updateParticipantPermissions(participant.userId, {
+        canUseCamera: enabled,
+      });
     },
     [updateParticipantPermissions]
   );
@@ -190,9 +196,7 @@ export const useWorkbookSessionCollabHandlers = ({
       text: text.slice(0, 1000),
       createdAt: new Date().toISOString(),
     };
-    setChatMessages((current) =>
-      current.some((item) => item.id === message.id) ? current : [...current, message]
-    );
+    setChatMessages((current) => upsertWorkbookChatMessage(current, message));
     setSessionChatDraft("");
     setIsSessionChatEmojiOpen(false);
     setIsSessionChatAtBottom(true);
@@ -228,6 +232,99 @@ export const useWorkbookSessionCollabHandlers = ({
     user?.lastName,
   ]);
 
+  const handleEditSessionChatMessage = useCallback(
+    async (messageId: string, rawText: string) => {
+      if (!sessionId || !user?.id || !canSendSessionChat) return false;
+      const text = rawText.trim().slice(0, 1000);
+      if (!text) return false;
+      const currentMessage = chatMessages.find((item) => item.id === messageId);
+      if (!currentMessage || currentMessage.authorUserId !== user.id) {
+        return false;
+      }
+      if (currentMessage.text === text) {
+        setSessionChatDraft("");
+        setIsSessionChatEmojiOpen(false);
+        return true;
+      }
+      const nextMessage: WorkbookChatMessage = {
+        ...currentMessage,
+        text,
+      };
+      setChatMessages((current) => upsertWorkbookChatMessage(current, nextMessage));
+      setSessionChatDraft("");
+      setIsSessionChatEmojiOpen(false);
+      try {
+        await appendEventsAndApply([
+          {
+            type: "chat.message",
+            payload: { message: nextMessage },
+          },
+        ]);
+        return true;
+      } catch {
+        setChatMessages((current) => upsertWorkbookChatMessage(current, currentMessage));
+        setSessionChatDraft(text);
+        setError("Не удалось изменить сообщение.");
+        return false;
+      }
+    },
+    [
+      appendEventsAndApply,
+      canSendSessionChat,
+      chatMessages,
+      sessionId,
+      setChatMessages,
+      setError,
+      setIsSessionChatEmojiOpen,
+      setSessionChatDraft,
+      user?.id,
+    ]
+  );
+
+  const handleDeleteSessionChatMessage = useCallback(
+    async (messageId: string) => {
+      if (!sessionId || !user?.id) return false;
+      const deletedMessageIndex = chatMessages.findIndex((item) => item.id === messageId);
+      const currentMessage =
+        deletedMessageIndex >= 0 ? chatMessages[deletedMessageIndex] : null;
+      if (!currentMessage) return false;
+      if (currentMessage.authorUserId !== user.id && !canManageSession) {
+        return false;
+      }
+      setChatMessages((current) => current.filter((item) => item.id !== messageId));
+      try {
+        await appendEventsAndApply([
+          {
+            type: "chat.message.delete",
+            payload: { messageId },
+          },
+        ]);
+        return true;
+      } catch {
+        setChatMessages((current) => {
+          if (current.some((item) => item.id === messageId)) {
+            return current;
+          }
+          const next = [...current];
+          const safeInsertIndex = Math.min(Math.max(deletedMessageIndex, 0), next.length);
+          next.splice(safeInsertIndex, 0, currentMessage);
+          return next;
+        });
+        setError("Не удалось удалить сообщение.");
+        return false;
+      }
+    },
+    [
+      appendEventsAndApply,
+      canManageSession,
+      chatMessages,
+      sessionId,
+      setChatMessages,
+      setError,
+      user?.id,
+    ]
+  );
+
   const handleClearSessionChat = useCallback(async () => {
     if (!canManageSession || chatMessages.length === 0) return;
     const previous = chatMessages;
@@ -247,7 +344,7 @@ export const useWorkbookSessionCollabHandlers = ({
 
   const handleSessionChatDragStart = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (isCompactViewport || isSessionChatMinimized || isSessionChatMaximized) return;
+      if (isCompactViewport || isSessionChatMaximized) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("button")) return;
       const panel = sessionChatRef.current;
@@ -264,7 +361,6 @@ export const useWorkbookSessionCollabHandlers = ({
     [
       isCompactViewport,
       isSessionChatMaximized,
-      isSessionChatMinimized,
       sessionChatDragStateRef,
       sessionChatRef,
     ]
@@ -275,9 +371,11 @@ export const useWorkbookSessionCollabHandlers = ({
     handleMenuClearBoard,
     updateParticipantPermissions,
     handleToggleParticipantBoardTools,
-    handleToggleParticipantChat,
-    handleToggleParticipantMic,
+    handleToggleParticipantMicrophone,
+    handleToggleParticipantCamera,
     handleSendSessionChatMessage,
+    handleEditSessionChatMessage,
+    handleDeleteSessionChatMessage,
     handleClearSessionChat,
     handleSessionChatDragStart,
   };

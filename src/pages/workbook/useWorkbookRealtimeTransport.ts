@@ -75,8 +75,10 @@ type UseWorkbookRealtimeTransportParams = {
   setIsWorkbookLiveConnected: Dispatch<SetStateAction<boolean>>;
   pollIntervalMs: number;
   pollIntervalStreamConnectedMs: number;
+  pollIntervalStreamOnlyMs: number;
   resyncMinIntervalMs: number;
   adaptivePollingEnabled: boolean;
+  modeAwarePollingEnabled: boolean;
   adaptivePollingMinMs: number;
   adaptivePollingMaxMs: number;
   isMediaAudioConnected: boolean;
@@ -104,8 +106,10 @@ export const useWorkbookRealtimeTransport = ({
   setIsWorkbookLiveConnected,
   pollIntervalMs,
   pollIntervalStreamConnectedMs,
+  pollIntervalStreamOnlyMs,
   resyncMinIntervalMs,
   adaptivePollingEnabled,
+  modeAwarePollingEnabled,
   adaptivePollingMinMs,
   adaptivePollingMaxMs,
   isMediaAudioConnected,
@@ -208,7 +212,21 @@ export const useWorkbookRealtimeTransport = ({
     ) => {
       if (!active) return;
       const connected = isWorkbookStreamConnected || isWorkbookLiveConnected;
-      const baseInterval = connected ? pollIntervalStreamConnectedMs : pollIntervalMs;
+      const baseInterval = (() => {
+        if (!modeAwarePollingEnabled) {
+          return connected ? pollIntervalStreamConnectedMs : pollIntervalMs;
+        }
+        if (isWorkbookStreamConnected && isWorkbookLiveConnected) {
+          return pollIntervalStreamConnectedMs;
+        }
+        if (isWorkbookStreamConnected) {
+          return pollIntervalStreamOnlyMs;
+        }
+        if (isWorkbookLiveConnected) {
+          return pollIntervalStreamConnectedMs;
+        }
+        return pollIntervalMs;
+      })();
       if (!adaptivePollingEnabled) {
         const fallbackDelay =
           reason === "auth_error"
@@ -358,8 +376,10 @@ export const useWorkbookRealtimeTransport = ({
     isWorkbookStreamConnected,
     latestSeqRef,
     notifyAuthRequired,
+    modeAwarePollingEnabled,
     pollIntervalMs,
     pollIntervalStreamConnectedMs,
+    pollIntervalStreamOnlyMs,
     sessionId,
     enabled,
     bootstrapReady,

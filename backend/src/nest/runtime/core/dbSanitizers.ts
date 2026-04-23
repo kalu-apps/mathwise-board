@@ -78,6 +78,8 @@ const workbookParticipantPermissionKeys = [
   "canDraw",
   "canAnnotate",
   "canUseMedia",
+  "canUseMicrophone",
+  "canUseCamera",
   "canUseChat",
   "canInvite",
   "canManageSession",
@@ -97,6 +99,8 @@ const defaultPermissionsByRole = (roleInSession: string): Record<PermissionKey, 
         canDraw: true,
         canAnnotate: true,
         canUseMedia: true,
+        canUseMicrophone: true,
+        canUseCamera: true,
         canUseChat: true,
         canInvite: true,
         canManageSession: true,
@@ -111,7 +115,9 @@ const defaultPermissionsByRole = (roleInSession: string): Record<PermissionKey, 
         canDraw: false,
         canAnnotate: false,
         canUseMedia: true,
-        canUseChat: false,
+        canUseMicrophone: true,
+        canUseCamera: true,
+        canUseChat: true,
         canInvite: false,
         canManageSession: false,
         canSelect: false,
@@ -125,9 +131,21 @@ const defaultPermissionsByRole = (roleInSession: string): Record<PermissionKey, 
 const sanitizeParticipantPermissions = (value: unknown, roleInSession: string) => {
   const source = isObjectRecord(value) ? value : {};
   const defaults = defaultPermissionsByRole(roleInSession);
-  const normalized = { ...defaults };
+  const legacyMediaFallback = readBoolean(source.canUseMedia, defaults.canUseMedia);
+  const normalized = {
+    ...defaults,
+    canUseMicrophone: readBoolean(source.canUseMicrophone, legacyMediaFallback),
+    canUseCamera: readBoolean(source.canUseCamera, legacyMediaFallback),
+  };
+  normalized.canUseMedia = normalized.canUseMicrophone && normalized.canUseCamera;
   for (const key of workbookParticipantPermissionKeys) {
+    if (key === "canUseMedia" || key === "canUseMicrophone" || key === "canUseCamera") {
+      continue;
+    }
     normalized[key] = readBoolean(source[key], defaults[key]);
+  }
+  if (roleInSession !== "teacher") {
+    normalized.canUseChat = true;
   }
   return normalized;
 };

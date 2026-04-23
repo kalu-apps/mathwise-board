@@ -406,9 +406,7 @@ export function WorkbookSessionContextbar({
             placement="bottom"
             arrow
           >
-            <span
-              className={showInviteLinkButton ? "workbook-session__participants-toggle-wrap" : ""}
-            >
+            <span>
               <IconButton
                 size="small"
                 className={`workbook-session__toolbar-icon ${

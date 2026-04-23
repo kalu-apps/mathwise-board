@@ -49,6 +49,7 @@ type UseWorkbookCanvasHandlersParams = {
   sessionChatShouldScrollToUnreadRef: MutableRefObject<boolean>;
   setIsParticipantsCollapsed: SetState<boolean>;
   setMicEnabled: SetState<boolean>;
+  setCameraEnabled: SetState<boolean>;
 };
 
 export const useWorkbookCanvasHandlers = ({
@@ -75,6 +76,7 @@ export const useWorkbookCanvasHandlers = ({
   sessionChatShouldScrollToUnreadRef,
   setIsParticipantsCollapsed,
   setMicEnabled,
+  setCameraEnabled,
 }: UseWorkbookCanvasHandlersParams) => {
   const handleCanvasObjectUpdate = useCallback(
     (
@@ -211,12 +213,16 @@ export const useWorkbookCanvasHandlers = ({
   ]);
 
   const handleCollapseParticipants = useCallback(() => {
-    setIsParticipantsCollapsed(true);
+    setIsParticipantsCollapsed((current) => !current);
   }, [setIsParticipantsCollapsed]);
 
   const handleToggleOwnMic = useCallback(() => {
     setMicEnabled((current) => !current);
   }, [setMicEnabled]);
+
+  const handleToggleOwnCamera = useCallback(() => {
+    setCameraEnabled((current) => !current);
+  }, [setCameraEnabled]);
 
   return {
     handleCanvasObjectUpdate,
@@ -235,5 +241,6 @@ export const useWorkbookCanvasHandlers = ({
     handleToggleSessionChat,
     handleCollapseParticipants,
     handleToggleOwnMic,
+    handleToggleOwnCamera,
   };
 };

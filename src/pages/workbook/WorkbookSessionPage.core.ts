@@ -37,6 +37,7 @@ export const getNowMs = () =>
 // Fallback poll should stay lightweight; realtime stream/live channels carry primary sync.
 export const POLL_INTERVAL_MS = 1_200;
 export const POLL_INTERVAL_STREAM_CONNECTED_MS = 4_000;
+export const POLL_INTERVAL_STREAM_ONLY_MS = 1_800;
 export const RESYNC_MIN_INTERVAL_MS = 4_000;
 export const ADAPTIVE_POLLING_MIN_MS = 320;
 export const ADAPTIVE_POLLING_MAX_MS = 8_000;
@@ -46,8 +47,8 @@ export const COMPACT_VIEWPORT_MAX_WIDTH = 760;
 export const CONTEXTBAR_DOCKED_VIEWPORT_MAX_WIDTH = 1024;
 export const OBJECT_UPDATE_FLUSH_INTERVAL_MS = 16;
 export const VOLATILE_SYNC_FLUSH_INTERVAL_MS = 16;
-export const VOLATILE_PREVIEW_MAX_PER_FLUSH = 24;
-export const VOLATILE_PREVIEW_QUEUE_MAX = 120;
+export const VOLATILE_PREVIEW_MAX_PER_FLUSH = 36;
+export const VOLATILE_PREVIEW_QUEUE_MAX = 240;
 export const STROKE_PREVIEW_EXPIRY_MS = 3_000;
 export const ERASER_PREVIEW_EXPIRY_MS = 600;
 export const ERASER_PREVIEW_END_EXPIRY_MS = 900;
@@ -158,39 +159,6 @@ export const resolveMaxKnownWorkbookPage = (params: {
     ...params.boardStrokes.map((stroke) => toSafeWorkbookPage(stroke.page)),
     ...params.annotationStrokes.map((stroke) => toSafeWorkbookPage(stroke.page))
   );
-
-export const WORKBOOK_CHAT_EMOJIS = [
-  "👍",
-  "✅",
-  "👏",
-  "🔥",
-  "💡",
-  "🤝",
-  "🙂",
-  "😊",
-  "🎯",
-  "📌",
-  "💬",
-  "🧠",
-  "⭐",
-  "📚",
-  "📝",
-  "📐",
-  "📎",
-  "🚀",
-  "💥",
-  "🙌",
-  "👌",
-  "😎",
-  "🤔",
-  "❗",
-  "❓",
-  "🎓",
-  "🧩",
-  "📈",
-  "🔍",
-  "⏱️",
-];
 
 export const parseChatTimestamp = (value: string | null | undefined) => {
   if (!value) return 0;
@@ -314,7 +282,9 @@ export const FALLBACK_PERMISSIONS: WorkbookSessionParticipant["permissions"] = {
   canDraw: false,
   canAnnotate: false,
   canUseMedia: true,
-  canUseChat: false,
+  canUseMicrophone: true,
+  canUseCamera: true,
+  canUseChat: true,
   canInvite: false,
   canManageSession: false,
   canSelect: false,

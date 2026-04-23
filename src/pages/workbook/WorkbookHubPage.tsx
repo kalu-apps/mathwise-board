@@ -548,6 +548,19 @@ export default function WorkbookHubPage() {
     });
   }, []);
 
+  const handlePreviewImageLoaded = useCallback((sessionId: string, updatedAtRaw: string) => {
+    const updatedAt = Date.parse(updatedAtRaw);
+    if (!Number.isFinite(updatedAt)) return;
+    setPreviewRefreshPendingBySessionId((current) => {
+      const hint = current[sessionId];
+      if (!hint) return current;
+      if (updatedAt < hint.requestedAt) return current;
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     const hints = consumeWorkbookHubPreviewRefreshHints();
     if (hints.length === 0) return;
@@ -581,32 +594,6 @@ export default function WorkbookHubPage() {
       window.clearInterval(intervalId);
     };
   }, [previewRefreshPendingBySessionId]);
-
-  useEffect(() => {
-    if (Object.keys(previewRefreshPendingBySessionId).length === 0) return;
-    setPreviewRefreshPendingBySessionId((current) => {
-      let changed = false;
-      const next: PreviewRefreshPendingBySessionId = {};
-      Object.entries(current).forEach(([sessionId, hint]) => {
-        const card = drafts.find((item) => item.sessionId === sessionId);
-        if (!card) {
-          next[sessionId] = hint;
-          return;
-        }
-        const updatedAt = Date.parse(card.updatedAt);
-        if (Number.isFinite(updatedAt) && updatedAt >= hint.requestedAt) {
-          changed = true;
-          return;
-        }
-        if (hint.expiresAt <= Date.now()) {
-          changed = true;
-          return;
-        }
-        next[sessionId] = hint;
-      });
-      return changed ? next : current;
-    });
-  }, [drafts, previewRefreshPendingBySessionId]);
 
   const applyOptimisticPreviewToCard = useCallback((payload: WorkbookHubPreviewBridgePayload) => {
     const capturedAt =
@@ -979,9 +966,9 @@ export default function WorkbookHubPage() {
                           loading="eager"
                           decoding="async"
                           fetchPriority={cardIndex < 3 ? "high" : "auto"}
+                          onLoad={() => handlePreviewImageLoaded(card.sessionId, card.updatedAt)}
                           onError={() => markPreviewLoadFailure(card.sessionId, previewUrl)}
                         />
-                        <span className="workbook-hub__card-preview-scrim" />
                       </div>
                     ) : null}
                     {isPreviewRefreshing ? (

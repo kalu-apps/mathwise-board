@@ -47,7 +47,6 @@
   --workbook-hub-geo-line: color-mix(in srgb, var(--feedback-info) 14%, transparent);
   --workbook-hub-geo-line-strong: color-mix(in srgb, var(--brand-soft) 20%, transparent);
 }
-.workbook-hub::before,
 .workbook-session::before,
 .workbook-invite::before {
   content: "";
@@ -60,30 +59,12 @@
     radial-gradient(circle at 86% 10%, var(--workbook-glass-orb-b), transparent 60%);
 }
 .workbook-hub::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  background:
-    radial-gradient(circle at 78% 72%, color-mix(in srgb, var(--feedback-info) 10%, transparent), transparent 44%),
-    radial-gradient(circle at 22% 78%, color-mix(in srgb, var(--brand-soft) 12%, transparent), transparent 46%),
-    repeating-linear-gradient(
-      60deg,
-      transparent 0 42px,
-      var(--workbook-hub-geo-line) 42px 43px
-    ),
-    repeating-linear-gradient(
-      -60deg,
-      transparent 0 42px,
-      var(--workbook-hub-geo-line) 42px 43px
-    ),
-    repeating-linear-gradient(
-      0deg,
-      transparent 0 24px,
-      var(--workbook-hub-geo-line-strong) 24px 25px
-    );
-  opacity: 0.78;
+  content: none;
+  display: none;
+}
+.workbook-hub::before {
+  content: none;
+  display: none;
 }
 .workbook-session {
   width: 100%;
@@ -139,21 +120,10 @@
 }
 .workbook-hub__panel--search {
   border-color: color-mix(in srgb, var(--border-strong) 28%, white 36%);
-  background:
-    radial-gradient(
-      circle at 82% 4%,
-      color-mix(in srgb, white 30%, transparent),
-      transparent 40%
-    ),
-    linear-gradient(
-      160deg,
-      color-mix(in srgb, var(--surface-elevated) 90%, white 10%) 0%,
-      color-mix(in srgb, var(--surface-soft) 86%, white 14%) 58%,
-      color-mix(in srgb, var(--surface-elevated) 88%, white 12%) 100%
-    );
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.58),
-    0 18px 34px rgba(25, 42, 74, 0.07);
+  background: color-mix(in srgb, var(--surface-elevated) 96%, var(--surface-base));
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 .workbook-hub__hero-main h1 {
   margin: 0;

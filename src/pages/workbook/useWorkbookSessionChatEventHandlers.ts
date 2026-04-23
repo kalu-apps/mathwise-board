@@ -3,6 +3,7 @@ import {
   isLiveReplayableWorkbookEventType,
   isVolatileWorkbookEventType,
 } from "@/features/workbook/model/events";
+import { upsertWorkbookChatMessage } from "@/features/workbook/model/chatMessageState";
 import { normalizeChatMessagePayload } from "@/features/workbook/model/scene";
 import type { WorkbookChatMessage, WorkbookEvent } from "@/features/workbook/model/types";
 import { parseChatTimestamp } from "./WorkbookSessionPage.core";
@@ -193,8 +194,7 @@ export function useWorkbookSessionChatEventHandlers({
         (event.payload as { message?: unknown })?.message
       );
       if (!message) return;
-      if (restored.some((item) => item.id === message.id)) return;
-      restored = [...restored, message];
+      restored = upsertWorkbookChatMessage(restored, message);
     });
     return restored;
   }, []);

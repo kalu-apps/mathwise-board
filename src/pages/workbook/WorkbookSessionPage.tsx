@@ -13,6 +13,8 @@ import "./workbookRouteStyles";
 import {
   Alert,
   Button,
+  Fade,
+  Snackbar,
   TextField,
 } from "@mui/material";
 import { useThemeMode } from "@/app/theme/themeModeContext";
@@ -96,12 +98,12 @@ import {
   PARTICIPANT_VISIBILITY_GRACE_MS,
   POLL_INTERVAL_MS,
   POLL_INTERVAL_STREAM_CONNECTED_MS,
+  POLL_INTERVAL_STREAM_ONLY_MS,
   PRESENCE_INTERVAL_MS,
   RESYNC_MIN_INTERVAL_MS,
   SESSION_CHAT_SCROLL_BOTTOM_THRESHOLD_PX,
   STROKE_PREVIEW_EXPIRY_MS,
   TAB_LOCK_HEARTBEAT_MS,
-  WORKBOOK_CHAT_EMOJIS,
   MAIN_SCENE_LAYER_ID,
   defaultColorByLayer,
   normalizeWorkbookPageOrder,
@@ -125,6 +127,7 @@ import { useWorkbookSessionRealtimeLifecycle } from "./useWorkbookSessionRealtim
 import { useWorkbookToolRuntimeHandlers } from "./useWorkbookToolRuntimeHandlers";
 import { WorkbookSessionWorkspace } from "./WorkbookSessionWorkspace";
 import { WorkbookSessionSidebar } from "./WorkbookSessionSidebar";
+import type { WorkbookParticipantsPanelMode } from "./WorkbookSessionParticipantsPanel";
 import { useWorkbookSessionSelectionViewportState } from "./useWorkbookSessionSelectionViewportState";
 import { buildWorkbookSessionSelectionViewportParams } from "./buildWorkbookSessionSelectionViewportParams";
 import { useWorkbookSessionDerivedState } from "./useWorkbookSessionDerivedState";
@@ -162,6 +165,7 @@ const WorkbookImportModal = lazy(() =>
 
 const AUTO_PAGE_FRAME_GROW_DELAY_MS = 2_500;
 const DEFAULT_BROWSER_TAB_TITLE = "Умная доска";
+const INVITE_LINK_NOTICE_AUTO_HIDE_MS = 3_200;
 const CRITICAL_WORKBOOK_UI_ERROR_PATTERNS = [
   /требуется повторная авторизация/i,
   /нет доступа к этой сессии/i,
@@ -189,6 +193,8 @@ export default function WorkbookSessionPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [isBackNavigationPending, setIsBackNavigationPending] = useState(false);
+  const [inviteLinkNoticeOpen, setInviteLinkNoticeOpen] = useState(false);
+  const [inviteLinkNoticeVersion, setInviteLinkNoticeVersion] = useState(0);
 
   useEffect(() => {
     if (!sessionId.trim()) return;
@@ -420,6 +426,17 @@ export default function WorkbookSessionPage() {
       });
     },
     [setErrorRaw]
+  );
+  const handleInviteLinkCopiedNoticeOpen = useCallback(() => {
+    setInviteLinkNoticeVersion((current) => current + 1);
+    setInviteLinkNoticeOpen(true);
+  }, []);
+  const handleInviteLinkCopiedNoticeClose = useCallback(
+    (_event?: unknown, reason?: string) => {
+      if (reason === "clickaway") return;
+      setInviteLinkNoticeOpen(false);
+    },
+    []
   );
   const {
     spacePanActive,
@@ -690,19 +707,29 @@ export default function WorkbookSessionPage() {
     canDelete,
     canClear,
     canUseLaser,
-    canUseMedia,
+    canUseMicrophone,
+    canUseCamera,
     canUseSessionChat,
     canSendSessionChat,
     canAccessBoardSettingsPanel,
     canManageSharedBoardSettings,
     showCollaborationPanels,
     adaptivePollingEnabled,
+    realtimeModeAwarePollingEnabled,
     realtimeBackpressureV2Enabled,
     volatilePreviewMaxPerFlush,
     volatilePreviewQueueMax,
     isLivekitConnected,
     micEnabled,
     setMicEnabled,
+    cameraEnabled,
+    setCameraEnabled,
+    canSwitchCameraFacing,
+    isRearCameraActive,
+    isSwitchingCameraFacing,
+    switchCameraFacing,
+    localVideoTrack,
+    remoteVideoTracks,
     isCompactDialogViewport,
     showSidebarParticipants,
     focusPoints,
@@ -734,6 +761,11 @@ export default function WorkbookSessionPage() {
     boardObjects,
   });
   const showSidebarParticipantsInLayout = showSidebarParticipants;
+  const [participantsPanelMode, setParticipantsPanelMode] =
+    useState<WorkbookParticipantsPanelMode>("sidebar");
+  const effectiveParticipantsPanelMode: WorkbookParticipantsPanelMode =
+    isParticipantsCollapsed ? "sidebar" : participantsPanelMode;
+
   const canAccessLessonRecording = useMemo(() => {
     if (session?.kind === "PERSONAL") return true;
     if (session?.kind === "CLASS") return isTeacherActor;
@@ -745,7 +777,7 @@ export default function WorkbookSessionPage() {
       canAccessLessonRecording &&
       !isEnded &&
       !isWorkspaceInteractionBlocked,
-    canUseMedia,
+    canUseMedia: canUseMicrophone,
     micEnabled,
     setMicEnabled,
     sessionTitle: session?.title,
@@ -1255,8 +1287,10 @@ export default function WorkbookSessionPage() {
       setIsWorkbookLiveConnected: workbookSessionActions.setIsWorkbookLiveConnected,
       pollIntervalMs: POLL_INTERVAL_MS,
       pollIntervalStreamConnectedMs: POLL_INTERVAL_STREAM_CONNECTED_MS,
+      pollIntervalStreamOnlyMs: POLL_INTERVAL_STREAM_ONLY_MS,
       resyncMinIntervalMs: RESYNC_MIN_INTERVAL_MS,
       adaptivePollingEnabled,
+      modeAwarePollingEnabled: realtimeModeAwarePollingEnabled,
       adaptivePollingMinMs: ADAPTIVE_POLLING_MIN_MS,
       adaptivePollingMaxMs: ADAPTIVE_POLLING_MAX_MS,
       isMediaAudioConnected: isLivekitConnected,
@@ -1980,9 +2014,11 @@ export default function WorkbookSessionPage() {
     handleCopyInviteLink,
     handleMenuClearBoard,
     handleToggleParticipantBoardTools,
-    handleToggleParticipantChat,
-    handleToggleParticipantMic,
+    handleToggleParticipantMicrophone,
+    handleToggleParticipantCamera,
     handleSendSessionChatMessage,
+    handleEditSessionChatMessage,
+    handleDeleteSessionChatMessage,
     handleClearSessionChat,
     handleSessionChatDragStart,
   } = useWorkbookSessionCollabHandlers({
@@ -2002,10 +2038,10 @@ export default function WorkbookSessionPage() {
     sessionChatDraft,
     chatMessages,
     isCompactViewport,
-    isSessionChatMinimized,
     isSessionChatMaximized,
     sessionChatRef,
     sessionChatDragStateRef,
+    onInviteLinkCopied: handleInviteLinkCopiedNoticeOpen,
     setCopyingInviteLink,
     setError,
     setMenuAnchor,
@@ -2747,6 +2783,7 @@ export default function WorkbookSessionPage() {
     sessionChatShouldScrollToUnreadRef,
     setIsParticipantsCollapsed,
     setMicEnabled,
+    setCameraEnabled,
   });
 
   const { settingsPanelProps, graphPanelProps } =
@@ -3178,6 +3215,66 @@ export default function WorkbookSessionPage() {
     </div>
   );
 
+  const setStudentsPermissionState = async (
+    patch: Partial<{
+      canUseMicrophone: boolean;
+      canUseCamera: boolean;
+      canDraw: boolean;
+      canAnnotate: boolean;
+      canSelect: boolean;
+      canDelete: boolean;
+      canInsertImage: boolean;
+      canClear: boolean;
+      canUseLaser: boolean;
+    }>
+  ) => {
+    if (!canManageSession || !session || isEnded) return;
+    const targetStudents = participantCards.filter(
+      (participant) => participant.roleInSession === "student"
+    );
+    if (targetStudents.length === 0) return;
+    try {
+      await appendEventsAndApply(
+        targetStudents.map((participant) => ({
+          type: "permissions.update" as const,
+          payload: {
+            userId: participant.userId,
+            permissions: patch,
+          },
+        }))
+      );
+    } catch {
+      setError("Не удалось обновить права участников.");
+    }
+  };
+
+  const handleSetStudentsMicrophoneEnabled = (enabled: boolean) => {
+    void setStudentsPermissionState({ canUseMicrophone: enabled });
+  };
+
+  const handleSetStudentsCameraEnabled = (enabled: boolean) => {
+    void setStudentsPermissionState({ canUseCamera: enabled });
+  };
+
+  const handleSetStudentsBoardToolsEnabled = (enabled: boolean) => {
+    void setStudentsPermissionState({
+      canDraw: enabled,
+      canAnnotate: enabled,
+      canSelect: enabled,
+      canDelete: enabled,
+      canInsertImage: enabled,
+      canClear: enabled,
+      canUseLaser: enabled,
+    });
+  };
+
+  const handleToggleParticipantsCollapsed = () => {
+    if (isParticipantsCollapsed) {
+      setParticipantsPanelMode("sidebar");
+    }
+    workbookSessionActions.setIsParticipantsCollapsed((current: boolean) => !current);
+  };
+
   const participantsPanelProps = {
     participantCards,
     currentUserId: user?.id,
@@ -3189,15 +3286,29 @@ export default function WorkbookSessionPage() {
     onToggleSessionChat: canvasHandlers.handleToggleSessionChat,
     participantJoinSoundEnabled,
     onToggleParticipantJoinSound: toggleParticipantJoinSound,
-    onCollapseParticipants: canvasHandlers.handleCollapseParticipants,
+    onCollapseParticipants: handleToggleParticipantsCollapsed,
     micEnabled,
     onToggleMic: canvasHandlers.handleToggleOwnMic,
-    canUseMedia,
+    cameraEnabled,
+    onToggleCamera: canvasHandlers.handleToggleOwnCamera,
+    canSwitchCameraFacing,
+    isRearCameraActive,
+    isSwitchingCameraFacing,
+    onSwitchCameraFacing: switchCameraFacing,
+    canUseMicrophone,
+    canUseCamera,
     isEnded,
+    participantsPanelMode: effectiveParticipantsPanelMode,
+    onParticipantsPanelModeChange: setParticipantsPanelMode,
+    localVideoTrack,
+    remoteVideoTracks,
     isParticipantBoardToolsEnabled,
     onToggleParticipantBoardTools: handleToggleParticipantBoardTools,
-    onToggleParticipantChat: handleToggleParticipantChat,
-    onToggleParticipantMic: handleToggleParticipantMic,
+    onToggleParticipantMicrophone: handleToggleParticipantMicrophone,
+    onToggleParticipantCamera: handleToggleParticipantCamera,
+    onSetStudentsMicrophoneEnabled: handleSetStudentsMicrophoneEnabled,
+    onSetStudentsCameraEnabled: handleSetStudentsCameraEnabled,
+    onSetStudentsBoardToolsEnabled: handleSetStudentsBoardToolsEnabled,
   };
 
   const sessionChatPanelProps = {
@@ -3210,7 +3321,6 @@ export default function WorkbookSessionPage() {
     isSessionChatMaximized,
     isCompactViewport,
     sessionChatPosition,
-    participantCards,
     chatMessages,
     firstUnreadSessionChatMessageId,
     currentUserId: user?.id,
@@ -3220,7 +3330,6 @@ export default function WorkbookSessionPage() {
     isSessionChatAtBottom,
     sessionChatDraft,
     isSessionChatEmojiOpen,
-    chatEmojis: WORKBOOK_CHAT_EMOJIS,
     setIsSessionChatMinimized: workbookSessionActions.setIsSessionChatMinimized,
     setIsSessionChatMaximized: workbookSessionActions.setIsSessionChatMaximized,
     setIsSessionChatOpen: workbookSessionActions.setIsSessionChatOpen,
@@ -3231,6 +3340,8 @@ export default function WorkbookSessionPage() {
     onScrollSessionChatToLatest: scrollSessionChatToLatest,
     onMarkSessionChatReadToLatest: markSessionChatReadToLatest,
     onSendSessionChatMessage: handleSendSessionChatMessage,
+    onEditSessionChatMessage: handleEditSessionChatMessage,
+    onDeleteSessionChatMessage: handleDeleteSessionChatMessage,
   };
   const contextbarProps = {
     overlayContainer,
@@ -3274,8 +3385,7 @@ export default function WorkbookSessionPage() {
     isExitSessionPending: isBackNavigationPending,
     showCollaborationPanels,
     isParticipantsCollapsed,
-    onToggleParticipantsCollapsed: () =>
-      workbookSessionActions.setIsParticipantsCollapsed((current: boolean) => !current),
+    onToggleParticipantsCollapsed: handleToggleParticipantsCollapsed,
     showInviteLinkButton: canManageSession && session?.kind === "CLASS",
     copyingInviteLink,
     onCopyInviteLink: handleCopyInviteLink,
@@ -3419,7 +3529,11 @@ export default function WorkbookSessionPage() {
 
   return (
     <section
-      className={`workbook-session ${isFullscreen ? "is-fullscreen" : ""}`}
+      className={`workbook-session ${isFullscreen ? "is-fullscreen" : ""}${
+        showSidebarParticipantsInLayout && effectiveParticipantsPanelMode === "video_only"
+          ? " is-video-only-mode"
+          : ""
+      }`}
       ref={handleSessionRootRef}
     >
       <WorkbookSessionTopScaffold
@@ -3467,6 +3581,7 @@ export default function WorkbookSessionPage() {
         <WorkbookSessionSidebar
           isCompactViewport={isCompactViewport}
           showSidebarParticipants={showSidebarParticipantsInLayout}
+          participantsPanelMode={effectiveParticipantsPanelMode}
           floatingPanelsTop={floatingPanelsTop}
           participantsPanelProps={participantsPanelProps}
           utilityPanelChromeProps={utilityPanelChromeProps}
@@ -3517,6 +3632,24 @@ export default function WorkbookSessionPage() {
           />
         </Suspense>
       ) : null}
+
+      <Snackbar
+        key={inviteLinkNoticeVersion}
+        open={inviteLinkNoticeOpen}
+        autoHideDuration={INVITE_LINK_NOTICE_AUTO_HIDE_MS}
+        onClose={handleInviteLinkCopiedNoticeClose}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        TransitionComponent={Fade}
+      >
+        <Alert
+          onClose={handleInviteLinkCopiedNoticeClose}
+          severity="success"
+          variant="filled"
+          sx={{ width: "100%" }}
+        >
+          Ссылка-приглашение успешно создана и скопирована.
+        </Alert>
+      </Snackbar>
 
       <WorkbookLessonRecordingDialogs
         overlayContainer={overlayContainer}

@@ -184,11 +184,11 @@ const WORKBOOK_PDF_SOURCE_BODY_MAX_BYTES = readPositiveInt(
 );
 const WORKBOOK_VOLATILE_RATE_LIMIT_CAPACITY = readPositiveInt(
   "WORKBOOK_VOLATILE_RATE_LIMIT_CAPACITY",
-  120
+  180
 );
 const WORKBOOK_VOLATILE_RATE_LIMIT_REFILL_PER_SEC = readPositiveInt(
   "WORKBOOK_VOLATILE_RATE_LIMIT_REFILL_PER_SEC",
-  90
+  140
 );
 const WORKBOOK_VOLATILE_RATE_LIMIT_IDLE_TTL_MS = readPositiveInt(
   "WORKBOOK_VOLATILE_RATE_LIMIT_IDLE_TTL_MS",
@@ -921,6 +921,8 @@ const defaultPermissions = (role: "teacher" | "student"): WorkbookParticipantPer
       canDraw: true,
       canAnnotate: true,
       canUseMedia: true,
+      canUseMicrophone: true,
+      canUseCamera: true,
       canUseChat: true,
       canInvite: true,
       canManageSession: true,
@@ -937,7 +939,9 @@ const defaultPermissions = (role: "teacher" | "student"): WorkbookParticipantPer
     canDraw: false,
     canAnnotate: false,
     canUseMedia: true,
-    canUseChat: false,
+    canUseMicrophone: true,
+    canUseCamera: true,
+    canUseChat: true,
     canInvite: false,
     canManageSession: false,
     canSelect: false,
@@ -952,10 +956,29 @@ const defaultPermissions = (role: "teacher" | "student"): WorkbookParticipantPer
 const normalizeParticipantPermissions = (
   roleInSession: "teacher" | "student",
   permissions: Partial<WorkbookParticipantPermissions> | null | undefined
-): WorkbookParticipantPermissions => ({
-  ...defaultPermissions(roleInSession),
-  ...(permissions ?? {}),
-});
+): WorkbookParticipantPermissions => {
+  const defaults = defaultPermissions(roleInSession);
+  const source = permissions ?? {};
+  const legacyMediaFallback =
+    typeof source.canUseMedia === "boolean" ? source.canUseMedia : defaults.canUseMedia;
+  const normalized = {
+    ...defaults,
+    ...source,
+    canUseMicrophone:
+      typeof source.canUseMicrophone === "boolean"
+        ? source.canUseMicrophone
+        : legacyMediaFallback,
+    canUseCamera:
+      typeof source.canUseCamera === "boolean"
+        ? source.canUseCamera
+        : legacyMediaFallback,
+  };
+  normalized.canUseMedia = normalized.canUseMicrophone && normalized.canUseCamera;
+  if (roleInSession === "student") {
+    normalized.canUseChat = true;
+  }
+  return normalized;
+};
 
 const normalizeParticipantPermissionsInPlace = (
   participant: WorkbookSessionParticipantRecord
@@ -1006,6 +1029,8 @@ const participantPermissionKeys: Array<keyof WorkbookParticipantPermissions> = [
   "canDraw",
   "canAnnotate",
   "canUseMedia",
+  "canUseMicrophone",
+  "canUseCamera",
   "canUseChat",
   "canInvite",
   "canManageSession",
@@ -1053,11 +1078,20 @@ const resolveBoardToolsOverrideState = (
 const sanitizePermissionPatch = (value: unknown): Partial<WorkbookParticipantPermissions> => {
   if (!value || typeof value !== "object") return {};
   const source = value as Partial<Record<keyof WorkbookParticipantPermissions, unknown>>;
-  return participantPermissionKeys.reduce<Partial<WorkbookParticipantPermissions>>((acc, key) => {
+  const patch = participantPermissionKeys.reduce<Partial<WorkbookParticipantPermissions>>((acc, key) => {
     if (typeof source[key] !== "boolean") return acc;
     acc[key] = source[key] as boolean;
     return acc;
   }, {});
+  if (typeof patch.canUseMedia === "boolean") {
+    if (typeof patch.canUseMicrophone !== "boolean") {
+      patch.canUseMicrophone = patch.canUseMedia;
+    }
+    if (typeof patch.canUseCamera !== "boolean") {
+      patch.canUseCamera = patch.canUseMedia;
+    }
+  }
+  return patch;
 };
 
 type WorkbookMediaIceServerPayload = {
@@ -2306,7 +2340,6 @@ const sanitizeWorkbookLiveEvents = (
       continue;
     }
     if (type === "chat.message") {
-      if (!participant.permissions.canUseChat) continue;
       const message =
         payload && typeof payload === "object"
           ? (payload as { message?: unknown }).message
@@ -3578,7 +3611,14 @@ export const handleWorkbookApiRequestByDomains = async (
           forbidden(res);
           return;
         }
-        if (!participant.permissions.canUseMedia) {
+        const permissions = normalizeParticipantPermissions(
+          participant.roleInSession,
+          participant.permissions
+        );
+        const canUseAnyPublishingMedia = Boolean(
+          permissions.canUseMicrophone || permissions.canUseCamera || permissions.canUseMedia
+        );
+        if (!canUseAnyPublishingMedia) {
           forbidden(res, "media_disabled");
           return;
         }
@@ -3614,7 +3654,9 @@ export const handleWorkbookApiRequestByDomains = async (
         const tokenConfig = buildWorkbookLivekitTokenPayload(
           session.id,
           actor,
-          Boolean(permissions.canUseMedia)
+          Boolean(
+            permissions.canUseMicrophone || permissions.canUseCamera || permissions.canUseMedia
+          )
         );
         const token = signJwtHs256(tokenConfig.payload, MEDIA_LIVEKIT_API_SECRET);
         json(res, 200, {
