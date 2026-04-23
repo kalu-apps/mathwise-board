@@ -118,6 +118,24 @@
   background: color-mix(in srgb, #ffffff 44%, transparent);
   opacity: 1;
 }
+
+:root[data-theme="dark"] .workbook-hub__card--with-preview .workbook-hub__card-action-btn.MuiButton-root {
+  border-color: rgba(255, 255, 255, 0.58);
+  background: rgba(255, 255, 255, 0.52);
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .workbook-hub__card--with-preview .workbook-hub__card-action-btn.MuiButton-root:hover {
+  border-color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.66);
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .workbook-hub__card--with-preview .workbook-hub__card-action-btn.MuiButton-root.Mui-disabled {
+  border-color: rgba(255, 255, 255, 0.48);
+  background: rgba(255, 255, 255, 0.44);
+  box-shadow: none;
+}
 .workbook-hub__pagination {
   display: flex;
   align-items: center;

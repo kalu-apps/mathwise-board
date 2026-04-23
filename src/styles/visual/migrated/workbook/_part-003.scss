@@ -248,3 +248,47 @@
     0 10px 26px color-mix(in srgb, var(--feedback-warning) 24%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
+
+:root[data-theme="dark"] .workbook-hub__card--with-preview .workbook-hub__card-main {
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .workbook-hub__card-activity-badge {
+  border-color: rgba(255, 255, 255, 0.56);
+  background: rgba(255, 255, 255, 0.62);
+  color: #1f252b;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+:root[data-theme="dark"] .workbook-hub__card-activity-badge.is-active {
+  border-color: rgba(130, 201, 161, 0.7);
+  background: rgba(208, 239, 222, 0.74);
+  color: #1f4933;
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .workbook-hub__card-activity-badge.is-recent {
+  border-color: rgba(225, 171, 92, 0.72);
+  background: rgba(246, 225, 189, 0.74);
+  color: #5a3b11;
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .workbook-hub__card-activity-badge.is-idle {
+  border-color: rgba(166, 179, 194, 0.66);
+  background: rgba(225, 231, 239, 0.68);
+  color: #344352;
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .workbook-hub__card-activity-badge-dot {
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .workbook-hub__card-activity-badge-dot::after {
+  animation: none;
+  opacity: 0;
+}
