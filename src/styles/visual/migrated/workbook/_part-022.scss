@@ -77,6 +77,19 @@
 
 .workbook-session__session-chat-emoji .EmojiPickerReact .epr-category-nav button {
   border-radius: 8px;
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.workbook-session__session-chat-emoji .EmojiPickerReact .epr-category-nav button:focus,
+.workbook-session__session-chat-emoji .EmojiPickerReact .epr-category-nav button:focus-visible,
+.workbook-session__session-chat-emoji .EmojiPickerReact .epr-category-nav button:active,
+.workbook-session__session-chat-emoji .EmojiPickerReact .epr-category-nav button[aria-selected='true'] {
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 .workbook-session__session-chat-emoji .EmojiPickerReact .epr-category-nav {

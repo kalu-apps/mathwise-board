@@ -90,6 +90,7 @@
   min-width: 0;
   display: grid;
   gap: 9px;
+  color: var(--workbook-card-text-secondary);
   position: relative;
   z-index: 2;
 }
@@ -155,7 +156,11 @@
       color-mix(in srgb, var(--surface-elevated) 92%, white 8%),
       color-mix(in srgb, var(--surface-panel) 94%, black 6%)
     );
-  color: color-mix(in srgb, var(--text-primary) 88%, var(--text-secondary));
+  color: color-mix(
+    in srgb,
+    var(--workbook-card-text-primary) 88%,
+    var(--workbook-card-text-secondary)
+  );
   box-shadow:
     0 10px 26px rgba(12, 18, 30, 0.14),
     inset 0 1px 0 rgba(255, 255, 255, 0.28);
@@ -189,6 +194,8 @@
   --workbook-card-text-primary: #1f252b;
   --workbook-card-text-secondary: #44505d;
   --workbook-card-text-muted: #66727f;
+  --workbook-metric-label: #44505d;
+  --workbook-metric-value: #1f252b;
 }
 
 .workbook-hub__card-activity-badge.is-active {
@@ -199,7 +206,7 @@
       color-mix(in srgb, var(--feedback-success) 30%, transparent),
       color-mix(in srgb, var(--brand-mint) 20%, transparent)
     );
-  color: color-mix(in srgb, var(--feedback-success) 84%, var(--text-primary));
+  color: color-mix(in srgb, var(--feedback-success) 84%, var(--workbook-card-text-primary));
   box-shadow:
     0 12px 30px color-mix(in srgb, var(--feedback-success) 24%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.35);
@@ -218,7 +225,7 @@
       color-mix(in srgb, var(--feedback-warning) 26%, transparent),
       color-mix(in srgb, var(--warning-bg) 20%, transparent)
     );
-  color: color-mix(in srgb, var(--feedback-warning) 84%, var(--text-primary));
+  color: color-mix(in srgb, var(--feedback-warning) 84%, var(--workbook-card-text-primary));
   box-shadow:
     0 10px 26px color-mix(in srgb, var(--feedback-warning) 24%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.3);
