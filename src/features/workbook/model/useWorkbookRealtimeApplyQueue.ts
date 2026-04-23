@@ -46,10 +46,10 @@ export const useWorkbookRealtimeApplyQueue = (params: {
       volatileFrameBudgetMs: 2,
       maxEventsPerFrame: 120,
       maxCriticalEventsPerFrame: 72,
-      maxVolatileEventsPerFrame: 24,
+      maxVolatileEventsPerFrame: 36,
       maxCriticalChunkEvents: 12,
       maxVolatileChunkEvents: 6,
-      maxVolatileQueuedEvents: 720,
+      maxVolatileQueuedEvents: 1_440,
     });
     queueRef.current = queue;
     return () => {

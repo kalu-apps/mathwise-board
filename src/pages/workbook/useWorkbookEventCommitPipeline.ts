@@ -19,7 +19,7 @@ import type { WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
 type RealtimeChannel = "persist" | "live" | "stream" | "poll";
 
 const VOLATILE_FALLBACK_FLUSH_INTERVAL_MS = 180;
-const VOLATILE_FALLBACK_MAX_EVENTS = 96;
+const VOLATILE_FALLBACK_MAX_EVENTS = 160;
 
 type EnqueueIncomingRealtimeApply = (batch: {
   channel: RealtimeChannel;
