@@ -38,17 +38,16 @@
   font-weight: 700;
   letter-spacing: 0.01em;
 }
-
 :root[data-theme="dark"] .workbook-hub__card-timeline {
-  color: color-mix(in srgb, #ffffff 80%, var(--text-secondary));
+  color: #44505d;
 }
 
 :root[data-theme="dark"] .workbook-hub__card-timeline-label {
-  color: color-mix(in srgb, #ffffff 80%, var(--text-secondary));
+  color: #44505d;
 }
 
 :root[data-theme="dark"] .workbook-hub__card-timeline-value {
-  color: color-mix(in srgb, #ffffff 96%, var(--text-primary));
+  color: #1f252b;
 }
 .workbook-hub__details-meta {
   display: flex;
@@ -95,6 +94,7 @@
   flex-shrink: 0;
 }
 .workbook-hub__card-action-btn.MuiButton-root {
+  color: var(--workbook-card-text-primary);
   min-height: 28px;
   padding: 3px 8px;
   border-radius: 10px;
