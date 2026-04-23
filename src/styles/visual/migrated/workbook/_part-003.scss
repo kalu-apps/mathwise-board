@@ -38,9 +38,9 @@
   background:
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--surface-elevated) 26%, transparent) 0%,
-      color-mix(in srgb, var(--surface-elevated) 36%, transparent) 42%,
-      color-mix(in srgb, var(--surface-elevated) 58%, transparent) 100%
+      color-mix(in srgb, var(--surface-elevated) 8%, transparent) 0%,
+      color-mix(in srgb, var(--surface-elevated) 12%, transparent) 42%,
+      color-mix(in srgb, var(--surface-elevated) 20%, transparent) 100%
     );
 }
 .workbook-hub__card-preview-refresh::before {
@@ -50,7 +50,7 @@
   background: linear-gradient(
     108deg,
     transparent 40%,
-    color-mix(in srgb, #fff 56%, transparent) 50%,
+    color-mix(in srgb, #fff 34%, transparent) 50%,
     transparent 60%
   );
   animation: workbook-hub-preview-refresh-shimmer 1.3s ease-in-out infinite;
@@ -65,6 +65,24 @@
 }
 .workbook-hub__card--with-preview {
   border-color: color-mix(in srgb, var(--workbook-card-border) 66%, var(--feedback-info));
+  --workbook-card-text-primary: #1f252b;
+  --workbook-card-text-secondary: #344352;
+  --workbook-card-text-muted: #526171;
+  --workbook-metric-label: #344352;
+  --workbook-metric-value: #1f252b;
+}
+
+.workbook-hub__card--with-preview .workbook-hub__card-main {
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #ffffff 72%, #a6b5c8 28%);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #ffffff 82%, transparent),
+      color-mix(in srgb, #ffffff 74%, transparent)
+    );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.52);
+  padding: 8px;
 }
 .workbook-hub__card:hover {
   transform: translateY(-1px);
@@ -192,9 +210,9 @@
 
 :root[data-theme="dark"] .workbook-hub__card {
   --workbook-card-text-primary: #1f252b;
-  --workbook-card-text-secondary: #44505d;
-  --workbook-card-text-muted: #66727f;
-  --workbook-metric-label: #44505d;
+  --workbook-card-text-secondary: #344352;
+  --workbook-card-text-muted: #526171;
+  --workbook-metric-label: #344352;
   --workbook-metric-value: #1f252b;
 }
 
