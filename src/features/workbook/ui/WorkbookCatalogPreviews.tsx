@@ -156,7 +156,6 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             fill="none"
             stroke="#1f252b"
             strokeWidth={1.8}
-            strokeDasharray="6 5"
           />
           <path
             d="M 60 26 A 9 24 0 0 0 60 74"
@@ -168,9 +167,7 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             d="M 60 26 A 9 24 0 0 1 60 74"
             fill="none"
             stroke="#1f252b"
-            strokeWidth={1.4}
-            strokeDasharray="6 5"
-            opacity={0.8}
+            strokeWidth={1.6}
           />
         </>
       ) : null}
@@ -218,7 +215,6 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             fill="none"
             stroke="#1f252b"
             strokeWidth={2}
-            strokeDasharray="6 5"
           />
           <path d={pathArc(60, 50, 14, 8, "front")} fill="none" stroke="#1f252b" strokeWidth={1.8} />
           <path
@@ -226,7 +222,6 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             fill="none"
             stroke="#1f252b"
             strokeWidth={1.8}
-            strokeDasharray="6 5"
           />
           <line
             x1={30}
