@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import type { WorkbookBoardObject } from "@/features/workbook/model/types";
+import type { WorkbookSolid3dSectionVertexContextMenu } from "@/features/workbook/model/workbookSessionUiTypes";
 import {
   type Solid3dHostedPoint,
   type Solid3dHostedSegment,
@@ -21,14 +22,7 @@ type Solid3dDraftPointsState = {
   points: Solid3dSectionPoint[];
 } | null;
 
-type Solid3dSectionVertexContextMenuState = {
-  sectionId: string;
-  vertexIndex: number;
-  label: string;
-  x?: number;
-  y?: number;
-  objectId?: string;
-} | null;
+type Solid3dSectionVertexContextMenuState = WorkbookSolid3dSectionVertexContextMenu | null;
 
 type UseWorkbookSelectedSolid3dActionsParams = {
   canSelect: boolean;
@@ -522,7 +516,7 @@ export const useWorkbookSelectedSolid3dActions = ({
             removablePointIds.add(point.id);
           }
         });
-        const nextPoints = (state.hostedPoints ?? []).flatMap((point) => {
+        const nextPoints = (state.hostedPoints ?? []).flatMap<Solid3dHostedPoint>((point) => {
           if (!removablePointIds.has(point.id)) {
             return [point];
           }
@@ -533,7 +527,7 @@ export const useWorkbookSelectedSolid3dActions = ({
             return [
               {
                 ...point,
-                classification: "interior",
+                classification: "interior" as const,
                 hostSegmentId: undefined,
                 segmentT: undefined,
               },

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, type MutableRefObject } from "react";
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import type { WorkbookTool } from "@/features/workbook/model/types";
-import type { WorkbookHistoryOperation } from "./WorkbookSessionPage.geometry";
+import type { WorkbookHistoryEntry, WorkbookHistoryOperation } from "./WorkbookSessionPage.geometry";
 
 type HistoryEntryLike = {
   inverse: WorkbookHistoryOperation[];
@@ -20,7 +20,7 @@ type UseWorkbookHistoryHotkeysParams = {
     options?: {
       trackHistory?: boolean;
       markDirty?: boolean;
-      historyEntry?: unknown;
+      historyEntry?: WorkbookHistoryEntry | null;
     }
   ) => Promise<void>;
   setError: (value: string | null) => void;

@@ -7,6 +7,7 @@ import type {
   WorkbookSessionParticipant,
 } from "@/features/workbook/model/types";
 import { generateId } from "@/shared/lib/id";
+import type { WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
 
 type Updater<T> = T | ((current: T) => T);
 
@@ -50,7 +51,7 @@ type UseWorkbookSessionCollabHandlersParams = {
     options?: {
       trackHistory?: boolean;
       markDirty?: boolean;
-      historyEntry?: unknown;
+      historyEntry?: WorkbookHistoryEntry | null;
     }
   ) => Promise<void>;
 };

@@ -7,10 +7,14 @@ import {
 import type {
   WorkbookBoardObject,
   WorkbookBoardSettings,
+  WorkbookChatMessage,
+  WorkbookComment,
   WorkbookConstraint,
   WorkbookDocumentState,
   WorkbookEvent,
+  WorkbookLibraryState,
   WorkbookStroke,
+  WorkbookTimerState,
 } from "@/features/workbook/model/types";
 import {
   clampBoardObjectToPageFrame,
@@ -34,11 +38,11 @@ type UseWorkbookSessionHistoryRuntimeParams = {
   setBoardObjects: Dispatch<SetStateAction<WorkbookBoardObject[]>>;
   setConstraints: Dispatch<SetStateAction<WorkbookConstraint[]>>;
   setAnnotationStrokes: Dispatch<SetStateAction<WorkbookStroke[]>>;
-  setChatMessages: Dispatch<SetStateAction<unknown[]>>;
-  setComments: Dispatch<SetStateAction<unknown[]>>;
-  setTimerState: Dispatch<SetStateAction<unknown>>;
+  setChatMessages: Dispatch<SetStateAction<WorkbookChatMessage[]>>;
+  setComments: Dispatch<SetStateAction<WorkbookComment[]>>;
+  setTimerState: Dispatch<SetStateAction<WorkbookTimerState | null>>;
   setBoardSettings: Dispatch<SetStateAction<WorkbookBoardSettings>>;
-  setLibraryState: Dispatch<SetStateAction<unknown>>;
+  setLibraryState: Dispatch<SetStateAction<WorkbookLibraryState>>;
   setDocumentState: Dispatch<SetStateAction<WorkbookDocumentState>>;
   autosaveDebounceRef: MutableRefObject<number | null>;
   persistSnapshotsRef: MutableRefObject<
@@ -47,7 +51,7 @@ type UseWorkbookSessionHistoryRuntimeParams = {
   dirtyRef: MutableRefObject<boolean>;
   dirtyRevisionRef: MutableRefObject<number>;
   pendingAutosaveAfterSaveRef: MutableRefObject<boolean>;
-  setSaveState: Dispatch<SetStateAction<"idle" | "saving" | "error">>;
+  setSaveState: Dispatch<SetStateAction<"saved" | "unsaved" | "saving" | "error">>;
   undoStackRef: MutableRefObject<WorkbookHistoryEntry[]>;
   redoStackRef: MutableRefObject<WorkbookHistoryEntry[]>;
   setUndoDepth: Dispatch<SetStateAction<number>>;

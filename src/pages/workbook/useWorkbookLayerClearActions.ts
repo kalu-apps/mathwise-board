@@ -16,7 +16,7 @@ import type {
 import type { ClearRequest } from "@/features/workbook/model/workbookSessionUiTypes";
 import { isRecoverableApiError } from "@/shared/api/client";
 import { cloneSerializable } from "./WorkbookSessionPage.core";
-import type { WorkbookSceneSnapshot } from "./WorkbookSessionPage.geometry";
+import type { WorkbookHistoryEntry, WorkbookSceneSnapshot } from "./WorkbookSessionPage.geometry";
 
 type StateUpdater<T> = T | ((current: T) => T);
 
@@ -27,7 +27,7 @@ type AppendEventsAndApply = (
   options?: {
     trackHistory?: boolean;
     markDirty?: boolean;
-    historyEntry?: unknown;
+    historyEntry?: WorkbookHistoryEntry | null;
   }
 ) => Promise<void>;
 
@@ -66,7 +66,7 @@ type UseWorkbookLayerClearActionsParams = {
   setAwaitingClearRequest: SetState<ClearRequest | null>;
   setConfirmedClearRequest: SetState<ClearRequest | null>;
   appendEventsAndApply: AppendEventsAndApply;
-  buildHistoryEntryFromEvents: (events: WorkbookClientEventInput[]) => unknown;
+  buildHistoryEntryFromEvents: (events: WorkbookClientEventInput[]) => WorkbookHistoryEntry | null;
   markDirty: () => void;
   restoreSceneSnapshot: (snapshot: WorkbookSceneSnapshot) => void;
   setError: (value: string | null) => void;

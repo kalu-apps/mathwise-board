@@ -650,7 +650,7 @@ export const useWorkbookPdfExport = ({
       const fileName = resolveExportPdfFileName(options);
       const exportPages = resolveExportPageNumbers();
       const previousPage = currentPage;
-      const uniformBounds = resolveUniformContentExportBounds(exportPages);
+      const uniformBounds = resolveUniformContentExportBounds();
       const exportTilesByPage = new Map(
         exportPages.map((pageNumber) => [
           pageNumber,

@@ -4,6 +4,7 @@ import type {
   WorkbookBoardObject,
   WorkbookConstraint,
   WorkbookDocumentState,
+  WorkbookLayer,
   WorkbookPoint,
   WorkbookStroke,
 } from "@/features/workbook/model/types";
@@ -126,7 +127,7 @@ export const useWorkbookSessionRefs = () => {
       string,
       {
         gestureId: string;
-        layer: "board" | "annotation";
+        layer: WorkbookLayer;
         page: number;
         radius: number;
         points: WorkbookPoint[];

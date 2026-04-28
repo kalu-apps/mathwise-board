@@ -7,6 +7,7 @@ import type {
   WorkbookConstraint,
 } from "@/features/workbook/model/types";
 import { MAIN_SCENE_LAYER_ID } from "./WorkbookSessionPage.core";
+import type { WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
 
 type StateUpdater<T> = T | ((current: T) => T);
 type SetState<T> = (updater: StateUpdater<T>) => void;
@@ -16,7 +17,7 @@ type AppendEventsAndApply = (
   options?: {
     trackHistory?: boolean;
     markDirty?: boolean;
-    historyEntry?: unknown;
+    historyEntry?: WorkbookHistoryEntry | null;
   }
 ) => Promise<void>;
 
@@ -45,7 +46,7 @@ type UseWorkbookObjectDeleteHandlerParams = {
   setSelectedObjectId: SetState<string | null>;
   setSelectedConstraintId: SetState<string | null>;
   setError: (value: string | null) => void;
-  buildHistoryEntryFromEvents: (events: WorkbookClientEventInput[]) => unknown;
+  buildHistoryEntryFromEvents: (events: WorkbookClientEventInput[]) => WorkbookHistoryEntry | null;
   appendEventsAndApply: AppendEventsAndApply;
   commitInteractiveBoardObjects: (objects: WorkbookBoardObject[]) => void;
   handleRealtimeConflict: () => void;

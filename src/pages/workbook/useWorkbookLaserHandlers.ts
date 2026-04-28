@@ -1,6 +1,7 @@
 import { useCallback, useEffect, type MutableRefObject } from "react";
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import type { WorkbookPoint, WorkbookTool } from "@/features/workbook/model/types";
+import type { WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
 
 type Updater<T> = T | ((current: T) => T);
 
@@ -14,7 +15,7 @@ type UseWorkbookLaserHandlersParams = {
     options?: {
       trackHistory?: boolean;
       markDirty?: boolean;
-      historyEntry?: unknown;
+      historyEntry?: WorkbookHistoryEntry | null;
     }
   ) => Promise<void>;
   setError: (value: string | null) => void;

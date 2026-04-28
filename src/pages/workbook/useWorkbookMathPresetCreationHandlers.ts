@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { generateId } from "@/shared/lib/id";
+import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import { resolveSolid3dPresetId } from "@/features/workbook/model/solid3d";
 import type { WorkbookBoardObject, WorkbookTool } from "@/features/workbook/model/types";
 
@@ -29,10 +30,7 @@ type UseWorkbookMathPresetCreationHandlersParams = {
   commitObjectCreate: (
     object: WorkbookBoardObject,
     options?: {
-      auxiliaryEvents?: Array<{
-        type: string;
-        payload: Record<string, unknown>;
-      }>;
+      auxiliaryEvents?: WorkbookClientEventInput[];
     }
   ) => Promise<boolean>;
 };

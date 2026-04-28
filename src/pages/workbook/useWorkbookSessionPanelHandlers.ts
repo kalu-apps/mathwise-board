@@ -1,25 +1,10 @@
 import { useCallback } from "react";
+import type { DocsWindowState } from "@/features/workbook/model/workbookSessionUiTypes";
+
+type StateUpdater<T> = T | ((current: T) => T);
 
 export type UseWorkbookSessionPanelHandlersParams = {
-  setDocsWindow: (
-    updater: (current: {
-      open: boolean;
-      pinned: boolean;
-      maximized: boolean;
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    }) => {
-      open: boolean;
-      pinned: boolean;
-      maximized: boolean;
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    }
-  ) => void;
+  setDocsWindow: (updater: StateUpdater<DocsWindowState>) => void;
   clickDocsInput: () => void;
   snapshotDocumentToBoard: () => void;
   addDocumentAnnotation: () => void;

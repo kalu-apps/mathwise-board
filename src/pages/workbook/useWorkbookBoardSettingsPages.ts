@@ -23,7 +23,7 @@ import {
   resolveMaxKnownWorkbookPage,
   toSafeWorkbookPage,
 } from "./WorkbookSessionPage.core";
-import { normalizeSceneLayersForBoard } from "./WorkbookSessionPage.geometry";
+import { normalizeSceneLayersForBoard, type WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
 
 type StateUpdater<T> = T | ((current: T) => T);
 
@@ -34,7 +34,7 @@ type AppendEventsAndApply = (
   options?: {
     trackHistory?: boolean;
     markDirty?: boolean;
-    historyEntry?: unknown;
+    historyEntry?: WorkbookHistoryEntry | null;
   }
 ) => Promise<void>;
 
@@ -94,7 +94,7 @@ export const useWorkbookBoardSettingsPages = ({
     const inversePatch = historyBefore
       ? buildBoardSettingsDiffPatch(nextSettings, historyBefore)
       : null;
-    const historyEntry =
+    const historyEntry: WorkbookHistoryEntry | null =
       forwardPatch && inversePatch
         ? {
             forward: [{ kind: "patch_board_settings", patch: forwardPatch }],
