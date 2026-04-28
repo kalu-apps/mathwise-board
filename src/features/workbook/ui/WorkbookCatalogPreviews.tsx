@@ -64,7 +64,6 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             fill="none"
             stroke="#1f252b"
             strokeWidth={2}
-            strokeDasharray="6 5"
           />
           <line x1={36} y1={30} x2={36} y2={74} stroke="#1f252b" strokeWidth={2} />
           <line x1={84} y1={30} x2={84} y2={74} stroke="#1f252b" strokeWidth={2} />
@@ -84,7 +83,6 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             fill="none"
             stroke="#1f252b"
             strokeWidth={2}
-            strokeDasharray="6 5"
           />
         </>
       ) : null}
@@ -108,7 +106,6 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             fill="none"
             stroke="#1f252b"
             strokeWidth={2}
-            strokeDasharray="6 5"
           />
         </>
       ) : null}
@@ -120,7 +117,6 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             fill="none"
             stroke="#1f252b"
             strokeWidth={2}
-            strokeDasharray="6 5"
           />
           <line x1={47} y1={28} x2={36} y2={76} stroke="#1f252b" strokeWidth={2} />
           <line x1={73} y1={28} x2={84} y2={76} stroke="#1f252b" strokeWidth={2} />
@@ -140,7 +136,6 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             fill="none"
             stroke="#1f252b"
             strokeWidth={2}
-            strokeDasharray="6 5"
           />
         </>
       ) : null}
@@ -193,7 +188,6 @@ export const SolidPresetPreview = ({ presetId }: { presetId: string }) => {
             fill="none"
             stroke="#1f252b"
             strokeWidth={2}
-            strokeDasharray="6 5"
           />
           <line
             x1={60}
@@ -258,6 +252,7 @@ export const ShapeCatalogPreview = ({
     | "polygon"
     | "rectangle"
     | "ellipse"
+    | "circle"
     | "polyline"
     | "trapezoid"
     | "trapezoid_right"
@@ -308,6 +303,21 @@ export const ShapeCatalogPreview = ({
           stroke="#2f4f7f"
           strokeWidth={5}
         />
+      </svg>
+    );
+  }
+  if (variant === "circle") {
+    return (
+      <svg viewBox="0 0 100 100" role="img" aria-hidden="true">
+        <circle
+          cx={50}
+          cy={50}
+          r={28}
+          fill="rgba(47, 79, 127, 0.08)"
+          stroke="#2f4f7f"
+          strokeWidth={5}
+        />
+        <circle cx={50} cy={50} r={3.5} fill="#2f4f7f" />
       </svg>
     );
   }

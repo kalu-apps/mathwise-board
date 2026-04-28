@@ -741,7 +741,6 @@ export const renderWorkbookCanvasSolid3dObject = ({
       );
       const lineColor = color;
       const fillColor = object.fill ?? "rgba(95, 106, 160, 0.16)";
-      const frontDash = hideHiddenEdges ? undefined : "7 5";
 
       const ellipseFrontPath = (cx: number, cy: number, rx: number, ry: number) =>
         `M ${cx - rx} ${cy} A ${rx} ${ry} 0 0 0 ${cx + rx} ${cy}`;
@@ -829,7 +828,6 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 fill="none"
                 stroke={lineColor}
                 strokeWidth={Math.max(1, strokeWidth * 0.78)}
-                strokeDasharray="6 5"
                 opacity={0.56}
               />
             ) : null}
@@ -1000,7 +998,6 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 fill="none"
                 stroke={lineColor}
                 strokeWidth={Math.max(1, strokeWidth * 0.78)}
-                strokeDasharray="6 5"
                 opacity={0.56}
               />
             ) : null}
@@ -1093,7 +1090,6 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 fill="none"
                 stroke={lineColor}
                 strokeWidth={Math.max(1, strokeWidth * 0.78)}
-                strokeDasharray={frontDash}
                 opacity={0.56}
               />
               <path
@@ -1101,7 +1097,6 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 fill="none"
                 stroke={lineColor}
                 strokeWidth={Math.max(1, strokeWidth * 0.74)}
-                strokeDasharray="5 4"
                 opacity={0.5}
               />
             </>

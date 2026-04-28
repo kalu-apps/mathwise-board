@@ -66,8 +66,9 @@ const resolvePageExportBounds = (pageFrameWidth: number): WorkbookExportBounds =
 
 const EXPORT_MAX_CANVAS_PIXELS = 8_500_000;
 const EXPORT_MIN_SCALE = 0.35;
-const EXPORT_PDF_FOOTER_HEIGHT_PT = 28;
-const EXPORT_PDF_FOOTER_SIDE_PADDING_PT = 24;
+const EXPORT_PDF_SAFE_MARGIN_PT = 28;
+const EXPORT_PDF_FOOTER_HEIGHT_PT = EXPORT_PDF_SAFE_MARGIN_PT;
+const EXPORT_PDF_FOOTER_SIDE_PADDING_PT = EXPORT_PDF_SAFE_MARGIN_PT;
 const EXPORT_PDF_FOOTER_LINE_Y_OFFSET_PT = 8;
 const EXPORT_PDF_FOOTER_PRIMARY_FONT_SIZE_PT = 8;
 const EXPORT_PDF_FOOTER_PRIMARY_TEXT_RGB = 56;
@@ -78,6 +79,33 @@ const EXPORT_PDF_FOOTER_TEXT_TOP_GAP_PT = 4;
 const EXPORT_PDF_FOOTER_TEXT_BOTTOM_PADDING_PT = 3;
 const inlinedExportImageUrls = new Map<string, Promise<string | null>>();
 const WORKBOOK_ASSET_PATH_RE = /^\/api\/workbook\/sessions\/[^/]+\/assets\/[^/]+(?:\/content)?$/i;
+
+const resolveWorkbookPdfImagePlacement = (params: {
+  pageWidth: number;
+  pageHeight: number;
+  sourceWidth: number;
+  sourceHeight: number;
+}) => {
+  const margin = Math.max(0, EXPORT_PDF_SAFE_MARGIN_PT);
+  const footerHeight = Math.max(0, EXPORT_PDF_FOOTER_HEIGHT_PT);
+  const sourceWidth = Math.max(1, params.sourceWidth);
+  const sourceHeight = Math.max(1, params.sourceHeight);
+  const printableWidth = Math.max(1, params.pageWidth - margin * 2);
+  const printableHeight = Math.max(1, params.pageHeight - footerHeight - margin);
+  const scale = Math.max(
+    0.001,
+    Math.min(printableWidth / sourceWidth, printableHeight / sourceHeight)
+  );
+  const drawWidth = Math.min(printableWidth, sourceWidth * scale);
+  const drawHeight = Math.min(printableHeight, sourceHeight * scale);
+
+  return {
+    x: margin + (printableWidth - drawWidth) / 2,
+    y: margin,
+    width: drawWidth,
+    height: drawHeight,
+  };
+};
 
 const resolveSvgImageHref = (node: SVGImageElement) => {
   const href = node.getAttribute("href");
@@ -663,14 +691,19 @@ export const useWorkbookPdfExport = ({
           if (renderedPagesCount > 0) {
             pdf.addPage("a4", "portrait");
           }
-          const contentHeight = Math.max(1, pageHeight - EXPORT_PDF_FOOTER_HEIGHT_PT);
+          const placement = resolveWorkbookPdfImagePlacement({
+            pageWidth,
+            pageHeight,
+            sourceWidth: rendered.width,
+            sourceHeight: rendered.height,
+          });
           pdf.addImage(
             rendered.canvas,
             "JPEG",
-            0,
-            0,
-            pageWidth,
-            contentHeight,
+            placement.x,
+            placement.y,
+            placement.width,
+            placement.height,
             undefined,
             "FAST"
           );

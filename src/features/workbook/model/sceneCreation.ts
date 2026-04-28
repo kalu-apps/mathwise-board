@@ -368,15 +368,16 @@ export const buildWorkbookShapeObject = (
                   }
                 : draft.tool === "rectangle" || draft.tool === "triangle"
                   ? defaultFigureMeta
-                  : draft.tool === "ellipse"
+                  : draft.tool === "ellipse" || draft.tool === "compass"
                     ? {
+                        ...(draft.tool === "compass" ? { figureKind: "circle" } : {}),
                         shape2dBaseStrokeColor: color,
                         shape2dBaseFillColor: "transparent",
                       }
-                  : draft.tool === "frame"
-                    ? {
-                        title: textPreset.trim() || "Фрейм",
-                      }
+                    : draft.tool === "frame"
+                      ? {
+                          title: textPreset.trim() || "Фрейм",
+                        }
                     : draft.tool === "solid3d"
                       ? {
                           presetId: solid3dPresetId,

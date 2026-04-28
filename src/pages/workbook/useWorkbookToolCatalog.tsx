@@ -184,10 +184,18 @@ export const useWorkbookToolCatalog = ({
       {
         id: "ellipse",
         title: "Эллипс",
-        subtitle: "Окружность / овал",
+        subtitle: "Овал из рамки",
         icon: <ShapeCatalogPreview variant="ellipse" />,
         tool: "ellipse",
         apply: () => setTool("ellipse"),
+      },
+      {
+        id: "circle",
+        title: "Окружность",
+        subtitle: "От центра курсора",
+        icon: <ShapeCatalogPreview variant="circle" />,
+        tool: "compass",
+        apply: () => setTool("compass"),
       },
       {
         id: "triangle",
