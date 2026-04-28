@@ -149,6 +149,13 @@
 }
 
 .workbook-session__stereo-card {
+  --workbook-catalog-preview-shape-fill: rgba(47, 79, 127, 0.08);
+  --workbook-catalog-preview-shape-stroke: #2f4f7f;
+  --workbook-catalog-preview-solid-fill: rgba(47, 79, 127, 0.12);
+  --workbook-catalog-preview-solid-soft-fill: rgba(47, 79, 127, 0.08);
+  --workbook-catalog-preview-solid-stroke: #1f252b;
+  --workbook-catalog-preview-solid-torus-fill: rgba(47, 79, 127, 0.06);
+
   border: 1px solid color-mix(in srgb, var(--card-border) 86%, transparent);
   border-radius: 12px;
   background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
@@ -185,6 +192,15 @@
   }
 }
 
+:root[data-theme="dark"] .workbook-session__stereo-card {
+  --workbook-catalog-preview-shape-fill: rgba(143, 180, 232, 0.16);
+  --workbook-catalog-preview-shape-stroke: #cfe1ff;
+  --workbook-catalog-preview-solid-fill: rgba(143, 180, 232, 0.18);
+  --workbook-catalog-preview-solid-soft-fill: rgba(143, 180, 232, 0.15);
+  --workbook-catalog-preview-solid-stroke: #eef5ff;
+  --workbook-catalog-preview-solid-torus-fill: rgba(143, 180, 232, 0.13);
+}
+
 .workbook-session__shape-icon {
   width: 100%;
   max-width: 130px;
@@ -217,4 +233,3 @@
   width: 32px;
   height: 32px;
 }
-

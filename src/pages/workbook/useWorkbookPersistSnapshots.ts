@@ -221,7 +221,7 @@ interface UseWorkbookPersistSnapshotsParams {
   constraints: WorkbookConstraint[];
   chatMessages: WorkbookChatMessage[];
   comments: WorkbookComment[];
-  timerState: WorkbookTimerState;
+  timerState: WorkbookTimerState | null;
   boardSettings: WorkbookBoardSettings;
   libraryState: WorkbookLibraryState;
   documentState: WorkbookDocumentState;
@@ -233,7 +233,7 @@ interface UseWorkbookPersistSnapshotsParams {
   dirtyRevisionRef: MutableRefObject<number>;
   isSavingRef: MutableRefObject<boolean>;
   pendingAutosaveAfterSaveRef: MutableRefObject<boolean>;
-  setSaveState: (state: "idle" | "saving" | "saved" | "error") => void;
+  setSaveState: (state: "saved" | "unsaved" | "saving" | "error") => void;
   setSaveSyncWarning: (message: string | null) => void;
   handleRealtimeAuthRequired: (status: number) => void;
   scheduleAutosave: (delayMs?: number) => void;

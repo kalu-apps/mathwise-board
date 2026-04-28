@@ -1,8 +1,15 @@
 import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import type { GraphFunctionDraft } from "@/features/workbook/model/functionGraph";
 import { resolveSolid3dPresetId } from "@/features/workbook/model/solid3d";
-import type { Solid3dState } from "@/features/workbook/model/solid3dState";
+import type { Solid3dSectionPoint, Solid3dState } from "@/features/workbook/model/solid3dState";
 import type { WorkbookBoardObject } from "@/features/workbook/model/types";
+import type {
+  WorkbookSolid3dSectionContextMenu,
+  WorkbookSolid3dSectionVertexContextMenu,
+  WorkbookSolid3dVertexContextMenu,
+  WorkbookUtilityTab,
+} from "@/features/workbook/model/workbookSessionUiTypes";
+import type { StateUpdater } from "@/features/workbook/model/workbookSessionStoreTypes";
 import { areGraphFunctionDraftListsEqual } from "./WorkbookSessionPage.core";
 import { ROUND_SOLID_PRESETS } from "./WorkbookSessionPage.geometry";
 
@@ -30,12 +37,12 @@ type UseWorkbookSelectionSyncEffectsParams = {
   selectedObjectSupportsGraphPanel: boolean;
   selectedObjectSupportsTransformPanel: boolean;
   isUtilityPanelOpen: boolean;
-  utilityTab: "graph" | "transform" | "other";
+  utilityTab: WorkbookUtilityTab;
   tool: string;
   activeSolidSectionId: string | null;
   solid3dFigureTab: "display" | "surface" | "faces" | "edges" | "angles";
   solid3dSectionPointCollecting: string | null;
-  solid3dDraftPoints: { objectId: string } | null;
+  solid3dDraftPoints: { objectId: string; points: Solid3dSectionPoint[] } | null;
   solid3dSectionVertexContextMenu: { sectionId: string } | null;
   canSelect: boolean;
   lineDraftObjectIdRef: MutableRefObject<string | null>;
@@ -70,10 +77,18 @@ type UseWorkbookSelectionSyncEffectsParams = {
   setDividerWidthDraft: (value: number) => void;
   setActiveSolidSectionId: (value: string | null) => void;
   setSolid3dSectionPointCollecting: (value: string | null) => void;
-  setSolid3dDraftPoints: (value: { objectId: string } | null) => void;
-  setSolid3dVertexContextMenu: (value: unknown) => void;
-  setSolid3dSectionVertexContextMenu: (value: unknown) => void;
-  setSolid3dSectionContextMenu: (value: unknown) => void;
+  setSolid3dDraftPoints: (
+    value: StateUpdater<{ objectId: string; points: Solid3dSectionPoint[] } | null>
+  ) => void;
+  setSolid3dVertexContextMenu: (
+    value: StateUpdater<WorkbookSolid3dVertexContextMenu | null>
+  ) => void;
+  setSolid3dSectionVertexContextMenu: (
+    value: StateUpdater<WorkbookSolid3dSectionVertexContextMenu | null>
+  ) => void;
+  setSolid3dSectionContextMenu: (
+    value: StateUpdater<WorkbookSolid3dSectionContextMenu | null>
+  ) => void;
   setSolid3dStrokeWidthDraft: (value: number) => void;
   commitObjectUpdate: (objectId: string, patch: Partial<WorkbookBoardObject>) => void;
 };

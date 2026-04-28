@@ -741,7 +741,6 @@ export const renderWorkbookCanvasSolid3dObject = ({
       );
       const lineColor = color;
       const fillColor = object.fill ?? "rgba(95, 106, 160, 0.16)";
-      const frontDash = hideHiddenEdges ? undefined : "7 5";
 
       const ellipseFrontPath = (cx: number, cy: number, rx: number, ry: number) =>
         `M ${cx - rx} ${cy} A ${rx} ${ry} 0 0 0 ${cx + rx} ${cy}`;
@@ -776,9 +775,8 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 d={ellipseBackPath(center.x, center.y, sphereRx, equatorRy)}
                 fill="none"
                 stroke={lineColor}
-                strokeWidth={Math.max(1, strokeWidth * 0.8)}
-                strokeDasharray="6 5"
-                opacity={0.58}
+                strokeWidth={Math.max(1, strokeWidth * 0.82)}
+                opacity={0.9}
               />
             ) : null}
             <path
@@ -793,9 +791,8 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 d={`M ${center.x} ${center.y - sphereRy} A ${meridianRx} ${sphereRy} 0 0 1 ${center.x} ${center.y + sphereRy}`}
                 fill="none"
                 stroke={lineColor}
-                strokeWidth={Math.max(1, strokeWidth * 0.68)}
-                strokeDasharray="6 5"
-                opacity={0.5}
+                strokeWidth={Math.max(1, strokeWidth * 0.7)}
+                opacity={0.66}
               />
             ) : null}
             <path
@@ -828,9 +825,8 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 d={ellipseBackPath(center.x, baseY, radius, baseEllipseRy)}
                 fill="none"
                 stroke={lineColor}
-                strokeWidth={Math.max(1, strokeWidth * 0.78)}
-                strokeDasharray="6 5"
-                opacity={0.56}
+                strokeWidth={Math.max(1, strokeWidth * 0.82)}
+                opacity={0.88}
               />
             ) : null}
             <path
@@ -844,8 +840,8 @@ export const renderWorkbookCanvasSolid3dObject = ({
               d={`M ${center.x - radius} ${baseY} Q ${center.x} ${domeTop} ${center.x + radius} ${baseY}`}
               fill="none"
               stroke={lineColor}
-              strokeWidth={Math.max(1, strokeWidth * 0.74)}
-              opacity={0.56}
+              strokeWidth={Math.max(1, strokeWidth * 0.82)}
+              opacity={0.88}
             />
             {!hideHiddenEdges ? (
               <line
@@ -893,17 +889,15 @@ export const renderWorkbookCanvasSolid3dObject = ({
                   d={ellipseBackPath(center.x, center.y, outerRx, outerRy)}
                   fill="none"
                   stroke={lineColor}
-                  strokeWidth={Math.max(1, strokeWidth * 0.74)}
-                  strokeDasharray="6 5"
-                  opacity={0.52}
+                  strokeWidth={Math.max(1, strokeWidth * 0.82)}
+                  opacity={0.9}
                 />
                 <path
                   d={ellipseBackPath(center.x, center.y, holeRx, holeRy)}
                   fill="none"
                   stroke={lineColor}
-                  strokeWidth={Math.max(1, strokeWidth * 0.72)}
-                  strokeDasharray="5 4"
-                  opacity={0.5}
+                  strokeWidth={Math.max(1, strokeWidth * 0.8)}
+                  opacity={0.88}
                 />
               </>
             ) : null}
@@ -978,13 +972,6 @@ export const renderWorkbookCanvasSolid3dObject = ({
             (visualApex.y + bottom.center.y) * 0.5 -
             Math.max(10, bottomRy * (0.42 + topViewBlend * 0.18)),
         };
-        const midRingCenter = {
-          x: visualApex.x + (bottom.center.x - visualApex.x) * 0.58,
-          y: visualApex.y + (bottom.center.y - visualApex.y) * 0.58,
-        };
-        const midRingRx = Math.max(7, bottom.rx * (0.42 + topViewBlend * 0.08));
-        const midRingRy = Math.max(3, bottomRy * (0.56 + topViewBlend * 0.1));
-        const helperOpacity = 0.42 + topViewBlend * 0.18;
         return (
           <g>
             <path
@@ -999,9 +986,8 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 d={`M ${bottom.minX} ${bottom.center.y} A ${bottom.rx} ${bottomRy} 0 0 1 ${bottom.maxX} ${bottom.center.y}`}
                 fill="none"
                 stroke={lineColor}
-                strokeWidth={Math.max(1, strokeWidth * 0.78)}
-                strokeDasharray="6 5"
-                opacity={0.56}
+                strokeWidth={Math.max(1, strokeWidth * 0.82)}
+                opacity={0.9}
               />
             ) : null}
             <path
@@ -1024,50 +1010,17 @@ export const renderWorkbookCanvasSolid3dObject = ({
               strokeWidth={Math.max(1, strokeWidth * 0.82)}
             />
             {!hideHiddenEdges ? (
-              <>
-                <path
-                  d={ellipseBackPath(midRingCenter.x, midRingCenter.y, midRingRx, midRingRy)}
-                  fill="none"
-                  stroke={lineColor}
-                  strokeWidth={Math.max(1, strokeWidth * 0.66)}
-                  strokeDasharray="6 5"
-                  opacity={helperOpacity}
-                />
-                <path
-                  d={`M ${visualApex.x} ${visualApex.y} Q ${midRingCenter.x - midRingRx * 0.4} ${midRingCenter.y - midRingRy * 0.95} ${midRingCenter.x - midRingRx} ${midRingCenter.y}`}
-                  fill="none"
-                  stroke={lineColor}
-                  strokeWidth={Math.max(1, strokeWidth * 0.62)}
-                  strokeDasharray="6 5"
-                  opacity={helperOpacity}
-                />
-                <path
-                  d={`M ${visualApex.x} ${visualApex.y} Q ${midRingCenter.x + midRingRx * 0.4} ${midRingCenter.y - midRingRy * 0.95} ${midRingCenter.x + midRingRx} ${midRingCenter.y}`}
-                  fill="none"
-                  stroke={lineColor}
-                  strokeWidth={Math.max(1, strokeWidth * 0.62)}
-                  strokeDasharray="6 5"
-                  opacity={helperOpacity}
-                />
-                <line
-                  x1={visualApex.x}
-                  y1={visualApex.y}
-                  x2={bottom.center.x}
-                  y2={bottom.center.y}
-                  stroke={lineColor}
-                  strokeWidth={Math.max(1, strokeWidth * 0.62)}
-                  strokeDasharray="6 5"
-                  opacity={0.45 + topViewBlend * 0.1}
-                />
-              </>
+              <line
+                x1={visualApex.x}
+                y1={visualApex.y}
+                x2={bottom.center.x}
+                y2={bottom.center.y}
+                stroke={lineColor}
+                strokeWidth={Math.max(1, strokeWidth * 0.62)}
+                strokeDasharray="6 5"
+                opacity={0.45 + topViewBlend * 0.1}
+              />
             ) : null}
-            <path
-              d={ellipseFrontPath(midRingCenter.x, midRingCenter.y, midRingRx, midRingRy)}
-              fill="none"
-              stroke={lineColor}
-              strokeWidth={Math.max(1, strokeWidth * 0.7)}
-              opacity={0.56 + topViewBlend * 0.08}
-            />
           </g>
         );
       }
@@ -1092,17 +1045,15 @@ export const renderWorkbookCanvasSolid3dObject = ({
                 d={`M ${bottom.minX} ${bottom.center.y} A ${bottom.rx} ${bottomRy} 0 0 1 ${bottom.maxX} ${bottom.center.y}`}
                 fill="none"
                 stroke={lineColor}
-                strokeWidth={Math.max(1, strokeWidth * 0.78)}
-                strokeDasharray={frontDash}
-                opacity={0.56}
+                strokeWidth={Math.max(1, strokeWidth * 0.82)}
+                opacity={0.9}
               />
               <path
                 d={`M ${top.minX} ${top.center.y} A ${top.rx} ${topRy} 0 0 1 ${top.maxX} ${top.center.y}`}
                 fill="none"
                 stroke={lineColor}
-                strokeWidth={Math.max(1, strokeWidth * 0.74)}
-                strokeDasharray="5 4"
-                opacity={0.5}
+                strokeWidth={Math.max(1, strokeWidth * 0.8)}
+                opacity={0.86}
               />
             </>
           ) : null}

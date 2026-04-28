@@ -95,7 +95,7 @@ type WorkbookSessionOverlaysProps = {
   canBringContextMenuImageToFront: boolean;
   canSendContextMenuImageToBack: boolean;
   canRestoreContextMenuImage: boolean;
-  restoreImageOriginalView: (objectId?: string) => void;
+  restoreImageOriginalView: (objectId: string) => void;
   updateDividerObjectById?: (
     objectId: string,
     patch: DividerObjectPatch

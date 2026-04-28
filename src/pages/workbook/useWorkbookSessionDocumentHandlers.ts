@@ -49,7 +49,7 @@ import {
   DEFAULT_LIBRARY,
   clampBoardObjectToPageFrame,
 } from "./WorkbookSessionPage.core";
-import { normalizeSceneLayersForBoard } from "./WorkbookSessionPage.geometry";
+import { normalizeSceneLayersForBoard, type WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
 
 type SetState<T> = (value: T | ((current: T) => T)) => void;
 
@@ -102,7 +102,7 @@ type UseWorkbookSessionDocumentHandlersParams = {
     options?: {
       trackHistory?: boolean;
       markDirty?: boolean;
-      historyEntry?: unknown;
+      historyEntry?: WorkbookHistoryEntry | null;
     }
   ) => Promise<void>;
   commitObjectCreate: (

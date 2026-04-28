@@ -270,7 +270,9 @@ export const getWorkbookObjectTypeLabel = (object: WorkbookBoardObject) => {
     return object.meta?.lineKind === "segment" ? "Отрезок" : "Линия";
   }
   if (object.type === "rectangle") return "Прямоугольник";
-  if (object.type === "ellipse") return "Эллипс";
+  if (object.type === "ellipse") {
+    return object.meta?.figureKind === "circle" ? "Окружность" : "Эллипс";
+  }
   if (object.type === "triangle") return "Треугольник";
   if (object.type === "polygon") {
     const kind =

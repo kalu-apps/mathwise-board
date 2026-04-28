@@ -7,6 +7,7 @@ import type {
 } from "@/features/workbook/model/types";
 import { MAIN_SCENE_LAYER_ID } from "./WorkbookSessionPage.core";
 import type { WorkbookAreaSelection } from "@/features/workbook/model/workbookSessionUiTypes";
+import type { WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
 
 type StateUpdater<T> = T | ((current: T) => T);
 type SetState<T> = (updater: StateUpdater<T>) => void;
@@ -16,7 +17,7 @@ type AppendEventsAndApply = (
   options?: {
     trackHistory?: boolean;
     markDirty?: boolean;
-    historyEntry?: unknown;
+    historyEntry?: WorkbookHistoryEntry | null;
   }
 ) => Promise<void>;
 

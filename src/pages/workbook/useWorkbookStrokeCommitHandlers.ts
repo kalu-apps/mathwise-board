@@ -13,6 +13,7 @@ import type {
   WorkbookStroke,
 } from "@/features/workbook/model/types";
 import type { WorkbookEraserCommitPayload } from "@/features/workbook/ui/WorkbookCanvas";
+import type { WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
 
 type StateUpdater<T> = T | ((current: T) => T);
 type SetState<T> = (updater: StateUpdater<T>) => void;
@@ -22,7 +23,7 @@ type AppendEventsAndApply = (
   options?: {
     trackHistory?: boolean;
     markDirty?: boolean;
-    historyEntry?: unknown;
+    historyEntry?: WorkbookHistoryEntry | null;
   }
 ) => Promise<void>;
 
@@ -31,7 +32,7 @@ type UseWorkbookStrokeCommitHandlersParams = {
   canDraw: boolean;
   canDelete: boolean;
   currentBoardPage: number;
-  buildHistoryEntryFromEvents: (events: WorkbookClientEventInput[]) => unknown;
+  buildHistoryEntryFromEvents: (events: WorkbookClientEventInput[]) => WorkbookHistoryEntry | null;
   queueStrokePreview: (payload: { stroke: WorkbookStroke; previewVersion: number }) => void;
   finalizeStrokePreview: (strokeId: string) => void;
   applyLocalStrokeCollection: (

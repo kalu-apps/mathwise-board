@@ -34,7 +34,7 @@ export const useWorkbookSessionLoadAndAuth = ({
   });
 
   const handleRealtimeAuthRequired = useCallback(
-    (status: 401 | 403 | 404 = 401) => {
+    (status: number = 401) => {
       if (authRequiredRef.current) return;
       authRequiredRef.current = true;
       if (sessionId) {

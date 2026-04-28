@@ -27,6 +27,7 @@ import {
   clampBoardObjectToPageFrame,
   cloneSerializable,
 } from "./WorkbookSessionPage.core";
+import type { WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
 
 type StateUpdater<T> = T | ((current: T) => T);
 type SetState<T> = (updater: StateUpdater<T>) => void;
@@ -36,7 +37,7 @@ type AppendEventsAndApply = (
   options?: {
     trackHistory?: boolean;
     markDirty?: boolean;
-    historyEntry?: unknown;
+    historyEntry?: WorkbookHistoryEntry | null;
   }
 ) => Promise<void>;
 

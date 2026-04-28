@@ -274,6 +274,13 @@ export default function WorkbookSessionPage() {
     () => resolveWorkbookBoardPageVisualSettings(boardSettings, currentBoardPage),
     [boardSettings, currentBoardPage]
   );
+  const documentCanvasViewport = useMemo(
+    () => ({
+      ...canvasViewport,
+      zoom: viewportZoom,
+    }),
+    [canvasViewport, viewportZoom]
+  );
   const rawSessionBrowserTitle = typeof session?.title === "string" ? session.title.trim() : "";
   const sessionBrowserTabTitle =
     rawSessionBrowserTitle.length > 0 ? rawSessionBrowserTitle : DEFAULT_BROWSER_TAB_TITLE;
@@ -1317,7 +1324,6 @@ export default function WorkbookSessionPage() {
     presenceLifecycleParams: {
       sessionId,
       userId: user?.id,
-      isTeacherActor,
       presenceTabIdRef: refs.presenceTabIdRef,
       presenceLeaveSentRef: refs.presenceLeaveSentRef,
       presenceIntervalMs: PRESENCE_INTERVAL_MS,
@@ -1335,7 +1341,7 @@ export default function WorkbookSessionPage() {
       isSessionChatMaximized,
       isSessionChatAtBottom,
       firstUnreadSessionChatMessageId,
-      sessionChatUnreadCount: workbookSessionPage.sessionChatUnreadCount,
+      sessionChatUnreadCount,
       chatMessages: workbookSessionData.chatMessages,
       sessionChatShouldScrollToUnreadRef: refs.sessionChatShouldScrollToUnreadRef,
       sessionChatListRef: refs.sessionChatListRef,
@@ -1377,6 +1383,7 @@ export default function WorkbookSessionPage() {
       sessionReady: Boolean(workbookSessionData.session && !isWorkbookSessionAuthLost),
       persistSnapshotsRef,
       dirtyRef: refs.dirtyRef,
+      bootstrapReady,
       autosaveIntervalMs: AUTOSAVE_INTERVAL_MS,
     },
   });
@@ -2066,7 +2073,7 @@ export default function WorkbookSessionPage() {
     sessionId,
     canInsertImage,
     userId: user?.id,
-    canvasViewport,
+    canvasViewport: documentCanvasViewport,
     boardObjectCount: boardObjects.length,
     documentState,
     setError,
@@ -2450,6 +2457,14 @@ export default function WorkbookSessionPage() {
         startPoint ?? currentState.hostedPoints.find((point) => point.id === startPointId);
       const resolvedEndPoint =
         endPoint ?? currentState.hostedPoints.find((point) => point.id === endPointId);
+      const sharedFaceIndex =
+        resolvedStartPoint &&
+        resolvedEndPoint &&
+        Number.isInteger(resolvedStartPoint.faceIndex) &&
+        Number.isInteger(resolvedEndPoint.faceIndex) &&
+        resolvedStartPoint.faceIndex === resolvedEndPoint.faceIndex
+          ? resolvedStartPoint.faceIndex
+          : undefined;
       const nextSegment: Solid3dHostedSegment = {
         id: generateId(),
         kind: "hosted_segment",
@@ -2459,12 +2474,7 @@ export default function WorkbookSessionPage() {
           resolvedStartPoint.hostFaceId === resolvedEndPoint?.hostFaceId
             ? resolvedStartPoint.hostFaceId
             : undefined,
-        faceIndex:
-          Number.isInteger(resolvedStartPoint?.faceIndex) &&
-          Number.isInteger(resolvedEndPoint?.faceIndex) &&
-          resolvedStartPoint.faceIndex === resolvedEndPoint.faceIndex
-            ? resolvedStartPoint.faceIndex
-            : undefined,
+        faceIndex: sharedFaceIndex,
         startPointId,
         endPointId,
         semanticRole: "section_support",
@@ -3552,7 +3562,7 @@ export default function WorkbookSessionPage() {
         pendingClearRequest={pendingClearRequest}
         currentUserId={user?.id}
         onConfirmClear={handleConfirmClear}
-        awaitingClearRequest={awaitingClearRequest}
+        awaitingClearRequest={Boolean(awaitingClearRequest)}
       />
 
       <div

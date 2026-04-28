@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { GraphFunctionDraft } from "@/features/workbook/model/functionGraph";
 import type { WorkbookBoardObject } from "@/features/workbook/model/types";
+import type { WorkbookUtilityTab } from "@/features/workbook/model/workbookSessionUiTypes";
 import {
   MAIN_SCENE_LAYER_ID,
   getFigureVertexLabel,
@@ -24,7 +25,7 @@ type UseWorkbookSelectionDerivedStateParams = {
   selectedObjectId: string | null;
   isCompactViewport: boolean;
   isUtilityPanelOpen: boolean;
-  utilityTab: "graph" | "transform" | "other";
+  utilityTab: WorkbookUtilityTab;
   graphFunctionsDraft: GraphFunctionDraft[];
   graphDraftFunctions: GraphFunctionDraft[];
   solid3dSectionPointCollecting: string | null;
@@ -227,12 +228,12 @@ export const useWorkbookSelectionDerivedState = ({
     [selectedObject]
   );
 
-  const selectedLineStyle = useMemo(
+  const selectedLineStyle = useMemo<"solid" | "dashed">(
     () => (selectedLineObject?.meta?.lineStyle === "dashed" ? "dashed" : "solid"),
     [selectedLineObject]
   );
 
-  const selectedLineKind = useMemo(
+  const selectedLineKind = useMemo<"line" | "segment">(
     () => (selectedLineObject?.meta?.lineKind === "segment" ? "segment" : "line"),
     [selectedLineObject]
   );
@@ -252,7 +253,7 @@ export const useWorkbookSelectionDerivedState = ({
     [selectedLineObject]
   );
 
-  const selectedDividerStyle = useMemo(
+  const selectedDividerStyle = useMemo<"solid" | "dashed">(
     () => (selectedDividerObject?.meta?.lineStyle === "solid" ? "solid" : "dashed"),
     [selectedDividerObject]
   );

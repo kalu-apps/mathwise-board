@@ -1,15 +1,16 @@
 import { useCallback, useEffect } from "react";
+import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import type { WorkbookLibraryState, WorkbookTimerState } from "@/features/workbook/model/types";
+
+type StateUpdater<T> = T | ((current: T) => T);
 
 interface UseWorkbookLibraryAndTimerActionsParams {
   appendEventsAndApply: (
-    events: Array<{ type: string; payload?: unknown }>
+    events: WorkbookClientEventInput[]
   ) => Promise<unknown>;
   setError: (message: string | null) => void;
-  timerState: WorkbookTimerState;
-  setTimerState: (
-    value: WorkbookTimerState | ((current: WorkbookTimerState) => WorkbookTimerState)
-  ) => void;
+  timerState: WorkbookTimerState | null;
+  setTimerState: (value: StateUpdater<WorkbookTimerState | null>) => void;
 }
 
 type UpsertLibraryItemOptions = {
