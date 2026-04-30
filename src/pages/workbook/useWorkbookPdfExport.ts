@@ -9,7 +9,6 @@ import { normalizeWorkbookAssetContentUrl } from "@/features/workbook/model/work
 import {
   WORKBOOK_BOARD_BACKGROUND_COLOR,
   WORKBOOK_BOARD_GRID_COLOR,
-  WORKBOOK_BOARD_PRIMARY_COLOR,
 } from "@/features/workbook/model/workbookVisualColors";
 import { resolveWorkbookPageFrameBounds } from "@/features/workbook/model/pageFrame";
 import type {
@@ -69,13 +68,14 @@ const EXPORT_MIN_SCALE = 0.35;
 const EXPORT_PDF_SAFE_MARGIN_PT = 28;
 const EXPORT_PDF_FOOTER_HEIGHT_PT = EXPORT_PDF_SAFE_MARGIN_PT;
 const EXPORT_PDF_FOOTER_SIDE_PADDING_PT = EXPORT_PDF_SAFE_MARGIN_PT;
-const EXPORT_PDF_FOOTER_LINE_Y_OFFSET_PT = 8;
+const EXPORT_PDF_FOOTER_LINE_BOTTOM_OFFSET_PT = 5;
 const EXPORT_PDF_FOOTER_SIGNATURE_TEXT = "Калугина Анна Викторовна";
 const EXPORT_PDF_FOOTER_SIGNATURE_FONT_SIZE_PT = 12;
 const EXPORT_PDF_FOOTER_SIGNATURE_FONT_FAMILY =
   '"Segoe Print", "Segoe Script", "Comic Sans MS", "Bradley Hand", "Noteworthy", "Marker Felt", cursive';
-const EXPORT_PDF_FOOTER_TEXT_TOP_GAP_PT = 4;
-const EXPORT_PDF_FOOTER_TEXT_BOTTOM_PADDING_PT = 3;
+const EXPORT_PDF_FOOTER_SIGNATURE_SKEW_X = -0.12;
+const EXPORT_PDF_FOOTER_SIGNATURE_LINE_GAP_PT = 1.5;
+const EXPORT_PDF_FOOTER_SIGNATURE_TOP_PADDING_PT = 3;
 const inlinedExportImageUrls = new Map<string, Promise<string | null>>();
 const WORKBOOK_ASSET_PATH_RE = /^\/api\/workbook\/sessions\/[^/]+\/assets\/[^/]+(?:\/content)?$/i;
 
@@ -264,16 +264,7 @@ const drawWorkbookPdfFooter = (params: {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, pageWidth, EXPORT_PDF_FOOTER_HEIGHT_PT);
 
-  const lineY = Math.min(EXPORT_PDF_FOOTER_HEIGHT_PT - 2, EXPORT_PDF_FOOTER_LINE_Y_OFFSET_PT);
-
-  ctx.strokeStyle = "rgba(210, 214, 224, 0.95)";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(EXPORT_PDF_FOOTER_SIDE_PADDING_PT, lineY);
-  ctx.lineTo(pageWidth - EXPORT_PDF_FOOTER_SIDE_PADDING_PT, lineY);
-  ctx.stroke();
-
-  ctx.fillStyle = WORKBOOK_BOARD_PRIMARY_COLOR;
+  ctx.fillStyle = "#000000";
   ctx.font = `${EXPORT_PDF_FOOTER_SIGNATURE_FONT_SIZE_PT}px ${EXPORT_PDF_FOOTER_SIGNATURE_FONT_FAMILY}`;
   ctx.textBaseline = "alphabetic";
   const textMetrics = ctx.measureText(EXPORT_PDF_FOOTER_SIGNATURE_TEXT);
@@ -285,10 +276,33 @@ const drawWorkbookPdfFooter = (params: {
     Number.isFinite(textMetrics.actualBoundingBoxDescent) && textMetrics.actualBoundingBoxDescent >= 0
       ? textMetrics.actualBoundingBoxDescent
       : EXPORT_PDF_FOOTER_SIGNATURE_FONT_SIZE_PT * 0.2;
-  const baselineMinY = lineY + EXPORT_PDF_FOOTER_TEXT_TOP_GAP_PT + textAscent;
-  const baselineMaxY = EXPORT_PDF_FOOTER_HEIGHT_PT - EXPORT_PDF_FOOTER_TEXT_BOTTOM_PADDING_PT - textDescent;
-  const primaryBaselineY = Math.min(baselineMaxY, baselineMinY);
-  ctx.fillText(EXPORT_PDF_FOOTER_SIGNATURE_TEXT, EXPORT_PDF_FOOTER_SIDE_PADDING_PT, primaryBaselineY);
+  const lineY = Math.min(
+    EXPORT_PDF_FOOTER_HEIGHT_PT - 2,
+    Math.max(
+      EXPORT_PDF_FOOTER_SIGNATURE_TOP_PADDING_PT +
+        textAscent +
+        textDescent +
+        EXPORT_PDF_FOOTER_SIGNATURE_LINE_GAP_PT,
+      EXPORT_PDF_FOOTER_HEIGHT_PT - EXPORT_PDF_FOOTER_LINE_BOTTOM_OFFSET_PT
+    )
+  );
+  const signatureBaselineY = Math.max(
+    EXPORT_PDF_FOOTER_SIGNATURE_TOP_PADDING_PT + textAscent,
+    lineY - EXPORT_PDF_FOOTER_SIGNATURE_LINE_GAP_PT - textDescent
+  );
+
+  ctx.strokeStyle = "rgba(210, 214, 224, 0.95)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(EXPORT_PDF_FOOTER_SIDE_PADDING_PT, lineY);
+  ctx.lineTo(pageWidth - EXPORT_PDF_FOOTER_SIDE_PADDING_PT, lineY);
+  ctx.stroke();
+
+  ctx.save();
+  ctx.translate(EXPORT_PDF_FOOTER_SIDE_PADDING_PT, signatureBaselineY);
+  ctx.transform(1, 0, EXPORT_PDF_FOOTER_SIGNATURE_SKEW_X, 1, 0, 0);
+  ctx.fillText(EXPORT_PDF_FOOTER_SIGNATURE_TEXT, 0, 0);
+  ctx.restore();
 
   const footerDataUrl = canvas.toDataURL("image/png");
   pdf.addImage(
