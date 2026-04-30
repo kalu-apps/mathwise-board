@@ -71,8 +71,9 @@ const EXPORT_PDF_FOOTER_SIDE_PADDING_PT = EXPORT_PDF_SAFE_MARGIN_PT;
 const EXPORT_PDF_FOOTER_LINE_BOTTOM_OFFSET_PT = 5;
 const EXPORT_PDF_FOOTER_SIGNATURE_TEXT = "Калугина Анна Викторовна";
 const EXPORT_PDF_FOOTER_SIGNATURE_FONT_SIZE_PT = 12;
+const EXPORT_PDF_FOOTER_SIGNATURE_FONT_WEIGHT = 300;
 const EXPORT_PDF_FOOTER_SIGNATURE_FONT_FAMILY =
-  '"Segoe Print", "Segoe Script", "Comic Sans MS", "Bradley Hand", "Noteworthy", "Marker Felt", cursive';
+  '"Segoe Script", "Apple Chancery", "Bradley Hand", "Noteworthy", "Segoe Print", cursive';
 const EXPORT_PDF_FOOTER_SIGNATURE_SKEW_X = -0.12;
 const EXPORT_PDF_FOOTER_SIGNATURE_LINE_GAP_PT = 1.5;
 const EXPORT_PDF_FOOTER_SIGNATURE_TOP_PADDING_PT = 3;
@@ -265,8 +266,9 @@ const drawWorkbookPdfFooter = (params: {
   ctx.fillRect(0, 0, pageWidth, EXPORT_PDF_FOOTER_HEIGHT_PT);
 
   ctx.fillStyle = "#000000";
-  ctx.font = `${EXPORT_PDF_FOOTER_SIGNATURE_FONT_SIZE_PT}px ${EXPORT_PDF_FOOTER_SIGNATURE_FONT_FAMILY}`;
+  ctx.font = `${EXPORT_PDF_FOOTER_SIGNATURE_FONT_WEIGHT} ${EXPORT_PDF_FOOTER_SIGNATURE_FONT_SIZE_PT}px ${EXPORT_PDF_FOOTER_SIGNATURE_FONT_FAMILY}`;
   ctx.textBaseline = "alphabetic";
+  ctx.textAlign = "center";
   const textMetrics = ctx.measureText(EXPORT_PDF_FOOTER_SIGNATURE_TEXT);
   const textAscent =
     Number.isFinite(textMetrics.actualBoundingBoxAscent) && textMetrics.actualBoundingBoxAscent > 0
@@ -299,7 +301,7 @@ const drawWorkbookPdfFooter = (params: {
   ctx.stroke();
 
   ctx.save();
-  ctx.translate(EXPORT_PDF_FOOTER_SIDE_PADDING_PT, signatureBaselineY);
+  ctx.translate(pageWidth / 2, signatureBaselineY);
   ctx.transform(1, 0, EXPORT_PDF_FOOTER_SIGNATURE_SKEW_X, 1, 0, 0);
   ctx.fillText(EXPORT_PDF_FOOTER_SIGNATURE_TEXT, 0, 0);
   ctx.restore();
