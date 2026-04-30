@@ -71,9 +71,8 @@ const EXPORT_PDF_FOOTER_SIDE_PADDING_PT = EXPORT_PDF_SAFE_MARGIN_PT;
 const EXPORT_PDF_FOOTER_LINE_BOTTOM_OFFSET_PT = 5;
 const EXPORT_PDF_FOOTER_SIGNATURE_TEXT = "Калугина Анна Викторовна";
 const EXPORT_PDF_FOOTER_SIGNATURE_FONT_SIZE_PT = 12;
-const EXPORT_PDF_FOOTER_SIGNATURE_FONT_WEIGHT = 300;
-const EXPORT_PDF_FOOTER_SIGNATURE_FONT_FAMILY =
-  '"Segoe Script", "Apple Chancery", "Bradley Hand", "Noteworthy", "Segoe Print", cursive';
+const EXPORT_PDF_FOOTER_SIGNATURE_FONT_WEIGHT = 400;
+const EXPORT_PDF_FOOTER_SIGNATURE_FONT_FAMILY = '"Marck Script", "Segoe Script", "Apple Chancery", "Bradley Hand", "Noteworthy", "Segoe Print", cursive';
 const EXPORT_PDF_FOOTER_SIGNATURE_SKEW_X = -0.12;
 const EXPORT_PDF_FOOTER_SIGNATURE_LINE_GAP_PT = 1.5;
 const EXPORT_PDF_FOOTER_SIGNATURE_TOP_PADDING_PT = 3;
@@ -672,6 +671,7 @@ export const useWorkbookPdfExport = ({
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       let renderedPagesCount = 0;
+      try { await document.fonts?.load('400 12px "Marck Script"', EXPORT_PDF_FOOTER_SIGNATURE_TEXT); } catch { /* Use fallback footer font. */ }
       setCanvasVisibilityMode("full");
       await waitForCanvasRender();
       for (const pageNumber of exportPages) {
