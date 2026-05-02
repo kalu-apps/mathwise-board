@@ -1,4 +1,4 @@
-import { useCallback, type MutableRefObject } from "react";
+import { useCallback, useRef, type MutableRefObject } from "react";
 import { generateId } from "@/shared/lib/id";
 import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import {
@@ -58,6 +58,12 @@ type UseWorkbookStrokeCommitHandlersParams = {
   markDirty: () => void;
 };
 
+const BOARD_SYNC_WARNING_FAILURE_WINDOW_MS = 15_000;
+const BOARD_SYNC_WARNING_MIN_FAILURES = 3;
+const BOARD_SYNC_WARNING_COOLDOWN_MS = 45_000;
+const BOARD_SYNC_WARNING_MESSAGE =
+  "Синхронизация доски заметно задерживается. Проверьте Wi-Fi, мобильную сеть или VPN. Мы продолжаем отправлять изменения.";
+
 export const useWorkbookStrokeCommitHandlers = ({
   sessionId,
   canDraw,
@@ -79,6 +85,36 @@ export const useWorkbookStrokeCommitHandlers = ({
   commitInteractiveBoardObjects,
   markDirty,
 }: UseWorkbookStrokeCommitHandlersParams) => {
+  const recoverableSyncIssueRef = useRef({
+    firstFailureAtMs: 0,
+    failureCount: 0,
+    lastWarningAtMs: 0,
+  });
+  const clearRecoverableSyncIssue = useCallback(() => {
+    recoverableSyncIssueRef.current.firstFailureAtMs = 0;
+    recoverableSyncIssueRef.current.failureCount = 0;
+  }, []);
+  const noteRecoverableSyncIssue = useCallback(() => {
+    const now = Date.now();
+    const state = recoverableSyncIssueRef.current;
+    if (
+      state.firstFailureAtMs <= 0 ||
+      now - state.firstFailureAtMs > BOARD_SYNC_WARNING_FAILURE_WINDOW_MS
+    ) {
+      state.firstFailureAtMs = now;
+      state.failureCount = 1;
+      return;
+    }
+    state.failureCount += 1;
+    if (
+      state.failureCount >= BOARD_SYNC_WARNING_MIN_FAILURES &&
+      now - state.lastWarningAtMs >= BOARD_SYNC_WARNING_COOLDOWN_MS
+    ) {
+      state.lastWarningAtMs = now;
+      setSaveSyncWarning(BOARD_SYNC_WARNING_MESSAGE);
+    }
+  }, [setSaveSyncWarning]);
+
   const commitStrokePreview = useCallback(
     (payload: { stroke: WorkbookStroke; previewVersion: number; flush?: "immediate" }) => {
       if (!sessionId || !canDraw) return;
@@ -114,6 +150,7 @@ export const useWorkbookStrokeCommitHandlers = ({
         appendEventsAndApply([{ type, payload: { stroke: strokeWithPage } }]);
       try {
         await persistStroke();
+        clearRecoverableSyncIssue();
       } catch (error) {
         let effectiveError: unknown = error;
         if (error instanceof ApiError && error.code === "conflict") {
@@ -122,6 +159,7 @@ export const useWorkbookStrokeCommitHandlers = ({
               window.setTimeout(resolve, 220);
             });
             await persistStroke();
+            clearRecoverableSyncIssue();
             return;
           } catch (retryError) {
             effectiveError = retryError;
@@ -129,9 +167,7 @@ export const useWorkbookStrokeCommitHandlers = ({
         }
         if (isRecoverableApiError(effectiveError)) {
           markDirty();
-          setSaveSyncWarning(
-            "Связь нестабильна. Продолжаем синхронизацию изменений доски."
-          );
+          noteRecoverableSyncIssue();
           return;
         }
         applyLocalStrokeCollection(strokeWithPage.layer, (current) =>
@@ -144,12 +180,13 @@ export const useWorkbookStrokeCommitHandlers = ({
       appendEventsAndApply,
       applyLocalStrokeCollection,
       canDraw,
+      clearRecoverableSyncIssue,
       currentBoardPage,
       finalizeStrokePreview,
       markDirty,
+      noteRecoverableSyncIssue,
       sessionId,
       setError,
-      setSaveSyncWarning,
     ]
   );
 
@@ -390,12 +427,11 @@ export const useWorkbookStrokeCommitHandlers = ({
 
       try {
         await appendEventsAndApply(events, historyEntry ? { historyEntry } : undefined);
+        clearRecoverableSyncIssue();
       } catch (error) {
         if (isRecoverableApiError(error)) {
           markDirty();
-          setSaveSyncWarning(
-            "Связь нестабильна. Продолжаем синхронизацию изменений доски."
-          );
+          noteRecoverableSyncIssue();
           return;
         }
         setBoardStrokes(previousBoardStrokes);
@@ -409,14 +445,15 @@ export const useWorkbookStrokeCommitHandlers = ({
       applyLocalBoardObjects,
       buildHistoryEntryFromEvents,
       canDelete,
+      clearRecoverableSyncIssue,
       currentBoardPage,
       commitInteractiveBoardObjects,
       markDirty,
+      noteRecoverableSyncIssue,
       sessionId,
       setAnnotationStrokes,
       setBoardStrokes,
       setError,
-      setSaveSyncWarning,
       annotationStrokesRef,
       boardObjectsRef,
       boardStrokesRef,

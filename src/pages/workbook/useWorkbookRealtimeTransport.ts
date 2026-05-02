@@ -37,10 +37,12 @@ type WorkbookLiveSend = (
   events: WorkbookClientEventInput[]
 ) => boolean;
 
-const REALTIME_TRANSPORT_WARNING_DELAY_MS = 12_000;
+const REALTIME_TRANSPORT_WARNING_DELAY_MS = 30_000;
 const REALTIME_TRANSPORT_RESYNC_DELAY_MS = 30_000;
-const REALTIME_POLL_FALLBACK_HEALTHY_MS = 15_000;
+const REALTIME_POLL_FALLBACK_HEALTHY_MS = 20_000;
 const REALTIME_TRANSPORT_CHECK_INTERVAL_MS = 2_500;
+const REALTIME_TRANSPORT_WARNING_MESSAGE =
+  "Синхронизация доски заметно задерживается. Проверьте сеть, VPN или прокси. Мы продолжаем восстановление автоматически.";
 
 type UseWorkbookRealtimeTransportParams = {
   sessionId: string | null;
@@ -434,10 +436,8 @@ export const useWorkbookRealtimeTransport = ({
               elapsedMs: elapsed,
               reason: "stream_and_live_disconnected_poll_unhealthy",
             });
+            setRealtimeSyncWarning(REALTIME_TRANSPORT_WARNING_MESSAGE);
           }
-          setRealtimeSyncWarning(
-            "Realtime-канал нестабилен. Продолжаем синхронизацию через резервные механизмы. Если используется VPN/прокси, отключите его и обновите страницу."
-          );
         }
       }
       if (
