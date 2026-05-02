@@ -67,6 +67,156 @@ const summarizeCreatedAtLatency = (events: WorkbookEvent[]) => {
   };
 };
 
+const summarizeError = (error: unknown) => {
+  const source =
+    error && typeof error === "object"
+      ? (error as {
+          name?: unknown;
+          message?: unknown;
+          status?: unknown;
+          code?: unknown;
+          type?: unknown;
+        })
+      : null;
+  return {
+    errorName:
+      error instanceof Error
+        ? error.name
+        : typeof source?.name === "string"
+          ? source.name
+          : typeof source?.type === "string"
+            ? source.type
+            : null,
+    errorMessage:
+      error instanceof Error
+        ? error.message
+        : typeof source?.message === "string"
+          ? source.message
+          : null,
+    errorStatus: typeof source?.status === "number" ? source.status : null,
+    errorCode: typeof source?.code === "string" ? source.code : null,
+  };
+};
+
+export const observeWorkbookRealtimeConnectionState = (params: {
+  sessionId: string;
+  channel: Extract<RealtimeMetricChannel, "stream" | "live">;
+  connected: boolean;
+  reason?: string;
+}) => {
+  if (!params.sessionId) return;
+  emitRealtimeMetric({
+    scope: "workbook",
+    phase: "connection_state",
+    channel: params.channel,
+    sessionId: params.sessionId,
+    eventCount: 0,
+    eventTypes: [],
+    timestamp: new Date().toISOString(),
+    connectionState: params.connected ? "connected" : "disconnected",
+    reason: params.reason,
+  });
+};
+
+export const observeWorkbookRealtimeConnectionError = (params: {
+  sessionId: string;
+  channel: Extract<RealtimeMetricChannel, "stream" | "live">;
+  error: unknown;
+}) => {
+  if (!params.sessionId) return;
+  emitRealtimeMetric({
+    scope: "workbook",
+    phase: "connection_error",
+    channel: params.channel,
+    sessionId: params.sessionId,
+    eventCount: 0,
+    eventTypes: [],
+    timestamp: new Date().toISOString(),
+    ...summarizeError(params.error),
+  });
+};
+
+export const observeWorkbookRealtimePollError = (params: {
+  sessionId: string;
+  error: unknown;
+  errorStreak: number;
+}) => {
+  if (!params.sessionId) return;
+  emitRealtimeMetric({
+    scope: "workbook",
+    phase: "poll_error",
+    channel: "poll",
+    sessionId: params.sessionId,
+    eventCount: 0,
+    eventTypes: [],
+    timestamp: new Date().toISOString(),
+    errorStreak: Math.max(1, Math.trunc(params.errorStreak)),
+    ...summarizeError(params.error),
+  });
+};
+
+export const observeWorkbookRealtimeFallback = (params: {
+  sessionId: string;
+  healthy: boolean;
+  elapsedMs: number;
+  reason: string;
+}) => {
+  if (!params.sessionId) return;
+  emitRealtimeMetric({
+    scope: "workbook",
+    phase: "fallback",
+    channel: "poll",
+    sessionId: params.sessionId,
+    eventCount: 0,
+    eventTypes: [],
+    timestamp: new Date().toISOString(),
+    fallbackHealthy: params.healthy,
+    elapsedMs: Math.max(0, Math.trunc(params.elapsedMs)),
+    reason: params.reason,
+  });
+};
+
+export const observeWorkbookRealtimeWarning = (params: {
+  sessionId: string;
+  elapsedMs: number;
+  reason: string;
+}) => {
+  if (!params.sessionId) return;
+  emitRealtimeMetric({
+    scope: "workbook",
+    phase: "warning",
+    channel: "poll",
+    sessionId: params.sessionId,
+    eventCount: 0,
+    eventTypes: [],
+    timestamp: new Date().toISOString(),
+    elapsedMs: Math.max(0, Math.trunc(params.elapsedMs)),
+    reason: params.reason,
+  });
+};
+
+export const observeWorkbookRealtimeResync = (params: {
+  sessionId: string;
+  reason: string;
+  elapsedMs?: number;
+}) => {
+  if (!params.sessionId) return;
+  emitRealtimeMetric({
+    scope: "workbook",
+    phase: "resync",
+    channel: "poll",
+    sessionId: params.sessionId,
+    eventCount: 0,
+    eventTypes: [],
+    timestamp: new Date().toISOString(),
+    elapsedMs:
+      typeof params.elapsedMs === "number" && Number.isFinite(params.elapsedMs)
+        ? Math.max(0, Math.trunc(params.elapsedMs))
+        : undefined,
+    reason: params.reason,
+  });
+};
+
 export const observeWorkbookRealtimeSend = (params: {
   sessionId: string;
   channel: RealtimeMetricChannel;
