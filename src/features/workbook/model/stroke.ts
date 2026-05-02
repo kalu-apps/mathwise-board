@@ -5,6 +5,9 @@ import type { WorkbookPoint, WorkbookStroke } from "./types";
 const STROKE_PREVIEW_MAX_POINTS = 288;
 const STROKE_PREVIEW_PINNED_HEAD_POINTS = 128;
 const STROKE_PREVIEW_PINNED_TAIL_POINTS = 96;
+const STROKE_FINAL_PREVIEW_MAX_POINTS = 640;
+const STROKE_FINAL_PREVIEW_PINNED_HEAD_POINTS = 192;
+const STROKE_FINAL_PREVIEW_PINNED_TAIL_POINTS = 192;
 const STROKE_PREVIEW_POINT_MERGE_EPSILON = 0.01;
 
 const clampIndex = (value: number, min: number, max: number) =>
@@ -80,14 +83,18 @@ export const toSmoothPath = (points: WorkbookPoint[]) => {
   return commands.join(" ");
 };
 
-export const buildStrokePreviewPoints = (points: WorkbookPoint[]) => {
-  if (points.length <= STROKE_PREVIEW_MAX_POINTS) {
+const buildBoundedStrokePreviewPoints = (
+  points: WorkbookPoint[],
+  maxPoints: number,
+  pinnedHeadPoints: number,
+  pinnedTailPoints: number
+) => {
+  if (points.length <= maxPoints) {
     return [...points];
   }
-  const maxPoints = STROKE_PREVIEW_MAX_POINTS;
-  const desiredHead = Math.min(STROKE_PREVIEW_PINNED_HEAD_POINTS, points.length);
+  const desiredHead = Math.min(pinnedHeadPoints, points.length);
   const desiredTail = Math.min(
-    STROKE_PREVIEW_PINNED_TAIL_POINTS,
+    pinnedTailPoints,
     Math.max(1, points.length - desiredHead)
   );
   let headCount = desiredHead;
@@ -113,6 +120,22 @@ export const buildStrokePreviewPoints = (points: WorkbookPoint[]) => {
   }
   return dedupeAdjacentPreviewPoints(output);
 };
+
+export const buildStrokePreviewPoints = (points: WorkbookPoint[]) =>
+  buildBoundedStrokePreviewPoints(
+    points,
+    STROKE_PREVIEW_MAX_POINTS,
+    STROKE_PREVIEW_PINNED_HEAD_POINTS,
+    STROKE_PREVIEW_PINNED_TAIL_POINTS
+  );
+
+export const buildStrokeFinalPreviewPoints = (points: WorkbookPoint[]) =>
+  buildBoundedStrokePreviewPoints(
+    points,
+    STROKE_FINAL_PREVIEW_MAX_POINTS,
+    STROKE_FINAL_PREVIEW_PINNED_HEAD_POINTS,
+    STROKE_FINAL_PREVIEW_PINNED_TAIL_POINTS
+  );
 
 export const getStrokeRect = (stroke: WorkbookStroke) => {
   if (!Array.isArray(stroke.points) || stroke.points.length === 0) return null;
