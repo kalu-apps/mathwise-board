@@ -21,6 +21,9 @@ export const getWorkbookPersistenceReadiness = (): WorkbookPersistenceReadiness 
   if (runtime.redis.required && !runtime.redis.connected) {
     reasons.push("runtime_redis_not_connected");
   }
+  if (runtime.redis.required && !runtime.redis.pubsubConnected) {
+    reasons.push("runtime_redis_pubsub_not_connected");
+  }
   return {
     ready: reasons.length === 0,
     reasons,

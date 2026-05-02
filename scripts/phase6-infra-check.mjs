@@ -83,7 +83,9 @@ const run = async () => {
 
   const runtime = infra.payload?.runtime ?? health.payload?.runtime ?? null;
   const redis = runtime?.redis ?? null;
-  const redisConnected = redis?.required ? redis?.connected === true : true;
+  const redisConnected = redis?.required
+    ? redis?.connected === true && redis?.pubsubConnected === true && redis?.reconnecting !== true
+    : true;
   pushCheck("redis_connected", redisConnected, redis ?? null);
   pushCheck("redis_timeouts", Number(redis?.commandTimeouts ?? 0) <= maxRedisTimeouts, {
     observed: Number(redis?.commandTimeouts ?? 0),
