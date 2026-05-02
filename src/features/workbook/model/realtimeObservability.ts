@@ -6,6 +6,8 @@ import type { WorkbookEvent } from "./types";
 import {
   emitRealtimeMetric,
   type RealtimeMetricChannel,
+  type RealtimeMetricEventDetail,
+  type RealtimeMetricPhase,
 } from "@/shared/lib/realtimeMonitoring";
 
 type PendingPersistTrace = {
@@ -66,6 +68,125 @@ const summarizeCreatedAtLatency = (events: WorkbookEvent[]) => {
     maxLatencyMs: Math.max(...latencies),
   };
 };
+
+const summarizeError = (error: unknown) => {
+  const source =
+    error && typeof error === "object"
+      ? (error as {
+          name?: unknown;
+          message?: unknown;
+          status?: unknown;
+          code?: unknown;
+          type?: unknown;
+        })
+      : null;
+  return {
+    errorName:
+      error instanceof Error
+        ? error.name
+        : typeof source?.name === "string"
+          ? source.name
+          : typeof source?.type === "string"
+            ? source.type
+            : null,
+    errorMessage:
+      error instanceof Error
+        ? error.message
+        : typeof source?.message === "string"
+          ? source.message
+          : null,
+    errorStatus: typeof source?.status === "number" ? source.status : null,
+    errorCode: typeof source?.code === "string" ? source.code : null,
+  };
+};
+
+type ControlMetricDetail = Partial<
+  Omit<
+    RealtimeMetricEventDetail,
+    "scope" | "phase" | "channel" | "sessionId" | "eventCount" | "eventTypes" | "timestamp"
+  >
+>;
+
+const emitControlMetric = (
+  phase: RealtimeMetricPhase,
+  channel: RealtimeMetricChannel,
+  sessionId: string,
+  detail: ControlMetricDetail = {}
+) => {
+  if (!sessionId) return;
+  emitRealtimeMetric({
+    scope: "workbook",
+    phase,
+    channel,
+    sessionId,
+    eventCount: 0,
+    eventTypes: [],
+    timestamp: new Date().toISOString(),
+    ...detail,
+  });
+};
+
+export const observeWorkbookRealtimeConnectionState = (params: {
+  sessionId: string;
+  channel: Extract<RealtimeMetricChannel, "stream" | "live">;
+  connected: boolean;
+  reason?: string;
+}) =>
+  emitControlMetric("connection_state", params.channel, params.sessionId, {
+    connectionState: params.connected ? "connected" : "disconnected",
+    reason: params.reason,
+  });
+
+export const observeWorkbookRealtimeConnectionError = (params: {
+  sessionId: string;
+  channel: Extract<RealtimeMetricChannel, "stream" | "live">;
+  error: unknown;
+}) => emitControlMetric("connection_error", params.channel, params.sessionId, summarizeError(params.error));
+
+export const observeWorkbookRealtimePollError = (params: {
+  sessionId: string;
+  error: unknown;
+  errorStreak: number;
+}) =>
+  emitControlMetric("poll_error", "poll", params.sessionId, {
+    errorStreak: Math.max(1, Math.trunc(params.errorStreak)),
+    ...summarizeError(params.error),
+  });
+
+export const observeWorkbookRealtimeFallback = (params: {
+  sessionId: string;
+  healthy: boolean;
+  elapsedMs: number;
+  reason: string;
+}) =>
+  emitControlMetric("fallback", "poll", params.sessionId, {
+    fallbackHealthy: params.healthy,
+    elapsedMs: Math.max(0, Math.trunc(params.elapsedMs)),
+    reason: params.reason,
+  });
+
+export const observeWorkbookRealtimeWarning = (params: {
+  sessionId: string;
+  elapsedMs: number;
+  reason: string;
+}) =>
+  emitControlMetric("warning", "poll", params.sessionId, {
+    elapsedMs: Math.max(0, Math.trunc(params.elapsedMs)),
+    reason: params.reason,
+  });
+
+export const observeWorkbookRealtimeResync = (params: {
+  sessionId: string;
+  reason: string;
+  elapsedMs?: number;
+}) =>
+  emitControlMetric("resync", "poll", params.sessionId, {
+    elapsedMs:
+      typeof params.elapsedMs === "number" && Number.isFinite(params.elapsedMs)
+        ? Math.max(0, Math.trunc(params.elapsedMs))
+        : undefined,
+    reason: params.reason,
+  });
 
 export const observeWorkbookRealtimeSend = (params: {
   sessionId: string;

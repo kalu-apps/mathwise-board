@@ -9,7 +9,6 @@ import { normalizeWorkbookAssetContentUrl } from "@/features/workbook/model/work
 import {
   WORKBOOK_BOARD_BACKGROUND_COLOR,
   WORKBOOK_BOARD_GRID_COLOR,
-  WORKBOOK_BOARD_PRIMARY_COLOR,
 } from "@/features/workbook/model/workbookVisualColors";
 import { resolveWorkbookPageFrameBounds } from "@/features/workbook/model/pageFrame";
 import type {
@@ -69,14 +68,14 @@ const EXPORT_MIN_SCALE = 0.35;
 const EXPORT_PDF_SAFE_MARGIN_PT = 28;
 const EXPORT_PDF_FOOTER_HEIGHT_PT = EXPORT_PDF_SAFE_MARGIN_PT;
 const EXPORT_PDF_FOOTER_SIDE_PADDING_PT = EXPORT_PDF_SAFE_MARGIN_PT;
-const EXPORT_PDF_FOOTER_LINE_Y_OFFSET_PT = 8;
-const EXPORT_PDF_FOOTER_PRIMARY_FONT_SIZE_PT = 8;
-const EXPORT_PDF_FOOTER_PRIMARY_TEXT_RGB = 56;
-const EXPORT_PDF_FOOTER_SECONDARY_FONT_SIZE_PT = 8;
-const EXPORT_PDF_FOOTER_HANDLE_TEXT = "@annaviktorovna.mathege";
-const EXPORT_PDF_FOOTER_HANDLE_GAP_PT = 8;
-const EXPORT_PDF_FOOTER_TEXT_TOP_GAP_PT = 4;
-const EXPORT_PDF_FOOTER_TEXT_BOTTOM_PADDING_PT = 3;
+const EXPORT_PDF_FOOTER_LINE_BOTTOM_OFFSET_PT = 5;
+const EXPORT_PDF_FOOTER_SIGNATURE_TEXT = "Калугина Анна Викторовна";
+const EXPORT_PDF_FOOTER_SIGNATURE_FONT_SIZE_PT = 12;
+const EXPORT_PDF_FOOTER_SIGNATURE_FONT_WEIGHT = 400;
+const EXPORT_PDF_FOOTER_SIGNATURE_FONT_FAMILY = '"Marck Script", "Segoe Script", "Apple Chancery", "Bradley Hand", "Noteworthy", "Segoe Print", cursive';
+const EXPORT_PDF_FOOTER_SIGNATURE_SKEW_X = -0.12;
+const EXPORT_PDF_FOOTER_SIGNATURE_LINE_GAP_PT = 1.5;
+const EXPORT_PDF_FOOTER_SIGNATURE_TOP_PADDING_PT = 3;
 const inlinedExportImageUrls = new Map<string, Promise<string | null>>();
 const WORKBOOK_ASSET_PATH_RE = /^\/api\/workbook\/sessions\/[^/]+\/assets\/[^/]+(?:\/content)?$/i;
 
@@ -265,9 +264,33 @@ const drawWorkbookPdfFooter = (params: {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, pageWidth, EXPORT_PDF_FOOTER_HEIGHT_PT);
 
-  const lineY = Math.min(EXPORT_PDF_FOOTER_HEIGHT_PT - 2, EXPORT_PDF_FOOTER_LINE_Y_OFFSET_PT);
-  const currentYear = new Date().getFullYear();
-  const primaryText = `© ${currentYear} · Автор: Калугина Анна Викторовна`;
+  ctx.fillStyle = "#000000";
+  ctx.font = `${EXPORT_PDF_FOOTER_SIGNATURE_FONT_WEIGHT} ${EXPORT_PDF_FOOTER_SIGNATURE_FONT_SIZE_PT}px ${EXPORT_PDF_FOOTER_SIGNATURE_FONT_FAMILY}`;
+  ctx.textBaseline = "alphabetic";
+  ctx.textAlign = "center";
+  const textMetrics = ctx.measureText(EXPORT_PDF_FOOTER_SIGNATURE_TEXT);
+  const textAscent =
+    Number.isFinite(textMetrics.actualBoundingBoxAscent) && textMetrics.actualBoundingBoxAscent > 0
+      ? textMetrics.actualBoundingBoxAscent
+      : EXPORT_PDF_FOOTER_SIGNATURE_FONT_SIZE_PT * 0.8;
+  const textDescent =
+    Number.isFinite(textMetrics.actualBoundingBoxDescent) && textMetrics.actualBoundingBoxDescent >= 0
+      ? textMetrics.actualBoundingBoxDescent
+      : EXPORT_PDF_FOOTER_SIGNATURE_FONT_SIZE_PT * 0.2;
+  const lineY = Math.min(
+    EXPORT_PDF_FOOTER_HEIGHT_PT - 2,
+    Math.max(
+      EXPORT_PDF_FOOTER_SIGNATURE_TOP_PADDING_PT +
+        textAscent +
+        textDescent +
+        EXPORT_PDF_FOOTER_SIGNATURE_LINE_GAP_PT,
+      EXPORT_PDF_FOOTER_HEIGHT_PT - EXPORT_PDF_FOOTER_LINE_BOTTOM_OFFSET_PT
+    )
+  );
+  const signatureBaselineY = Math.max(
+    EXPORT_PDF_FOOTER_SIGNATURE_TOP_PADDING_PT + textAscent,
+    lineY - EXPORT_PDF_FOOTER_SIGNATURE_LINE_GAP_PT - textDescent
+  );
 
   ctx.strokeStyle = "rgba(210, 214, 224, 0.95)";
   ctx.lineWidth = 1;
@@ -276,35 +299,11 @@ const drawWorkbookPdfFooter = (params: {
   ctx.lineTo(pageWidth - EXPORT_PDF_FOOTER_SIDE_PADDING_PT, lineY);
   ctx.stroke();
 
-  ctx.fillStyle = `rgb(${EXPORT_PDF_FOOTER_PRIMARY_TEXT_RGB}, ${EXPORT_PDF_FOOTER_PRIMARY_TEXT_RGB}, ${EXPORT_PDF_FOOTER_PRIMARY_TEXT_RGB})`;
-  ctx.font = `italic ${EXPORT_PDF_FOOTER_PRIMARY_FONT_SIZE_PT}px "Arial", "Segoe UI", sans-serif`;
-  ctx.textBaseline = "alphabetic";
-  const textMetrics = ctx.measureText(primaryText);
-  const textAscent =
-    Number.isFinite(textMetrics.actualBoundingBoxAscent) && textMetrics.actualBoundingBoxAscent > 0
-      ? textMetrics.actualBoundingBoxAscent
-      : EXPORT_PDF_FOOTER_PRIMARY_FONT_SIZE_PT * 0.8;
-  const textDescent =
-    Number.isFinite(textMetrics.actualBoundingBoxDescent) && textMetrics.actualBoundingBoxDescent >= 0
-      ? textMetrics.actualBoundingBoxDescent
-      : EXPORT_PDF_FOOTER_PRIMARY_FONT_SIZE_PT * 0.2;
-  const baselineMinY = lineY + EXPORT_PDF_FOOTER_TEXT_TOP_GAP_PT + textAscent;
-  const baselineMaxY = EXPORT_PDF_FOOTER_HEIGHT_PT - EXPORT_PDF_FOOTER_TEXT_BOTTOM_PADDING_PT - textDescent;
-  const primaryBaselineY = Math.min(baselineMaxY, baselineMinY);
-  ctx.fillText(primaryText, EXPORT_PDF_FOOTER_SIDE_PADDING_PT, primaryBaselineY);
-
-  ctx.fillStyle = WORKBOOK_BOARD_PRIMARY_COLOR;
-  ctx.font = `600 ${EXPORT_PDF_FOOTER_SECONDARY_FONT_SIZE_PT}px "Arial", "Segoe UI", sans-serif`;
-  const secondaryTextMetrics = ctx.measureText(EXPORT_PDF_FOOTER_HANDLE_TEXT);
-  const preferredSecondaryX =
-    EXPORT_PDF_FOOTER_SIDE_PADDING_PT + textMetrics.width + EXPORT_PDF_FOOTER_HANDLE_GAP_PT;
-  const maxSecondaryX =
-    pageWidth - EXPORT_PDF_FOOTER_SIDE_PADDING_PT - secondaryTextMetrics.width;
-  const secondaryTextX = Math.max(
-    EXPORT_PDF_FOOTER_SIDE_PADDING_PT,
-    Math.min(preferredSecondaryX, maxSecondaryX)
-  );
-  ctx.fillText(EXPORT_PDF_FOOTER_HANDLE_TEXT, secondaryTextX, primaryBaselineY);
+  ctx.save();
+  ctx.translate(pageWidth / 2, signatureBaselineY);
+  ctx.transform(1, 0, EXPORT_PDF_FOOTER_SIGNATURE_SKEW_X, 1, 0, 0);
+  ctx.fillText(EXPORT_PDF_FOOTER_SIGNATURE_TEXT, 0, 0);
+  ctx.restore();
 
   const footerDataUrl = canvas.toDataURL("image/png");
   pdf.addImage(
@@ -672,6 +671,7 @@ export const useWorkbookPdfExport = ({
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       let renderedPagesCount = 0;
+      try { await document.fonts?.load('400 12px "Marck Script"', EXPORT_PDF_FOOTER_SIGNATURE_TEXT); } catch { /* Use fallback footer font. */ }
       setCanvasVisibilityMode("full");
       await waitForCanvasRender();
       for (const pageNumber of exportPages) {

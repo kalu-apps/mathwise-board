@@ -165,6 +165,17 @@ export const applyWorkbookIncomingEventsBatch = ({
     }
     return `seq:${Math.max(0, Math.trunc(eventSeq ?? 0))}`;
   };
+  const markEventProcessed = (event: WorkbookEvent) => {
+    if (!event?.id) return;
+    const processedEventIds = refs.processedEventIdsRef.current;
+    processedEventIds.add(event.id);
+    if (processedEventIds.size <= 50_000) return;
+    const idsToKeep = Array.from(processedEventIds).slice(-2_000);
+    processedEventIds.clear();
+    idsToKeep.forEach((id) => {
+      processedEventIds.add(id);
+    });
+  };
   orderedEvents.forEach((event) => {
     try {
       const eventSeq =
@@ -204,6 +215,10 @@ export const applyWorkbookIncomingEventsBatch = ({
             snapshotSeq: lastAppliedSeqRef.current,
           });
         }
+        return;
+      }
+      if (event?.id && refs.processedEventIdsRef.current.has(event.id)) {
+        staleEventsSkipped += 1;
         return;
       }
       const parsedEventTs = Date.parse(event.createdAt);
@@ -297,6 +312,7 @@ export const applyWorkbookIncomingEventsBatch = ({
       ) {
         syncHistoryStacksFromIncomingUndoRedoEvent(event);
         realtimeEventsApplied += 1;
+        markEventProcessed(event);
         if (eventSeq !== null) {
           maxAppliedSeq = Math.max(maxAppliedSeq, eventSeq);
         }
@@ -318,6 +334,7 @@ export const applyWorkbookIncomingEventsBatch = ({
         })
       ) {
         sessionMetaEventsApplied += 1;
+        markEventProcessed(event);
         if (eventSeq !== null) {
           maxAppliedSeq = Math.max(maxAppliedSeq, eventSeq);
         }
@@ -337,6 +354,7 @@ export const applyWorkbookIncomingEventsBatch = ({
         return;
       }
       if (eventSeq !== null) {
+        markEventProcessed(event);
         maxAppliedSeq = Math.max(maxAppliedSeq, eventSeq);
       }
     } catch (error) {
@@ -346,6 +364,10 @@ export const applyWorkbookIncomingEventsBatch = ({
   flushIncomingHistoryBatch();
   if (maxAppliedSeq > lastAppliedSeqRef.current) {
     lastAppliedSeqRef.current = maxAppliedSeq;
+  }
+  if (maxAppliedSeq > refs.latestSeqRef.current) {
+    refs.latestSeqRef.current = maxAppliedSeq;
+    actions.setLatestSeq(maxAppliedSeq);
   }
   if (staleEventsSkipped > 0) {
     reportWorkbookCorrectnessEvent({

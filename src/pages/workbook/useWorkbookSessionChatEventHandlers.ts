@@ -157,17 +157,8 @@ export function useWorkbookSessionChatEventHandlers({
           return;
         }
         if (!event?.id || processedEventIdsRef.current.has(event.id)) return;
-        processedEventIdsRef.current.add(event.id);
         unseen.push(event);
       });
-      if (processedEventIdsRef.current.size > 50_000) {
-        processedEventIdsRef.current.clear();
-        unseen.slice(-2_000).forEach((event) => {
-          if (event?.id) {
-            processedEventIdsRef.current.add(event.id);
-          }
-        });
-      }
       return unseen;
     },
     [lastAppliedSeqRef, processedEventIdsRef]

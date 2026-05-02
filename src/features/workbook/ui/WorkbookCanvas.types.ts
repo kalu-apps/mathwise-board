@@ -120,7 +120,11 @@ export type WorkbookCanvasProps = {
   onSelectedObjectChange: (objectId: string | null) => void;
   onSelectedConstraintChange: (constraintId: string | null) => void;
   onStrokeCommit: (stroke: WorkbookStroke) => void;
-  onStrokePreview?: (payload: { stroke: WorkbookStroke; previewVersion: number }) => void;
+  onStrokePreview?: (payload: {
+    stroke: WorkbookStroke;
+    previewVersion: number;
+    flush?: "immediate";
+  }) => void;
   onEraserPreview?: (payload: {
     gestureId: string;
     layer: WorkbookLayer;

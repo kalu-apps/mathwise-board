@@ -15,6 +15,7 @@ import type {
   WorkbookTimerState,
 } from "@/features/workbook/model/types";
 import { ApiError, isRecoverableApiError } from "@/shared/api/client";
+import { useWorkbookSnapshotRecoverableWarning } from "./useWorkbookSnapshotRecoverableWarning";
 
 type SnapshotCompactionLevel = "moderate" | "aggressive" | "minimal";
 
@@ -264,6 +265,9 @@ export function useWorkbookPersistSnapshots({
   scheduleAutosave,
 }: UseWorkbookPersistSnapshotsParams) {
   const lastPersistCompletedAtRef = useRef(0);
+  const { clearRecoverableSnapshotIssue, noteRecoverableSnapshotIssue } =
+    useWorkbookSnapshotRecoverableWarning(setSaveSyncWarning);
+
   return useCallback(
     async (options?: { silent?: boolean; force?: boolean }) => {
       if (!sessionId) return false;
@@ -323,6 +327,7 @@ export function useWorkbookPersistSnapshots({
       };
       const markSnapshotSaved = () => {
         lastPersistCompletedAtRef.current = Date.now();
+        clearRecoverableSnapshotIssue();
         if (dirtyRevisionRef.current === revisionAtSaveStart) {
           dirtyRef.current = false;
           setSaveState("saved");
@@ -394,7 +399,6 @@ export function useWorkbookPersistSnapshots({
           const compacted = await persistCompactedSnapshots(["moderate", "aggressive", "minimal"]);
           if (compacted) {
             markSnapshotSaved();
-            setSaveSyncWarning(compacted.warning);
             return true;
           }
         }
@@ -413,7 +417,6 @@ export function useWorkbookPersistSnapshots({
             ]);
             if (compacted) {
               markSnapshotSaved();
-              setSaveSyncWarning(compacted.warning);
               return true;
             }
           } catch (compactionError) {
@@ -433,16 +436,12 @@ export function useWorkbookPersistSnapshots({
           dirtyRef.current = false;
           pendingAutosaveAfterSaveRef.current = false;
           setSaveState("saved");
-          setSaveSyncWarning(
-            "Снимок доски временно недоступен. Продолжаем синхронизацию через события."
-          );
+          setSaveSyncWarning(null);
           return true;
         }
         if (isRecoverableApiError(currentError)) {
           setSaveState("saving");
-          setSaveSyncWarning(
-            "Связь нестабильна. Автосохранение продолжит синхронизацию при восстановлении соединения."
-          );
+          noteRecoverableSnapshotIssue();
           pendingAutosaveAfterSaveRef.current = true;
           return false;
         }
@@ -468,6 +467,7 @@ export function useWorkbookPersistSnapshots({
       chatMessages,
       comments,
       constraints,
+      clearRecoverableSnapshotIssue,
       dirtyRef,
       dirtyRevisionRef,
       documentState,
@@ -476,6 +476,7 @@ export function useWorkbookPersistSnapshots({
       latestSeq,
       lastAppliedSeqRef,
       libraryState,
+      noteRecoverableSnapshotIssue,
       pendingAutosaveAfterSaveRef,
       scheduleAutosave,
       sessionId,
