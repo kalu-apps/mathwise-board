@@ -17,7 +17,7 @@ import { InlineMobiusLoader } from "@/shared/ui/loading";
 export default function WorkbookInviteJoinPage() {
   const { token = "" } = useParams();
   const navigate = useNavigate();
-  const { user, updateUser } = useAuth();
+  const { user, isAuthReady, updateUser } = useAuth();
   const [state, setState] = useState<{
     loading: boolean;
     error: string | null;
@@ -35,6 +35,11 @@ export default function WorkbookInviteJoinPage() {
   });
   const [guestName, setGuestName] = useState("");
   const [guestNameError, setGuestNameError] = useState<string | null>(null);
+  const [pendingJoinRedirect, setPendingJoinRedirect] = useState<{
+    sessionId: string;
+    token: string;
+    userId: string;
+  } | null>(null);
   const shouldCollectGuestName = !user || user.role !== "teacher";
   const suggestedGuestName = useMemo(
     () =>
@@ -48,16 +53,17 @@ export default function WorkbookInviteJoinPage() {
     [guestName, suggestedGuestName]
   );
 
-  const canJoin = useMemo(
-    () =>
-      Boolean(
-        token &&
-          !state.loading &&
-          !state.error &&
-          (!shouldCollectGuestName || effectiveGuestName.length >= 2)
-      ),
-    [effectiveGuestName.length, shouldCollectGuestName, state.error, state.loading, token]
-  );
+  const canJoin = useMemo(() => {
+    const hasGuestName = !shouldCollectGuestName || effectiveGuestName.length >= 2;
+    return Boolean(token && isAuthReady && !state.loading && !state.error && hasGuestName);
+  }, [
+    effectiveGuestName.length,
+    isAuthReady,
+    shouldCollectGuestName,
+    state.error,
+    state.loading,
+    token,
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -120,8 +126,21 @@ export default function WorkbookInviteJoinPage() {
     };
   }, [token]);
 
+  useEffect(() => {
+    if (
+      !pendingJoinRedirect ||
+      pendingJoinRedirect.token !== token ||
+      user?.id !== pendingJoinRedirect.userId
+    ) {
+      return;
+    }
+    navigate(`/workbook/session/${encodeURIComponent(pendingJoinRedirect.sessionId)}`, {
+      replace: true,
+    });
+  }, [navigate, pendingJoinRedirect, token, user?.id]);
+
   const handleJoin = async () => {
-    if (!token) return;
+    if (!token || !isAuthReady) return;
     const guestDisplayName = effectiveGuestName;
     if (shouldCollectGuestName && guestDisplayName.length < 2) {
       setGuestNameError(t("workbookInvite.guestNameRequired"));
@@ -149,13 +168,15 @@ export default function WorkbookInviteJoinPage() {
       }
       setState((prev) => ({
         ...prev,
-        loading: false,
+        loading: true,
         joined: true,
         sessionId: joined.session.id,
       }));
       void prefetchWorkbookSessionRuntime();
-      navigate(`/workbook/session/${encodeURIComponent(joined.session.id)}`, {
-        replace: true,
+      setPendingJoinRedirect({
+        sessionId: joined.session.id,
+        token,
+        userId: resolvedUser.id,
       });
     } catch (error) {
       const detailsMessage =
