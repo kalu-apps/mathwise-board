@@ -15,6 +15,7 @@ import type {
   WorkbookTimerState,
 } from "@/features/workbook/model/types";
 import { ApiError, isRecoverableApiError } from "@/shared/api/client";
+import { useWorkbookSnapshotRecoverableWarning } from "./useWorkbookSnapshotRecoverableWarning";
 
 type SnapshotCompactionLevel = "moderate" | "aggressive" | "minimal";
 
@@ -27,11 +28,6 @@ const SNAPSHOT_RENDERED_PAGE_IMAGE_AGGRESSIVE_MAX_DATA_URL_CHARS = 12_000;
 const SNAPSHOT_OBJECT_IMAGE_MINIMAL_MAX_DATA_URL_CHARS = 8_000;
 const SNAPSHOT_PREEMPTIVE_COMPACTION_DATA_URL_CHARS = 160_000;
 const SNAPSHOT_MIN_AUTOSAVE_GAP_MS = 2_600;
-const SNAPSHOT_SYNC_WARNING_FAILURE_WINDOW_MS = 45_000;
-const SNAPSHOT_SYNC_WARNING_MIN_FAILURES = 3;
-const SNAPSHOT_SYNC_WARNING_COOLDOWN_MS = 90_000;
-const SNAPSHOT_SYNC_WARNING_MESSAGE =
-  "Резервное сохранение доски заметно задерживается. Проверьте сеть или VPN. Работа на доске продолжается.";
 
 const isImageDataUrl = (value: unknown): value is string =>
   typeof value === "string" && value.startsWith("data:image/");
@@ -269,35 +265,8 @@ export function useWorkbookPersistSnapshots({
   scheduleAutosave,
 }: UseWorkbookPersistSnapshotsParams) {
   const lastPersistCompletedAtRef = useRef(0);
-  const recoverableSnapshotIssueRef = useRef({
-    firstFailureAtMs: 0,
-    failureCount: 0,
-    lastWarningAtMs: 0,
-  });
-  const clearRecoverableSnapshotIssue = useCallback(() => {
-    recoverableSnapshotIssueRef.current.firstFailureAtMs = 0;
-    recoverableSnapshotIssueRef.current.failureCount = 0;
-  }, []);
-  const noteRecoverableSnapshotIssue = useCallback(() => {
-    const now = Date.now();
-    const state = recoverableSnapshotIssueRef.current;
-    if (
-      state.firstFailureAtMs <= 0 ||
-      now - state.firstFailureAtMs > SNAPSHOT_SYNC_WARNING_FAILURE_WINDOW_MS
-    ) {
-      state.firstFailureAtMs = now;
-      state.failureCount = 1;
-      return;
-    }
-    state.failureCount += 1;
-    if (
-      state.failureCount >= SNAPSHOT_SYNC_WARNING_MIN_FAILURES &&
-      now - state.lastWarningAtMs >= SNAPSHOT_SYNC_WARNING_COOLDOWN_MS
-    ) {
-      state.lastWarningAtMs = now;
-      setSaveSyncWarning(SNAPSHOT_SYNC_WARNING_MESSAGE);
-    }
-  }, [setSaveSyncWarning]);
+  const { clearRecoverableSnapshotIssue, noteRecoverableSnapshotIssue } =
+    useWorkbookSnapshotRecoverableWarning(setSaveSyncWarning);
 
   return useCallback(
     async (options?: { silent?: boolean; force?: boolean }) => {

@@ -17,15 +17,18 @@ import type { WorkbookClientEventInput } from "@/features/workbook/model/events"
 import {
   observeWorkbookRealtimeConnectionError,
   observeWorkbookRealtimeConnectionState,
-  observeWorkbookRealtimeFallback,
   observeWorkbookRealtimeGap,
   observeWorkbookRealtimePollError,
   observeWorkbookRealtimeReceive,
   observeWorkbookRealtimeResync,
-  observeWorkbookRealtimeWarning,
 } from "@/features/workbook/model/realtimeObservability";
 import type { WorkbookEvent } from "@/features/workbook/model/types";
 import type { RealtimeMetricChannel } from "@/shared/lib/realtimeMonitoring";
+import {
+  evaluateWorkbookRealtimeTransportHealth,
+  REALTIME_TRANSPORT_CHECK_INTERVAL_MS,
+  type WorkbookRealtimeFallbackState,
+} from "./workbookRealtimeTransportHealth";
 
 type EnqueueIncomingRealtimeApply = (batch: {
   channel: RealtimeMetricChannel;
@@ -33,16 +36,7 @@ type EnqueueIncomingRealtimeApply = (batch: {
   events: WorkbookEvent[];
 }) => void;
 
-type WorkbookLiveSend = (
-  events: WorkbookClientEventInput[]
-) => boolean;
-
-const REALTIME_TRANSPORT_WARNING_DELAY_MS = 30_000;
-const REALTIME_TRANSPORT_RESYNC_DELAY_MS = 30_000;
-const REALTIME_POLL_FALLBACK_HEALTHY_MS = 20_000;
-const REALTIME_TRANSPORT_CHECK_INTERVAL_MS = 2_500;
-const REALTIME_TRANSPORT_WARNING_MESSAGE =
-  "Синхронизация доски заметно задерживается. Проверьте сеть, VPN или прокси. Мы продолжаем восстановление автоматически.";
+type WorkbookLiveSend = (events: WorkbookClientEventInput[]) => boolean;
 
 type UseWorkbookRealtimeTransportParams = {
   sessionId: string | null;
@@ -111,7 +105,7 @@ export const useWorkbookRealtimeTransport = ({
   const authRequiredNotifiedRef = useRef(false);
   const lastServerUnavailableAtRef = useRef(0);
   const lastPollSuccessAtRef = useRef(0);
-  const lastFallbackStateRef = useRef<string | null>(null);
+  const lastFallbackStateRef = useRef<WorkbookRealtimeFallbackState>(null);
   const initialLoadSessionKeyRef = useRef<string | null>(null);
   const clearAuthBlock = useCallback(() => {
     authBlockedRef.current = false;
@@ -410,48 +404,22 @@ export const useWorkbookRealtimeTransport = ({
       const startedAt = realtimeDisconnectSinceRef.current;
       if (!startedAt) return;
       const now = Date.now();
-      const elapsed = now - startedAt;
-      const pollFallbackHealthy =
-        lastPollSuccessAtRef.current > 0 &&
-        now - lastPollSuccessAtRef.current <= REALTIME_POLL_FALLBACK_HEALTHY_MS;
-      if (elapsed >= REALTIME_TRANSPORT_WARNING_DELAY_MS) {
-        if (authBlockedRef.current) {
-          notifyAuthRequired();
-        } else if (pollFallbackHealthy) {
-          setRealtimeSyncWarning(null);
-          if (lastFallbackStateRef.current !== "poll_fallback_healthy") {
-            lastFallbackStateRef.current = "poll_fallback_healthy";
-            observeWorkbookRealtimeFallback({
-              sessionId,
-              healthy: true,
-              elapsedMs: elapsed,
-              reason: "stream_and_live_disconnected_poll_healthy",
-            });
-          }
-        } else {
-          if (lastFallbackStateRef.current !== "poll_fallback_unhealthy") {
-            lastFallbackStateRef.current = "poll_fallback_unhealthy";
-            observeWorkbookRealtimeWarning({
-              sessionId,
-              elapsedMs: elapsed,
-              reason: "stream_and_live_disconnected_poll_unhealthy",
-            });
-            setRealtimeSyncWarning(REALTIME_TRANSPORT_WARNING_MESSAGE);
-          }
-        }
-      }
-      if (
-        !authBlockedRef.current &&
-        !(
-          lastServerUnavailableAtRef.current > 0 &&
-          now - lastServerUnavailableAtRef.current < 25_000
-        ) &&
-        !pollFallbackHealthy &&
-        elapsed >= REALTIME_TRANSPORT_RESYNC_DELAY_MS &&
-        now - lastForcedResyncAtRef.current >= 20_000
-      ) {
-        triggerSessionResync("stream_and_live_disconnected_poll_unhealthy");
-      }
+      evaluateWorkbookRealtimeTransportHealth({
+        sessionId,
+        startedAt,
+        now,
+        authBlocked: authBlockedRef.current,
+        lastPollSuccessAt: lastPollSuccessAtRef.current,
+        lastFallbackState: lastFallbackStateRef.current,
+        lastServerUnavailableAt: lastServerUnavailableAtRef.current,
+        lastForcedResyncAt: lastForcedResyncAtRef.current,
+        notifyAuthRequired,
+        setFallbackState: (state) => {
+          lastFallbackStateRef.current = state;
+        },
+        setRealtimeSyncWarning,
+        triggerSessionResync,
+      });
     }, REALTIME_TRANSPORT_CHECK_INTERVAL_MS);
     return () => {
       window.clearInterval(timerId);
