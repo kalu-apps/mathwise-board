@@ -12,9 +12,7 @@ import {
   subscribeWorkbookEventsStream,
   subscribeWorkbookLiveSocket,
 } from "@/features/workbook/model/api";
-import {
-  hasWorkbookEventGap,
-} from "@/features/workbook/model/runtime";
+import { hasWorkbookEventGap } from "@/features/workbook/model/runtime";
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import {
   observeWorkbookRealtimeConnectionError,
@@ -28,21 +26,6 @@ import {
 } from "@/features/workbook/model/realtimeObservability";
 import type { WorkbookEvent } from "@/features/workbook/model/types";
 import type { RealtimeMetricChannel } from "@/shared/lib/realtimeMonitoring";
-
-const resolveNextRealtimeCursorFromEvents = (
-  currentSeq: number,
-  events: WorkbookEvent[]
-) => {
-  if (events.length === 0) {
-    return Math.max(0, currentSeq);
-  }
-  let nextSeq = Math.max(0, currentSeq);
-  events.forEach((event) => {
-    if (typeof event?.seq !== "number" || !Number.isFinite(event.seq)) return;
-    nextSeq = Math.max(nextSeq, Math.max(0, Math.trunc(event.seq)));
-  });
-  return nextSeq;
-};
 
 type EnqueueIncomingRealtimeApply = (batch: {
   channel: RealtimeMetricChannel;
@@ -78,7 +61,6 @@ type UseWorkbookRealtimeTransportParams = {
   realtimeDisconnectSinceRef: MutableRefObject<number | null>;
   lastForcedResyncAtRef: MutableRefObject<number>;
   workbookLiveSendRef: MutableRefObject<WorkbookLiveSend | null>;
-  setLatestSeq: Dispatch<SetStateAction<number>>;
   setRealtimeSyncWarning: Dispatch<SetStateAction<string | null>>;
   isWorkbookStreamConnected: boolean;
   isWorkbookLiveConnected: boolean;
@@ -108,7 +90,6 @@ export const useWorkbookRealtimeTransport = ({
   realtimeDisconnectSinceRef,
   lastForcedResyncAtRef,
   workbookLiveSendRef,
-  setLatestSeq,
   setRealtimeSyncWarning,
   isWorkbookStreamConnected,
   isWorkbookLiveConnected,
@@ -344,14 +325,6 @@ export const useWorkbookRealtimeTransport = ({
             events: unseenEvents,
           });
         }
-        const nextLatest = resolveNextRealtimeCursorFromEvents(
-          latestSeqRef.current,
-          response.events
-        );
-        if (nextLatest > latestSeqRef.current) {
-          latestSeqRef.current = nextLatest;
-          setLatestSeq(nextLatest);
-        }
         schedulePoll(unseenEvents.length > 0 ? "event" : "idle");
       } catch (error) {
         const nextErrorStreak = Math.max(1, pollErrorStreak + 1);
@@ -410,7 +383,6 @@ export const useWorkbookRealtimeTransport = ({
     sessionId,
     enabled,
     bootstrapReady,
-    setLatestSeq,
     setRealtimeSyncWarning,
     triggerSessionResync,
   ]);
@@ -527,14 +499,6 @@ export const useWorkbookRealtimeTransport = ({
             events: unseenEvents,
           });
         }
-        const nextLatest = resolveNextRealtimeCursorFromEvents(
-          latestSeqRef.current,
-          payload.events
-        );
-        if (nextLatest > latestSeqRef.current) {
-          latestSeqRef.current = nextLatest;
-          setLatestSeq(nextLatest);
-        }
       },
       onConnectionChange: (connected) => {
         observeWorkbookRealtimeConnectionState({
@@ -568,7 +532,6 @@ export const useWorkbookRealtimeTransport = ({
     bootstrapReady,
     sessionId,
     setIsWorkbookStreamConnected,
-    setLatestSeq,
     setRealtimeSyncWarning,
     triggerSessionResync,
   ]);
@@ -608,14 +571,6 @@ export const useWorkbookRealtimeTransport = ({
             events: unseenEvents,
           });
         }
-        const nextLatest = resolveNextRealtimeCursorFromEvents(
-          latestSeqRef.current,
-          payload.events
-        );
-        if (nextLatest > latestSeqRef.current) {
-          latestSeqRef.current = nextLatest;
-          setLatestSeq(nextLatest);
-        }
       },
       onConnectionChange: (connected) => {
         observeWorkbookRealtimeConnectionState({
@@ -652,7 +607,6 @@ export const useWorkbookRealtimeTransport = ({
     bootstrapReady,
     sessionId,
     setIsWorkbookLiveConnected,
-    setLatestSeq,
     setRealtimeSyncWarning,
     workbookLiveSendRef,
   ]);

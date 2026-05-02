@@ -324,7 +324,6 @@ export default function WorkbookSessionPage() {
     solid3dDraftPoints,
   } = workbookSessionTooling;
   const {
-    setLatestSeq,
     setRealtimeSyncWarning,
     setIsSessionChatOpen,
     setIsSessionChatMinimized,
@@ -1285,7 +1284,6 @@ export default function WorkbookSessionPage() {
       realtimeDisconnectSinceRef: refs.realtimeDisconnectSinceRef,
       lastForcedResyncAtRef: refs.lastForcedResyncAtRef,
       workbookLiveSendRef: refs.workbookLiveSendRef,
-      setLatestSeq: workbookSessionActions.setLatestSeq,
       setRealtimeSyncWarning: workbookSessionActions.setRealtimeSyncWarning,
       isWorkbookStreamConnected: workbookSessionCollab.isWorkbookStreamConnected,
       isWorkbookLiveConnected: workbookSessionCollab.isWorkbookLiveConnected,
@@ -1412,9 +1410,6 @@ export default function WorkbookSessionPage() {
     isWorkbookLiveConnected,
     realtimeBackpressureV2Enabled,
     workbookLiveSendRef,
-    latestSeqRef,
-    processedEventIdsRef,
-    setLatestSeq,
     buildHistoryEntryFromEvents,
     filterUnseenWorkbookEvents,
     markDirty,
