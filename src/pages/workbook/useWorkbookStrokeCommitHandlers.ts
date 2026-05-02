@@ -33,7 +33,11 @@ type UseWorkbookStrokeCommitHandlersParams = {
   canDelete: boolean;
   currentBoardPage: number;
   buildHistoryEntryFromEvents: (events: WorkbookClientEventInput[]) => WorkbookHistoryEntry | null;
-  queueStrokePreview: (payload: { stroke: WorkbookStroke; previewVersion: number }) => void;
+  queueStrokePreview: (payload: {
+    stroke: WorkbookStroke;
+    previewVersion: number;
+    flush?: "immediate";
+  }) => void;
   finalizeStrokePreview: (strokeId: string) => void;
   applyLocalStrokeCollection: (
     targetLayer: WorkbookLayer,
@@ -76,7 +80,7 @@ export const useWorkbookStrokeCommitHandlers = ({
   markDirty,
 }: UseWorkbookStrokeCommitHandlersParams) => {
   const commitStrokePreview = useCallback(
-    (payload: { stroke: WorkbookStroke; previewVersion: number }) => {
+    (payload: { stroke: WorkbookStroke; previewVersion: number; flush?: "immediate" }) => {
       if (!sessionId || !canDraw) return;
       if (payload.stroke.tool !== "pen" && payload.stroke.tool !== "highlighter") return;
       const strokeWithPage: WorkbookStroke = {
@@ -86,6 +90,7 @@ export const useWorkbookStrokeCommitHandlers = ({
       queueStrokePreview({
         stroke: strokeWithPage,
         previewVersion: payload.previewVersion,
+        flush: payload.flush,
       });
     },
     [canDraw, currentBoardPage, queueStrokePreview, sessionId]
