@@ -197,6 +197,9 @@
 .workbook-session__alert {
   margin: 0;
 }
+.workbook-session__alert--toast {
+  width: min(680px, calc(100vw - 24px));
+}
 .workbook-session__alert--floating {
   position: fixed;
   top: 12px;

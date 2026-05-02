@@ -1392,6 +1392,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       onStrokePreview({
         stroke: finalized.previewStroke,
         previewVersion: finalized.previewStroke.previewVersion,
+        flush: "immediate",
       });
     }
     showCommittedStrokeBridge(finalized.committedStroke, finalized.pathD);

@@ -1,18 +1,5 @@
-.connectivity-banner-wrap {
-  position: sticky;
-  top: 72px;
-  z-index: 99;
-  padding: clamp(8px, 0.3vw + 7px, 12px) var(--layout-gutter) 0;
-  pointer-events: none;
-}
-
-.connectivity-banner-container {
-  width: min(100%, var(--layout-content-max));
-  margin-inline: auto;
-  pointer-events: auto;
-}
-
 .connectivity-banner.MuiAlert-root {
+  width: min(680px, calc(100vw - 24px));
   border-radius: var(--radius-md);
   border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-sm);
@@ -74,42 +61,7 @@
   color: var(--text-muted);
 }
 
-.connectivity-banner .MuiAlert-action {
-  margin-top: 0;
-  margin-left: 8px;
-  padding-top: 0;
-  align-self: center;
-}
-
-.connectivity-banner__actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.connectivity-banner .MuiButton-root {
-  min-height: clamp(32px, 0.32vw + 31px, 38px);
-  border-radius: var(--radius-xs);
-  border: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--surface-elevated) 65%, transparent);
-  color: var(--text-primary);
-  text-transform: none;
-  font-size: var(--font-size-xs);
-  font-weight: 700;
-  padding: clamp(5px, 0.2vw + 4px, 7px) clamp(8px, 0.3vw + 7px, 11px);
-}
-
-.connectivity-banner .MuiButton-root:hover {
-  background: color-mix(in srgb, var(--surface-elevated) 82%, transparent);
-  border-color: var(--border-strong);
-}
-
 @media (max-width: 1024px) {
-  .connectivity-banner-wrap {
-    top: clamp(56px, 0.64vw + 52px, 66px);
-    padding: clamp(6px, 0.2vw + 5px, 10px) var(--layout-gutter) 0;
-  }
-
   .connectivity-banner.MuiAlert-root {
     padding: 8px 10px;
     gap: 6px;
@@ -130,15 +82,5 @@
 
   .connectivity-banner__content span {
     font-size: clamp(0.62rem, 0.12vw + 0.6rem, 0.72rem);
-  }
-
-  .connectivity-banner .MuiButton-root {
-    min-width: auto;
-    padding: 6px 8px;
-    font-size: clamp(0.62rem, 0.12vw + 0.6rem, 0.72rem);
-  }
-
-  .connectivity-banner__actions {
-    gap: 6px;
   }
 }

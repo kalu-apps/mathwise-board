@@ -25,6 +25,11 @@ const REDIS_REQUIRED =
     .toLowerCase() === "true";
 const WORKBOOK_EVENT_CHANNEL_PREFIX = "mw:workbook:events:";
 const WORKBOOK_EVENT_SEQ_KEY_PREFIX = "mw:workbook:seq:";
+const LIVE_REDIS_QUEUED_EVENT_LIMIT = readPositiveInt(
+  process.env.BOARD_RUNTIME_REDIS_LIVE_QUEUE_EVENT_LIMIT,
+  96,
+  5_000
+);
 
 const redisConfig = {
   enabled: REDIS_URL.length > 0,
@@ -81,6 +86,13 @@ let redisInitPromise: Promise<void> | null = null;
 
 const workbookListenersBySession = new Map<string, Set<WorkbookRealtimeListener>>();
 const redisSubscribedWorkbookChannels = new Set<string>();
+const liveRedisPublishStateBySession = new Map<
+  string,
+  {
+    inFlight: boolean;
+    queued: WorkbookRealtimePayload | null;
+  }
+>();
 
 const redisStatus: {
   enabled: boolean;
@@ -88,6 +100,8 @@ const redisStatus: {
   connected: boolean;
   pubsubConnected: boolean;
   reconnecting: boolean;
+  clientReconnecting: boolean;
+  subscriberReconnecting: boolean;
   initAttempts: number;
   initFailures: number;
   commandTimeouts: number;
@@ -100,12 +114,19 @@ const redisStatus: {
   lastConnectedAt: string | null;
   lastInitAt: string | null;
   lastReconnectAt: string | null;
+  lastCommandTimeoutAt: string | null;
+  lastCommandRetryAt: string | null;
+  lastPublishFailureAt: string | null;
+  lastPublishRetryAt: string | null;
+  lastSeqAllocationFailureAt: string | null;
 } = {
   enabled: redisConfig.enabled,
   required: redisConfig.required,
   connected: false,
   pubsubConnected: false,
   reconnecting: false,
+  clientReconnecting: false,
+  subscriberReconnecting: false,
   initAttempts: 0,
   initFailures: 0,
   commandTimeouts: 0,
@@ -118,6 +139,11 @@ const redisStatus: {
   lastConnectedAt: null,
   lastInitAt: null,
   lastReconnectAt: null,
+  lastCommandTimeoutAt: null,
+  lastCommandRetryAt: null,
+  lastPublishFailureAt: null,
+  lastPublishRetryAt: null,
+  lastSeqAllocationFailureAt: null,
 };
 
 const nowMs = () =>
@@ -162,6 +188,25 @@ const normalizeError = (error: unknown) => {
 
 const markRedisError = (error: unknown) => {
   redisStatus.lastError = normalizeError(error);
+};
+
+const refreshRedisReconnectingStatus = () => {
+  redisStatus.reconnecting = redisStatus.clientReconnecting || redisStatus.subscriberReconnecting;
+};
+
+const clearRedisErrorWhenHealthy = () => {
+  if (redisStatus.connected && redisStatus.pubsubConnected && !redisStatus.reconnecting) {
+    redisStatus.lastError = null;
+  }
+};
+
+const setRedisClientReconnecting = (isSubscriber: boolean, reconnecting: boolean) => {
+  if (isSubscriber) {
+    redisStatus.subscriberReconnecting = reconnecting;
+  } else {
+    redisStatus.clientReconnecting = reconnecting;
+  }
+  refreshRedisReconnectingStatus();
 };
 
 const isRetryableRedisError = (error: unknown) => {
@@ -218,24 +263,33 @@ const bindRedisClientEvents = (client: RedisClient, isSubscriber: boolean) => {
   client.on("ready", () => {
     if (isSubscriber) {
       redisStatus.pubsubConnected = true;
+      setRedisClientReconnecting(true, false);
+      clearRedisErrorWhenHealthy();
       return;
     }
     redisStatus.connected = true;
-    redisStatus.reconnecting = false;
+    setRedisClientReconnecting(false, false);
     redisStatus.lastConnectedAt = new Date().toISOString();
-    redisStatus.lastError = null;
+    clearRedisErrorWhenHealthy();
   });
   client.on("reconnecting", () => {
-    redisStatus.reconnecting = true;
+    if (isSubscriber) {
+      redisStatus.pubsubConnected = false;
+    } else {
+      redisStatus.connected = false;
+    }
+    setRedisClientReconnecting(isSubscriber, true);
     redisStatus.reconnectEvents += 1;
     redisStatus.lastReconnectAt = new Date().toISOString();
   });
   client.on("end", () => {
     if (isSubscriber) {
       redisStatus.pubsubConnected = false;
+      setRedisClientReconnecting(true, false);
       return;
     }
     redisStatus.connected = false;
+    setRedisClientReconnecting(false, false);
   });
 };
 
@@ -297,11 +351,13 @@ const runRedisCommand = async <T>(label: string, task: () => Promise<T>): Promis
       lastError = error;
       if (normalizeError(error).includes("_timeout")) {
         redisStatus.commandTimeouts += 1;
+        redisStatus.lastCommandTimeoutAt = new Date().toISOString();
       }
       if (attempt >= redisConfig.commandRetries || !isRetryableRedisError(error)) {
         throw error;
       }
       redisStatus.commandRetries += 1;
+      redisStatus.lastCommandRetryAt = new Date().toISOString();
       await sleep(Math.min(2000, 100 + attempt * 120));
     }
   }
@@ -353,8 +409,8 @@ export const initializeRuntimeServices = async () => {
 
         redisClient = client;
         redisStatus.connected = true;
+        setRedisClientReconnecting(false, false);
         redisStatus.lastConnectedAt = new Date().toISOString();
-        redisStatus.lastError = null;
 
         subscriber = redisClient.duplicate();
         bindRedisClientEvents(subscriber, true);
@@ -365,12 +421,16 @@ export const initializeRuntimeServices = async () => {
         );
         redisSubscriberClient = subscriber;
         redisStatus.pubsubConnected = true;
+        setRedisClientReconnecting(true, false);
+        clearRedisErrorWhenHealthy();
         return;
       } catch (error) {
         lastError = error;
         redisStatus.initFailures += 1;
         redisStatus.connected = false;
         redisStatus.pubsubConnected = false;
+        setRedisClientReconnecting(false, false);
+        setRedisClientReconnecting(true, false);
         markRedisError(error);
         await Promise.allSettled([disconnectClient(subscriber), disconnectClient(client)]);
         redisClient = null;
@@ -434,12 +494,32 @@ export const allocateWorkbookRuntimeSequence = async (params: {
     };
   } catch (error) {
     redisStatus.seqAllocationFailures += 1;
+    redisStatus.lastSeqAllocationFailureAt = new Date().toISOString();
     markRedisError(error);
     return null;
   }
 };
 
-export const publishWorkbookRealtimePayload = async (
+const mergeLiveRedisPayload = (
+  current: WorkbookRealtimePayload | null,
+  incoming: WorkbookRealtimePayload
+): WorkbookRealtimePayload => {
+  if (!current) {
+    return {
+      ...incoming,
+      events: incoming.events.slice(-LIVE_REDIS_QUEUED_EVENT_LIMIT),
+      channel: "live",
+    };
+  }
+  return {
+    ...incoming,
+    latestSeq: Math.max(current.latestSeq, incoming.latestSeq),
+    events: [...current.events, ...incoming.events].slice(-LIVE_REDIS_QUEUED_EVENT_LIMIT),
+    channel: "live",
+  };
+};
+
+const publishWorkbookRealtimePayloadNow = async (
   sessionId: string,
   payload: WorkbookRealtimePayload
 ): Promise<boolean> => {
@@ -469,11 +549,13 @@ export const publishWorkbookRealtimePayload = async (
         break;
       }
       redisStatus.publishRetries += 1;
+      redisStatus.lastPublishRetryAt = new Date().toISOString();
       await sleep(Math.min(2_000, 120 + attempt * 180));
     }
   }
 
   redisStatus.publishFailures += 1;
+  redisStatus.lastPublishFailureAt = new Date().toISOString();
   markRedisError(publishError);
   recordWorkbookServerTrace({
     scope: "workbook",
@@ -488,6 +570,56 @@ export const publishWorkbookRealtimePayload = async (
     error: normalizeError(publishError),
   });
   return false;
+};
+
+const flushLiveRedisPublishQueue = async (
+  sessionId: string,
+  initialPayload: WorkbookRealtimePayload
+) => {
+  const state = liveRedisPublishStateBySession.get(sessionId);
+  if (!state) return false;
+  state.inFlight = true;
+  let payload: WorkbookRealtimePayload | null = initialPayload;
+  let success = true;
+  try {
+    while (payload) {
+      success = (await publishWorkbookRealtimePayloadNow(sessionId, payload)) && success;
+      payload = state.queued;
+      state.queued = null;
+    }
+    return success;
+  } finally {
+    state.inFlight = false;
+    if (state.queued) {
+      const queued = state.queued;
+      state.queued = null;
+      void flushLiveRedisPublishQueue(sessionId, queued);
+    } else {
+      liveRedisPublishStateBySession.delete(sessionId);
+    }
+  }
+};
+
+export const publishWorkbookRealtimePayload = async (
+  sessionId: string,
+  payload: WorkbookRealtimePayload
+): Promise<boolean> => {
+  if (payload.channel !== "live") {
+    return publishWorkbookRealtimePayloadNow(sessionId, payload);
+  }
+  let state = liveRedisPublishStateBySession.get(sessionId);
+  if (state?.inFlight) {
+    state.queued = mergeLiveRedisPayload(state.queued, payload);
+    return true;
+  }
+  if (!state) {
+    state = {
+      inFlight: false,
+      queued: null,
+    };
+    liveRedisPublishStateBySession.set(sessionId, state);
+  }
+  return flushLiveRedisPublishQueue(sessionId, payload);
 };
 
 export const subscribeWorkbookRealtimePayload = async (
@@ -541,6 +673,8 @@ export const getRuntimeServicesStatus = () => ({
     connected: redisStatus.connected,
     pubsubConnected: redisStatus.pubsubConnected,
     reconnecting: redisStatus.reconnecting,
+    clientReconnecting: redisStatus.clientReconnecting,
+    subscriberReconnecting: redisStatus.subscriberReconnecting,
     initAttempts: redisStatus.initAttempts,
     initFailures: redisStatus.initFailures,
     reconnectEvents: redisStatus.reconnectEvents,
@@ -551,14 +685,26 @@ export const getRuntimeServicesStatus = () => ({
     seqAllocationFailures: redisStatus.seqAllocationFailures,
     subscribedChannels: redisSubscribedWorkbookChannels.size,
     listenerSessions: workbookListenersBySession.size,
+    livePublishInFlightSessions: Array.from(liveRedisPublishStateBySession.values()).filter(
+      (state) => state.inFlight
+    ).length,
+    livePublishQueuedSessions: Array.from(liveRedisPublishStateBySession.values()).filter(
+      (state) => state.queued
+    ).length,
     lastConnectedAt: redisStatus.lastConnectedAt,
     lastInitAt: redisStatus.lastInitAt,
     lastReconnectAt: redisStatus.lastReconnectAt,
+    lastCommandTimeoutAt: redisStatus.lastCommandTimeoutAt,
+    lastCommandRetryAt: redisStatus.lastCommandRetryAt,
+    lastPublishFailureAt: redisStatus.lastPublishFailureAt,
+    lastPublishRetryAt: redisStatus.lastPublishRetryAt,
+    lastSeqAllocationFailureAt: redisStatus.lastSeqAllocationFailureAt,
     lastError: redisStatus.lastError,
     config: {
       connectTimeoutMs: redisConfig.connectTimeoutMs,
       initTimeoutMs: redisConfig.initTimeoutMs,
       commandTimeoutMs: redisConfig.commandTimeoutMs,
+      liveQueuedEventLimit: LIVE_REDIS_QUEUED_EVENT_LIMIT,
       reconnectBaseDelayMs: redisConfig.reconnectBaseDelayMs,
       reconnectMaxDelayMs: redisConfig.reconnectMaxDelayMs,
       reconnectMaxAttempts: redisConfig.reconnectMaxAttempts,
@@ -585,7 +731,10 @@ export const shutdownRuntimeServices = async () => {
   redisSubscriberClient = null;
   redisSubscribedWorkbookChannels.clear();
   workbookListenersBySession.clear();
+  liveRedisPublishStateBySession.clear();
   redisStatus.connected = false;
   redisStatus.pubsubConnected = false;
-  redisStatus.reconnecting = false;
+  redisStatus.clientReconnecting = false;
+  redisStatus.subscriberReconnecting = false;
+  refreshRedisReconnectingStatus();
 };

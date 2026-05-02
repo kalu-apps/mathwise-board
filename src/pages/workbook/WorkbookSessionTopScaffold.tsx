@@ -1,6 +1,7 @@
 import type {
   ChangeEventHandler,
   MutableRefObject,
+  SyntheticEvent,
 } from "react";
 import {
   useEffect,
@@ -9,9 +10,12 @@ import {
 import {
   Alert,
   Button,
+  Fade,
+  Snackbar,
 } from "@mui/material";
 
-const REALTIME_WARNING_SHOW_DELAY_MS = 900;
+const REALTIME_WARNING_SHOW_DELAY_MS = 1_500;
+const SYNC_NOTICE_AUTO_HIDE_MS = 8_500;
 
 interface WorkbookSessionTopScaffoldProps {
   boardFileInputRef: MutableRefObject<HTMLInputElement | null>;
@@ -52,21 +56,6 @@ export function WorkbookSessionTopScaffold({
   onConfirmClear,
   awaitingClearRequest,
 }: WorkbookSessionTopScaffoldProps) {
-  const [visibleRealtimeSyncWarning, setVisibleRealtimeSyncWarning] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!realtimeSyncWarning) {
-      setVisibleRealtimeSyncWarning(null);
-      return;
-    }
-    const timerId = window.setTimeout(() => {
-      setVisibleRealtimeSyncWarning(realtimeSyncWarning);
-    }, REALTIME_WARNING_SHOW_DELAY_MS);
-    return () => {
-      window.clearTimeout(timerId);
-    };
-  }, [realtimeSyncWarning]);
-
   return (
     <>
       <input
@@ -97,27 +86,18 @@ export function WorkbookSessionTopScaffold({
       ) : null}
 
       {saveSyncWarning ? (
-        <Alert
-          severity="warning"
+        <WorkbookSyncNoticeSnackbar
+          key={`save-${saveSyncWarning}`}
+          message={saveSyncWarning}
           onClose={() => setSaveSyncWarning(null)}
-          className={`workbook-session__alert${
-            isFullscreen ? " workbook-session__alert--floating" : ""
-          }`}
-        >
-          {saveSyncWarning}
-        </Alert>
-      ) : null}
-
-      {visibleRealtimeSyncWarning ? (
-        <Alert
-          severity="warning"
+        />
+      ) : realtimeSyncWarning ? (
+        <WorkbookSyncNoticeSnackbar
+          key={`realtime-${realtimeSyncWarning}`}
+          message={realtimeSyncWarning}
+          showDelayMs={REALTIME_WARNING_SHOW_DELAY_MS}
           onClose={() => setRealtimeSyncWarning(null)}
-          className={`workbook-session__alert${
-            isFullscreen ? " workbook-session__alert--floating" : ""
-          }`}
-        >
-          {visibleRealtimeSyncWarning}
-        </Alert>
+        />
       ) : null}
 
       {pendingClearRequest &&
@@ -141,5 +121,50 @@ export function WorkbookSessionTopScaffold({
         </Alert>
       ) : null}
     </>
+  );
+}
+
+function WorkbookSyncNoticeSnackbar({
+  message,
+  showDelayMs = 0,
+  onClose,
+}: {
+  message: string;
+  showDelayMs?: number;
+  onClose: () => void;
+}) {
+  const [open, setOpen] = useState(showDelayMs <= 0);
+
+  useEffect(() => {
+    if (showDelayMs <= 0) return undefined;
+    const timerId = window.setTimeout(() => {
+      setOpen(true);
+    }, showDelayMs);
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [showDelayMs]);
+
+  const handleClose = (_event?: Event | SyntheticEvent, reason?: string) => {
+    if (reason === "clickaway") return;
+    setOpen(false);
+    onClose();
+  };
+
+  return (
+    <Snackbar
+      open={open}
+      autoHideDuration={SYNC_NOTICE_AUTO_HIDE_MS}
+      onClose={handleClose}
+      anchorOrigin={{ vertical: "top", horizontal: "center" }}
+      TransitionComponent={Fade}
+    >
+      <Alert
+        severity="warning"
+        className="workbook-session__alert workbook-session__alert--toast"
+      >
+        {message}
+      </Alert>
+    </Snackbar>
   );
 }

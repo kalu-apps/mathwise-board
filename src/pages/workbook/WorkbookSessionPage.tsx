@@ -324,7 +324,6 @@ export default function WorkbookSessionPage() {
     solid3dDraftPoints,
   } = workbookSessionTooling;
   const {
-    setLatestSeq,
     setRealtimeSyncWarning,
     setIsSessionChatOpen,
     setIsSessionChatMinimized,
@@ -726,7 +725,6 @@ export default function WorkbookSessionPage() {
     realtimeBackpressureV2Enabled,
     volatilePreviewMaxPerFlush,
     volatilePreviewQueueMax,
-    isLivekitConnected,
     micEnabled,
     setMicEnabled,
     cameraEnabled,
@@ -1286,7 +1284,6 @@ export default function WorkbookSessionPage() {
       realtimeDisconnectSinceRef: refs.realtimeDisconnectSinceRef,
       lastForcedResyncAtRef: refs.lastForcedResyncAtRef,
       workbookLiveSendRef: refs.workbookLiveSendRef,
-      setLatestSeq: workbookSessionActions.setLatestSeq,
       setRealtimeSyncWarning: workbookSessionActions.setRealtimeSyncWarning,
       isWorkbookStreamConnected: workbookSessionCollab.isWorkbookStreamConnected,
       isWorkbookLiveConnected: workbookSessionCollab.isWorkbookLiveConnected,
@@ -1300,7 +1297,6 @@ export default function WorkbookSessionPage() {
       modeAwarePollingEnabled: realtimeModeAwarePollingEnabled,
       adaptivePollingMinMs: ADAPTIVE_POLLING_MIN_MS,
       adaptivePollingMaxMs: ADAPTIVE_POLLING_MAX_MS,
-      isMediaAudioConnected: isLivekitConnected,
     },
     sessionTabLockParams: {
       sessionTabLockStorageKey,
@@ -1414,9 +1410,6 @@ export default function WorkbookSessionPage() {
     isWorkbookLiveConnected,
     realtimeBackpressureV2Enabled,
     workbookLiveSendRef,
-    latestSeqRef,
-    processedEventIdsRef,
-    setLatestSeq,
     buildHistoryEntryFromEvents,
     filterUnseenWorkbookEvents,
     markDirty,

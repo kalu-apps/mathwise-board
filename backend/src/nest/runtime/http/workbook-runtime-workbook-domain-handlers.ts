@@ -749,34 +749,6 @@ const handleWorkbookEventsRoute = async (
     }
     const body = (await deps.readBody(req)) as { events?: unknown[] } | null;
     const events = Array.isArray(body?.events) ? body.events : [];
-    const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_events_live";
-    const requestFingerprint = deps.hashWorkbookOperationFingerprint({
-      sessionId,
-      events,
-    });
-    const idempotencyKey = deps.resolveWriteIdempotencyKey({
-      req,
-      scope: idempotencyScope,
-      actorUserId: actor.id,
-      sessionId,
-      payloadFingerprint: {
-        events,
-      },
-    });
-    const existingOperation = deps.readWorkbookIdempotentOperation(db, {
-      scope: idempotencyScope,
-      actorUserId: actor.id,
-      idempotencyKey,
-      requestFingerprint,
-    });
-    if (existingOperation?.conflict) {
-      deps.conflict(res, "idempotency_key_reused_with_different_payload");
-      return true;
-    }
-    if (existingOperation) {
-      deps.json(res, existingOperation.statusCode, existingOperation.payload);
-      return true;
-    }
     const sanitizedEvents = deps.sanitizeWorkbookLiveEvents(participant, events);
     if (sanitizedEvents.length === 0) {
       deps.json(res, 200, { ok: true });
@@ -795,16 +767,7 @@ const handleWorkbookEventsRoute = async (
       events: appendResult.events,
       channel: "live",
     });
-    const responsePayload = { ok: true as const };
-    deps.saveWorkbookIdempotentOperation(db, {
-      scope: idempotencyScope,
-      actorUserId: actor.id,
-      idempotencyKey,
-      requestFingerprint,
-      statusCode: 200,
-      payload: responsePayload,
-    });
-    deps.json(res, 200, responsePayload);
+    deps.json(res, 200, { ok: true });
     return true;
   }
 
@@ -835,33 +798,6 @@ const handleWorkbookEventsRoute = async (
       stroke?: Record<string, unknown>;
       previewVersion?: unknown;
     } | null;
-    const idempotencyScope: WorkbookOperationRecord["scope"] = "workbook_events_preview";
-    const requestFingerprint = deps.hashWorkbookOperationFingerprint({
-      sessionId,
-      body,
-    });
-    const idempotencyKey = deps.resolveWriteIdempotencyKey({
-      req,
-      scope: idempotencyScope,
-      actorUserId: actor.id,
-      sessionId,
-      payloadFingerprint: body ?? {},
-    });
-    const existingOperation = deps.readWorkbookIdempotentOperation(db, {
-      scope: idempotencyScope,
-      actorUserId: actor.id,
-      idempotencyKey,
-      requestFingerprint,
-    });
-    if (existingOperation?.conflict) {
-      deps.conflict(res, "idempotency_key_reused_with_different_payload");
-      return true;
-    }
-    if (existingOperation) {
-      deps.json(res, existingOperation.statusCode, existingOperation.payload);
-      return true;
-    }
-
     const previewVersion =
       typeof body?.previewVersion === "number" && Number.isFinite(body.previewVersion)
         ? Math.max(1, Math.trunc(body.previewVersion))
@@ -924,16 +860,7 @@ const handleWorkbookEventsRoute = async (
       events: appendResult.events,
       channel: "live",
     });
-    const responsePayload = { ok: true as const };
-    deps.saveWorkbookIdempotentOperation(db, {
-      scope: idempotencyScope,
-      actorUserId: actor.id,
-      idempotencyKey,
-      requestFingerprint,
-      statusCode: 200,
-      payload: responsePayload,
-    });
-    deps.json(res, 200, responsePayload);
+    deps.json(res, 200, { ok: true });
     return true;
   }
 

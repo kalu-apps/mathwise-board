@@ -48,7 +48,11 @@ interface UseWorkbookCanvasStrokePreviewBridgeParams {
   newRendererEnabled: boolean;
   boardStrokes: WorkbookStroke[];
   annotationStrokes: WorkbookStroke[];
-  onStrokePreview?: (payload: { stroke: WorkbookStroke; previewVersion: number }) => void;
+  onStrokePreview?: (payload: {
+    stroke: WorkbookStroke;
+    previewVersion: number;
+    flush?: "immediate";
+  }) => void;
   onEraserPreview?: (payload: {
     gestureId: string;
     layer: WorkbookLayer;

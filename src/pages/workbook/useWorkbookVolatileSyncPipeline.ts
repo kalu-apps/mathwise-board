@@ -292,7 +292,7 @@ export const useWorkbookVolatileSyncPipeline = ({
   );
 
   const queueStrokePreview = useCallback(
-    (payload: { stroke: WorkbookStroke; previewVersion: number }) => {
+    (payload: { stroke: WorkbookStroke; previewVersion: number; flush?: "immediate" }) => {
       const strokeId = payload.stroke.id;
       if (!strokeId) return;
       const incomingVersion =
@@ -327,13 +327,23 @@ export const useWorkbookVolatileSyncPipeline = ({
           strokePreviewQueuedByIdRef.current.delete(expiredStrokeId);
         });
       }
+      if (payload.flush === "immediate") {
+        if (volatileSyncTimerRef.current !== null) {
+          window.clearTimeout(volatileSyncTimerRef.current);
+          volatileSyncTimerRef.current = null;
+        }
+        flushQueuedVolatileSync();
+        return;
+      }
       scheduleVolatileSyncFlush();
     },
     [
+      flushQueuedVolatileSync,
       strokePreviewQueuedByIdRef,
       strokePreviewQueuedAtRef,
       strokePreviewVersionByIdRef,
       volatilePreviewQueueMax,
+      volatileSyncTimerRef,
       sessionId,
       realtimeBackpressureV2Enabled,
       scheduleVolatileSyncFlush,

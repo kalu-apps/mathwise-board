@@ -32,9 +32,6 @@ type UseWorkbookEventCommitPipelineParams = {
   isWorkbookLiveConnected: boolean;
   realtimeBackpressureV2Enabled: boolean;
   workbookLiveSendRef: MutableRefObject<((events: WorkbookClientEventInput[]) => boolean) | null>;
-  latestSeqRef: MutableRefObject<number>;
-  processedEventIdsRef: MutableRefObject<Set<string>>;
-  setLatestSeq: (value: number) => void;
   buildHistoryEntryFromEvents: (
     events: WorkbookClientEventInput[]
   ) => WorkbookHistoryEntry | null;
@@ -55,8 +52,6 @@ export const useWorkbookEventCommitPipeline = ({
   isWorkbookLiveConnected,
   realtimeBackpressureV2Enabled,
   workbookLiveSendRef,
-  latestSeqRef,
-  setLatestSeq,
   buildHistoryEntryFromEvents,
   filterUnseenWorkbookEvents,
   markDirty,
@@ -317,16 +312,6 @@ export const useWorkbookEventCommitPipeline = ({
             events: unseenEvents,
           });
         }
-        const nextLatest = response.events.reduce((maxSeq, event) => {
-          if (typeof event?.seq !== "number" || !Number.isFinite(event.seq)) {
-            return maxSeq;
-          }
-          return Math.max(maxSeq, Math.max(0, Math.trunc(event.seq)));
-        }, latestSeqRef.current);
-        if (nextLatest > latestSeqRef.current) {
-          latestSeqRef.current = nextLatest;
-          setLatestSeq(nextLatest);
-        }
         if (shouldMarkDirty) {
           markDirty();
         }
@@ -353,11 +338,9 @@ export const useWorkbookEventCommitPipeline = ({
       filterUnseenWorkbookEvents,
       handleRealtimeAuthRequired,
       handleRealtimeConflict,
-      latestSeqRef,
       markDirty,
       pushHistoryEntry,
       rollbackHistoryEntry,
-      setLatestSeq,
     ]
   );
 

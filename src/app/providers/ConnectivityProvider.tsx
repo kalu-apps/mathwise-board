@@ -23,8 +23,11 @@ import {
 
 const HEALTHCHECK_TIMEOUT_MS = 12_000;
 const AUTO_RECHECK_MS = 25_000;
-const DEGRADED_FAILURE_THRESHOLD = 5;
+const DEGRADED_FAILURE_THRESHOLD = 6;
+const DEGRADED_FAILURE_MIN_OBSERVATION_MS = 15_000;
+const DEGRADED_FAILURE_WINDOW_MS = 30_000;
 const DEGRADED_RECOVERY_MIN_MS = 5_000;
+const OFFLINE_CONFIRMATION_DELAY_MS = 3_000;
 
 const DEGRADE_CODES = new Set<ApiFailureEventDetail["code"]>([
   "timeout",
@@ -38,7 +41,9 @@ const isWorkbookRealtimePath = (path: string) =>
   path.startsWith("/workbook/sessions/") &&
   (path.includes("/events") ||
     path.includes("/presence") ||
-    path.includes("/snapshot"));
+    path.includes("/snapshot") ||
+    path.includes("/media/config") ||
+    path.includes("/media/livekit-token"));
 
 const getInitialStatus = (): ConnectivityStatus => {
   if (typeof navigator === "undefined") return "online";
@@ -62,6 +67,8 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
   const [outboxSnapshot, setOutboxSnapshot] = useState(() => getOutboxSnapshot());
   const checkingRef = useRef(false);
   const consecutiveTransportFailuresRef = useRef(0);
+  const firstTransportFailureAtRef = useRef<number | null>(null);
+  const offlineConfirmationTimerRef = useRef<number | null>(null);
   const statusRef = useRef<ConnectivityStatus>(getInitialStatus());
   const degradedSinceRef = useRef<number | null>(null);
 
@@ -102,6 +109,47 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const clearOfflineConfirmation = useCallback(() => {
+    if (offlineConfirmationTimerRef.current === null) return;
+    window.clearTimeout(offlineConfirmationTimerRef.current);
+    offlineConfirmationTimerRef.current = null;
+  }, []);
+
+  const resetTransportFailures = useCallback(() => {
+    consecutiveTransportFailuresRef.current = 0;
+    firstTransportFailureAtRef.current = null;
+  }, []);
+
+  const noteTransportFailure = useCallback(() => {
+    const now = Date.now();
+    if (
+      !firstTransportFailureAtRef.current ||
+      now - firstTransportFailureAtRef.current > DEGRADED_FAILURE_WINDOW_MS
+    ) {
+      firstTransportFailureAtRef.current = now;
+      consecutiveTransportFailuresRef.current = 1;
+      return;
+    }
+    consecutiveTransportFailuresRef.current += 1;
+    if (
+      consecutiveTransportFailuresRef.current >= DEGRADED_FAILURE_THRESHOLD &&
+      now - firstTransportFailureAtRef.current >= DEGRADED_FAILURE_MIN_OBSERVATION_MS
+    ) {
+      markDegraded();
+    }
+  }, [markDegraded]);
+
+  const scheduleOfflineConfirmation = useCallback(() => {
+    clearOfflineConfirmation();
+    offlineConfirmationTimerRef.current = window.setTimeout(() => {
+      offlineConfirmationTimerRef.current = null;
+      if (typeof navigator !== "undefined" && navigator.onLine) return;
+      resetTransportFailures();
+      markOffline();
+      setLastErrorCode("network_offline");
+    }, OFFLINE_CONFIRMATION_DELAY_MS);
+  }, [clearOfflineConfirmation, markOffline, resetTransportFailures]);
+
   const recheck = useCallback(async () => {
     if (checkingRef.current) return;
     if (typeof window === "undefined") return;
@@ -123,32 +171,31 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
       });
 
       if (response.status >= 500) {
-        consecutiveTransportFailuresRef.current += 1;
-        if (consecutiveTransportFailuresRef.current >= DEGRADED_FAILURE_THRESHOLD) {
-          markDegraded();
-        }
+        noteTransportFailure();
       } else {
-        consecutiveTransportFailuresRef.current = 0;
+        clearOfflineConfirmation();
+        resetTransportFailures();
         markOnline();
         setLastErrorCode(null);
       }
     } catch {
       if (typeof navigator !== "undefined" && !navigator.onLine) {
-        consecutiveTransportFailuresRef.current = 0;
-        markOffline();
-        setLastErrorCode("network_offline");
+        scheduleOfflineConfirmation();
       } else {
-        consecutiveTransportFailuresRef.current += 1;
-        if (consecutiveTransportFailuresRef.current >= DEGRADED_FAILURE_THRESHOLD) {
-          markDegraded();
-        }
+        noteTransportFailure();
       }
     } finally {
       window.clearTimeout(timeoutId);
       checkingRef.current = false;
       setChecking(false);
     }
-  }, [markDegraded, markOffline, markOnline]);
+  }, [
+    clearOfflineConfirmation,
+    markOnline,
+    noteTransportFailure,
+    resetTransportFailures,
+    scheduleOfflineConfirmation,
+  ]);
 
   useEffect(() => {
     setRetrySnapshot(getRetryLastActionSnapshot());
@@ -168,15 +215,16 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
     if (typeof window === "undefined") return undefined;
 
     const handleOnline = () => {
-      consecutiveTransportFailuresRef.current = 0;
-      markDegraded();
+      clearOfflineConfirmation();
+      resetTransportFailures();
+      markOnline(true);
+      setLastErrorCode(null);
       void recheck();
       void flushOutboxQueue();
     };
 
     const handleOffline = () => {
-      markOffline();
-      setLastErrorCode("network_offline");
+      scheduleOfflineConfirmation();
     };
 
     const handleApiFailure = (event: Event) => {
@@ -189,16 +237,12 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
       setLastErrorCode(detail.code);
 
       if (detail.code === "network_offline") {
-        consecutiveTransportFailuresRef.current = 0;
-        markOffline();
+        scheduleOfflineConfirmation();
         return;
       }
 
       if (DEGRADE_CODES.has(detail.code)) {
-        consecutiveTransportFailuresRef.current += 1;
-        if (consecutiveTransportFailuresRef.current >= DEGRADED_FAILURE_THRESHOLD) {
-          markDegraded();
-        }
+        noteTransportFailure();
       }
     };
 
@@ -209,7 +253,8 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (typeof navigator !== "undefined" && !navigator.onLine) return;
-      consecutiveTransportFailuresRef.current = 0;
+      clearOfflineConfirmation();
+      resetTransportFailures();
       markOnline();
       setLastErrorCode(null);
     };
@@ -246,8 +291,16 @@ export function ConnectivityProvider({ children }: { children: ReactNode }) {
       );
       window.removeEventListener("focus", handleWakeup);
       document.removeEventListener("visibilitychange", handleWakeup);
+      clearOfflineConfirmation();
     };
-  }, [markDegraded, markOffline, markOnline, recheck]);
+  }, [
+    clearOfflineConfirmation,
+    markOnline,
+    noteTransportFailure,
+    recheck,
+    resetTransportFailures,
+    scheduleOfflineConfirmation,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;

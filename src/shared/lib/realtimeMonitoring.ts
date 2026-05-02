@@ -5,6 +5,12 @@ export type RealtimeMetricPhase =
   | "persist_ack"
   | "receive"
   | "apply"
+  | "connection_state"
+  | "connection_error"
+  | "poll_error"
+  | "fallback"
+  | "warning"
+  | "resync"
   | "gap"
   | "drop";
 
@@ -24,6 +30,16 @@ export type RealtimeMetricEventDetail = {
   gapFromSeq?: number;
   gapToSeq?: number;
   dropReason?: string;
+  connectionState?: "connected" | "disconnected";
+  errorName?: string | null;
+  errorMessage?: string | null;
+  errorStatus?: number | null;
+  errorCode?: string | null;
+  retryable?: boolean;
+  errorStreak?: number;
+  fallbackHealthy?: boolean;
+  elapsedMs?: number;
+  reason?: string;
 };
 
 const IS_DEV = typeof import.meta !== "undefined" && Boolean(import.meta.env?.DEV);
@@ -41,11 +57,23 @@ export const emitRealtimeMetric = (detail: RealtimeMetricEventDetail) => {
   }
 
   if (!IS_DEV) return;
-  if (detail.phase === "gap" || detail.phase === "drop" || (detail.maxLatencyMs ?? 0) >= 800) {
+  if (
+    detail.phase === "gap" ||
+    detail.phase === "drop" ||
+    detail.phase === "connection_error" ||
+    detail.phase === "poll_error" ||
+    detail.phase === "warning" ||
+    (detail.maxLatencyMs ?? 0) >= 800
+  ) {
     console.warn("[realtime]", detail);
     return;
   }
-  if ((detail.maxLatencyMs ?? 0) >= 250) {
+  if (
+    detail.phase === "connection_state" ||
+    detail.phase === "fallback" ||
+    detail.phase === "resync" ||
+    (detail.maxLatencyMs ?? 0) >= 250
+  ) {
     console.info("[realtime]", detail);
   }
 };

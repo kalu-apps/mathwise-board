@@ -257,9 +257,7 @@ export const useWorkbookSessionLoadSession = ({
             if (hasSnapshotAccessIssue) {
               degradedWithoutSnapshot = true;
               setRecoveryMode("degraded_without_snapshot");
-              setSaveSyncWarning(
-                "Контрольный снимок временно недоступен. Продолжаем синхронизацию по ленте событий."
-              );
+              setSaveSyncWarning(null);
             }
           }
           setSession(sessionData);
@@ -669,7 +667,9 @@ export const useWorkbookSessionLoadSession = ({
           ) {
             emitAccessError(error.status, isBackground);
           } else if (isBackground) {
-            setError("Связь с доской нестабильна. Продолжаем работу и повторяем синхронизацию.");
+            setSaveSyncWarning(
+              "Синхронизация доски заметно задерживается. Проверьте сеть, VPN или прокси. Мы продолжаем восстановление автоматически."
+            );
           } else {
             setError("Не удалось открыть сессию. Проверьте подключение и повторите попытку.");
           }

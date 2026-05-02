@@ -1,5 +1,5 @@
 import { generateId } from "@/shared/lib/id";
-import { buildStrokePreviewPoints, toPath } from "./stroke";
+import { buildStrokeFinalPreviewPoints, toPath } from "./stroke";
 import type {
   WorkbookLayer,
   WorkbookPoint,
@@ -85,7 +85,7 @@ export const finalizeWorkbookStrokeDraft = (params: {
     ? {
         ...params.activeStroke,
         previewVersion: params.activeStroke.previewVersion + 1,
-        points: buildStrokePreviewPoints(finalPoints),
+        points: buildStrokeFinalPreviewPoints(finalPoints),
       }
     : null;
   const committedStroke = buildWorkbookCommittedStroke({

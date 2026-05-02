@@ -6,12 +6,15 @@ export type MediaMetricEventDetail = {
   phase:
     | "token_request"
     | "token_success"
+    | "ice_config_failure"
     | "connect_start"
     | "connect_success"
     | "connect_failure"
     | "retry_scheduled"
     | "disconnect"
-    | "connection_state";
+    | "connection_state"
+    | "connection_quality"
+    | "media_device_error";
   sessionId: string;
   timestamp: string;
   sessionKind?: string | null;
@@ -20,6 +23,16 @@ export type MediaMetricEventDetail = {
   roomName?: string | null;
   connectionState?: string | null;
   retryInMs?: number;
+  iceServerCount?: number;
+  hasRelayIceServer?: boolean;
+  captureProfile?: string | null;
+  simulcastLayerCount?: number;
+  constrainedNetwork?: boolean;
+  mobileOrTablet?: boolean;
+  connectionQuality?: string | null;
+  participantIdentity?: string | null;
+  participantLocal?: boolean;
+  trackKind?: string | null;
   errorName?: string | null;
   errorMessage?: string | null;
   errorReason?: string | null;
@@ -41,11 +54,15 @@ export const emitMediaMetric = (detail: MediaMetricEventDetail) => {
   }
 
   if (!IS_DEV) return;
-  if (detail.phase === "connect_failure") {
+  if (detail.phase === "connect_failure" || detail.phase === "media_device_error") {
     console.warn("[media]", detail);
     return;
   }
-  if (detail.phase === "retry_scheduled" || detail.phase === "connection_state") {
+  if (
+    detail.phase === "retry_scheduled" ||
+    detail.phase === "connection_state" ||
+    detail.phase === "connection_quality"
+  ) {
     console.info("[media]", detail);
   }
 };
