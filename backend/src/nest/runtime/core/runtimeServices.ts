@@ -25,6 +25,11 @@ const REDIS_REQUIRED =
     .toLowerCase() === "true";
 const WORKBOOK_EVENT_CHANNEL_PREFIX = "mw:workbook:events:";
 const WORKBOOK_EVENT_SEQ_KEY_PREFIX = "mw:workbook:seq:";
+const LIVE_REDIS_QUEUED_EVENT_LIMIT = readPositiveInt(
+  process.env.BOARD_RUNTIME_REDIS_LIVE_QUEUE_EVENT_LIMIT,
+  96,
+  5_000
+);
 
 const redisConfig = {
   enabled: REDIS_URL.length > 0,
@@ -81,6 +86,13 @@ let redisInitPromise: Promise<void> | null = null;
 
 const workbookListenersBySession = new Map<string, Set<WorkbookRealtimeListener>>();
 const redisSubscribedWorkbookChannels = new Set<string>();
+const liveRedisPublishStateBySession = new Map<
+  string,
+  {
+    inFlight: boolean;
+    queued: WorkbookRealtimePayload | null;
+  }
+>();
 
 const redisStatus: {
   enabled: boolean;
@@ -488,7 +500,26 @@ export const allocateWorkbookRuntimeSequence = async (params: {
   }
 };
 
-export const publishWorkbookRealtimePayload = async (
+const mergeLiveRedisPayload = (
+  current: WorkbookRealtimePayload | null,
+  incoming: WorkbookRealtimePayload
+): WorkbookRealtimePayload => {
+  if (!current) {
+    return {
+      ...incoming,
+      events: incoming.events.slice(-LIVE_REDIS_QUEUED_EVENT_LIMIT),
+      channel: "live",
+    };
+  }
+  return {
+    ...incoming,
+    latestSeq: Math.max(current.latestSeq, incoming.latestSeq),
+    events: [...current.events, ...incoming.events].slice(-LIVE_REDIS_QUEUED_EVENT_LIMIT),
+    channel: "live",
+  };
+};
+
+const publishWorkbookRealtimePayloadNow = async (
   sessionId: string,
   payload: WorkbookRealtimePayload
 ): Promise<boolean> => {
@@ -539,6 +570,56 @@ export const publishWorkbookRealtimePayload = async (
     error: normalizeError(publishError),
   });
   return false;
+};
+
+const flushLiveRedisPublishQueue = async (
+  sessionId: string,
+  initialPayload: WorkbookRealtimePayload
+) => {
+  const state = liveRedisPublishStateBySession.get(sessionId);
+  if (!state) return false;
+  state.inFlight = true;
+  let payload: WorkbookRealtimePayload | null = initialPayload;
+  let success = true;
+  try {
+    while (payload) {
+      success = (await publishWorkbookRealtimePayloadNow(sessionId, payload)) && success;
+      payload = state.queued;
+      state.queued = null;
+    }
+    return success;
+  } finally {
+    state.inFlight = false;
+    if (state.queued) {
+      const queued = state.queued;
+      state.queued = null;
+      void flushLiveRedisPublishQueue(sessionId, queued);
+    } else {
+      liveRedisPublishStateBySession.delete(sessionId);
+    }
+  }
+};
+
+export const publishWorkbookRealtimePayload = async (
+  sessionId: string,
+  payload: WorkbookRealtimePayload
+): Promise<boolean> => {
+  if (payload.channel !== "live") {
+    return publishWorkbookRealtimePayloadNow(sessionId, payload);
+  }
+  let state = liveRedisPublishStateBySession.get(sessionId);
+  if (state?.inFlight) {
+    state.queued = mergeLiveRedisPayload(state.queued, payload);
+    return true;
+  }
+  if (!state) {
+    state = {
+      inFlight: false,
+      queued: null,
+    };
+    liveRedisPublishStateBySession.set(sessionId, state);
+  }
+  return flushLiveRedisPublishQueue(sessionId, payload);
 };
 
 export const subscribeWorkbookRealtimePayload = async (
@@ -604,6 +685,12 @@ export const getRuntimeServicesStatus = () => ({
     seqAllocationFailures: redisStatus.seqAllocationFailures,
     subscribedChannels: redisSubscribedWorkbookChannels.size,
     listenerSessions: workbookListenersBySession.size,
+    livePublishInFlightSessions: Array.from(liveRedisPublishStateBySession.values()).filter(
+      (state) => state.inFlight
+    ).length,
+    livePublishQueuedSessions: Array.from(liveRedisPublishStateBySession.values()).filter(
+      (state) => state.queued
+    ).length,
     lastConnectedAt: redisStatus.lastConnectedAt,
     lastInitAt: redisStatus.lastInitAt,
     lastReconnectAt: redisStatus.lastReconnectAt,
@@ -617,6 +704,7 @@ export const getRuntimeServicesStatus = () => ({
       connectTimeoutMs: redisConfig.connectTimeoutMs,
       initTimeoutMs: redisConfig.initTimeoutMs,
       commandTimeoutMs: redisConfig.commandTimeoutMs,
+      liveQueuedEventLimit: LIVE_REDIS_QUEUED_EVENT_LIMIT,
       reconnectBaseDelayMs: redisConfig.reconnectBaseDelayMs,
       reconnectMaxDelayMs: redisConfig.reconnectMaxDelayMs,
       reconnectMaxAttempts: redisConfig.reconnectMaxAttempts,
@@ -643,6 +731,7 @@ export const shutdownRuntimeServices = async () => {
   redisSubscriberClient = null;
   redisSubscribedWorkbookChannels.clear();
   workbookListenersBySession.clear();
+  liveRedisPublishStateBySession.clear();
   redisStatus.connected = false;
   redisStatus.pubsubConnected = false;
   redisStatus.clientReconnecting = false;
