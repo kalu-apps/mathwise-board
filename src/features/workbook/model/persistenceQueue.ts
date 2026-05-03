@@ -242,15 +242,7 @@ const executeTask = async (task: WorkbookPersistenceTask) => {
     );
     return;
   }
-  await api.put<{
-    id: string;
-    sessionId: string;
-    layer: WorkbookLayer;
-    version: number;
-    payload: unknown;
-    accepted?: boolean;
-    createdAt: string;
-  }>(
+  await api.put<{ id: string; sessionId: string; layer: WorkbookLayer; version: number; accepted?: boolean; requestedVersion?: number; barrierSeq?: number; createdAt: string }>(
     `/workbook/sessions/${encodeURIComponent(task.sessionId)}/snapshot`,
     {
       sessionId: task.sessionId,

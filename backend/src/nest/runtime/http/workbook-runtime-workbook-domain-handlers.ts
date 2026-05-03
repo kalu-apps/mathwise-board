@@ -1024,7 +1024,6 @@ const handleWorkbookSnapshotAndPdfRoute = async (
       sessionId: snapshot.sessionId,
       layer: snapshot.layer,
       version: snapshot.version,
-      payload: snapshot.payload,
       accepted,
       requestedVersion,
       barrierSeq: barrier.barrierSeq,

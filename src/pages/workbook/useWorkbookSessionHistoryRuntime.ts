@@ -30,6 +30,7 @@ import {
   normalizeSceneLayersForBoard,
 } from "./WorkbookSessionPage.geometry";
 import { buildWorkbookHistoryEntryFromEvents } from "./workbookSessionHistoryEntry";
+import { WORKBOOK_SNAPSHOT_AUTOSAVE_DEBOUNCE_MS } from "./workbookSnapshotAutosavePolicy";
 
 type UseWorkbookSessionHistoryRuntimeParams = {
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
@@ -189,7 +190,7 @@ export const useWorkbookSessionHistoryRuntime = ({
     setTimerState,
   ]);
 
-  const scheduleAutosave = useCallback((delayMs = 1100) => {
+  const scheduleAutosave = useCallback((delayMs = WORKBOOK_SNAPSHOT_AUTOSAVE_DEBOUNCE_MS) => {
     if (autosaveDebounceRef.current !== null) {
       window.clearTimeout(autosaveDebounceRef.current);
       autosaveDebounceRef.current = null;

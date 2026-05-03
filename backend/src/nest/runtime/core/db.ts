@@ -1892,7 +1892,7 @@ export const upsertWorkbookSessionSnapshot = async (params: {
           payload = EXCLUDED.payload,
           created_at = EXCLUDED.created_at
         WHERE EXCLUDED.version > ${SNAPSHOT_TABLE}.version
-        RETURNING id, session_id, layer, version, payload, created_at
+        RETURNING id, session_id, layer, version, NULL::jsonb AS payload, created_at
       `,
       [snapshotId, sessionId, layer, version, JSON.stringify(payload), timestamp]
     );
@@ -1904,7 +1904,7 @@ export const upsertWorkbookSessionSnapshot = async (params: {
 
     const currentResult = await pool.query<PgWorkbookSnapshotRow>(
       `
-        SELECT id, session_id, layer, version, payload, created_at
+        SELECT id, session_id, layer, version, NULL::jsonb AS payload, created_at
         FROM ${SNAPSHOT_TABLE}
         WHERE session_id = $1 AND layer = $2
         LIMIT 1
@@ -1926,7 +1926,7 @@ export const upsertWorkbookSessionSnapshot = async (params: {
   let snapshot: WorkbookSnapshotRecord;
   if (existing) {
     if (version <= existing.version) {
-      return mapFileSnapshot(existing);
+      return { ...mapFileSnapshot(existing), payload: null };
     }
     existing.version = version;
     existing.payload = JSON.stringify(payload);
@@ -1945,7 +1945,7 @@ export const upsertWorkbookSessionSnapshot = async (params: {
   }
 
   saveDb();
-  return mapFileSnapshot(snapshot);
+  return { ...mapFileSnapshot(snapshot), payload: null };
 };
 
 export const copyWorkbookSessionSnapshots = async (params: {

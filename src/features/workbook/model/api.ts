@@ -519,7 +519,7 @@ export async function saveWorkbookSnapshot(params: {
   };
   const idempotencyKey = `snapshot-${params.sessionId}-${params.layer}-v${normalizedVersion}-${generateId()}`;
   try {
-    const response = await api.put<WorkbookSnapshot>(
+    const response = await api.put<{ id: string; sessionId: string; layer: WorkbookLayer; version: number; accepted?: boolean; requestedVersion?: number; barrierSeq?: number; createdAt: string }>(
       `/workbook/sessions/${encodeURIComponent(params.sessionId)}/snapshot`,
       requestPayload,
       {
