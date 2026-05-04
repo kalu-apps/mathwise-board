@@ -139,6 +139,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 16px 22px 10px !important;
 }
 
 .workbook-session__pdf-preview-modal-close.MuiIconButton-root {
@@ -151,15 +152,27 @@
 }
 
 .workbook-session__pdf-preview-modal-content {
-  display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
-  gap: 10px;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 16px 10px !important;
   overflow: hidden;
   min-height: 0;
 }
 
 .workbook-session__pdf-preview-modal-alert {
   margin: 0;
+  padding: 8px 14px !important;
+  color: color-mix(in srgb, var(--text-primary) 88%, var(--brand-soft));
+}
+
+.workbook-session__pdf-preview-modal-alert .MuiAlert-icon {
+  color: color-mix(in srgb, var(--feedback-info) 86%, var(--text-primary));
+}
+
+.workbook-session__pdf-preview-modal-alert .MuiAlert-message {
+  color: inherit;
 }
 
 .workbook-session__pdf-preview-preparing {
@@ -180,8 +193,9 @@
   border: 1px solid color-mix(in srgb, var(--border-subtle) 88%, transparent);
   overflow: hidden;
   background: color-mix(in srgb, var(--surface-soft) 92%, transparent);
-  min-height: min(56dvh, 560px);
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: min(66dvh, 680px);
+  height: auto;
 }
 
 .workbook-session__pdf-preview-frame {

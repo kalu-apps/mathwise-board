@@ -22,6 +22,7 @@
 .workbook-session__import-item-headline strong {
   font-size: 13px;
   line-height: 1.35;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -32,7 +33,7 @@
   flex-wrap: wrap;
   gap: 8px;
   font-size: 11px;
-  color: rgba(53, 63, 90, 0.72);
+  color: var(--text-secondary);
 }
 
 .workbook-session__import-item-actions {
@@ -44,7 +45,7 @@
 
 .workbook-session__import-item-range {
   font-size: 11px;
-  color: rgba(53, 63, 90, 0.78);
+  color: color-mix(in srgb, var(--text-secondary) 92%, var(--text-primary));
 }
 
 .workbook-session__import-item-actions .MuiButton-root {
@@ -66,7 +67,7 @@
   margin: 0;
   font-size: 11px;
   line-height: 1.35;
-  color: rgba(53, 63, 90, 0.78);
+  color: color-mix(in srgb, var(--text-secondary) 92%, var(--text-primary));
 }
 
 .workbook-session__import-item-warning {
