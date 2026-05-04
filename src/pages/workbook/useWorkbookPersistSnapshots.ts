@@ -16,6 +16,12 @@ import type {
 } from "@/features/workbook/model/types";
 import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import { useWorkbookSnapshotRecoverableWarning } from "./useWorkbookSnapshotRecoverableWarning";
+import {
+  estimateWorkbookSnapshotEmbeddedDataUrlChars,
+  resolveWorkbookSnapshotAutosaveGapMs,
+  SNAPSHOT_PREEMPTIVE_COMPACTION_DATA_URL_CHARS,
+  WORKBOOK_SNAPSHOT_PENDING_RETRY_MS,
+} from "./workbookSnapshotAutosavePolicy";
 
 type SnapshotCompactionLevel = "moderate" | "aggressive" | "minimal";
 
@@ -26,14 +32,10 @@ const SNAPSHOT_OBJECT_IMAGE_AGGRESSIVE_MAX_DATA_URL_CHARS = 18_000;
 const SNAPSHOT_ASSET_IMAGE_AGGRESSIVE_MAX_DATA_URL_CHARS = 24_000;
 const SNAPSHOT_RENDERED_PAGE_IMAGE_AGGRESSIVE_MAX_DATA_URL_CHARS = 12_000;
 const SNAPSHOT_OBJECT_IMAGE_MINIMAL_MAX_DATA_URL_CHARS = 8_000;
-const SNAPSHOT_PREEMPTIVE_COMPACTION_DATA_URL_CHARS = 160_000;
-const SNAPSHOT_MIN_AUTOSAVE_GAP_MS = 2_600;
 
 const isImageDataUrl = (value: unknown): value is string =>
   typeof value === "string" && value.startsWith("data:image/");
-
-const isDataUrl = (value: unknown): value is string =>
-  typeof value === "string" && value.startsWith("data:");
+const isDataUrl = (value: unknown): value is string => typeof value === "string" && value.startsWith("data:");
 
 const resolveSnapshotCompactionProfile = (level: SnapshotCompactionLevel) => {
   if (level === "minimal") {
@@ -89,28 +91,6 @@ const collectReferencedAssetIds = (boardObjects: WorkbookBoardObject[]) => {
     }
   });
   return referencedAssetIds;
-};
-
-const estimateEmbeddedDataUrlChars = (
-  boardObjects: WorkbookBoardObject[],
-  documentState: WorkbookDocumentState
-) => {
-  const objectChars = boardObjects.reduce((sum, object) => {
-    if (object.type !== "image") return sum;
-    return sum + (isImageDataUrl(object.imageUrl) ? object.imageUrl.length : 0);
-  }, 0);
-  const assetChars = documentState.assets.reduce((sum, asset) => {
-    const assetUrlChars = isDataUrl(asset.url) ? asset.url.length : 0;
-    const renderedPagesChars = Array.isArray(asset.renderedPages)
-      ? asset.renderedPages.reduce(
-          (renderedSum, renderedPage) =>
-            renderedSum + (isImageDataUrl(renderedPage.imageUrl) ? renderedPage.imageUrl.length : 0),
-          0
-        )
-      : 0;
-    return sum + assetUrlChars + renderedPagesChars;
-  }, 0);
-  return objectChars + assetChars;
 };
 
 const compactSnapshotState = async (params: {
@@ -277,15 +257,22 @@ export function useWorkbookPersistSnapshots({
         pendingAutosaveAfterSaveRef.current = true;
         return true;
       }
-      if (
-        options?.force &&
-        !options?.silent &&
-        lastPersistCompletedAtRef.current > 0
-      ) {
+      const embeddedDataUrlChars = estimateWorkbookSnapshotEmbeddedDataUrlChars(
+        boardObjects,
+        documentState
+      );
+      const autosaveGapMs = resolveWorkbookSnapshotAutosaveGapMs({
+        boardObjects,
+        documentState,
+        boardStrokes,
+        annotationStrokes,
+        embeddedDataUrlChars,
+      });
+      if (options?.force && lastPersistCompletedAtRef.current > 0) {
         const elapsedMs = Date.now() - lastPersistCompletedAtRef.current;
-        if (elapsedMs < SNAPSHOT_MIN_AUTOSAVE_GAP_MS) {
+        if (elapsedMs < autosaveGapMs) {
           pendingAutosaveAfterSaveRef.current = true;
-          scheduleAutosave(SNAPSHOT_MIN_AUTOSAVE_GAP_MS - elapsedMs + 120);
+          scheduleAutosave(autosaveGapMs - elapsedMs + 250);
           return true;
         }
       }
@@ -392,8 +379,7 @@ export function useWorkbookPersistSnapshots({
       let compactionAttempted = false;
       try {
         const shouldPreemptiveCompact =
-          estimateEmbeddedDataUrlChars(boardObjects, documentState) >=
-          SNAPSHOT_PREEMPTIVE_COMPACTION_DATA_URL_CHARS;
+          embeddedDataUrlChars >= SNAPSHOT_PREEMPTIVE_COMPACTION_DATA_URL_CHARS;
         if (shouldPreemptiveCompact) {
           compactionAttempted = true;
           const compacted = await persistCompactedSnapshots(["moderate", "aggressive", "minimal"]);
@@ -454,7 +440,7 @@ export function useWorkbookPersistSnapshots({
       } finally {
         isSavingRef.current = false;
         if (pendingAutosaveAfterSaveRef.current) {
-          scheduleAutosave(1_400);
+          scheduleAutosave(WORKBOOK_SNAPSHOT_PENDING_RETRY_MS);
         }
       }
     },
