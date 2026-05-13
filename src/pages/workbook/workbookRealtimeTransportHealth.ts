@@ -6,8 +6,11 @@ import {
 const REALTIME_TRANSPORT_WARNING_DELAY_MS = 30_000;
 const REALTIME_TRANSPORT_RESYNC_DELAY_MS = 30_000;
 const REALTIME_POLL_FALLBACK_HEALTHY_MS = 20_000;
-const REALTIME_TRANSPORT_WARNING_MESSAGE =
-  "Синхронизация доски заметно задерживается. Проверьте сеть, VPN или прокси. Мы продолжаем восстановление автоматически.";
+const REALTIME_SERVER_UNAVAILABLE_GRACE_MS = 25_000;
+const REALTIME_TRANSPORT_CLIENT_WARNING_MESSAGE =
+  "Синхронизация доски заметно задерживается. Проверьте интернет-соединение. Мы продолжаем восстановление автоматически.";
+const REALTIME_TRANSPORT_SERVER_WARNING_MESSAGE =
+  "Сервер синхронизации временно недоступен. Мы продолжаем восстановление автоматически.";
 
 export const REALTIME_TRANSPORT_CHECK_INTERVAL_MS = 2_500;
 export type WorkbookRealtimeFallbackState =
@@ -33,6 +36,9 @@ export const evaluateWorkbookRealtimeTransportHealth = (params: {
   const pollFallbackHealthy =
     params.lastPollSuccessAt > 0 &&
     params.now - params.lastPollSuccessAt <= REALTIME_POLL_FALLBACK_HEALTHY_MS;
+  const serverRecentlyUnavailable =
+    params.lastServerUnavailableAt > 0 &&
+    params.now - params.lastServerUnavailableAt < REALTIME_SERVER_UNAVAILABLE_GRACE_MS;
 
   if (elapsed >= REALTIME_TRANSPORT_WARNING_DELAY_MS) {
     if (params.authBlocked) {
@@ -53,15 +59,21 @@ export const evaluateWorkbookRealtimeTransportHealth = (params: {
       observeWorkbookRealtimeWarning({
         sessionId: params.sessionId,
         elapsedMs: elapsed,
-        reason: "stream_and_live_disconnected_poll_unhealthy",
+        reason: serverRecentlyUnavailable
+          ? "stream_and_live_disconnected_server_unavailable"
+          : "stream_and_live_disconnected_poll_unhealthy",
       });
-      params.setRealtimeSyncWarning(REALTIME_TRANSPORT_WARNING_MESSAGE);
+      params.setRealtimeSyncWarning(
+        serverRecentlyUnavailable
+          ? REALTIME_TRANSPORT_SERVER_WARNING_MESSAGE
+          : REALTIME_TRANSPORT_CLIENT_WARNING_MESSAGE
+      );
     }
   }
 
   if (
     !params.authBlocked &&
-    !(params.lastServerUnavailableAt > 0 && params.now - params.lastServerUnavailableAt < 25_000) &&
+    !serverRecentlyUnavailable &&
     !pollFallbackHealthy &&
     elapsed >= REALTIME_TRANSPORT_RESYNC_DELAY_MS &&
     params.now - params.lastForcedResyncAt >= 20_000

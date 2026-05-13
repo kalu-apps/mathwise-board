@@ -667,8 +667,16 @@ export const useWorkbookSessionLoadSession = ({
           ) {
             emitAccessError(error.status, isBackground);
           } else if (isBackground) {
+            const serverUnavailable =
+              error instanceof ApiError &&
+              (error.code === "server_unavailable" ||
+                error.status === 502 ||
+                error.status === 503 ||
+                error.status === 504);
             setSaveSyncWarning(
-              "Синхронизация доски заметно задерживается. Проверьте сеть, VPN или прокси. Мы продолжаем восстановление автоматически."
+              serverUnavailable
+                ? "Сервер синхронизации временно недоступен. Мы продолжаем восстановление автоматически."
+                : "Синхронизация доски заметно задерживается. Проверьте интернет-соединение. Мы продолжаем восстановление автоматически."
             );
           } else {
             setError("Не удалось открыть сессию. Проверьте подключение и повторите попытку.");

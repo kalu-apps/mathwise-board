@@ -62,7 +62,7 @@ const BOARD_SYNC_WARNING_FAILURE_WINDOW_MS = 15_000;
 const BOARD_SYNC_WARNING_MIN_FAILURES = 3;
 const BOARD_SYNC_WARNING_COOLDOWN_MS = 45_000;
 const BOARD_SYNC_WARNING_MESSAGE =
-  "Синхронизация доски заметно задерживается. Проверьте Wi-Fi, мобильную сеть или VPN. Мы продолжаем отправлять изменения.";
+  "Синхронизация доски заметно задерживается. Проверьте Wi-Fi или мобильную сеть. Мы продолжаем отправлять изменения.";
 
 export const useWorkbookStrokeCommitHandlers = ({
   sessionId,
