@@ -4,7 +4,7 @@ const SNAPSHOT_SYNC_WARNING_FAILURE_WINDOW_MS = 45_000;
 const SNAPSHOT_SYNC_WARNING_MIN_FAILURES = 3;
 const SNAPSHOT_SYNC_WARNING_COOLDOWN_MS = 90_000;
 const SNAPSHOT_SYNC_WARNING_MESSAGE =
-  "Резервное сохранение доски заметно задерживается. Проверьте сеть или VPN. Работа на доске продолжается.";
+  "Резервное сохранение доски заметно задерживается. Проверьте интернет-соединение. Работа на доске продолжается.";
 
 export const useWorkbookSnapshotRecoverableWarning = (
   setSaveSyncWarning: (message: string | null) => void

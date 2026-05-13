@@ -56,6 +56,13 @@ export function WorkbookSessionTopScaffold({
   onConfirmClear,
   awaitingClearRequest,
 }: WorkbookSessionTopScaffoldProps) {
+  const syncWarningMessage = saveSyncWarning ?? realtimeSyncWarning;
+  const syncWarningShowDelayMs = saveSyncWarning ? 0 : REALTIME_WARNING_SHOW_DELAY_MS;
+  const handleSyncWarningClose = () => {
+    setSaveSyncWarning(null);
+    setRealtimeSyncWarning(null);
+  };
+
   return (
     <>
       <input
@@ -85,18 +92,11 @@ export function WorkbookSessionTopScaffold({
         </Alert>
       ) : null}
 
-      {saveSyncWarning ? (
+      {syncWarningMessage ? (
         <WorkbookSyncNoticeSnackbar
-          key={`save-${saveSyncWarning}`}
-          message={saveSyncWarning}
-          onClose={() => setSaveSyncWarning(null)}
-        />
-      ) : realtimeSyncWarning ? (
-        <WorkbookSyncNoticeSnackbar
-          key={`realtime-${realtimeSyncWarning}`}
-          message={realtimeSyncWarning}
-          showDelayMs={REALTIME_WARNING_SHOW_DELAY_MS}
-          onClose={() => setRealtimeSyncWarning(null)}
+          message={syncWarningMessage}
+          showDelayMs={syncWarningShowDelayMs}
+          onClose={handleSyncWarningClose}
         />
       ) : null}
 
@@ -136,14 +136,21 @@ function WorkbookSyncNoticeSnackbar({
   const [open, setOpen] = useState(showDelayMs <= 0);
 
   useEffect(() => {
-    if (showDelayMs <= 0) return undefined;
-    const timerId = window.setTimeout(() => {
+    let isActive = true;
+    const closeTimerId = window.setTimeout(() => {
+      if (!isActive) return;
+      setOpen(false);
+    }, 0);
+    const openTimerId = window.setTimeout(() => {
+      if (!isActive) return;
       setOpen(true);
-    }, showDelayMs);
+    }, Math.max(0, showDelayMs));
     return () => {
-      window.clearTimeout(timerId);
+      isActive = false;
+      window.clearTimeout(closeTimerId);
+      window.clearTimeout(openTimerId);
     };
-  }, [showDelayMs]);
+  }, [message, showDelayMs]);
 
   const handleClose = (_event?: Event | SyntheticEvent, reason?: string) => {
     if (reason === "clickaway") return;
