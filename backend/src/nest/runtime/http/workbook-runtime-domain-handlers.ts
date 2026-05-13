@@ -48,7 +48,7 @@ type AuthHandlerDeps = {
 };
 
 type RuntimeInfraHandlerDeps = {
-  getWorkbookPersistenceReadiness: () => unknown;
+  getWorkbookRuntimeReadiness: () => unknown;
   getStorageDiagnostics: () => unknown;
   getRuntimeServicesStatus: () => unknown;
   getTelemetryDiagnostics: () => unknown;
@@ -161,14 +161,14 @@ export const handleRuntimeInfraDomainRoute = (
   const { method, pathname, res } = context;
 
   if (pathname === "/api/runtime/readiness" && method === "GET") {
-    const readiness = deps.getWorkbookPersistenceReadiness();
+    const readiness = deps.getWorkbookRuntimeReadiness();
     const ready = Boolean((readiness as { ready?: boolean } | null)?.ready);
     deps.json(res, ready ? 200 : 503, readiness);
     return true;
   }
 
   if (pathname === "/api/runtime/infra" && method === "GET") {
-    const readiness = deps.getWorkbookPersistenceReadiness();
+    const readiness = deps.getWorkbookRuntimeReadiness();
     const ready = Boolean((readiness as { ready?: boolean } | null)?.ready);
     deps.json(res, ready ? 200 : 503, {
       ok: ready,

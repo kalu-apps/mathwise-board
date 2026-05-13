@@ -124,6 +124,7 @@ import { useWorkbookSessionLocalRuntime } from "./useWorkbookSessionLocalRuntime
 import { useWorkbookSessionHistoryRuntime } from "./useWorkbookSessionHistoryRuntime";
 import { useWorkbookSessionIncomingRuntime } from "./useWorkbookSessionIncomingRuntime";
 import { useWorkbookSessionRealtimeLifecycle } from "./useWorkbookSessionRealtimeLifecycle";
+import { useWorkbookSyncNoticeController } from "./useWorkbookSyncNoticeController";
 import { useWorkbookToolRuntimeHandlers } from "./useWorkbookToolRuntimeHandlers";
 import { WorkbookSessionWorkspace } from "./WorkbookSessionWorkspace";
 import { WorkbookSessionSidebar } from "./WorkbookSessionSidebar";
@@ -176,7 +177,6 @@ const CRITICAL_WORKBOOK_UI_ERROR_PATTERNS = [
   /микрофон занят другим приложением/i,
   /браузер заблокировал микрофон/i,
   /откройте страницу по https/i,
-  /vpn/i,
   /прокси/i,
   /обновите страницу/i,
   /не удалось сохранить изменения перед выходом из тетради/i,
@@ -324,7 +324,7 @@ export default function WorkbookSessionPage() {
     solid3dDraftPoints,
   } = workbookSessionTooling;
   const {
-    setRealtimeSyncWarning,
+    setRealtimeSyncWarning: setRealtimeSyncWarningRaw,
     setIsSessionChatOpen,
     setIsSessionChatMinimized,
     setIsParticipantsCollapsed,
@@ -377,7 +377,7 @@ export default function WorkbookSessionPage() {
     setSolid3dSectionContextMenu,
     setSelectedTextDraft,
     setError: setErrorRaw,
-    setSaveSyncWarning,
+    setSaveSyncWarning: setSaveSyncWarningRaw,
     setCopyingInviteLink,
     setMenuAnchor,
     setExportingSections,
@@ -411,6 +411,11 @@ export default function WorkbookSessionPage() {
     setLibraryState,
     setDocumentState,
   } = workbookSessionActions;
+
+  const { setSaveSyncWarning, setRealtimeSyncWarning } = useWorkbookSyncNoticeController({
+    setSaveSyncWarning: setSaveSyncWarningRaw,
+    setRealtimeSyncWarning: setRealtimeSyncWarningRaw,
+  });
 
   const setError = useCallback(
     (updater: Parameters<typeof setErrorRaw>[0]) => {
@@ -1227,7 +1232,7 @@ export default function WorkbookSessionPage() {
       recoverChatMessagesFromEvents,
       setSaveState: workbookSessionActions.setSaveState,
       setError,
-      setSaveSyncWarning: workbookSessionActions.setSaveSyncWarning,
+      setSaveSyncWarning,
       setBootstrapReady: workbookSessionActions.setBootstrapReady,
       setLoading: workbookSessionActions.setLoading,
       setSession: workbookSessionActions.setSession,
@@ -1248,7 +1253,7 @@ export default function WorkbookSessionPage() {
       setTimerState: workbookSessionActions.setTimerState,
       setLibraryState: workbookSessionActions.setLibraryState,
       setDocumentState: workbookSessionActions.setDocumentState,
-      setRealtimeSyncWarning: workbookSessionActions.setRealtimeSyncWarning,
+      setRealtimeSyncWarning,
       authRequiredRef: refs.authRequiredRef,
       loadSessionRequestIdRef: refs.loadSessionRequestIdRef,
       firstInteractiveMetricReportedRef: refs.firstInteractiveMetricReportedRef,
@@ -1284,7 +1289,7 @@ export default function WorkbookSessionPage() {
       realtimeDisconnectSinceRef: refs.realtimeDisconnectSinceRef,
       lastForcedResyncAtRef: refs.lastForcedResyncAtRef,
       workbookLiveSendRef: refs.workbookLiveSendRef,
-      setRealtimeSyncWarning: workbookSessionActions.setRealtimeSyncWarning,
+      setRealtimeSyncWarning,
       isWorkbookStreamConnected: workbookSessionCollab.isWorkbookStreamConnected,
       isWorkbookLiveConnected: workbookSessionCollab.isWorkbookLiveConnected,
       setIsWorkbookStreamConnected: workbookSessionActions.setIsWorkbookStreamConnected,
@@ -1371,7 +1376,7 @@ export default function WorkbookSessionPage() {
       isSavingRef: refs.isSavingRef,
       pendingAutosaveAfterSaveRef: refs.pendingAutosaveAfterSaveRef,
       setSaveState: workbookSessionActions.setSaveState,
-      setSaveSyncWarning: workbookSessionActions.setSaveSyncWarning,
+      setSaveSyncWarning,
       scheduleAutosave,
     },
     persistenceLifecycleParams: {

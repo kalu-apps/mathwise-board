@@ -1,6 +1,6 @@
 import { Controller, Get, Res } from "@nestjs/common";
 import type { Response } from "express";
-import { getWorkbookPersistenceReadiness } from "../runtime/core/runtimeReadiness";
+import { getWorkbookRuntimeReadiness } from "../runtime/core/runtimeReadiness";
 import { isRuntimeShuttingDown } from "./runtime-readiness-state";
 
 const NEST_MODE = "nest-native-api" as const;
@@ -8,7 +8,7 @@ const NEST_MODE = "nest-native-api" as const;
 @Controller()
 export class HealthController {
   private buildReadinessPayload() {
-    const runtimeReadiness = getWorkbookPersistenceReadiness();
+    const runtimeReadiness = getWorkbookRuntimeReadiness();
     const shuttingDown = isRuntimeShuttingDown();
     const reasons = [...runtimeReadiness.reasons];
     if (shuttingDown) {

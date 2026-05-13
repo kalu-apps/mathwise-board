@@ -71,7 +71,7 @@ import {
   getSessionOwnerKey,
   getSessionUserKey,
 } from "./core/dbIndex";
-import { getWorkbookPersistenceReadiness } from "./core/runtimeReadiness";
+import { getWorkbookPersistenceReadiness, getWorkbookRuntimeReadiness } from "./core/runtimeReadiness";
 import {
   INVALID_JSON_BODY_ERROR,
   readRawBody as readRawBodyInternal,
@@ -2645,7 +2645,7 @@ export const handleWorkbookApiRequestByDomains = async (
         handleRuntimeInfraDomainRoute(
           { req, res, db, method, pathname, searchParams },
           {
-            getWorkbookPersistenceReadiness,
+            getWorkbookRuntimeReadiness,
             getStorageDiagnostics,
             getRuntimeServicesStatus,
             getTelemetryDiagnostics,
