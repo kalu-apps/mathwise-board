@@ -38,6 +38,7 @@ import {
   applyWorkbookSessionAccessError,
   reportWorkbookFirstInteractiveMetric,
 } from "./workbookSessionLoadHelpers";
+import { getWorkbookRecoverableSyncWarningMessage } from "./workbookSyncNoticeMessages";
 
 export const useWorkbookSessionLoadSession = ({
   sessionId,
@@ -667,17 +668,7 @@ export const useWorkbookSessionLoadSession = ({
           ) {
             emitAccessError(error.status, isBackground);
           } else if (isBackground) {
-            const serverUnavailable =
-              error instanceof ApiError &&
-              (error.code === "server_unavailable" ||
-                error.status === 502 ||
-                error.status === 503 ||
-                error.status === 504);
-            setSaveSyncWarning(
-              serverUnavailable
-                ? "Сервер синхронизации временно недоступен. Мы продолжаем восстановление автоматически."
-                : "Синхронизация доски заметно задерживается. Проверьте интернет-соединение. Мы продолжаем восстановление автоматически."
-            );
+            setSaveSyncWarning(getWorkbookRecoverableSyncWarningMessage(error));
           } else {
             setError("Не удалось открыть сессию. Проверьте подключение и повторите попытку.");
           }

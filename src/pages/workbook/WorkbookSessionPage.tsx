@@ -412,10 +412,7 @@ export default function WorkbookSessionPage() {
     setDocumentState,
   } = workbookSessionActions;
 
-  const {
-    setSaveSyncWarning,
-    setRealtimeSyncWarning,
-  } = useWorkbookSyncNoticeController({
+  const { setSaveSyncWarning, setRealtimeSyncWarning } = useWorkbookSyncNoticeController({
     setSaveSyncWarning: setSaveSyncWarningRaw,
     setRealtimeSyncWarning: setRealtimeSyncWarningRaw,
   });
