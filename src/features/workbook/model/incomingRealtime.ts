@@ -13,6 +13,7 @@ import {
   resolveWorkbookPageFrameBounds,
 } from "./pageFrame";
 import { mergeBoardObjectWithPatch, mergePreviewPathPoints } from "./runtime";
+import { upsertWorkbookStrokeById } from "./strokeCollection";
 import type {
   WorkbookBoardSettings,
   WorkbookBoardObject,
@@ -396,9 +397,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     const stroke = normalizeStrokePayload((event.payload as { stroke?: unknown })?.stroke);
     if (!stroke || stroke.layer !== "board") return true;
     finalizeStrokePreview(stroke.id);
-    setBoardStrokes((current) =>
-      current.some((item) => item.id === stroke.id) ? current : [...current, stroke]
-    );
+    setBoardStrokes((current) => upsertWorkbookStrokeById(current, stroke));
     return true;
   }
 
@@ -414,9 +413,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     const stroke = normalizeStrokePayload((event.payload as { stroke?: unknown })?.stroke);
     if (!stroke || stroke.layer !== "annotations") return true;
     finalizeStrokePreview(stroke.id);
-    setAnnotationStrokes((current) =>
-      current.some((item) => item.id === stroke.id) ? current : [...current, stroke]
-    );
+    setAnnotationStrokes((current) => upsertWorkbookStrokeById(current, stroke));
     return true;
   }
 
