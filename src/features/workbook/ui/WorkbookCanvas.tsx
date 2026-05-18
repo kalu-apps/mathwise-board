@@ -135,6 +135,11 @@ import {
   REALTIME_PREVIEW_REPEAT_GUARD_MS,
   toStableSignature,
 } from "../model/realtimePreview";
+import {
+  buildRenderedStrokeSelectionKey,
+  EMPTY_STROKE_REPLACEMENT_BY_SELECTION_KEY,
+  replaceRenderedStrokesBySelection,
+} from "./workbookStrokeDisplay";
 
 export type { WorkbookEraserCommitPayload } from "./WorkbookCanvas.types";
 
@@ -149,7 +154,6 @@ type PinchGestureState = {
   anchorWorld: WorkbookPoint;
 };
 
-const EMPTY_STROKE_REPLACEMENT_BY_SELECTION_KEY = new Map<string, WorkbookStroke>();
 const MIN_VIEWPORT_ZOOM = 0.3;
 const MAX_VIEWPORT_ZOOM = 3;
 const MIN_PINCH_DISTANCE_PX = 8;
@@ -165,44 +169,6 @@ const resolvePinchCenterAndDistance = (points: Array<{ x: number; y: number }>) 
     },
     distance: Math.hypot(pointA.x - pointB.x, pointA.y - pointB.y),
   };
-};
-
-const replaceRenderedStrokesBySelection = (params: {
-  baseStrokes: WorkbookStroke[];
-  selections: WorkbookStrokeSelection[];
-  replacementBySelectionKey: Map<string, WorkbookStroke>;
-}) => {
-  if (params.selections.length === 0) {
-    return params.baseStrokes;
-  }
-  const replacedSelectionKeys = new Set<string>();
-  const nextStrokes: WorkbookStroke[] = [];
-  params.baseStrokes.forEach((stroke) => {
-    const matchingSelection = params.selections.find(
-      (selection) =>
-        stroke.layer === selection.layer &&
-        (stroke.id === selection.id || stroke.id.startsWith(`${selection.id}::preview-`))
-    );
-    if (!matchingSelection) {
-      nextStrokes.push(stroke);
-      return;
-    }
-    const selectionKey = buildWorkbookStrokeSelectionKey(matchingSelection);
-    if (replacedSelectionKeys.has(selectionKey)) {
-      return;
-    }
-    replacedSelectionKeys.add(selectionKey);
-    const replacementStroke = params.replacementBySelectionKey.get(selectionKey);
-    if (replacementStroke) {
-      nextStrokes.push(replacementStroke);
-    }
-  });
-
-  params.replacementBySelectionKey.forEach((replacementStroke, selectionKey) => {
-    if (replacedSelectionKeys.has(selectionKey)) return;
-    nextStrokes.push(replacementStroke);
-  });
-  return nextStrokes;
 };
 
 export const WorkbookCanvas = memo(function WorkbookCanvas({
@@ -571,12 +537,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   }, [moving, movingStrokeSelection]);
 
   const movingStrokeKeys = useMemo(
-    () =>
-      new Set(
-        movingStrokeSelections.map((selection) =>
-          buildWorkbookStrokeSelectionKey(selection)
-        )
-      ),
+    () => new Set(movingStrokeSelections.map((selection) => buildWorkbookStrokeSelectionKey(selection))),
     [movingStrokeSelections]
   );
 
@@ -1140,7 +1101,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     );
   }, [areaSelectionResizePreview, visibleBoardObjects]);
 
-  const renderedStrokesForDisplay = useMemo(() => {
+  const renderedStrokesWithoutLocalMoveForDisplay = useMemo(() => {
     let nextStrokes = renderedStrokes;
     if (incomingPreviewStrokeSelections.length > 0) {
       // Hide committed copies while volatile preview exists for the same stroke selection.
@@ -1150,6 +1111,20 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         replacementBySelectionKey: EMPTY_STROKE_REPLACEMENT_BY_SELECTION_KEY,
       });
     }
+
+    if (areaSelectionResizePreview && areaSelection?.strokeIds.length) {
+      nextStrokes = replaceRenderedStrokesBySelection({
+        baseStrokes: nextStrokes,
+        selections: areaSelection.strokeIds,
+        replacementBySelectionKey: areaSelectionResizePreview.resizedStrokesBySelectionKey,
+      });
+    }
+
+    return nextStrokes;
+  }, [incomingPreviewStrokeSelections, renderedStrokes, areaSelectionResizePreview, areaSelection]);
+
+  const renderedStrokesForDisplay = useMemo(() => {
+    let nextStrokes = renderedStrokesWithoutLocalMoveForDisplay;
 
     if (moving && movingStrokeSelections.length > 0) {
       const deltaX = moving.current.x - moving.start.x;
@@ -1173,24 +1148,37 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       }
     }
 
-    if (areaSelectionResizePreview && areaSelection?.strokeIds.length) {
-      nextStrokes = replaceRenderedStrokesBySelection({
-        baseStrokes: nextStrokes,
-        selections: areaSelection.strokeIds,
-        replacementBySelectionKey: areaSelectionResizePreview.resizedStrokesBySelectionKey,
-      });
+    return nextStrokes;
+  }, [moving, movingStrokeSelections, renderedStrokesWithoutLocalMoveForDisplay, strokeByKey]);
+
+  const { committedCanvasStrokesForDisplay, movingSvgOverlayStrokesForDisplay } = useMemo(() => {
+    if (!newRendererEnabled || movingStrokeKeys.size === 0) {
+      return {
+        committedCanvasStrokesForDisplay: renderedStrokesForDisplay,
+        movingSvgOverlayStrokesForDisplay: [] as WorkbookStroke[],
+      };
     }
 
-    return nextStrokes;
-  }, [
-    incomingPreviewStrokeSelections,
-    moving,
-    movingStrokeSelections,
-    renderedStrokes,
-    strokeByKey,
-    areaSelectionResizePreview,
-    areaSelection,
-  ]);
+    const committedCanvasStrokes: WorkbookStroke[] = [];
+    const movingSvgOverlayStrokes: WorkbookStroke[] = [];
+    renderedStrokesWithoutLocalMoveForDisplay.forEach((stroke) => {
+      const selectionKey = buildRenderedStrokeSelectionKey(stroke);
+      if (!movingStrokeKeys.has(selectionKey)) {
+        committedCanvasStrokes.push(stroke);
+      }
+    });
+    renderedStrokesForDisplay.forEach((stroke) => {
+      const selectionKey = buildRenderedStrokeSelectionKey(stroke);
+      if (movingStrokeKeys.has(selectionKey)) {
+        movingSvgOverlayStrokes.push(stroke);
+      }
+    });
+
+    return {
+      committedCanvasStrokesForDisplay: committedCanvasStrokes,
+      movingSvgOverlayStrokesForDisplay: movingSvgOverlayStrokes,
+    };
+  }, [movingStrokeKeys, newRendererEnabled, renderedStrokesForDisplay, renderedStrokesWithoutLocalMoveForDisplay]);
 
   const {
     selectedPreviewObject,
@@ -2228,7 +2216,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       <div className="workbook-session__canvas-page-surface" aria-hidden="true" />
       {newRendererEnabled ? (
         <WorkbookCommittedCanvasLayer
-          strokes={renderedStrokesForDisplay}
+          strokes={committedCanvasStrokesForDisplay}
           viewportOffset={resolvedViewportOffset}
           displayBias={displayBias}
           zoom={safeZoom}
@@ -2301,6 +2289,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         ) : (
           <WorkbookStrokeLayer strokes={renderedStrokesForDisplay} />
         )}
+        {newRendererEnabled && movingSvgOverlayStrokesForDisplay.length > 0 ? (
+          <g pointerEvents="none">
+            <WorkbookStrokeLayer strokes={movingSvgOverlayStrokesForDisplay} />
+          </g>
+        ) : null}
         <WorkbookPreviewStrokeRuntimeLayer strokes={previewStrokes} />
         <WorkbookDraftOverlayLayer
           shapeDraft={shapeDraft}
