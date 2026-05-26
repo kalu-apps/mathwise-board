@@ -18,6 +18,85 @@ import { markRuntimeShuttingDown } from "./health/runtime-readiness-state";
 const readRequiredEnv = (name: string) => String(process.env[name] ?? "").trim();
 const isEmailLike = (value: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
 
+type BodyParserError = Error & {
+  expected?: number;
+  length?: number;
+  limit?: number;
+  status?: number;
+  statusCode?: number;
+  type?: string;
+};
+
+type BodyParserRequest = {
+  method?: string;
+  originalUrl?: string;
+  url?: string;
+};
+
+type BodyParserResponse = {
+  headersSent?: boolean;
+  status: (statusCode: number) => {
+    json: (payload: unknown) => void;
+  };
+};
+
+type BodyParserNext = (error?: unknown) => void;
+
+const isBodyParserPayloadTooLargeError = (
+  error: unknown
+): error is BodyParserError => {
+  if (!(error instanceof Error)) return false;
+  const candidate = error as BodyParserError;
+  return (
+    candidate.type === "entity.too.large" ||
+    candidate.status === 413 ||
+    candidate.statusCode === 413
+  );
+};
+
+const resolvePayloadTooLargeBytes = (error: BodyParserError) => {
+  const receivedBytes =
+    typeof error.length === "number" && Number.isFinite(error.length)
+      ? Math.max(0, Math.floor(error.length))
+      : typeof error.expected === "number" && Number.isFinite(error.expected)
+        ? Math.max(0, Math.floor(error.expected))
+        : undefined;
+  const limitBytes =
+    typeof error.limit === "number" && Number.isFinite(error.limit)
+      ? Math.max(0, Math.floor(error.limit))
+      : nestEnv.bodyLimitMb * 1024 * 1024;
+  return { limitBytes, receivedBytes };
+};
+
+const handleBodyParserError = (
+  error: unknown,
+  req: BodyParserRequest,
+  res: BodyParserResponse,
+  next: BodyParserNext
+) => {
+  if (!isBodyParserPayloadTooLargeError(error)) {
+    next(error);
+    return;
+  }
+  const { limitBytes, receivedBytes } = resolvePayloadTooLargeBytes(error);
+  console.warn("[backend:nest] payload_too_large", {
+    method: req.method,
+    path: req.originalUrl || req.url,
+    limitBytes,
+    receivedBytes,
+    bodyLimitMb: nestEnv.bodyLimitMb,
+  });
+  if (res.headersSent) {
+    next(error);
+    return;
+  }
+  res.status(413).json({
+    error: "request_body_too_large",
+    limitBytes,
+    receivedBytes,
+  });
+};
+
 const assertProductionRuntimeSafety = () => {
   const teacherPassword = readRequiredEnv("WHITEBOARD_TEACHER_PASSWORD");
   if (!teacherPassword) {
@@ -91,6 +170,7 @@ const bootstrap = async () => {
   const bodyLimit = `${nestEnv.bodyLimitMb}mb`;
   app.use(json({ limit: bodyLimit }));
   app.use(urlencoded({ extended: true, limit: bodyLimit }));
+  app.use(handleBodyParserError);
   app.enableCors({
     origin: (origin, callback) => {
       if (!origin) {

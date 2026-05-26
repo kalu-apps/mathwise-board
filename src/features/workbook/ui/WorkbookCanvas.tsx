@@ -136,6 +136,7 @@ import {
   toStableSignature,
 } from "../model/realtimePreview";
 import {
+  buildMovingStrokeDisplayState,
   buildRenderedStrokeSelectionKey,
   EMPTY_STROKE_REPLACEMENT_BY_SELECTION_KEY,
   replaceRenderedStrokesBySelection,
@@ -1123,36 +1124,26 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     return nextStrokes;
   }, [incomingPreviewStrokeSelections, renderedStrokes, areaSelectionResizePreview, areaSelection]);
 
-  const renderedStrokesForDisplay = useMemo(() => {
-    let nextStrokes = renderedStrokesWithoutLocalMoveForDisplay;
+  const movingStrokeDisplayState = useMemo(
+    () => buildMovingStrokeDisplayState({ moving, movingStrokeSelections, strokeByKey }),
+    [moving, movingStrokeSelections, strokeByKey]
+  );
 
-    if (moving && movingStrokeSelections.length > 0) {
-      const deltaX = moving.current.x - moving.start.x;
-      const deltaY = moving.current.y - moving.start.y;
-      if (Math.abs(deltaX) > 0.01 || Math.abs(deltaY) > 0.01) {
-        const translatedBySelectionKey = new Map<string, WorkbookStroke>();
-        movingStrokeSelections.forEach((selection) => {
-          const sourceStrokeKey = buildWorkbookStrokeSelectionKey(selection);
-          const sourceStroke = strokeByKey.get(sourceStrokeKey) ?? null;
-          if (!sourceStroke) return;
-          translatedBySelectionKey.set(sourceStrokeKey, {
-            ...sourceStroke,
-            points: translateWorkbookStrokePoints(sourceStroke.points, deltaX, deltaY),
-          });
-        });
-        nextStrokes = replaceRenderedStrokesBySelection({
-          baseStrokes: nextStrokes,
-          selections: movingStrokeSelections,
-          replacementBySelectionKey: translatedBySelectionKey,
-        });
-      }
+  const renderedStrokesForDisplay = useMemo(() => {
+    if (movingStrokeDisplayState.selections.length === 0) {
+      return renderedStrokesWithoutLocalMoveForDisplay;
     }
 
-    return nextStrokes;
-  }, [moving, movingStrokeSelections, renderedStrokesWithoutLocalMoveForDisplay, strokeByKey]);
+    return replaceRenderedStrokesBySelection({
+      baseStrokes: renderedStrokesWithoutLocalMoveForDisplay,
+      selections: movingStrokeDisplayState.selections,
+      replacementBySelectionKey: movingStrokeDisplayState.replacementBySelectionKey,
+      keepOriginalWhenMissingReplacement: true,
+    });
+  }, [movingStrokeDisplayState, renderedStrokesWithoutLocalMoveForDisplay]);
 
   const { committedCanvasStrokesForDisplay, movingSvgOverlayStrokesForDisplay } = useMemo(() => {
-    if (!newRendererEnabled || movingStrokeKeys.size === 0) {
+    if (!newRendererEnabled || movingStrokeDisplayState.selectionKeys.size === 0) {
       return {
         committedCanvasStrokesForDisplay: renderedStrokesForDisplay,
         movingSvgOverlayStrokesForDisplay: [] as WorkbookStroke[],
@@ -1163,13 +1154,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     const movingSvgOverlayStrokes: WorkbookStroke[] = [];
     renderedStrokesWithoutLocalMoveForDisplay.forEach((stroke) => {
       const selectionKey = buildRenderedStrokeSelectionKey(stroke);
-      if (!movingStrokeKeys.has(selectionKey)) {
+      if (!movingStrokeDisplayState.selectionKeys.has(selectionKey)) {
         committedCanvasStrokes.push(stroke);
       }
     });
     renderedStrokesForDisplay.forEach((stroke) => {
       const selectionKey = buildRenderedStrokeSelectionKey(stroke);
-      if (movingStrokeKeys.has(selectionKey)) {
+      if (movingStrokeDisplayState.selectionKeys.has(selectionKey)) {
         movingSvgOverlayStrokes.push(stroke);
       }
     });
@@ -1178,7 +1169,12 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       committedCanvasStrokesForDisplay: committedCanvasStrokes,
       movingSvgOverlayStrokesForDisplay: movingSvgOverlayStrokes,
     };
-  }, [movingStrokeKeys, newRendererEnabled, renderedStrokesForDisplay, renderedStrokesWithoutLocalMoveForDisplay]);
+  }, [
+    movingStrokeDisplayState.selectionKeys,
+    newRendererEnabled,
+    renderedStrokesForDisplay,
+    renderedStrokesWithoutLocalMoveForDisplay,
+  ]);
 
   const {
     selectedPreviewObject,
@@ -1481,6 +1477,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       return;
     }
 
+    const persistedStrokeSelections: WorkbookStrokeSelection[] = [];
     const movedStrokeReplacements = !hasMeaningfulMove
       ? []
       : nextMoving.groupStrokeSelections
@@ -1494,6 +1491,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           deltaY
         );
         if (translatedPoints.length === 0) return null;
+        persistedStrokeSelections.push({ id: sourceStroke.id, layer: sourceStroke.layer });
         return {
           stroke: sourceStroke,
           fragments: [translatedPoints],
@@ -1510,10 +1508,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
         } => entry !== null
       );
 
-    const { objectPatches, nextAreaSelection } = buildMoveCommitResult({
+    const { objectPatches, nextAreaSelection: rawNextAreaSelection } = buildMoveCommitResult({
       moving: normalizedMoving,
       areaSelection,
     });
+    const nextAreaSelection = rawNextAreaSelection
+      ? { ...rawNextAreaSelection, strokeIds: persistedStrokeSelections }
+      : null;
 
     if (hasMeaningfulMove && movedStrokeReplacements.length > 0 && onEraserCommit) {
       onEraserCommit({
@@ -1526,7 +1527,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       objectPatches.forEach(({ id, patch }) => onObjectUpdate(id, patch));
     }
     if (nextAreaSelection) {
-      onAreaSelectionChange?.(nextAreaSelection);
+      onAreaSelectionChange?.(
+        nextAreaSelection.objectIds.length > 0 || nextAreaSelection.strokeIds.length > 0
+          ? nextAreaSelection
+          : null
+      );
     }
     setMoving(null);
   };

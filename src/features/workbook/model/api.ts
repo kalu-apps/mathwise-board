@@ -708,6 +708,23 @@ export async function uploadWorkbookAsset(params: {
   dataUrl: string;
   mimeType?: string;
 }) {
+  const binaryAsset = await buildWorkbookAssetBlob(params.dataUrl);
+  if (binaryAsset) {
+    try {
+      return await uploadWorkbookAssetFile({
+        sessionId: params.sessionId,
+        fileName: params.fileName,
+        file: binaryAsset,
+        mimeType: params.mimeType || binaryAsset.type || undefined,
+        timeoutMs: 60_000,
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 413) {
+        throw error;
+      }
+    }
+  }
+
   return api.post<{
     assetId: string;
     url: string;
@@ -727,7 +744,7 @@ export async function uploadWorkbookAsset(params: {
 export async function uploadWorkbookAssetFile(params: {
   sessionId: string;
   fileName: string;
-  file: File;
+  file: Blob;
   mimeType?: string;
   timeoutMs?: number;
 }) {
@@ -762,6 +779,18 @@ export async function uploadWorkbookAssetFile(params: {
     sizeBytes: number;
   };
 }
+
+const buildWorkbookAssetBlob = async (dataUrl: string): Promise<Blob | null> => {
+  if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:")) return null;
+  if (typeof fetch !== "function") return null;
+  try {
+    const response = await fetch(dataUrl);
+    const blob = await response.blob();
+    return blob.size > 0 ? blob : null;
+  } catch {
+    return null;
+  }
+};
 
 const createTimeoutSignal = (timeoutMs: number) => {
   const controller = new AbortController();
