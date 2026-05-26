@@ -1,4 +1,4 @@
-import type { WorkbookStroke } from "../model/types";
+import type { WorkbookPoint, WorkbookStroke } from "../model/types";
 import {
   buildWorkbookStrokeSelectionKey,
   type WorkbookStrokeSelection,
@@ -8,10 +8,49 @@ export const EMPTY_STROKE_REPLACEMENT_BY_SELECTION_KEY = new Map<string, Workboo
 
 const RENDERED_STROKE_PREVIEW_ID_MARKER = "::preview-";
 
+export const buildMovingStrokeDisplayState = (params: {
+  moving: { current: WorkbookPoint; start: WorkbookPoint } | null;
+  movingStrokeSelections: WorkbookStrokeSelection[];
+  strokeByKey: ReadonlyMap<string, WorkbookStroke>;
+}) => {
+  const selectionKeys = new Set<string>();
+  const selections: WorkbookStrokeSelection[] = [];
+  const replacementBySelectionKey = new Map<string, WorkbookStroke>();
+  if (!params.moving || params.movingStrokeSelections.length === 0) {
+    return { replacementBySelectionKey, selectionKeys, selections };
+  }
+
+  const deltaX = params.moving.current.x - params.moving.start.x;
+  const deltaY = params.moving.current.y - params.moving.start.y;
+  if (Math.abs(deltaX) <= 0.01 && Math.abs(deltaY) <= 0.01) {
+    return { replacementBySelectionKey, selectionKeys, selections };
+  }
+
+  params.movingStrokeSelections.forEach((selection) => {
+    const sourceStrokeKey = buildWorkbookStrokeSelectionKey(selection);
+    const sourceStroke = params.strokeByKey.get(sourceStrokeKey) ?? null;
+    if (!sourceStroke) return;
+    const translatedPoints = sourceStroke.points.map((point) => ({
+      x: point.x + deltaX,
+      y: point.y + deltaY,
+    }));
+    if (translatedPoints.length === 0) return;
+    selectionKeys.add(sourceStrokeKey);
+    selections.push(selection);
+    replacementBySelectionKey.set(sourceStrokeKey, {
+      ...sourceStroke,
+      points: translatedPoints,
+    });
+  });
+
+  return { replacementBySelectionKey, selectionKeys, selections };
+};
+
 export const replaceRenderedStrokesBySelection = (params: {
   baseStrokes: WorkbookStroke[];
   selections: WorkbookStrokeSelection[];
   replacementBySelectionKey: Map<string, WorkbookStroke>;
+  keepOriginalWhenMissingReplacement?: boolean;
 }) => {
   if (params.selections.length === 0) return params.baseStrokes;
 
@@ -29,10 +68,14 @@ export const replaceRenderedStrokesBySelection = (params: {
       return;
     }
     const selectionKey = buildWorkbookStrokeSelectionKey(matchingSelection);
+    const replacementStroke = params.replacementBySelectionKey.get(selectionKey);
+    if (!replacementStroke) {
+      if (params.keepOriginalWhenMissingReplacement) nextStrokes.push(stroke);
+      return;
+    }
     if (replacedSelectionKeys.has(selectionKey)) return;
     replacedSelectionKeys.add(selectionKey);
-    const replacementStroke = params.replacementBySelectionKey.get(selectionKey);
-    if (replacementStroke) nextStrokes.push(replacementStroke);
+    nextStrokes.push(replacementStroke);
   });
 
   params.replacementBySelectionKey.forEach((replacementStroke, selectionKey) => {

@@ -5,6 +5,9 @@ const readBool = (value: string | undefined, fallback = false) => {
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 };
 
+const DEFAULT_NEST_BODY_LIMIT_MB = 80;
+const MAX_NEST_BODY_LIMIT_MB = 256;
+
 const readPositiveInt = (value: string | undefined, fallback: number, cap: number) => {
   const parsed = Number.parseInt(String(value ?? "").trim(), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
@@ -35,7 +38,11 @@ export const nestEnv = {
     String(process.env.NEST_HOST ?? process.env.HOST ?? "0.0.0.0").trim() ||
     "0.0.0.0",
   port: readPositiveInt(process.env.NEST_PORT ?? process.env.PORT, 4173, 65_535),
-  bodyLimitMb: readPositiveInt(process.env.NEST_BODY_LIMIT_MB, 48, 128),
+  bodyLimitMb: readPositiveInt(
+    process.env.NEST_BODY_LIMIT_MB,
+    DEFAULT_NEST_BODY_LIMIT_MB,
+    MAX_NEST_BODY_LIMIT_MB
+  ),
   corsAllowedOrigins: parseCsv(process.env.CORS_ALLOWED_ORIGINS),
   objectVersionStrict: readBool(process.env.NEST_OBJECT_VERSION_STRICT, false),
   idempotencyTtlMs: readPositiveInt(process.env.NEST_IDEMPOTENCY_TTL_MS, 300_000, 86_400_000),
