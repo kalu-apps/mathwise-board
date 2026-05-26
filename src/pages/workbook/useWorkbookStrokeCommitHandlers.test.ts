@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { WorkbookEraserCommitPayload } from "../../features/workbook/ui/WorkbookCanvas.types";
 import type { WorkbookStroke } from "../../features/workbook/model/types";
-import { buildWorkbookEraserCommitPlan } from "./useWorkbookStrokeCommitHandlers";
+import { buildWorkbookEraserCommitPlan } from "./workbookEraserCommitPlan";
 
 const buildStroke = (overrides: Partial<WorkbookStroke> = {}): WorkbookStroke => ({
   id: "stroke-1",
