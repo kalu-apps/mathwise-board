@@ -1477,7 +1477,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       return;
     }
 
-    const persistedStrokeSelections: WorkbookStrokeSelection[] = [];
     const movedStrokeReplacements = !hasMeaningfulMove
       ? []
       : nextMoving.groupStrokeSelections
@@ -1491,7 +1490,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           deltaY
         );
         if (translatedPoints.length === 0) return null;
-        persistedStrokeSelections.push({ id: sourceStroke.id, layer: sourceStroke.layer });
         return {
           stroke: sourceStroke,
           fragments: [translatedPoints],
@@ -1512,9 +1510,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       moving: normalizedMoving,
       areaSelection,
     });
-    const nextAreaSelection = rawNextAreaSelection
-      ? { ...rawNextAreaSelection, strokeIds: persistedStrokeSelections }
-      : null;
+    const nextAreaSelection = rawNextAreaSelection;
 
     if (hasMeaningfulMove && movedStrokeReplacements.length > 0 && onEraserCommit) {
       onEraserCommit({
@@ -1591,14 +1587,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       fragments: WorkbookPoint[][];
       preserveSourceId: true;
     }> = [];
-    const persistedStrokeSelections: Array<{ id: string; layer: WorkbookStroke["layer"] }> = [];
+    const nextStrokeSelections = areaSelection.strokeIds.map((selection) => ({
+      id: selection.id,
+      layer: selection.layer,
+    }));
     areaSelection.strokeIds.forEach((selection) => {
       const sourceStroke = strokeByKey.get(buildWorkbookStrokeSelectionKey(selection));
       if (!sourceStroke) return;
-      persistedStrokeSelections.push({
-        id: sourceStroke.id,
-        layer: sourceStroke.layer,
-      });
       const nextStroke = remapAreaSelectionStroke(sourceStroke, remapPoint);
       if (nextStroke.points.length === 0) return;
       strokeReplacements.push({
@@ -1608,7 +1603,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       });
     });
 
-    if (persistedObjectIds.length === 0 && persistedStrokeSelections.length === 0) {
+    if (persistedObjectIds.length === 0 && nextStrokeSelections.length === 0) {
       onAreaSelectionChange?.(null);
       return;
     }
@@ -1626,7 +1621,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
     onAreaSelectionChange?.({
       objectIds: persistedObjectIds,
-      strokeIds: persistedStrokeSelections,
+      strokeIds: nextStrokeSelections,
       rect: nextRect,
       resizeEnabled: areaSelection.resizeEnabled,
     });
