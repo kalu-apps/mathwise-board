@@ -2018,10 +2018,9 @@ const splitName = (displayName: string) => {
 
 const createGuestUser = (db: MockDb, displayName: string): UserRecord => {
   const normalized = normalizeGuestName(displayName);
-  const existing = db.users.find(
-    (user) => user.role === "student" && `${user.firstName} ${user.lastName}`.trim() === normalized
-  );
-  if (existing) return existing;
+  // Guest display names are labels, not identities: unrelated students can enter
+  // the same name from different invite links/devices. Reuse is handled through
+  // an existing auth cookie before this function is called.
   const { firstName, lastName } = splitName(normalized);
   const user: UserRecord = {
     id: `guest_${ensureId()}`,

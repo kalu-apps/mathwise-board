@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Alert, Button, TextField } from "@mui/material";
 import "./workbookRouteStyles";
@@ -13,6 +13,22 @@ import {
   prefetchWorkbookSessionRuntimeOnIdle,
 } from "./prefetchWorkbookSessionRuntime";
 import { InlineMobiusLoader } from "@/shared/ui/loading";
+
+const createInviteJoinAttemptKey = () => {
+  if (
+    typeof globalThis !== "undefined" &&
+    "crypto" in globalThis &&
+    typeof globalThis.crypto?.randomUUID === "function"
+  ) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `invite_join_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const waitForCookieWrite = () =>
+  new Promise((resolve) => {
+    setTimeout(resolve, 120);
+  });
 
 export default function WorkbookInviteJoinPage() {
   const { token = "" } = useParams();
@@ -35,6 +51,7 @@ export default function WorkbookInviteJoinPage() {
   });
   const [guestName, setGuestName] = useState("");
   const [guestNameError, setGuestNameError] = useState<string | null>(null);
+  const joinInFlightRef = useRef(false);
   const [pendingJoinRedirect, setPendingJoinRedirect] = useState<{
     sessionId: string;
     token: string;
@@ -140,25 +157,28 @@ export default function WorkbookInviteJoinPage() {
   }, [navigate, pendingJoinRedirect, token, user?.id]);
 
   const handleJoin = async () => {
-    if (!token || !isAuthReady) return;
+    if (!token || !isAuthReady || joinInFlightRef.current) return;
     const guestDisplayName = effectiveGuestName;
     if (shouldCollectGuestName && guestDisplayName.length < 2) {
       setGuestNameError(t("workbookInvite.guestNameRequired"));
       return;
     }
     setGuestNameError(null);
+    joinInFlightRef.current = true;
     try {
       setState((prev) => ({ ...prev, loading: true }));
       const joined = await joinWorkbookInvite(
         token,
-        shouldCollectGuestName ? guestDisplayName : undefined
+        shouldCollectGuestName ? guestDisplayName : undefined,
+        { idempotencyKey: createInviteJoinAttemptKey() }
       );
-      const authSession = joined.user ? null : await getAuthSession();
-      const resolvedUser = joined.user ?? authSession;
-      if (resolvedUser) {
-        updateUser(resolvedUser);
+      let resolvedUser = await getAuthSession();
+      if (!resolvedUser || (joined.user && resolvedUser.id !== joined.user.id)) {
+        await waitForCookieWrite();
+        resolvedUser = await getAuthSession();
       }
-      if (!resolvedUser) {
+      if (!resolvedUser || (joined.user && resolvedUser.id !== joined.user.id)) {
+        joinInFlightRef.current = false;
         setState((prev) => ({
           ...prev,
           loading: false,
@@ -166,6 +186,7 @@ export default function WorkbookInviteJoinPage() {
         }));
         return;
       }
+      updateUser(resolvedUser);
       setState((prev) => ({
         ...prev,
         loading: true,
@@ -192,6 +213,7 @@ export default function WorkbookInviteJoinPage() {
         loading: false,
         error: detailsMessage ?? t("workbookInvite.joinError"),
       }));
+      joinInFlightRef.current = false;
     }
   };
 
