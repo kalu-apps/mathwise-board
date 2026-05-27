@@ -132,14 +132,23 @@ export async function resolveWorkbookInvite(token: string) {
   }>(`/workbook/invites/${encodeURIComponent(token)}`);
 }
 
-export async function joinWorkbookInvite(token: string, guestName?: string) {
+export async function joinWorkbookInvite(
+  token: string,
+  guestName?: string,
+  options?: { idempotencyKey?: string }
+) {
   return api.post<{
     session: WorkbookSession;
     draft: WorkbookDraftCard;
     user?: User;
   }>(
     `/workbook/invites/${encodeURIComponent(token)}/join`,
-    typeof guestName === "string" ? { guestName } : {}
+    typeof guestName === "string" ? { guestName } : {},
+    {
+      idempotencyKey: options?.idempotencyKey,
+      idempotencyPrefix: "workbook-invite-join",
+      notifyDataUpdate: false,
+    }
   );
 }
 
