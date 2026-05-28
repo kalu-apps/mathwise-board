@@ -143,6 +143,7 @@ export const useWorkbookSessionRefs = () => {
   const incomingStrokePreviewVersionRef = useRef<Map<string, number>>(new Map());
   const incomingEraserPreviewTimersRef = useRef<Map<string, number>>(new Map());
   const finalizedStrokePreviewIdsRef = useRef<Set<string>>(new Set());
+  const appliedStrokeTranslateOperationIdsRef = useRef<Set<string>>(new Set());
   const objectLastCommittedEventAtRef = useRef<Map<string, number>>(new Map());
   const incomingPreviewFrameRef = useRef<number | null>(null);
   const localPreviewQueuedPatchRef = useRef<Map<string, Partial<WorkbookBoardObject>>>(new Map());
@@ -242,6 +243,7 @@ export const useWorkbookSessionRefs = () => {
       incomingStrokePreviewVersionRef,
       incomingEraserPreviewTimersRef,
       finalizedStrokePreviewIdsRef,
+      appliedStrokeTranslateOperationIdsRef,
       objectLastCommittedEventAtRef,
       incomingPreviewFrameRef,
       localPreviewQueuedPatchRef,

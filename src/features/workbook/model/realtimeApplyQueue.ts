@@ -1,4 +1,5 @@
 import { isVolatileWorkbookEventType } from "./events";
+import { isWorkbookStrokeReplacementPair } from "./strokeReplacementEvents";
 import type { WorkbookEvent } from "./types";
 import type { RealtimeMetricChannel } from "@/shared/lib/realtimeMonitoring";
 
@@ -100,10 +101,16 @@ const drainQueueWithBudget = (params: {
     }
 
     const remainingCapacity = params.maxEvents - processedEvents;
-    const chunkSize = Math.max(
+    let chunkSize = Math.max(
       1,
       Math.min(remainingCapacity, head.events.length, params.maxChunkEvents)
     );
+    while (
+      chunkSize < head.events.length &&
+      isWorkbookStrokeReplacementPair(head.events[chunkSize - 1], head.events[chunkSize])
+    ) {
+      chunkSize += 1;
+    }
     const chunkEvents = head.events.splice(0, chunkSize);
     if (chunkEvents.length > 0) {
       params.applyEvents(chunkEvents);

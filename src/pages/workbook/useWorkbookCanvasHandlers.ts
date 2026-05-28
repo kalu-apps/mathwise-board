@@ -6,7 +6,10 @@ import type {
   WorkbookStroke,
 } from "@/features/workbook/model/types";
 import type { WorkbookAreaSelection } from "@/features/workbook/model/workbookSessionUiTypes";
-import type { WorkbookEraserCommitPayload } from "@/features/workbook/ui/WorkbookCanvas";
+import type {
+  WorkbookEraserCommitPayload,
+  WorkbookStrokeTranslateCommitPayload,
+} from "@/features/workbook/ui/WorkbookCanvas";
 
 type SetState<T> = (value: T | ((current: T) => T)) => void;
 
@@ -18,6 +21,9 @@ type UseWorkbookCanvasHandlersParams = {
     fragments: WorkbookPoint[][];
     preserveSourceId?: boolean;
   }) => Promise<void> | void;
+  commitStrokeTranslateBatch: (
+    payload: WorkbookStrokeTranslateCommitPayload
+  ) => Promise<void> | void;
   commitEraserBatch: (payload: WorkbookEraserCommitPayload) => Promise<void> | void;
   commitObjectUpdate: (
     objectId: string,
@@ -56,6 +62,7 @@ export const useWorkbookCanvasHandlers = ({
   commitStroke,
   commitStrokeDelete,
   commitStrokeReplace,
+  commitStrokeTranslateBatch,
   commitEraserBatch,
   commitObjectUpdate,
   commitObjectDelete,
@@ -115,6 +122,13 @@ export const useWorkbookCanvasHandlers = ({
       void commitEraserBatch(payload);
     },
     [commitEraserBatch]
+  );
+
+  const handleCanvasStrokeTranslateCommit = useCallback(
+    (payload: WorkbookStrokeTranslateCommitPayload) => {
+      void commitStrokeTranslateBatch(payload);
+    },
+    [commitStrokeTranslateBatch]
   );
 
   const handleCanvasEraserPreview = useCallback(
@@ -229,6 +243,7 @@ export const useWorkbookCanvasHandlers = ({
     handleCanvasStrokeCommit,
     handleCanvasStrokeDelete,
     handleCanvasStrokeReplace,
+    handleCanvasStrokeTranslateCommit,
     handleCanvasEraserCommit,
     handleCanvasEraserPreview,
     handleCanvasObjectDelete,

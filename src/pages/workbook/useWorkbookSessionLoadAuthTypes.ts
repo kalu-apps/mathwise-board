@@ -62,6 +62,7 @@ export type WorkbookSessionLoadAndAuthParams = {
   lastAppliedBoardSettingsSeqRef: MutableRefObject<number>;
   recoveryModeRef: MutableRefObject<WorkbookRecoveryMode>;
   processedEventIdsRef: MutableRefObject<Set<string>>;
+  appliedStrokeTranslateOperationIdsRef: MutableRefObject<Set<string>>;
   applyIncomingEvents: (events: WorkbookEvent[]) => void;
   filterUnseenWorkbookEvents: (
     events: WorkbookEvent[],
