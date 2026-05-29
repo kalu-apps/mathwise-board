@@ -209,7 +209,13 @@ export const useWorkbookStrokeCommitHandlers = ({
       });
       try {
         await appendEventsAndApply([{ type, payload: { strokeId } }]);
-      } catch {
+        clearRecoverableSyncIssue();
+      } catch (error) {
+        if (isRecoverableApiError(error)) {
+          markDirty();
+          noteRecoverableSyncIssue();
+          return;
+        }
         if (deletedStroke) {
           applyLocalStrokeCollection(targetLayer, (current) =>
             current.some((item) => item.id === strokeId)
@@ -224,7 +230,10 @@ export const useWorkbookStrokeCommitHandlers = ({
       appendEventsAndApply,
       applyLocalStrokeCollection,
       canDelete,
+      clearRecoverableSyncIssue,
       finalizeStrokePreview,
+      markDirty,
+      noteRecoverableSyncIssue,
       sessionId,
       setError,
     ]
@@ -276,7 +285,13 @@ export const useWorkbookStrokeCommitHandlers = ({
             payload: { stroke },
           })),
         ]);
-      } catch {
+        clearRecoverableSyncIssue();
+      } catch (error) {
+        if (isRecoverableApiError(error)) {
+          markDirty();
+          noteRecoverableSyncIssue();
+          return;
+        }
         applyLocalStrokeCollection(sourceStroke.layer, (current) => {
           const cleaned = current.filter((item) => !replacementIds.has(item.id));
           if (cleaned.some((item) => item.id === sourceStroke.id)) return cleaned;
@@ -289,8 +304,11 @@ export const useWorkbookStrokeCommitHandlers = ({
       appendEventsAndApply,
       applyLocalStrokeCollection,
       canDelete,
+      clearRecoverableSyncIssue,
       currentBoardPage,
       finalizeStrokePreview,
+      markDirty,
+      noteRecoverableSyncIssue,
       sessionId,
       setError,
     ]
