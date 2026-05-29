@@ -18,7 +18,7 @@ test("audio activation is false outside the browser document", () => {
 
 test("audio playback start attempts LiveKit room audio and all attached elements", async () => {
   const calls: string[] = [];
-  await startWorkbookLivekitAudioPlayback({
+  const result = await startWorkbookLivekitAudioPlayback({
     bindings: [
       buildAudioBinding(async () => {
         calls.push("first-element");
@@ -37,4 +37,26 @@ test("audio playback start attempts LiveKit room audio and all attached elements
   });
 
   assert.deepEqual(calls.sort(), ["first-element", "room", "second-element"]);
+  assert.equal(result.audioElementCount, 2);
+  assert.equal(result.blockedAudioElementCount, 0);
+  assert.equal(result.roomAudioBlocked, false);
+});
+
+test("audio playback reports browser autoplay blocks", async () => {
+  const result = await startWorkbookLivekitAudioPlayback({
+    bindings: [
+      buildAudioBinding(async () => {
+        throw new DOMException("gesture required", "NotAllowedError");
+      }),
+    ],
+    room: {
+      startAudio: async () => {
+        throw new DOMException("gesture required", "NotAllowedError");
+      },
+    } as never,
+  });
+
+  assert.equal(result.audioElementCount, 1);
+  assert.equal(result.blockedAudioElementCount, 1);
+  assert.equal(result.roomAudioBlocked, true);
 });
