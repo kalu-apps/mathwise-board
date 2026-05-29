@@ -30,6 +30,13 @@ export type WorkbookKnownEventPayloadMap = {
     ended?: boolean;
   };
   "board.stroke.delete": { strokeId: string };
+  "board.strokes.translate": {
+    strokeIds: string[];
+    dx: number;
+    dy: number;
+    page?: number;
+    operationId?: string;
+  };
   "board.object.create": { object: WorkbookBoardObject };
   "board.object.preview": {
     objectId: string;
@@ -54,6 +61,13 @@ export type WorkbookKnownEventPayloadMap = {
     previewVersion?: number;
   };
   "annotations.stroke.delete": { strokeId: string };
+  "annotations.strokes.translate": {
+    strokeIds: string[];
+    dx: number;
+    dy: number;
+    page?: number;
+    operationId?: string;
+  };
   "document.asset.add": { asset: WorkbookDocumentAsset };
   "document.state.update": { document: WorkbookDocumentState };
   "document.annotation.add": { annotation: WorkbookDocumentAnnotation };
@@ -123,6 +137,8 @@ export const WORKBOOK_URGENT_LIVE_EVENT_TYPES = [
   "annotations.stroke",
   "board.stroke.delete",
   "annotations.stroke.delete",
+  "board.strokes.translate",
+  "annotations.strokes.translate",
   "board.object.create",
   "board.object.update",
   "board.object.delete",
@@ -141,6 +157,8 @@ export const WORKBOOK_HISTORY_EVENT_TYPES = [
   "board.stroke.delete",
   "annotations.stroke",
   "annotations.stroke.delete",
+  "board.strokes.translate",
+  "annotations.strokes.translate",
   "board.object.create",
   "board.object.update",
   "board.object.delete",

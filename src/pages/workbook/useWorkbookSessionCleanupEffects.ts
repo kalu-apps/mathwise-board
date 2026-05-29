@@ -10,6 +10,7 @@ type UseWorkbookSessionCleanupEffectsParams = {
   viewportSyncQueuedOffsetRef: MutableRefObject<WorkbookPoint | null>;
   eraserPreviewQueuedByGestureRef: MutableRefObject<Map<string, unknown>>;
   eraserPreviewQueuedAtRef: MutableRefObject<Map<string, number>>;
+  appliedStrokeTranslateOperationIdsRef: MutableRefObject<Set<string>>;
   clearLocalPreviewPatchRuntime: () => void;
   clearObjectSyncRuntime: () => void;
   clearStrokePreviewRuntime: () => void;
@@ -27,6 +28,7 @@ export const useWorkbookSessionCleanupEffects = ({
   viewportSyncQueuedOffsetRef,
   eraserPreviewQueuedByGestureRef,
   eraserPreviewQueuedAtRef,
+  appliedStrokeTranslateOperationIdsRef,
   clearLocalPreviewPatchRuntime,
   clearObjectSyncRuntime,
   clearStrokePreviewRuntime,
@@ -84,6 +86,7 @@ export const useWorkbookSessionCleanupEffects = ({
       viewportSyncQueuedOffsetRef.current = null;
       eraserPreviewQueuedByGestureRef.current.clear();
       eraserPreviewQueuedAtRef.current.clear();
+      appliedStrokeTranslateOperationIdsRef.current.clear();
     },
     []
   );

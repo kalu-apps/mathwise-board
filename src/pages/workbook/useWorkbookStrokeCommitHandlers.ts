@@ -3,13 +3,22 @@ import { generateId } from "@/shared/lib/id";
 import { ApiError, isRecoverableApiError } from "@/shared/api/client";
 import { mergeBoardObjectWithPatch } from "@/features/workbook/model/runtime";
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
+import {
+  buildWorkbookStrokeTranslateEventType,
+  rememberWorkbookStrokeTranslateOperationId,
+  translateWorkbookStrokesByIds,
+  WORKBOOK_MAX_STROKE_TRANSLATE_IDS,
+} from "@/features/workbook/model/strokeTranslateEvents";
 import type {
   WorkbookBoardObject,
   WorkbookLayer,
   WorkbookPoint,
   WorkbookStroke,
 } from "@/features/workbook/model/types";
-import type { WorkbookEraserCommitPayload } from "@/features/workbook/ui/WorkbookCanvas";
+import type {
+  WorkbookEraserCommitPayload,
+  WorkbookStrokeTranslateCommitPayload,
+} from "@/features/workbook/ui/WorkbookCanvas";
 import type { WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
 import { buildWorkbookEraserCommitPlan } from "./workbookEraserCommitPlan";
 
@@ -51,6 +60,7 @@ type UseWorkbookStrokeCommitHandlersParams = {
   ) => void;
   boardStrokesRef: MutableRefObject<WorkbookStroke[]>;
   annotationStrokesRef: MutableRefObject<WorkbookStroke[]>;
+  appliedStrokeTranslateOperationIdsRef: MutableRefObject<Set<string>>;
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
   commitInteractiveBoardObjects: (objects: WorkbookBoardObject[]) => void;
   markDirty: () => void;
@@ -79,6 +89,7 @@ export const useWorkbookStrokeCommitHandlers = ({
   applyLocalBoardObjects,
   boardStrokesRef,
   annotationStrokesRef,
+  appliedStrokeTranslateOperationIdsRef,
   boardObjectsRef,
   commitInteractiveBoardObjects,
   markDirty,
@@ -290,6 +301,142 @@ export const useWorkbookStrokeCommitHandlers = ({
     ]
   );
 
+  const commitStrokeTranslateBatch = useCallback(
+    async (payload: WorkbookStrokeTranslateCommitPayload) => {
+      if (!sessionId || !canDelete) return;
+      const events: WorkbookClientEventInput[] = [];
+      const operationIds: string[] = [];
+      const normalizedMoves = payload.strokeMoves.flatMap((move) => {
+        const layer = move.layer === "annotations" ? "annotations" : "board";
+        const currentStrokes = layer === "annotations"
+          ? annotationStrokesRef.current
+          : boardStrokesRef.current;
+        const availableIds = new Set(currentStrokes.map((stroke) => stroke.id));
+        const strokeIds = Array.from(
+          new Set(
+            move.strokeIds
+              .map((strokeId) => strokeId.trim())
+              .filter((strokeId) => strokeId.length > 0 && availableIds.has(strokeId))
+          )
+        );
+        if (strokeIds.length === 0) return [];
+        if (!Number.isFinite(move.dx) || !Number.isFinite(move.dy)) return [];
+        if (Math.abs(move.dx) <= 0.5 && Math.abs(move.dy) <= 0.5) return [];
+        const page = Math.max(1, Math.trunc(move.page ?? currentBoardPage));
+        for (let index = 0; index < strokeIds.length; index += WORKBOOK_MAX_STROKE_TRANSLATE_IDS) {
+          const chunkStrokeIds = strokeIds.slice(index, index + WORKBOOK_MAX_STROKE_TRANSLATE_IDS);
+          const operationId = generateId();
+          operationIds.push(operationId);
+          events.push({
+            type: buildWorkbookStrokeTranslateEventType(layer),
+            payload: {
+              strokeIds: chunkStrokeIds,
+              dx: move.dx,
+              dy: move.dy,
+              page,
+              operationId,
+            },
+          });
+        }
+        return [
+          {
+            layer,
+            strokeIds,
+            dx: move.dx,
+            dy: move.dy,
+          },
+        ];
+      });
+
+      payload.objectUpdates.forEach((entry) => {
+        if (!entry.objectId.trim()) return;
+        events.push({
+          type: "board.object.update",
+          payload: {
+            objectId: entry.objectId,
+            patch: entry.patch,
+          },
+        });
+      });
+
+      if (events.length === 0) return;
+      const historyEntry = buildHistoryEntryFromEvents(events);
+      const previousBoardStrokes = boardStrokesRef.current;
+      const previousAnnotationStrokes = annotationStrokesRef.current;
+      const previousBoardObjects = boardObjectsRef.current;
+
+      operationIds.forEach((operationId) => {
+        rememberWorkbookStrokeTranslateOperationId(
+          appliedStrokeTranslateOperationIdsRef.current,
+          operationId
+        );
+      });
+      normalizedMoves.forEach((move) => {
+        move.strokeIds.forEach((strokeId) => {
+          finalizeStrokePreview(strokeId);
+        });
+        if (move.layer === "annotations") {
+          setAnnotationStrokes((current) =>
+            translateWorkbookStrokesByIds(current, move.strokeIds, move.dx, move.dy)
+          );
+        } else {
+          setBoardStrokes((current) =>
+            translateWorkbookStrokesByIds(current, move.strokeIds, move.dx, move.dy)
+          );
+        }
+      });
+      if (payload.objectUpdates.length > 0) {
+        const objectPatchById = new Map(
+          payload.objectUpdates.map((entry) => [entry.objectId, entry.patch])
+        );
+        applyLocalBoardObjects((current) =>
+          current.map((object) => {
+            const patch = objectPatchById.get(object.id);
+            return patch ? mergeBoardObjectWithPatch(object, patch) : object;
+          })
+        );
+      }
+
+      try {
+        await appendEventsAndApply(events, historyEntry ? { historyEntry } : undefined);
+        clearRecoverableSyncIssue();
+      } catch (error) {
+        if (isRecoverableApiError(error)) {
+          markDirty();
+          noteRecoverableSyncIssue();
+          return;
+        }
+        operationIds.forEach((operationId) => {
+          appliedStrokeTranslateOperationIdsRef.current.delete(operationId);
+        });
+        setBoardStrokes(previousBoardStrokes);
+        setAnnotationStrokes(previousAnnotationStrokes);
+        commitInteractiveBoardObjects(previousBoardObjects);
+        setError("Не удалось синхронизировать перемещение штрихов.");
+      }
+    },
+    [
+      annotationStrokesRef,
+      appendEventsAndApply,
+      appliedStrokeTranslateOperationIdsRef,
+      applyLocalBoardObjects,
+      boardObjectsRef,
+      boardStrokesRef,
+      buildHistoryEntryFromEvents,
+      canDelete,
+      clearRecoverableSyncIssue,
+      commitInteractiveBoardObjects,
+      currentBoardPage,
+      finalizeStrokePreview,
+      markDirty,
+      noteRecoverableSyncIssue,
+      sessionId,
+      setAnnotationStrokes,
+      setBoardStrokes,
+      setError,
+    ]
+  );
+
   const commitEraserBatch = useCallback(
     async (payload: WorkbookEraserCommitPayload) => {
       if (!sessionId || !canDelete) return;
@@ -387,6 +534,7 @@ export const useWorkbookStrokeCommitHandlers = ({
     commitStroke,
     commitStrokeDelete,
     commitStrokeReplace,
+    commitStrokeTranslateBatch,
     commitEraserBatch,
   };
 };

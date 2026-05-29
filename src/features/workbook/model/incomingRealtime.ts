@@ -14,6 +14,12 @@ import {
 } from "./pageFrame";
 import { mergeBoardObjectWithPatch, mergePreviewPathPoints } from "./runtime";
 import { upsertWorkbookStrokeById } from "./strokeCollection";
+import {
+  normalizeWorkbookStrokeTranslatePayload,
+  rememberWorkbookStrokeTranslateOperationId,
+  resolveWorkbookStrokeTranslateLayer,
+  translateWorkbookStrokesByIds,
+} from "./strokeTranslateEvents";
 import type {
   WorkbookBoardSettings,
   WorkbookBoardObject,
@@ -126,6 +132,7 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
   viewportLastReceivedAtRef: MutableRefObject<number>;
   finalizedStrokePreviewIdsRef: MutableRefObject<Set<string>>;
   incomingStrokePreviewVersionRef: MutableRefObject<Map<string, number>>;
+  appliedStrokeTranslateOperationIdsRef: MutableRefObject<Set<string>>;
   objectLastCommittedEventAtRef: MutableRefObject<Map<string, number>>;
   incomingPreviewQueuedPatchRef: MutableRefObject<
     Map<string, Partial<WorkbookBoardObject>[]>
@@ -191,6 +198,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     setPointerPointsByUser,
     finalizedStrokePreviewIdsRef,
     incomingStrokePreviewVersionRef,
+    appliedStrokeTranslateOperationIdsRef,
     objectLastCommittedEventAtRef,
     incomingPreviewQueuedPatchRef,
     incomingPreviewVersionByAuthorObjectRef,
@@ -406,6 +414,36 @@ export const applyWorkbookIncomingRealtimeEvent = (
     if (typeof strokeId !== "string") return true;
     finalizeStrokePreview(strokeId);
     setBoardStrokes((current) => current.filter((item) => item.id !== strokeId));
+    return true;
+  }
+
+  if (event.type === "board.strokes.translate" || event.type === "annotations.strokes.translate") {
+    const layer = resolveWorkbookStrokeTranslateLayer(event.type);
+    const payload = normalizeWorkbookStrokeTranslatePayload(event.payload);
+    if (!layer || !payload) return true;
+    if (
+      payload.operationId &&
+      event.authorUserId === userId &&
+      appliedStrokeTranslateOperationIdsRef.current.has(payload.operationId)
+    ) {
+      return true;
+    }
+    payload.strokeIds.forEach((strokeId) => {
+      finalizeStrokePreview(strokeId);
+    });
+    if (layer === "annotations") {
+      setAnnotationStrokes((current) =>
+        translateWorkbookStrokesByIds(current, payload.strokeIds, payload.dx, payload.dy)
+      );
+    } else {
+      setBoardStrokes((current) =>
+        translateWorkbookStrokesByIds(current, payload.strokeIds, payload.dx, payload.dy)
+      );
+    }
+    rememberWorkbookStrokeTranslateOperationId(
+      appliedStrokeTranslateOperationIdsRef.current,
+      payload.operationId
+    );
     return true;
   }
 

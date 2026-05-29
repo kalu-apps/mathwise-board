@@ -83,6 +83,7 @@ export const useWorkbookSessionLoadSession = ({
   lastAppliedBoardSettingsSeqRef,
   recoveryModeRef,
   processedEventIdsRef,
+  appliedStrokeTranslateOperationIdsRef,
   applyIncomingEvents,
   filterUnseenWorkbookEvents,
   dirtyRef,
@@ -460,6 +461,7 @@ export const useWorkbookSessionLoadSession = ({
             }
             if (!isBackground) {
               processedEventIdsRef.current.clear();
+              appliedStrokeTranslateOperationIdsRef.current.clear();
             }
             clearObjectSyncRuntime();
             clearStrokePreviewRuntime();
@@ -697,7 +699,7 @@ export const useWorkbookSessionLoadSession = ({
       firstInteractiveMetricReportedRef, queuedBoardSettingsCommitRef,
       queuedBoardSettingsHistoryBeforeRef, boardSettingsCommitTimerRef, latestSeqRef,
       lastAppliedSeqRef, lastAppliedBoardSettingsSeqRef, recoveryModeRef, processedEventIdsRef,
-      applyIncomingEvents, filterUnseenWorkbookEvents, dirtyRef,
+      appliedStrokeTranslateOperationIdsRef, applyIncomingEvents, filterUnseenWorkbookEvents, dirtyRef,
       undoStackRef, redoStackRef, focusResetTimersByUserRef, boardObjectsRef, boardObjectIndexByIdRef,
     ]
   );
