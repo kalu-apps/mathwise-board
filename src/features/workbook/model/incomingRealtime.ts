@@ -1,9 +1,5 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import {
-  normalizeObjectPayload,
-  normalizeScenePayload,
-  normalizeStrokePayload,
-} from "./scene";
+import { normalizeObjectPayload, normalizeScenePayload, normalizeStrokePayload } from "./scene";
 import {
   ensureWorkbookObjectZOrder,
   normalizeWorkbookObjectZOrder,
@@ -14,6 +10,7 @@ import {
 } from "./pageFrame";
 import { mergeBoardObjectWithPatch, mergePreviewPathPoints } from "./runtime";
 import { upsertWorkbookStrokeById } from "./strokeCollection";
+import { applyIncomingWorkbookStrokeTranslateEvent } from "./incomingStrokeTranslate";
 import type {
   WorkbookBoardSettings,
   WorkbookBoardObject,
@@ -126,6 +123,7 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
   viewportLastReceivedAtRef: MutableRefObject<number>;
   finalizedStrokePreviewIdsRef: MutableRefObject<Set<string>>;
   incomingStrokePreviewVersionRef: MutableRefObject<Map<string, number>>;
+  appliedStrokeTranslateOperationIdsRef: MutableRefObject<Set<string>>;
   objectLastCommittedEventAtRef: MutableRefObject<Map<string, number>>;
   incomingPreviewQueuedPatchRef: MutableRefObject<
     Map<string, Partial<WorkbookBoardObject>[]>
@@ -191,6 +189,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     setPointerPointsByUser,
     finalizedStrokePreviewIdsRef,
     incomingStrokePreviewVersionRef,
+    appliedStrokeTranslateOperationIdsRef,
     objectLastCommittedEventAtRef,
     incomingPreviewQueuedPatchRef,
     incomingPreviewVersionByAuthorObjectRef,
@@ -408,6 +407,8 @@ export const applyWorkbookIncomingRealtimeEvent = (
     setBoardStrokes((current) => current.filter((item) => item.id !== strokeId));
     return true;
   }
+
+  if (applyIncomingWorkbookStrokeTranslateEvent({ event, userId, appliedStrokeTranslateOperationIdsRef, finalizeStrokePreview, setBoardStrokes, setAnnotationStrokes })) return true;
 
   if (event.type === "annotations.stroke") {
     const stroke = normalizeStrokePayload((event.payload as { stroke?: unknown })?.stroke);

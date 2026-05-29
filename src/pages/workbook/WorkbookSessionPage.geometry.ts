@@ -353,6 +353,13 @@ export type WorkbookHistoryOperation =
       expectedCurrent?: WorkbookStroke | null;
     }
   | {
+      kind: "translate_strokes";
+      layer: WorkbookLayer;
+      strokeIds: string[];
+      dx: number;
+      dy: number;
+    }
+  | {
       kind: "upsert_object";
       object: WorkbookBoardObject;
       expectedCurrent?: WorkbookBoardObject | null;

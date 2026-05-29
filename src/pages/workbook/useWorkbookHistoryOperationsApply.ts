@@ -23,6 +23,7 @@ import {
   normalizeSceneLayersForBoard,
   type WorkbookHistoryOperation,
 } from "./WorkbookSessionPage.geometry";
+import { translateWorkbookStrokesByIds } from "@/features/workbook/model/strokeTranslateEvents";
 
 type StateUpdater<T> = T | ((current: T) => T);
 type SetState<T> = (updater: StateUpdater<T>) => void;
@@ -190,6 +191,23 @@ export const useWorkbookHistoryOperationsApply = ({
           });
           if (applied) {
             finalizeStrokePreview(operation.strokeId);
+            appliedOperationsCount += 1;
+          }
+          return;
+        }
+        if (operation.kind === "translate_strokes") {
+          let applied = false;
+          applyLocalStrokeCollection(operation.layer, (current) => {
+            const availableIds = new Set(current.map((stroke) => stroke.id));
+            const strokeIds = operation.strokeIds.filter((strokeId) => availableIds.has(strokeId));
+            if (strokeIds.length === 0) return current;
+            applied = true;
+            return translateWorkbookStrokesByIds(current, strokeIds, operation.dx, operation.dy);
+          });
+          if (applied) {
+            operation.strokeIds.forEach((strokeId) => {
+              finalizeStrokePreview(strokeId);
+            });
             appliedOperationsCount += 1;
           }
           return;

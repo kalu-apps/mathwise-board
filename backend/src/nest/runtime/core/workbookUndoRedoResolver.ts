@@ -1,24 +1,8 @@
-import {
-  isHistoryTrackedWorkbookEventType,
-  type WorkbookClientEventInput,
-} from "../../../../../src/features/workbook/model/events";
+import { isHistoryTrackedWorkbookEventType, type WorkbookClientEventInput } from "../../../../../src/features/workbook/model/events";
 import { normalizeWorkbookObjectZOrder } from "../../../../../src/features/workbook/model/objectZOrder";
-import {
-  normalizeDocumentAnnotationPayload,
-  normalizeDocumentAssetPayload,
-  normalizeObjectPayload,
-  normalizeScenePayload,
-  normalizeStrokePayload,
-} from "../../../../../src/features/workbook/model/scene";
-import type {
-  WorkbookBoardObject,
-  WorkbookBoardSettings,
-  WorkbookConstraint,
-  WorkbookDocumentState,
-  WorkbookEvent,
-  WorkbookLayer,
-  WorkbookStroke,
-} from "../../../../../src/features/workbook/model/types";
+import { normalizeDocumentAnnotationPayload, normalizeDocumentAssetPayload, normalizeObjectPayload, normalizeScenePayload, normalizeStrokePayload } from "../../../../../src/features/workbook/model/scene";
+import type { WorkbookBoardObject, WorkbookBoardSettings, WorkbookConstraint, WorkbookDocumentState, WorkbookEvent, WorkbookLayer, WorkbookStroke } from "../../../../../src/features/workbook/model/types";
+import { applyWorkbookStrokeTranslateHistoryOperation, buildWorkbookStrokeTranslateHistoryDraft, type WorkbookStrokeTranslateHistoryOperation } from "./workbookUndoRedoStrokeTranslate";
 
 type WorkbookHistoryOperation =
   | {
@@ -33,6 +17,7 @@ type WorkbookHistoryOperation =
       strokeId: string;
       expectedCurrent?: WorkbookStroke | null;
     }
+  | WorkbookStrokeTranslateHistoryOperation
   | {
       kind: "upsert_object";
       object: WorkbookBoardObject;
@@ -339,6 +324,15 @@ const buildHistoryEntryFromEvent = (
         expectedCurrent: null,
       },
     ];
+  } else if (
+    event.type === "board.strokes.translate" ||
+    event.type === "annotations.strokes.translate"
+  ) {
+    const entry = buildWorkbookStrokeTranslateHistoryDraft(state, event, fallbackPage);
+    if (!entry) return null;
+    entryPage = entry.page;
+    forward.push(...entry.forward);
+    inverse = entry.inverse;
   } else if (event.type === "board.object.create") {
     const object = normalizeObjectPayload((event.payload as { object?: unknown })?.object);
     if (!object) return null;
@@ -773,6 +767,11 @@ const applyHistoryOperations = (
         collection.splice(index, 1);
         appliedOperationsCount += 1;
       }
+      return;
+    }
+    if (operation.kind === "translate_strokes") {
+      if (!applyWorkbookStrokeTranslateHistoryOperation(state, operation)) return;
+      appliedOperationsCount += 1;
       return;
     }
     if (operation.kind === "upsert_object") {

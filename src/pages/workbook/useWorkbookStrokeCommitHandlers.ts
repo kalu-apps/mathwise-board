@@ -9,9 +9,13 @@ import type {
   WorkbookPoint,
   WorkbookStroke,
 } from "@/features/workbook/model/types";
-import type { WorkbookEraserCommitPayload } from "@/features/workbook/ui/WorkbookCanvas";
+import type {
+  WorkbookEraserCommitPayload,
+  WorkbookStrokeTranslateCommitPayload,
+} from "@/features/workbook/ui/WorkbookCanvas";
 import type { WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
 import { buildWorkbookEraserCommitPlan } from "./workbookEraserCommitPlan";
+import { commitWorkbookStrokeTranslateBatch } from "./workbookStrokeTranslateCommit";
 
 type StateUpdater<T> = T | ((current: T) => T);
 type SetState<T> = (updater: StateUpdater<T>) => void;
@@ -51,6 +55,7 @@ type UseWorkbookStrokeCommitHandlersParams = {
   ) => void;
   boardStrokesRef: MutableRefObject<WorkbookStroke[]>;
   annotationStrokesRef: MutableRefObject<WorkbookStroke[]>;
+  appliedStrokeTranslateOperationIdsRef: MutableRefObject<Set<string>>;
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
   commitInteractiveBoardObjects: (objects: WorkbookBoardObject[]) => void;
   markDirty: () => void;
@@ -79,6 +84,7 @@ export const useWorkbookStrokeCommitHandlers = ({
   applyLocalBoardObjects,
   boardStrokesRef,
   annotationStrokesRef,
+  appliedStrokeTranslateOperationIdsRef,
   boardObjectsRef,
   commitInteractiveBoardObjects,
   markDirty,
@@ -290,6 +296,37 @@ export const useWorkbookStrokeCommitHandlers = ({
     ]
   );
 
+  const commitStrokeTranslateBatch = useCallback(
+    (payload: WorkbookStrokeTranslateCommitPayload) =>
+      commitWorkbookStrokeTranslateBatch({
+        payload, sessionId, canDelete, currentBoardPage, buildHistoryEntryFromEvents,
+        appendEventsAndApply, finalizeStrokePreview, boardStrokesRef, annotationStrokesRef,
+        appliedStrokeTranslateOperationIdsRef, boardObjectsRef, setBoardStrokes,
+        setAnnotationStrokes, applyLocalBoardObjects, commitInteractiveBoardObjects,
+        markDirty, clearRecoverableSyncIssue, noteRecoverableSyncIssue, setError,
+      }),
+    [
+      annotationStrokesRef,
+      appendEventsAndApply,
+      appliedStrokeTranslateOperationIdsRef,
+      applyLocalBoardObjects,
+      boardObjectsRef,
+      boardStrokesRef,
+      buildHistoryEntryFromEvents,
+      canDelete,
+      clearRecoverableSyncIssue,
+      commitInteractiveBoardObjects,
+      currentBoardPage,
+      finalizeStrokePreview,
+      markDirty,
+      noteRecoverableSyncIssue,
+      sessionId,
+      setAnnotationStrokes,
+      setBoardStrokes,
+      setError,
+    ]
+  );
+
   const commitEraserBatch = useCallback(
     async (payload: WorkbookEraserCommitPayload) => {
       if (!sessionId || !canDelete) return;
@@ -387,6 +424,7 @@ export const useWorkbookStrokeCommitHandlers = ({
     commitStroke,
     commitStrokeDelete,
     commitStrokeReplace,
+    commitStrokeTranslateBatch,
     commitEraserBatch,
   };
 };
