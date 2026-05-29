@@ -141,6 +141,7 @@ import {
   EMPTY_STROKE_REPLACEMENT_BY_SELECTION_KEY,
   replaceRenderedStrokesBySelection,
 } from "./workbookStrokeDisplay";
+import { buildWorkbookStrokeTranslateCommitPayload } from "./workbookStrokeTranslateCommitPayload";
 
 export type {
   WorkbookEraserCommitPayload,
@@ -1456,43 +1457,27 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     if (movingStrokeSelection) {
       const sourceStrokeKey = buildWorkbookStrokeSelectionKey(movingStrokeSelection);
       const sourceStroke = sourceStrokeKey ? strokeByKey.get(sourceStrokeKey) ?? null : null;
-      if (
-        sourceStroke &&
-        (Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5)
-      ) {
+      if (sourceStroke && (Math.abs(deltaX) > 0.5 || Math.abs(deltaY) > 0.5)) {
         if (onStrokeTranslateCommit) {
-          onStrokeTranslateCommit({
-            strokeMoves: [
-              {
-                layer: sourceStroke.layer,
-                strokeIds: [sourceStroke.id],
-                dx: deltaX,
-                dy: deltaY,
-                page: Math.max(1, sourceStroke.page ?? currentPage ?? 1),
-              },
-            ],
-            objectUpdates: [],
-          });
-          setSelectedStrokeSelection({
-            id: sourceStroke.id,
-            layer: sourceStroke.layer,
-          });
-        } else {
-          const translatedPoints = translateWorkbookStrokePoints(
-            sourceStroke.points,
-            deltaX,
-            deltaY
+          onStrokeTranslateCommit(
+            buildWorkbookStrokeTranslateCommitPayload({
+              strokes: [sourceStroke],
+              objectPatches: [],
+              dx: deltaX,
+              dy: deltaY,
+              currentPage: currentPage ?? 1,
+            })
           );
+          setSelectedStrokeSelection({ id: sourceStroke.id, layer: sourceStroke.layer });
+        } else {
+          const translatedPoints = translateWorkbookStrokePoints(sourceStroke.points, deltaX, deltaY);
           if (translatedPoints.length > 0) {
             onStrokeReplace({
               stroke: sourceStroke,
               fragments: [translatedPoints],
               preserveSourceId: true,
             });
-            setSelectedStrokeSelection({
-              id: sourceStroke.id,
-              layer: sourceStroke.layer,
-            });
+            setSelectedStrokeSelection({ id: sourceStroke.id, layer: sourceStroke.layer });
           }
         }
       }
@@ -1503,13 +1488,13 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     const movedStrokeSources = !hasMeaningfulMove
       ? []
       : nextMoving.groupStrokeSelections
-      .map((selection) => {
-        const sourceStrokeKey = buildWorkbookStrokeSelectionKey(selection);
-        const sourceStroke = strokeByKey.get(sourceStrokeKey) ?? null;
-        if (!sourceStroke) return null;
-        return sourceStroke.points.length > 0 ? sourceStroke : null;
-      })
-      .filter((stroke): stroke is WorkbookStroke => stroke !== null);
+          .map((selection) => {
+            const sourceStrokeKey = buildWorkbookStrokeSelectionKey(selection);
+            const sourceStroke = strokeByKey.get(sourceStrokeKey) ?? null;
+            if (!sourceStroke) return null;
+            return sourceStroke.points.length > 0 ? sourceStroke : null;
+          })
+          .filter((stroke): stroke is WorkbookStroke => stroke !== null);
     const movedStrokeReplacements = movedStrokeSources.map((sourceStroke) => ({
       stroke: sourceStroke,
       fragments: [translateWorkbookStrokePoints(sourceStroke.points, deltaX, deltaY)],
@@ -1522,41 +1507,16 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     });
     const nextAreaSelection = rawNextAreaSelection;
 
-    if (
-      hasMeaningfulMove &&
-      movedStrokeSources.length > 0 &&
-      onStrokeTranslateCommit
-    ) {
-      const strokeMoveGroups = new Map<
-        string,
-        {
-          layer: WorkbookStroke["layer"];
-          strokeIds: string[];
-          dx: number;
-          dy: number;
-          page: number;
-        }
-      >();
-      movedStrokeSources.forEach((stroke) => {
-        const page = Math.max(1, stroke.page ?? currentPage ?? 1);
-        const key = `${stroke.layer}:${page}`;
-        const existing = strokeMoveGroups.get(key);
-        if (existing) {
-          existing.strokeIds.push(stroke.id);
-          return;
-        }
-        strokeMoveGroups.set(key, {
-          layer: stroke.layer,
-          strokeIds: [stroke.id],
+    if (hasMeaningfulMove && movedStrokeSources.length > 0 && onStrokeTranslateCommit) {
+      onStrokeTranslateCommit(
+        buildWorkbookStrokeTranslateCommitPayload({
+          strokes: movedStrokeSources,
+          objectPatches,
           dx: deltaX,
           dy: deltaY,
-          page,
-        });
-      });
-      onStrokeTranslateCommit({
-        strokeMoves: Array.from(strokeMoveGroups.values()),
-        objectUpdates: objectPatches.map(({ id, patch }) => ({ objectId: id, patch })),
-      });
+          currentPage: currentPage ?? 1,
+        })
+      );
     } else if (hasMeaningfulMove && movedStrokeReplacements.length > 0 && onEraserCommit) {
       onEraserCommit({
         strokeDeletes: [],

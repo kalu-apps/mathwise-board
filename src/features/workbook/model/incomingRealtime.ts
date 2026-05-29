@@ -1,9 +1,5 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import {
-  normalizeObjectPayload,
-  normalizeScenePayload,
-  normalizeStrokePayload,
-} from "./scene";
+import { normalizeObjectPayload, normalizeScenePayload, normalizeStrokePayload } from "./scene";
 import {
   ensureWorkbookObjectZOrder,
   normalizeWorkbookObjectZOrder,
@@ -14,12 +10,7 @@ import {
 } from "./pageFrame";
 import { mergeBoardObjectWithPatch, mergePreviewPathPoints } from "./runtime";
 import { upsertWorkbookStrokeById } from "./strokeCollection";
-import {
-  normalizeWorkbookStrokeTranslatePayload,
-  rememberWorkbookStrokeTranslateOperationId,
-  resolveWorkbookStrokeTranslateLayer,
-  translateWorkbookStrokesByIds,
-} from "./strokeTranslateEvents";
+import { applyIncomingWorkbookStrokeTranslateEvent } from "./incomingStrokeTranslate";
 import type {
   WorkbookBoardSettings,
   WorkbookBoardObject,
@@ -417,35 +408,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     return true;
   }
 
-  if (event.type === "board.strokes.translate" || event.type === "annotations.strokes.translate") {
-    const layer = resolveWorkbookStrokeTranslateLayer(event.type);
-    const payload = normalizeWorkbookStrokeTranslatePayload(event.payload);
-    if (!layer || !payload) return true;
-    if (
-      payload.operationId &&
-      event.authorUserId === userId &&
-      appliedStrokeTranslateOperationIdsRef.current.has(payload.operationId)
-    ) {
-      return true;
-    }
-    payload.strokeIds.forEach((strokeId) => {
-      finalizeStrokePreview(strokeId);
-    });
-    if (layer === "annotations") {
-      setAnnotationStrokes((current) =>
-        translateWorkbookStrokesByIds(current, payload.strokeIds, payload.dx, payload.dy)
-      );
-    } else {
-      setBoardStrokes((current) =>
-        translateWorkbookStrokesByIds(current, payload.strokeIds, payload.dx, payload.dy)
-      );
-    }
-    rememberWorkbookStrokeTranslateOperationId(
-      appliedStrokeTranslateOperationIdsRef.current,
-      payload.operationId
-    );
-    return true;
-  }
+  if (applyIncomingWorkbookStrokeTranslateEvent({ event, userId, appliedStrokeTranslateOperationIdsRef, finalizeStrokePreview, setBoardStrokes, setAnnotationStrokes })) return true;
 
   if (event.type === "annotations.stroke") {
     const stroke = normalizeStrokePayload((event.payload as { stroke?: unknown })?.stroke);

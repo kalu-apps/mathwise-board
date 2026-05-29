@@ -1,29 +1,8 @@
-import {
-  isHistoryTrackedWorkbookEventType,
-  type WorkbookClientEventInput,
-} from "../../../../../src/features/workbook/model/events";
+import { isHistoryTrackedWorkbookEventType, type WorkbookClientEventInput } from "../../../../../src/features/workbook/model/events";
 import { normalizeWorkbookObjectZOrder } from "../../../../../src/features/workbook/model/objectZOrder";
-import {
-  normalizeDocumentAnnotationPayload,
-  normalizeDocumentAssetPayload,
-  normalizeObjectPayload,
-  normalizeScenePayload,
-  normalizeStrokePayload,
-} from "../../../../../src/features/workbook/model/scene";
-import {
-  normalizeWorkbookStrokeTranslatePayload,
-  resolveWorkbookStrokeTranslateLayer,
-  translateWorkbookStrokesByIds,
-} from "../../../../../src/features/workbook/model/strokeTranslateEvents";
-import type {
-  WorkbookBoardObject,
-  WorkbookBoardSettings,
-  WorkbookConstraint,
-  WorkbookDocumentState,
-  WorkbookEvent,
-  WorkbookLayer,
-  WorkbookStroke,
-} from "../../../../../src/features/workbook/model/types";
+import { normalizeDocumentAnnotationPayload, normalizeDocumentAssetPayload, normalizeObjectPayload, normalizeScenePayload, normalizeStrokePayload } from "../../../../../src/features/workbook/model/scene";
+import type { WorkbookBoardObject, WorkbookBoardSettings, WorkbookConstraint, WorkbookDocumentState, WorkbookEvent, WorkbookLayer, WorkbookStroke } from "../../../../../src/features/workbook/model/types";
+import { applyWorkbookStrokeTranslateHistoryOperation, buildWorkbookStrokeTranslateHistoryDraft, type WorkbookStrokeTranslateHistoryOperation } from "./workbookUndoRedoStrokeTranslate";
 
 type WorkbookHistoryOperation =
   | {
@@ -38,13 +17,7 @@ type WorkbookHistoryOperation =
       strokeId: string;
       expectedCurrent?: WorkbookStroke | null;
     }
-  | {
-      kind: "translate_strokes";
-      layer: WorkbookLayer;
-      strokeIds: string[];
-      dx: number;
-      dy: number;
-    }
+  | WorkbookStrokeTranslateHistoryOperation
   | {
       kind: "upsert_object";
       object: WorkbookBoardObject;
@@ -355,40 +328,11 @@ const buildHistoryEntryFromEvent = (
     event.type === "board.strokes.translate" ||
     event.type === "annotations.strokes.translate"
   ) {
-    const layer = resolveWorkbookStrokeTranslateLayer(event.type);
-    const payload = normalizeWorkbookStrokeTranslatePayload(event.payload);
-    if (!layer || !payload) return null;
-    const collection = layer === "annotations" ? state.annotationStrokes : state.boardStrokes;
-    const existingIds = new Set(collection.map((stroke) => stroke.id));
-    const strokeIds = payload.strokeIds.filter((strokeId) => existingIds.has(strokeId));
-    if (strokeIds.length === 0) return null;
-    const strokeIdSet = new Set(strokeIds);
-    const sourcePages = collection
-      .filter((stroke) => strokeIdSet.has(stroke.id))
-      .map((stroke) => toSafePage(stroke.page));
-    entryPage = resolveEntryPage(fallbackPage, {
-      eventPage:
-        payload.page ??
-        (sourcePages.length > 0 && sourcePages.every((page) => page === sourcePages[0])
-          ? sourcePages[0]
-          : fallbackPage),
-    });
-    forward.push({
-      kind: "translate_strokes",
-      layer,
-      strokeIds,
-      dx: payload.dx,
-      dy: payload.dy,
-    });
-    inverse = [
-      {
-        kind: "translate_strokes",
-        layer,
-        strokeIds,
-        dx: -payload.dx,
-        dy: -payload.dy,
-      },
-    ];
+    const entry = buildWorkbookStrokeTranslateHistoryDraft(state, event, fallbackPage);
+    if (!entry) return null;
+    entryPage = entry.page;
+    forward.push(...entry.forward);
+    inverse = entry.inverse;
   } else if (event.type === "board.object.create") {
     const object = normalizeObjectPayload((event.payload as { object?: unknown })?.object);
     if (!object) return null;
@@ -826,25 +770,7 @@ const applyHistoryOperations = (
       return;
     }
     if (operation.kind === "translate_strokes") {
-      if (operation.layer === "annotations") {
-        const next = translateWorkbookStrokesByIds(
-          state.annotationStrokes,
-          operation.strokeIds,
-          operation.dx,
-          operation.dy
-        );
-        if (next === state.annotationStrokes) return;
-        state.annotationStrokes = next;
-      } else {
-        const next = translateWorkbookStrokesByIds(
-          state.boardStrokes,
-          operation.strokeIds,
-          operation.dx,
-          operation.dy
-        );
-        if (next === state.boardStrokes) return;
-        state.boardStrokes = next;
-      }
+      if (!applyWorkbookStrokeTranslateHistoryOperation(state, operation)) return;
       appliedOperationsCount += 1;
       return;
     }

@@ -699,8 +699,7 @@ export const useWorkbookSessionLoadSession = ({
       firstInteractiveMetricReportedRef, queuedBoardSettingsCommitRef,
       queuedBoardSettingsHistoryBeforeRef, boardSettingsCommitTimerRef, latestSeqRef,
       lastAppliedSeqRef, lastAppliedBoardSettingsSeqRef, recoveryModeRef, processedEventIdsRef,
-      appliedStrokeTranslateOperationIdsRef, applyIncomingEvents, filterUnseenWorkbookEvents, dirtyRef,
-      undoStackRef, redoStackRef, focusResetTimersByUserRef, boardObjectsRef, boardObjectIndexByIdRef,
+      appliedStrokeTranslateOperationIdsRef, applyIncomingEvents, filterUnseenWorkbookEvents, dirtyRef, undoStackRef, redoStackRef, focusResetTimersByUserRef, boardObjectsRef, boardObjectIndexByIdRef
     ]
   );
 
