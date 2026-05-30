@@ -258,18 +258,22 @@ export const ShapeCatalogPreview = ({
     | "ellipse"
     | "circle"
     | "polyline"
+    | "parallelogram"
     | "trapezoid"
     | "trapezoid_right"
     | "trapezoid_scalene"
-    | "rhombus";
+    | "rhombus"
+    | "rhombus_vertical";
   sides?: number;
 }) => {
   const previewPolygonPoints =
     variant === "polygon" ||
+    variant === "parallelogram" ||
     variant === "trapezoid" ||
     variant === "trapezoid_right" ||
     variant === "trapezoid_scalene" ||
-    variant === "rhombus"
+    variant === "rhombus" ||
+    variant === "rhombus_vertical"
       ? toSvgPointString(
           getWorkbookPolygonPoints(
             { x: 16, y: 22, width: 68, height: 56 },
