@@ -230,6 +230,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   onSelectedConstraintChange,
   onStrokeCommit,
   onStrokePreview,
+  onStrokeTranslatePreview,
   onEraserPreview,
   onEraserCommit,
   onStrokeTranslateCommit,
@@ -1043,6 +1044,37 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
 
     if (!hasMeaningfulMove || movingStrokeSelections.length === 0) return;
+    if (movingStrokeSelections.length > 1 && onStrokeTranslatePreview) {
+      const groupsByLayerAndPage = new Map<
+        string,
+        { layer: WorkbookStroke["layer"]; page: number; strokeIds: string[] }
+      >();
+      movingStrokeSelections.forEach((selection) => {
+        const sourceStroke = strokeByKey.get(buildWorkbookStrokeSelectionKey(selection)) ?? null;
+        if (!sourceStroke) return;
+        const page = Math.max(1, Math.trunc(sourceStroke.page ?? currentPage ?? 1));
+        const key = `${sourceStroke.layer}:${page}`;
+        const group =
+          groupsByLayerAndPage.get(key) ?? {
+            layer: sourceStroke.layer,
+            page,
+            strokeIds: [],
+          };
+        group.strokeIds.push(sourceStroke.id);
+        groupsByLayerAndPage.set(key, group);
+      });
+      groupsByLayerAndPage.forEach((group) => {
+        if (group.strokeIds.length === 0) return;
+        onStrokeTranslatePreview({
+          layer: group.layer,
+          page: group.page,
+          strokeIds: group.strokeIds,
+          dx: deltaX,
+          dy: deltaY,
+        });
+      });
+      return;
+    }
     movingStrokeSelections.forEach((selection) => {
       const selectionKey = buildWorkbookStrokeSelectionKey(selection);
       const sourceStroke = strokeByKey.get(selectionKey) ?? null;
@@ -1058,9 +1090,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     areaSelection,
     emitLiveObjectPreviewPatch,
     emitLiveStrokePreview,
+    currentPage,
     moving,
     movingStrokeSelections,
     objectById,
+    onStrokeTranslatePreview,
     selectedObjectId,
     strokeByKey,
   ]);

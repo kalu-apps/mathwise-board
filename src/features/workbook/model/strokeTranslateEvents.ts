@@ -12,7 +12,15 @@ export type WorkbookStrokeTranslatePayload = {
   operationId?: string;
 };
 
+export type WorkbookStrokeTranslatePreviewPayload = Omit<
+  WorkbookStrokeTranslatePayload,
+  "operationId"
+> & {
+  previewVersion?: number;
+};
+
 export const WORKBOOK_MAX_STROKE_TRANSLATE_IDS = 5_000;
+export const WORKBOOK_MAX_STROKE_TRANSLATE_PREVIEW_IDS = 12_000;
 const MAX_OPERATION_ID_LENGTH = 160;
 
 export const buildWorkbookStrokeTranslateEventType = (
@@ -20,11 +28,29 @@ export const buildWorkbookStrokeTranslateEventType = (
 ): Extract<WorkbookEventType, "board.strokes.translate" | "annotations.strokes.translate"> =>
   layer === "annotations" ? "annotations.strokes.translate" : "board.strokes.translate";
 
+export const buildWorkbookStrokeTranslatePreviewEventType = (
+  layer: WorkbookLayer
+): Extract<
+  WorkbookEventType,
+  "board.strokes.translate.preview" | "annotations.strokes.translate.preview"
+> =>
+  layer === "annotations"
+    ? "annotations.strokes.translate.preview"
+    : "board.strokes.translate.preview";
+
 export const resolveWorkbookStrokeTranslateLayer = (
   type: WorkbookEventType | string
 ): WorkbookLayer | null => {
   if (type === "board.strokes.translate") return "board";
   if (type === "annotations.strokes.translate") return "annotations";
+  return null;
+};
+
+export const resolveWorkbookStrokeTranslatePreviewLayer = (
+  type: WorkbookEventType | string
+): WorkbookLayer | null => {
+  if (type === "board.strokes.translate.preview") return "board";
+  if (type === "annotations.strokes.translate.preview") return "annotations";
   return null;
 };
 
@@ -73,6 +99,39 @@ export const normalizeWorkbookStrokeTranslatePayload = (
     dy,
     ...(page !== undefined ? { page } : {}),
     ...(operationId ? { operationId } : {}),
+  };
+};
+
+export const normalizeWorkbookStrokeTranslatePreviewPayload = (
+  payload: unknown,
+  options?: { maxStrokeIds?: number }
+): WorkbookStrokeTranslatePreviewPayload | null => {
+  if (!payload || typeof payload !== "object") return null;
+  const raw = payload as {
+    strokeIds?: unknown;
+    dx?: unknown;
+    dy?: unknown;
+    page?: unknown;
+    previewVersion?: unknown;
+  };
+  if (!Array.isArray(raw.strokeIds)) return null;
+  const maxStrokeIds = Math.max(
+    1,
+    Math.trunc(options?.maxStrokeIds ?? WORKBOOK_MAX_STROKE_TRANSLATE_PREVIEW_IDS)
+  );
+  if (raw.strokeIds.length > maxStrokeIds) return null;
+  const normalized = normalizeWorkbookStrokeTranslatePayload(raw, { maxStrokeIds });
+  if (!normalized) return null;
+  const previewVersion =
+    typeof raw.previewVersion === "number" && Number.isFinite(raw.previewVersion)
+      ? Math.max(1, Math.trunc(raw.previewVersion))
+      : undefined;
+  return {
+    strokeIds: normalized.strokeIds,
+    dx: normalized.dx,
+    dy: normalized.dy,
+    ...(normalized.page !== undefined ? { page: normalized.page } : {}),
+    ...(previewVersion ? { previewVersion } : {}),
   };
 };
 

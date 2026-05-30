@@ -136,6 +136,13 @@ export type WorkbookCanvasProps = {
     previewVersion: number;
     flush?: "immediate";
   }) => void;
+  onStrokeTranslatePreview?: (payload: {
+    layer: WorkbookLayer;
+    strokeIds: string[];
+    dx: number;
+    dy: number;
+    page?: number;
+  }) => void;
   onEraserPreview?: (payload: {
     gestureId: string;
     layer: WorkbookLayer;

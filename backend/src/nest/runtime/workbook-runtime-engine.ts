@@ -2126,6 +2126,22 @@ const sanitizeLivePreviewVersion = (value: unknown) =>
     ? Math.max(1, Math.trunc(value))
     : undefined;
 
+const MAX_LIVE_STROKE_TRANSLATE_PREVIEW_IDS = 12_000;
+
+const sanitizeLiveStrokeIds = (value: unknown, maxIds = MAX_LIVE_STROKE_TRANSLATE_PREVIEW_IDS) => {
+  if (!Array.isArray(value) || value.length > maxIds) return null;
+  const strokeIds: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "string") continue;
+    const strokeId = entry.trim();
+    if (!strokeId || seen.has(strokeId)) continue;
+    seen.add(strokeId);
+    strokeIds.push(strokeId);
+  }
+  return strokeIds.length > 0 ? strokeIds : null;
+};
+
 const sanitizeWorkbookLiveEvents = (
   participant: WorkbookSessionParticipantRecord,
   events: unknown[]
@@ -2159,6 +2175,55 @@ const sanitizeWorkbookLiveEvents = (
         type,
         payload: {
           stroke,
+          ...(previewVersion ? { previewVersion } : {}),
+        },
+      });
+      continue;
+    }
+    if (
+      type === "board.strokes.translate.preview" ||
+      type === "annotations.strokes.translate.preview"
+    ) {
+      if (!participant.permissions.canDraw) continue;
+      const strokeIds = sanitizeLiveStrokeIds(
+        payload && typeof payload === "object"
+          ? (payload as { strokeIds?: unknown }).strokeIds
+          : undefined
+      );
+      const dx =
+        payload && typeof payload === "object" ? (payload as { dx?: unknown }).dx : undefined;
+      const dy =
+        payload && typeof payload === "object" ? (payload as { dy?: unknown }).dy : undefined;
+      if (
+        !strokeIds ||
+        typeof dx !== "number" ||
+        !Number.isFinite(dx) ||
+        typeof dy !== "number" ||
+        !Number.isFinite(dy)
+      ) {
+        continue;
+      }
+      const pageRaw =
+        payload && typeof payload === "object"
+          ? (payload as { page?: unknown }).page
+          : undefined;
+      const page =
+        typeof pageRaw === "number" && Number.isFinite(pageRaw)
+          ? Math.max(1, Math.trunc(pageRaw))
+          : undefined;
+      const previewVersion = sanitizeLivePreviewVersion(
+        payload && typeof payload === "object"
+          ? (payload as { previewVersion?: unknown }).previewVersion
+          : undefined
+      );
+      sanitized.push({
+        ...(clientEventId ? { clientEventId } : {}),
+        type,
+        payload: {
+          strokeIds,
+          dx,
+          dy,
+          ...(page ? { page } : {}),
           ...(previewVersion ? { previewVersion } : {}),
         },
       });

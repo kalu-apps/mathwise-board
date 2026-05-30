@@ -1464,6 +1464,7 @@ export default function WorkbookSessionPage() {
     scheduleVolatileSyncFlush,
     handleCanvasViewportOffsetChange,
     queueStrokePreview,
+    queueStrokeTranslatePreview,
     queueEraserPreview,
   } = useWorkbookVolatileSyncPipeline({
     sessionId,
@@ -3171,6 +3172,7 @@ export default function WorkbookSessionPage() {
     onSelectedConstraintChange: setSelectedConstraintId,
     onStrokeCommit: canvasHandlers.handleCanvasStrokeCommit,
     onStrokePreview: commitStrokePreview,
+    onStrokeTranslatePreview: queueStrokeTranslatePreview,
     onEraserPreview: canvasHandlers.handleCanvasEraserPreview,
     onEraserCommit: canvasHandlers.handleCanvasEraserCommit,
     onStrokeTranslateCommit: canvasHandlers.handleCanvasStrokeTranslateCommit,

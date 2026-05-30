@@ -37,6 +37,13 @@ export type WorkbookKnownEventPayloadMap = {
     page?: number;
     operationId?: string;
   };
+  "board.strokes.translate.preview": {
+    strokeIds: string[];
+    dx: number;
+    dy: number;
+    page?: number;
+    previewVersion?: number;
+  };
   "board.object.create": { object: WorkbookBoardObject };
   "board.object.preview": {
     objectId: string;
@@ -67,6 +74,13 @@ export type WorkbookKnownEventPayloadMap = {
     dy: number;
     page?: number;
     operationId?: string;
+  };
+  "annotations.strokes.translate.preview": {
+    strokeIds: string[];
+    dx: number;
+    dy: number;
+    page?: number;
+    previewVersion?: number;
   };
   "document.asset.add": { asset: WorkbookDocumentAsset };
   "document.state.update": { document: WorkbookDocumentState };
@@ -111,6 +125,8 @@ export const WORKBOOK_PREVIEW_EVENT_TYPES = [
   "board.eraser.preview",
   "board.stroke.preview",
   "annotations.stroke.preview",
+  "board.strokes.translate.preview",
+  "annotations.strokes.translate.preview",
 ] as const satisfies readonly WorkbookEventType[];
 
 export const WORKBOOK_VOLATILE_EVENT_TYPES = [
