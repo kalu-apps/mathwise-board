@@ -251,6 +251,7 @@ export const useWorkbookSessionLocalRuntime = ({
             participant.roleInSession === "teacher" ||
             participant.isOnline ||
             (() => {
+              if (!participant.isActive) return false;
               const lastSeenAtTs = Date.parse(String(participant.lastSeenAt ?? ""));
               return (
                 Number.isFinite(lastSeenAtTs) &&

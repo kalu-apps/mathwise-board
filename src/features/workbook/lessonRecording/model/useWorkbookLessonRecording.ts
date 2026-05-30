@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { mixLessonRecordingAudio } from "./lessonRecordingAudio";
+import {
+  createLessonRecordingChunkStore,
+  type LessonRecordingChunkStore,
+} from "./lessonRecordingChunkStore";
 import { buildLessonRecordingFileName, triggerLessonRecordingDownload } from "./lessonRecordingFile";
 import { resolveLessonRecordingProfile } from "./lessonRecordingQuality";
-import { createLessonRecordingVideoTrackWithWatermark } from "./lessonRecordingVideo";
 import type {
   LessonRecordingAudioSummary,
   LessonRecordingNotice,
@@ -48,11 +51,28 @@ const INITIAL_AUDIO_SUMMARY: LessonRecordingAudioSummary = {
   hasMicrophoneAudio: false,
 };
 
+const LESSON_RECORDING_MAX_WIDTH = 1920;
+const LESSON_RECORDING_MAX_HEIGHT = 1080;
+const LESSON_RECORDING_MAX_FRAME_RATE = 30;
+
 const isLessonRecordingSupported = () =>
   typeof window !== "undefined" &&
   typeof navigator !== "undefined" &&
   Boolean(navigator.mediaDevices?.getDisplayMedia) &&
   typeof MediaRecorder !== "undefined";
+
+const constrainLessonRecordingVideoTrack = async (track: MediaStreamTrack) => {
+  if (typeof track.applyConstraints !== "function") return;
+  try {
+    await track.applyConstraints({
+      width: { max: LESSON_RECORDING_MAX_WIDTH },
+      height: { max: LESSON_RECORDING_MAX_HEIGHT },
+      frameRate: { max: LESSON_RECORDING_MAX_FRAME_RATE },
+    });
+  } catch {
+    // Capture constraints are browser- and source-dependent; recording can proceed safely.
+  }
+};
 
 const resolveNowElapsedMs = (params: {
   status: LessonRecordingStatus;
@@ -83,6 +103,8 @@ export const useWorkbookLessonRecording = ({
   );
 
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunkStoreRef = useRef<LessonRecordingChunkStore | null>(null);
+  const chunkWritePromisesRef = useRef<Set<Promise<void>>>(new Set());
   const runtimeRef = useRef<LessonRecordingRuntime>({
     displayStream: null,
     microphoneStream: null,
@@ -96,7 +118,6 @@ export const useWorkbookLessonRecording = ({
     mimeType: "video/webm",
     audioSummary: INITIAL_AUDIO_SUMMARY,
   });
-  const chunksRef = useRef<Blob[]>([]);
   const startedAtMsRef = useRef<number | null>(null);
   const elapsedBeforePauseMsRef = useRef(0);
   const statusRef = useRef<LessonRecordingStatus>("idle");
@@ -146,15 +167,22 @@ export const useWorkbookLessonRecording = ({
     };
   }, []);
 
+  const waitForPendingChunkWrites = useCallback(async () => {
+    const pendingWrites = Array.from(chunkWritePromisesRef.current);
+    if (pendingWrites.length === 0) return;
+    await Promise.allSettled(pendingWrites);
+  }, []);
+
   const finalizeRecording = useCallback(
-    (options?: { reason?: "stopped" | "interrupted" | "error"; errorMessage?: string }) => {
+    async (options?: { reason?: "stopped" | "interrupted" | "error"; errorMessage?: string }) => {
       if (isFinalizingRef.current) return;
       isFinalizingRef.current = true;
+      const chunkStore = chunkStoreRef.current;
       try {
+        await waitForPendingChunkWrites();
         const runtime = runtimeRef.current;
         const blobType = runtime.mimeType || "video/webm";
-        const hasChunks = chunksRef.current.length > 0;
-        const blob = hasChunks ? new Blob(chunksRef.current, { type: blobType }) : null;
+        const blob = chunkStore ? await chunkStore.buildBlob(blobType) : null;
 
         if (blob && blob.size > 0) {
           const fileName = buildLessonRecordingFileName({
@@ -198,7 +226,9 @@ export const useWorkbookLessonRecording = ({
           message: "Не удалось завершить запись и сохранить файл.",
         });
       } finally {
-        chunksRef.current = [];
+        chunkWritePromisesRef.current.clear();
+        await chunkStore?.clear().catch(() => undefined);
+        chunkStoreRef.current = null;
         recorderRef.current = null;
         cleanupRuntimeResources();
         elapsedBeforePauseMsRef.current = 0;
@@ -209,7 +239,7 @@ export const useWorkbookLessonRecording = ({
         isFinalizingRef.current = false;
       }
     },
-    [cleanupRuntimeResources, sessionTitle]
+    [cleanupRuntimeResources, sessionTitle, waitForPendingChunkWrites]
   );
 
   const stopRecording = useCallback(
@@ -217,14 +247,17 @@ export const useWorkbookLessonRecording = ({
       stopReasonRef.current = reason;
       const recorder = recorderRef.current;
       if (!recorder || recorder.state === "inactive") {
-        finalizeRecording({ reason, errorMessage });
+        void finalizeRecording({ reason, errorMessage });
         return;
       }
       setStatus("stopping");
       try {
         recorder.stop();
       } catch {
-        finalizeRecording({ reason: "error", errorMessage: "Не удалось корректно остановить запись." });
+        void finalizeRecording({
+          reason: "error",
+          errorMessage: "Не удалось корректно остановить запись.",
+        });
       }
     },
     [finalizeRecording]
@@ -252,9 +285,18 @@ export const useWorkbookLessonRecording = ({
 
     const displayOptions: DisplayMediaWithHints = {
       video: {
-        frameRate: { ideal: 60, max: 60 },
-        width: { ideal: 3840, max: 3840 },
-        height: { ideal: 2160, max: 2160 },
+        frameRate: {
+          ideal: LESSON_RECORDING_MAX_FRAME_RATE,
+          max: LESSON_RECORDING_MAX_FRAME_RATE,
+        },
+        width: {
+          ideal: LESSON_RECORDING_MAX_WIDTH,
+          max: LESSON_RECORDING_MAX_WIDTH,
+        },
+        height: {
+          ideal: LESSON_RECORDING_MAX_HEIGHT,
+          max: LESSON_RECORDING_MAX_HEIGHT,
+        },
       },
       audio: {
         echoCancellation: false,
@@ -301,6 +343,7 @@ export const useWorkbookLessonRecording = ({
       setError("Не удалось получить видеопоток для записи урока.");
       return;
     }
+    await constrainLessonRecordingVideoTrack(displayVideoTrack);
 
     if (canUseMedia) {
       try {
@@ -322,21 +365,14 @@ export const useWorkbookLessonRecording = ({
     }
 
     const recorderStream = new MediaStream();
-    let recorderVideoTrack: MediaStreamTrack | null = null;
-    try {
-      const watermarkedVideo = await createLessonRecordingVideoTrackWithWatermark(displayVideoTrack);
-      recorderVideoTrack = watermarkedVideo.track;
-      videoWatermarkCleanup = watermarkedVideo.cleanup;
-    } catch {
-      recorderVideoTrack = displayVideoTrack.clone();
-      videoWatermarkCleanup = () => {
-        try {
-          recorderVideoTrack?.stop();
-        } catch {
-          // ignore cleanup failures
-        }
-      };
-    }
+    const recorderVideoTrack = displayVideoTrack.clone();
+    videoWatermarkCleanup = () => {
+      try {
+        recorderVideoTrack.stop();
+      } catch {
+        // ignore cleanup failures
+      }
+    };
     recorderStream.addTrack(recorderVideoTrack);
 
     const hasMicrophoneTrack = Boolean(microphoneStream?.getAudioTracks()[0]);
@@ -387,14 +423,20 @@ export const useWorkbookLessonRecording = ({
       microphoneStream?.getTracks().forEach((track) => track.stop());
       recorderStream.getTracks().forEach((track) => track.stop());
       setStatus("idle");
-      setError("Браузер не смог создать high-quality recorder для выбранного источника.");
+      setError("Браузер не смог создать recorder для выбранного источника.");
       return;
     }
 
-    chunksRef.current = [];
+    const chunkStore = await createLessonRecordingChunkStore();
+    chunkStoreRef.current = chunkStore;
+    chunkWritePromisesRef.current.clear();
     recorder.ondataavailable = (event) => {
       if (!(event.data instanceof Blob) || event.data.size <= 0) return;
-      chunksRef.current.push(event.data);
+      const writePromise = chunkStore.append(event.data);
+      chunkWritePromisesRef.current.add(writePromise);
+      void writePromise.finally(() => {
+        chunkWritePromisesRef.current.delete(writePromise);
+      });
     };
     recorder.onerror = () => {
       stopRecording("error", "Запись прервана из-за ошибки браузера.");
@@ -404,7 +446,7 @@ export const useWorkbookLessonRecording = ({
         statusRef.current === "stopping"
           ? stopReasonRef.current
           : "interrupted";
-      finalizeRecording({ reason });
+      void finalizeRecording({ reason });
     };
 
     const onDisplayEnded = () => {
@@ -448,6 +490,9 @@ export const useWorkbookLessonRecording = ({
     try {
       recorder.start(1_000);
     } catch {
+      void chunkStore.clear().catch(() => undefined);
+      chunkStoreRef.current = null;
+      chunkWritePromisesRef.current.clear();
       cleanupRuntimeResources();
       setStatus("idle");
       setError("Не удалось начать запись.");

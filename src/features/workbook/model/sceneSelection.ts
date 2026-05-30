@@ -259,6 +259,31 @@ export const buildAreaSelection = (
     : null;
 };
 
+export const buildImageScissorsAreaSelection = (params: {
+  rect: WorkbookSceneRect;
+  probePoints: WorkbookPoint[];
+  resolveTopObject: (point: WorkbookPoint) => WorkbookBoardObject | null;
+}): WorkbookAreaSelection | null => {
+  if (!hasMeaningfulAreaSelectionRect(params.rect)) return null;
+  const seenImageIds = new Set<string>();
+  for (const point of params.probePoints) {
+    const topObject = params.resolveTopObject(point);
+    if (!topObject || topObject.type !== "image" || seenImageIds.has(topObject.id)) {
+      continue;
+    }
+    seenImageIds.add(topObject.id);
+    if (!rectIntersects(getObjectRect(topObject), params.rect)) {
+      continue;
+    }
+    return {
+      objectIds: [topObject.id],
+      strokeIds: [],
+      rect: params.rect,
+    };
+  }
+  return null;
+};
+
 export const collectAreaSelectionObjects = (
   areaSelection: WorkbookAreaSelection | null,
   objectById: Map<string, WorkbookBoardObject>

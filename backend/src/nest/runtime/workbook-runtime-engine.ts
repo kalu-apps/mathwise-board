@@ -2061,12 +2061,17 @@ const ensureParticipant = (
     userId: string;
     roleInSession: "teacher" | "student";
     permissions: WorkbookParticipantPermissions;
+    activate?: boolean;
   }
 ) => {
+  const shouldActivate = params.activate !== false;
   const existing = getWorkbookParticipant(db, params.sessionId, params.userId);
   if (existing) {
-    existing.isActive = true;
-    existing.lastSeenAt = nowIso();
+    if (shouldActivate) {
+      existing.isActive = true;
+      existing.lastSeenAt = nowIso();
+      existing.leftAt = null;
+    }
     if (typeof existing.currentVisitStartedAt === "undefined") {
       existing.currentVisitStartedAt = null;
     }
@@ -2094,9 +2099,9 @@ const ensureParticipant = (
     userId: params.userId,
     roleInSession: params.roleInSession,
     joinedAt: nowIso(),
-    leftAt: null,
-    isActive: true,
-    lastSeenAt: nowIso(),
+    leftAt: shouldActivate ? null : nowIso(),
+    isActive: shouldActivate,
+    lastSeenAt: shouldActivate ? nowIso() : null,
     currentVisitStartedAt: null,
     lastVisitStartedAt: null,
     lastVisitEndedAt: null,
@@ -3560,6 +3565,7 @@ export const handleWorkbookApiRequestByDomains = async (
           userId: actor.id,
           roleInSession: actor.role === "teacher" ? "teacher" : "student",
           permissions: defaultPermissions(actor.role),
+          activate: false,
         });
         applyStudentControls(session, db);
 

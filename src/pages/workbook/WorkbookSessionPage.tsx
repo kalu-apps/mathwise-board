@@ -8,7 +8,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import "./workbookRouteStyles";
 import {
   Alert,
@@ -187,9 +187,10 @@ const shouldShowCriticalWorkbookUiError = (message: string) =>
   CRITICAL_WORKBOOK_UI_ERROR_PATTERNS.some((pattern) => pattern.test(message));
 
 export default function WorkbookSessionPage() {
-  const { user, isAuthReady, openAuthModal } = useAuth();
+  const { user, isAuthReady } = useAuth();
   const { mode: themeMode, toggleMode } = useThemeMode();
   const { sessionId = "" } = useParams();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [isBackNavigationPending, setIsBackNavigationPending] = useState(false);
@@ -688,6 +689,13 @@ export default function WorkbookSessionPage() {
   const fallbackBackPath = "/workbook";
   const fromPath = searchParams.get("from") || fallbackBackPath;
   const isWorkbookSessionAuthLost = isAuthReady && !user;
+  const inviteTokenFromRouteState =
+    location.state &&
+    typeof location.state === "object" &&
+    "inviteToken" in location.state &&
+    typeof (location.state as { inviteToken?: unknown }).inviteToken === "string"
+      ? (location.state as { inviteToken: string }).inviteToken.trim()
+      : "";
   const isSessionAccessBlocked = refs.authRequiredRef.current;
   const isWorkspaceInteractionBlocked =
     isSessionTabPassive || isSessionAccessBlocked || !bootstrapReady;
@@ -695,18 +703,18 @@ export default function WorkbookSessionPage() {
   useEffect(() => {
     if (!isWorkbookSessionAuthLost) return;
     workbookSessionActions.setLoading(true);
-    if (isAuthReady) {
-      openAuthModal();
-    }
+    const nextPath = inviteTokenFromRouteState
+      ? `/workbook/invite/${encodeURIComponent(inviteTokenFromRouteState)}`
+      : "/";
     if (typeof window === "undefined") {
-      navigate("/", { replace: true });
+      navigate(nextPath, { replace: true, state: null });
       return;
     }
     const redirectRaf = window.requestAnimationFrame(() => {
-      navigate("/", { replace: true });
+      navigate(nextPath, { replace: true, state: null });
     });
     return () => window.cancelAnimationFrame(redirectRaf);
-  }, [isAuthReady, isWorkbookSessionAuthLost, navigate, openAuthModal, workbookSessionActions]);
+  }, [inviteTokenFromRouteState, isWorkbookSessionAuthLost, navigate, workbookSessionActions]);
 
   const {
     isEnded,
@@ -825,6 +833,12 @@ export default function WorkbookSessionPage() {
       lessonRecording.toggleMicrophone,
     ]
   );
+  const lessonRecordingWatermark =
+    lessonRecording.status === "recording" || lessonRecording.status === "paused" ? (
+      <div className="workbook-session__recording-watermark" aria-hidden="true">
+        Автор: Калугина Анна Викторовна
+      </div>
+    ) : null;
   const [dividerToolColor, setDividerToolColor] = useState<string>(defaultColorByLayer.board);
   const [dividerToolLineStyle, setDividerToolLineStyle] = useState<"solid" | "dashed">(
     "dashed"
@@ -1033,11 +1047,18 @@ export default function WorkbookSessionPage() {
       annotationStrokes,
     });
     const normalizedOrder = normalizeWorkbookPageOrder(boardSettings.pageOrder, maxKnownPage);
-    const fallbackPreferredPage = Math.min(maxKnownPage, toSafeWorkbookPage(boardSettings.currentPage));
-    const preferredPage = localLastPage ?? fallbackPreferredPage;
-    const nextLocalPage = normalizedOrder.includes(preferredPage)
-      ? preferredPage
-      : normalizedOrder[0] ?? 1;
+    const fallbackPreferredPage = Math.min(
+      maxKnownPage,
+      toSafeWorkbookPage(boardSettings.currentPage)
+    );
+    const serverPreferredPage = normalizedOrder.includes(fallbackPreferredPage)
+      ? fallbackPreferredPage
+      : null;
+    const localPreferredPage =
+      localLastPage !== null && normalizedOrder.includes(localLastPage)
+        ? localLastPage
+        : null;
+    const nextLocalPage = serverPreferredPage ?? localPreferredPage ?? normalizedOrder[0] ?? 1;
     setCurrentBoardPage(nextLocalPage);
   }, [
     annotationStrokes,
@@ -1323,7 +1344,10 @@ export default function WorkbookSessionPage() {
     },
     presenceLifecycleParams: {
       sessionId,
-      userId: user?.id,
+      userId:
+        bootstrapReady && !isSessionTabPassive && !isSessionAccessBlocked
+          ? user?.id
+          : undefined,
       presenceTabIdRef: refs.presenceTabIdRef,
       presenceLeaveSentRef: refs.presenceLeaveSentRef,
       presenceIntervalMs: PRESENCE_INTERVAL_MS,
@@ -2617,11 +2641,8 @@ export default function WorkbookSessionPage() {
     [selectionViewportState.boardPageOptions]
   );
   const safeCurrentBoardPage = useMemo(
-    () =>
-      orderedBoardPages.includes(currentBoardPage)
-        ? currentBoardPage
-        : orderedBoardPages[0] ?? Math.max(1, Math.round(currentBoardPage || 1)),
-    [currentBoardPage, orderedBoardPages]
+    () => toSafeWorkbookPage(currentBoardPage),
+    [currentBoardPage]
   );
   useEffect(() => {
     if (safeCurrentBoardPage === currentBoardPage) return;
@@ -2651,6 +2672,8 @@ export default function WorkbookSessionPage() {
     applyZoomForPage: applyPageZoomForPage,
     availablePages: orderedBoardPages,
     enabled: bootstrapReady && Boolean(sessionId),
+    restoreLastPage: false,
+    restoreSavedViewport: false,
   });
 
   const handleSelectLocalBoardPage = useCallback(
@@ -3587,6 +3610,7 @@ export default function WorkbookSessionPage() {
           }}
           docsWindowOpen={docsWindow.open}
           docsWindowProps={docsWindowProps}
+          lessonRecordingWatermark={lessonRecordingWatermark}
         />
         <WorkbookSessionSidebar
           isCompactViewport={isCompactViewport}
