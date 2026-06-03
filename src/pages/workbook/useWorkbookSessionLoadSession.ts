@@ -98,6 +98,8 @@ export const useWorkbookSessionLoadSession = ({
   undoStackRef,
   redoStackRef,
   focusResetTimersByUserRef,
+  boardStrokesRef,
+  annotationStrokesRef,
   boardObjectsRef,
   boardObjectIndexByIdRef,
 }: WorkbookSessionLoadParams) => {
@@ -471,8 +473,24 @@ export const useWorkbookSessionLoadSession = ({
               processedEventIdsRef.current.clear();
               appliedStrokeTranslateOperationIdsRef.current.clear();
             }
+            const confirmedStrokeIds =
+              isBackground
+                ? new Set<string>([
+                    ...(preparedBoardStrokes ?? boardStrokesRef.current).map((stroke) => stroke.id),
+                    ...(preparedAnnotationStrokes ?? annotationStrokesRef.current).map(
+                      (stroke) => stroke.id
+                    ),
+                  ].filter((strokeId): strokeId is string => Boolean(strokeId)))
+                : undefined;
             clearObjectSyncRuntime();
-            clearStrokePreviewRuntime();
+            clearStrokePreviewRuntime(
+              isBackground
+                ? {
+                    retainUnconfirmedRecent: true,
+                    confirmedStrokeIds,
+                  }
+                : undefined
+            );
             clearIncomingEraserPreviewRuntime();
             dirtyRef.current = false;
             undoStackRef.current = [];
@@ -751,7 +769,7 @@ export const useWorkbookSessionLoadSession = ({
       firstInteractiveMetricReportedRef, queuedBoardSettingsCommitRef,
       queuedBoardSettingsHistoryBeforeRef, boardSettingsCommitTimerRef, latestSeqRef,
       lastAppliedSeqRef, lastAppliedBoardSettingsSeqRef, recoveryModeRef, processedEventIdsRef,
-      appliedStrokeTranslateOperationIdsRef, applyIncomingEvents, filterUnseenWorkbookEvents, dirtyRef, undoStackRef, redoStackRef, focusResetTimersByUserRef, boardObjectsRef, boardObjectIndexByIdRef
+      appliedStrokeTranslateOperationIdsRef, applyIncomingEvents, filterUnseenWorkbookEvents, dirtyRef, undoStackRef, redoStackRef, focusResetTimersByUserRef, boardStrokesRef, annotationStrokesRef, boardObjectsRef, boardObjectIndexByIdRef
     ]
   );
 
