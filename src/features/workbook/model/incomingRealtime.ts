@@ -10,7 +10,10 @@ import {
 } from "./pageFrame";
 import { mergeBoardObjectWithPatch, mergePreviewPathPoints } from "./runtime";
 import { upsertWorkbookStrokeById } from "./strokeCollection";
-import { applyIncomingWorkbookStrokeTranslateEvent } from "./incomingStrokeTranslate";
+import {
+  applyIncomingWorkbookStrokeTranslateEvent,
+  applyIncomingWorkbookStrokeTranslatePreviewEvent,
+} from "./incomingStrokeTranslate";
 import type {
   WorkbookBoardSettings,
   WorkbookBoardObject,
@@ -103,6 +106,8 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
   ) => void;
   boardSettingsRef: MutableRefObject<WorkbookBoardSettings>;
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
+  boardStrokesRef: MutableRefObject<WorkbookStroke[]>;
+  annotationStrokesRef: MutableRefObject<WorkbookStroke[]>;
   setSession: Dispatch<SetStateAction<WorkbookSession | null>>;
   setCanvasViewport: Dispatch<SetStateAction<WorkbookPoint>>;
   setIncomingEraserPreviews: Dispatch<
@@ -173,6 +178,8 @@ export const applyWorkbookIncomingRealtimeEvent = (
     applyLocalBoardObjects,
     boardSettingsRef,
     boardObjectsRef,
+    boardStrokesRef,
+    annotationStrokesRef,
     setSession,
     setIncomingEraserPreviews,
     setBoardStrokes,
@@ -405,6 +412,19 @@ export const applyWorkbookIncomingRealtimeEvent = (
     if (typeof strokeId !== "string") return true;
     finalizeStrokePreview(strokeId);
     setBoardStrokes((current) => current.filter((item) => item.id !== strokeId));
+    return true;
+  }
+
+  if (
+    applyIncomingWorkbookStrokeTranslatePreviewEvent({
+      event,
+      userId,
+      boardStrokesRef,
+      annotationStrokesRef,
+      incomingStrokePreviewVersionRef,
+      queueIncomingStrokePreview,
+    })
+  ) {
     return true;
   }
 

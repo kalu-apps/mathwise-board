@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
 import { observeWorkbookRealtimeVolatileDrop } from "@/features/workbook/model/realtimeObservability";
 import { mergePreviewPathPoints } from "@/features/workbook/model/runtime";
+import {
+  buildWorkbookStrokeTranslatePreviewEventType,
+  WORKBOOK_MAX_STROKE_TRANSLATE_PREVIEW_IDS,
+} from "@/features/workbook/model/strokeTranslateEvents";
 import type {
   WorkbookClientEventInput,
 } from "@/features/workbook/model/events";
@@ -20,6 +24,16 @@ import {
 type QueuedStrokePreviewEntry = {
   stroke: WorkbookStroke;
   previewVersion: number;
+};
+
+type QueuedStrokeTranslatePreviewEntry = {
+  layer: WorkbookLayer;
+  page: number;
+  strokeIds: string[];
+  dx: number;
+  dy: number;
+  previewVersion: number;
+  queuedAt: number;
 };
 
 type QueuedEraserPreviewEntry = {
@@ -78,6 +92,10 @@ export const useWorkbookVolatileSyncPipeline = ({
 }: UseWorkbookVolatileSyncPipelineParams) => {
   const flushQueuedVolatileSyncRef = useRef<() => void>(() => {});
   const strokePreviewVersionByIdRef = useRef<Map<string, number>>(new Map());
+  const strokeTranslatePreviewQueuedByKeyRef = useRef<
+    Map<string, QueuedStrokeTranslatePreviewEntry>
+  >(new Map());
+  const strokeTranslatePreviewVersionRef = useRef(0);
 
   const flushQueuedVolatileSync = useCallback(() => {
     const droppedEventTypes = new Set<string>();
@@ -89,6 +107,7 @@ export const useWorkbookVolatileSyncPipeline = ({
       strokePreviewQueuedByIdRef.current.clear();
       strokePreviewQueuedAtRef.current.clear();
       strokePreviewVersionByIdRef.current.clear();
+      strokeTranslatePreviewQueuedByKeyRef.current.clear();
       eraserPreviewQueuedByGestureRef.current.clear();
       eraserPreviewQueuedAtRef.current.clear();
       return;
@@ -232,9 +251,29 @@ export const useWorkbookVolatileSyncPipeline = ({
       strokePreviewQueuedByIdRef.current.clear();
       strokePreviewQueuedAtRef.current.clear();
       strokePreviewVersionByIdRef.current.clear();
+      strokeTranslatePreviewQueuedByKeyRef.current.clear();
       eraserPreviewQueuedByGestureRef.current.clear();
       eraserPreviewQueuedAtRef.current.clear();
     }
+
+    const queuedStrokeTranslatePreviews = Array.from(
+      strokeTranslatePreviewQueuedByKeyRef.current.values()
+    );
+    strokeTranslatePreviewQueuedByKeyRef.current.clear();
+    queuedStrokeTranslatePreviews
+      .sort((left, right) => left.queuedAt - right.queuedAt)
+      .forEach((entry) => {
+        events.push({
+          type: buildWorkbookStrokeTranslatePreviewEventType(entry.layer),
+          payload: {
+            strokeIds: entry.strokeIds,
+            dx: entry.dx,
+            dy: entry.dy,
+            page: entry.page,
+            previewVersion: entry.previewVersion,
+          },
+        });
+      });
 
     if (events.length > 0) {
       sendWorkbookLiveEvents(events);
@@ -407,10 +446,52 @@ export const useWorkbookVolatileSyncPipeline = ({
     ]
   );
 
+  const queueStrokeTranslatePreview = useCallback(
+    (payload: {
+      layer: WorkbookLayer;
+      page?: number;
+      strokeIds: string[];
+      dx: number;
+      dy: number;
+    }) => {
+      if (!canDraw || !sessionId || !session || isEnded) return;
+      const strokeIds = Array.from(
+        new Set(
+          payload.strokeIds
+            .map((strokeId) => strokeId.trim())
+            .filter((strokeId) => strokeId.length > 0)
+        )
+      );
+      if (strokeIds.length === 0) return;
+      if (strokeIds.length > WORKBOOK_MAX_STROKE_TRANSLATE_PREVIEW_IDS) return;
+      if (!Number.isFinite(payload.dx) || !Number.isFinite(payload.dy)) return;
+      if (Math.abs(payload.dx) <= 0.5 && Math.abs(payload.dy) <= 0.5) return;
+      const layer = payload.layer === "annotations" ? "annotations" : "board";
+      const page =
+        typeof payload.page === "number" && Number.isFinite(payload.page)
+          ? Math.max(1, Math.trunc(payload.page))
+          : 1;
+      const previewVersion = Math.max(Date.now(), strokeTranslatePreviewVersionRef.current + 1);
+      strokeTranslatePreviewVersionRef.current = previewVersion;
+      strokeTranslatePreviewQueuedByKeyRef.current.set(`${layer}:${page}`, {
+        layer,
+        page,
+        strokeIds,
+        dx: payload.dx,
+        dy: payload.dy,
+        previewVersion,
+        queuedAt: Date.now(),
+      });
+      scheduleVolatileSyncFlush();
+    },
+    [canDraw, isEnded, scheduleVolatileSyncFlush, session, sessionId]
+  );
+
   return {
     scheduleVolatileSyncFlush,
     handleCanvasViewportOffsetChange,
     queueStrokePreview,
+    queueStrokeTranslatePreview,
     queueEraserPreview,
   };
 };

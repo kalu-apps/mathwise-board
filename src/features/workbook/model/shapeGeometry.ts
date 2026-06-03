@@ -9,10 +9,12 @@ export type WorkbookShapeRect = {
 
 export type WorkbookPolygonPreset =
   | "regular"
+  | "parallelogram"
   | "trapezoid"
   | "trapezoid_right"
   | "trapezoid_scalene"
-  | "rhombus";
+  | "rhombus"
+  | "rhombus_vertical";
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
@@ -80,11 +82,40 @@ const buildShearedRhombus = (
   ];
 };
 
+const buildParallelogram = (rect: WorkbookShapeRect): WorkbookPoint[] =>
+  buildParallelBaseQuadrilateral(rect, {
+    bottomWidthRatio: 0.72,
+    bottomOffsetRatio: 0,
+    topWidthRatio: 0.72,
+    topOffsetRatio: 0.28,
+  });
+
+const buildVerticalRhombus = (rect: WorkbookShapeRect): WorkbookPoint[] => {
+  const normalized = normalizeRect(rect);
+  const maxWidth = Math.max(1, normalized.width);
+  const maxHeight = Math.max(1, normalized.height);
+  const widthToHeightRatio = 0.62;
+  const useFullHeight = maxWidth / maxHeight > widthToHeightRatio;
+  const width = useFullHeight ? maxHeight * widthToHeightRatio : maxWidth;
+  const height = useFullHeight ? maxHeight : maxWidth / widthToHeightRatio;
+  const cx = normalized.x + normalized.width / 2;
+  const cy = normalized.y + normalized.height / 2;
+  return [
+    { x: cx, y: cy - height / 2 },
+    { x: cx + width / 2, y: cy },
+    { x: cx, y: cy + height / 2 },
+    { x: cx - width / 2, y: cy },
+  ];
+};
+
 export const getWorkbookPolygonPoints = (
   rect: WorkbookShapeRect,
   sides: number,
   preset: WorkbookPolygonPreset = "regular"
 ): WorkbookPoint[] => {
+  if (preset === "parallelogram") {
+    return buildParallelogram(rect);
+  }
   if (preset === "trapezoid") {
     return buildParallelBaseQuadrilateral(rect, {
       topWidthRatio: 0.56,
@@ -105,6 +136,9 @@ export const getWorkbookPolygonPoints = (
   }
   if (preset === "rhombus") {
     return buildShearedRhombus(rect);
+  }
+  if (preset === "rhombus_vertical") {
+    return buildVerticalRhombus(rect);
   }
 
   const normalized = normalizeRect(rect);

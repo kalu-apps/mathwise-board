@@ -230,6 +230,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   onSelectedConstraintChange,
   onStrokeCommit,
   onStrokePreview,
+  onStrokeTranslatePreview,
   onEraserPreview,
   onEraserCommit,
   onStrokeTranslateCommit,
@@ -721,40 +722,43 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     [getObjectSceneLayerId, unpinnedSceneLayerObjectsById]
   );
 
-  const mapPointer = (
-    svg: SVGSVGElement | null,
-    clientX: number,
-    clientY: number,
-    useSnap = false,
-    clampToViewport = true
-  ): WorkbookPoint => {
-    if (!svg || typeof svg.getBoundingClientRect !== "function") {
-      return { x: 0, y: 0 };
-    }
-    try {
-      const rect = svg.getBoundingClientRect();
-      const rawX =
-        (clientX - rect.left - displayBias.x) / safeZoom + resolvedViewportOffset.x;
-      const rawY =
-        (clientY - rect.top - displayBias.y) / safeZoom + resolvedViewportOffset.y;
-      const x = clampToViewport
-        ? Math.max(
-            0 + resolvedViewportOffset.x,
-            Math.min(rect.width / safeZoom + resolvedViewportOffset.x, rawX)
-          )
-        : rawX;
-      const y = clampToViewport
-        ? Math.max(
-            0 + resolvedViewportOffset.y,
-            Math.min(rect.height / safeZoom + resolvedViewportOffset.y, rawY)
-          )
-        : rawY;
-      const point = clampWorkbookPointToPageFrame({ x, y }, pageFrameBounds);
-      return useSnap ? snapPoint(point) : point;
-    } catch {
-      return { x: 0, y: 0 };
-    }
-  };
+  const mapPointer = useCallback(
+    (
+      svg: SVGSVGElement | null,
+      clientX: number,
+      clientY: number,
+      useSnap = false,
+      clampToViewport = true
+    ): WorkbookPoint => {
+      if (!svg || typeof svg.getBoundingClientRect !== "function") {
+        return { x: 0, y: 0 };
+      }
+      try {
+        const rect = svg.getBoundingClientRect();
+        const rawX =
+          (clientX - rect.left - displayBias.x) / safeZoom + resolvedViewportOffset.x;
+        const rawY =
+          (clientY - rect.top - displayBias.y) / safeZoom + resolvedViewportOffset.y;
+        const x = clampToViewport
+          ? Math.max(
+              0 + resolvedViewportOffset.x,
+              Math.min(rect.width / safeZoom + resolvedViewportOffset.x, rawX)
+            )
+          : rawX;
+        const y = clampToViewport
+          ? Math.max(
+              0 + resolvedViewportOffset.y,
+              Math.min(rect.height / safeZoom + resolvedViewportOffset.y, rawY)
+            )
+          : rawY;
+        const point = clampWorkbookPointToPageFrame({ x, y }, pageFrameBounds);
+        return useSnap ? snapPoint(point) : point;
+      } catch {
+        return { x: 0, y: 0 };
+      }
+    },
+    [displayBias.x, displayBias.y, pageFrameBounds, resolvedViewportOffset.x, resolvedViewportOffset.y, safeZoom, snapPoint]
+  );
 
   const resolveTopObject = useCallback(
     (point: WorkbookPoint) => {
@@ -1043,6 +1047,37 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     }
 
     if (!hasMeaningfulMove || movingStrokeSelections.length === 0) return;
+    if (movingStrokeSelections.length > 1 && onStrokeTranslatePreview) {
+      const groupsByLayerAndPage = new Map<
+        string,
+        { layer: WorkbookStroke["layer"]; page: number; strokeIds: string[] }
+      >();
+      movingStrokeSelections.forEach((selection) => {
+        const sourceStroke = strokeByKey.get(buildWorkbookStrokeSelectionKey(selection)) ?? null;
+        if (!sourceStroke) return;
+        const page = Math.max(1, Math.trunc(sourceStroke.page ?? currentPage ?? 1));
+        const key = `${sourceStroke.layer}:${page}`;
+        const group =
+          groupsByLayerAndPage.get(key) ?? {
+            layer: sourceStroke.layer,
+            page,
+            strokeIds: [],
+          };
+        group.strokeIds.push(sourceStroke.id);
+        groupsByLayerAndPage.set(key, group);
+      });
+      groupsByLayerAndPage.forEach((group) => {
+        if (group.strokeIds.length === 0) return;
+        onStrokeTranslatePreview({
+          layer: group.layer,
+          page: group.page,
+          strokeIds: group.strokeIds,
+          dx: deltaX,
+          dy: deltaY,
+        });
+      });
+      return;
+    }
     movingStrokeSelections.forEach((selection) => {
       const selectionKey = buildWorkbookStrokeSelectionKey(selection);
       const sourceStroke = strokeByKey.get(selectionKey) ?? null;
@@ -1058,9 +1093,11 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     areaSelection,
     emitLiveObjectPreviewPatch,
     emitLiveStrokePreview,
+    currentPage,
     moving,
     movingStrokeSelections,
     objectById,
+    onStrokeTranslatePreview,
     selectedObjectId,
     strokeByKey,
   ]);

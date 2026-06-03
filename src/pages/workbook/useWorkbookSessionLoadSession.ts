@@ -40,6 +40,14 @@ import {
 } from "./workbookSessionLoadHelpers";
 import { getWorkbookRecoverableSyncWarningMessage } from "./workbookSyncNoticeMessages";
 
+const INITIAL_TAIL_CATCHUP_MAX_BATCHES = 160;
+const BACKGROUND_TAIL_CATCHUP_MAX_BATCHES = 16;
+
+const toSafeWorkbookSeq = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.trunc(value))
+    : 0;
+
 export const useWorkbookSessionLoadSession = ({
   sessionId,
   isWorkbookSessionAuthLost,
@@ -481,20 +489,23 @@ export const useWorkbookSessionLoadSession = ({
             });
             focusResetTimersByUserRef.current.clear();
           }
-          if (!isBackground) {
-            setLoading(false);
-          }
           setRecoveryMode("catching_up");
+          let tailReachedEnd = false;
+          let tailLoadFailed = false;
+          let tailLatestSeq = latestSeqRef.current;
           try {
-            const MAX_TAIL_BATCHES = 8;
+            const maxTailBatches = isBackground
+              ? BACKGROUND_TAIL_CATCHUP_MAX_BATCHES
+              : INITIAL_TAIL_CATCHUP_MAX_BATCHES;
             let tailCursor = Math.max(0, latestSeqRef.current);
             let tailEventsCount = 0;
             let tailAppliedCount = 0;
             let tailBatchCount = 0;
-            while (tailBatchCount < MAX_TAIL_BATCHES) {
+            while (tailBatchCount < maxTailBatches) {
               tailBatchCount += 1;
               const tailResponse = await getWorkbookEvents(sessionId, tailCursor);
               if (isStaleLoadRequest()) return;
+              tailLatestSeq = Math.max(tailLatestSeq, toSafeWorkbookSeq(tailResponse.latestSeq));
               const unseenTailEvents = filterUnseenWorkbookEvents(tailResponse.events, {
                 ignoreSeqGuard: true,
               })
@@ -546,8 +557,10 @@ export const useWorkbookSessionLoadSession = ({
                 }
               }
               const reachedTailEnd =
-                tailResponse.events.length === 0 || tailCursor >= tailResponse.latestSeq;
+                tailCursor >= tailLatestSeq ||
+                (tailResponse.events.length === 0 && tailLatestSeq <= tailCursor);
               if (reachedTailEnd) {
+                tailReachedEnd = true;
                 break;
               }
             }
@@ -577,7 +590,37 @@ export const useWorkbookSessionLoadSession = ({
               }
               return;
             }
-            setError("Лента событий временно недоступна. Повторяем синхронизацию.");
+            tailLoadFailed = true;
+          }
+          const tailIncomplete =
+            tailLoadFailed || (!tailReachedEnd && latestSeqRef.current < tailLatestSeq);
+          if (tailIncomplete) {
+            reportWorkbookCorrectnessEvent({
+              name: isBackground
+                ? "resume_tail_incomplete"
+                : "session_open_tail_incomplete",
+              sessionId,
+              reason,
+              recoveryMode: recoveryModeRef.current,
+              seq: lastAppliedSeqRef.current,
+              snapshotSeq: tailLatestSeq,
+              counters: {
+                tailCursor: latestSeqRef.current,
+              },
+            });
+            if (!isBackground && attempt < maxAttempts) {
+              await new Promise((resolve) => window.setTimeout(resolve, attempt * 500));
+              if (isStaleLoadRequest()) return;
+              continue;
+            }
+            if (!isBackground) {
+              setBootstrapReady(false);
+              setLoading(false);
+              setError("Доска синхронизируется. Повторите вход через несколько секунд.");
+            } else {
+              setSaveSyncWarning("Доска догружает изменения. Синхронизация продолжится автоматически.");
+            }
+            return;
           }
           if (deferredBoardState) {
             startTransition(() => {
@@ -588,6 +631,15 @@ export const useWorkbookSessionLoadSession = ({
               setLibraryState(deferredBoardState.library);
               setDocumentState(deferredBoardState.document);
             });
+          }
+          if (normalizedBoard || normalizedAnnotations) {
+            lastAppliedSeqRef.current = Math.max(
+              lastAppliedSeqRef.current,
+              latestSeqRef.current
+            );
+          }
+          if (!isBackground) {
+            setLoading(false);
           }
           setRecoveryMode("live");
           setBootstrapReady(true);

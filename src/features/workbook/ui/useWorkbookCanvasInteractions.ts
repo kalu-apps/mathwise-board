@@ -11,7 +11,9 @@ import {
 import { buildWorkbookPointObject } from "../model/sceneCreation";
 import {
   buildAreaSelectionProxyObject,
+  buildImageScissorsAreaSelection,
   collectAreaSelectionObjects,
+  getAreaSelectionDraftRect,
   resolveAreaSelectionResizeMode,
   type WorkbookAreaSelection,
   type WorkbookAreaSelectionDraft,
@@ -321,15 +323,27 @@ const refineImageScissorsSelection = (params: {
   objectById: Map<string, WorkbookBoardObject>;
 }): WorkbookAreaSelection | null => {
   const { tool, selection, draft, resolveTopObject, objectById } = params;
-  if (tool !== "area_select" || !selection) return selection;
+  if (tool !== "area_select") return selection;
+
+  const rect = selection?.rect ?? getAreaSelectionDraftRect(draft);
+  const centerPoint: WorkbookPoint = {
+    x: rect.x + rect.width / 2,
+    y: rect.y + rect.height / 2,
+  };
+  const probePoints = [draft.start, draft.current, centerPoint];
+  const imageScissorsSelection = buildImageScissorsAreaSelection({
+    rect,
+    probePoints,
+    resolveTopObject,
+  });
+  if (imageScissorsSelection && !selection) return imageScissorsSelection;
+  if (!selection) return null;
   if (selection.objectIds.length === 0) return selection;
 
   const objectIds = new Set(selection.objectIds);
-  const centerPoint: WorkbookPoint = {
-    x: selection.rect.x + selection.rect.width / 2,
-    y: selection.rect.y + selection.rect.height / 2,
-  };
-  const probePoints = [draft.start, draft.current, centerPoint];
+  if (imageScissorsSelection && objectIds.has(imageScissorsSelection.objectIds[0])) {
+    return imageScissorsSelection;
+  }
 
   for (const point of probePoints) {
     const topObject = resolveTopObject(point);

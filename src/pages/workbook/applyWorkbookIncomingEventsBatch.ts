@@ -287,6 +287,8 @@ export const applyWorkbookIncomingEventsBatch = ({
           applyLocalBoardObjects,
           boardSettingsRef: refs.boardSettingsRef,
           boardObjectsRef: refs.boardObjectsRef,
+          boardStrokesRef: refs.boardStrokesRef,
+          annotationStrokesRef: refs.annotationStrokesRef,
           setSession: actions.setSession,
           setCanvasViewport: actions.setCanvasViewport,
           setIncomingEraserPreviews: actions.setIncomingEraserPreviews,

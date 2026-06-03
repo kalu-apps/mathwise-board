@@ -18,6 +18,8 @@ interface UseWorkbookPageViewportPersistenceParams {
   applyZoomForPage?: (page: number) => void;
   availablePages: number[];
   enabled?: boolean;
+  restoreSavedViewport?: boolean;
+  restoreLastPage?: boolean;
 }
 
 type UseWorkbookPageViewportPersistenceResult = {
@@ -162,6 +164,8 @@ export function useWorkbookPageViewportPersistence({
   applyZoomForPage,
   availablePages,
   enabled = true,
+  restoreSavedViewport = true,
+  restoreLastPage = true,
 }: UseWorkbookPageViewportPersistenceParams): UseWorkbookPageViewportPersistenceResult {
   const safeCurrentPage = toSafePage(currentBoardPage);
   const safeCurrentViewport = toSafeViewport(canvasViewport);
@@ -243,7 +247,12 @@ export function useWorkbookPageViewportPersistence({
     const raw = enabled && storageKey
       ? readStorage<Partial<PersistedWorkbookPageViewportState> | null>(storageKey, null)
       : null;
-    const normalized = normalizePersistedState(raw, fallbackPage, normalizedAvailablePages);
+    const normalized = restoreSavedViewport
+      ? normalizePersistedState(raw, fallbackPage, normalizedAvailablePages)
+      : {
+          lastPage: currentPageRef.current,
+          viewportByPage: {},
+        };
     stateRef.current = normalized;
     lifecycleRef.current = {
       page: currentPageRef.current,
@@ -253,18 +262,32 @@ export function useWorkbookPageViewportPersistence({
     if (enabled) {
       const availableSet = new Set(normalizedAvailablePages);
       const rawLastPage = resolveRawLastPage(raw);
-      const hasStoredData = rawLastPage !== null || Object.keys(normalized.viewportByPage).length > 0;
+      const hasStoredData =
+        restoreSavedViewport &&
+        (Object.keys(normalized.viewportByPage).length > 0 ||
+          (restoreLastPage && rawLastPage !== null));
       if (hasStoredData) {
         const targetPage =
-          rawLastPage && availableSet.has(rawLastPage) ? rawLastPage : currentPageRef.current;
+          restoreLastPage && rawLastPage && availableSet.has(rawLastPage)
+            ? rawLastPage
+            : currentPageRef.current;
         restoreTargetPageRef.current = targetPage;
         restoringRef.current = true;
       }
     }
 
     readyRef.current = true;
-    setStorageEpoch((current) => current + 1);
-  }, [enabled, storageKey]);
+    const timerId = window.setTimeout(() => {
+      setStorageEpoch((current) => current + 1);
+    }, 0);
+    return () => window.clearTimeout(timerId);
+  }, [
+    enabled,
+    normalizedAvailablePages,
+    restoreLastPage,
+    restoreSavedViewport,
+    storageKey,
+  ]);
 
   useEffect(() => {
     return () => {

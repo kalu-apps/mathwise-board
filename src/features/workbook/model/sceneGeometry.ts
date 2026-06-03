@@ -262,7 +262,9 @@ export const resolvePolygonFigureKind = (
   sides: number,
   preset: WorkbookPolygonPreset
 ): string | undefined => {
+  if (preset === "parallelogram") return "parallelogram";
   if (preset === "rhombus") return "rhombus";
+  if (preset === "rhombus_vertical") return "rhombus";
   if (preset === "trapezoid") return "trapezoid_isosceles";
   if (preset === "trapezoid_right") return "trapezoid_right";
   if (preset === "trapezoid_scalene") return "trapezoid_scalene";
@@ -302,10 +304,12 @@ export const resolve2dFigureVertices = (
       return object.points;
     }
     const objectPreset =
+      object.meta?.polygonPreset === "parallelogram" ||
       object.meta?.polygonPreset === "trapezoid" ||
       object.meta?.polygonPreset === "trapezoid_right" ||
       object.meta?.polygonPreset === "trapezoid_scalene" ||
-      object.meta?.polygonPreset === "rhombus"
+      object.meta?.polygonPreset === "rhombus" ||
+      object.meta?.polygonPreset === "rhombus_vertical"
         ? object.meta.polygonPreset
         : "regular";
     return getWorkbookPolygonPoints(normalized, object.sides ?? 5, objectPreset);
@@ -610,4 +614,3 @@ export const getPointObjectCenter = (object: WorkbookBoardObject) => ({
   x: object.x + object.width / 2,
   y: object.y + object.height / 2,
 });
-

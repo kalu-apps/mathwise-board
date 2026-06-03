@@ -85,8 +85,11 @@ export function WorkbookPdfImportPreviewModal({
     if (!open) return;
     const nextFrom = String(initialFrom);
     const nextTo = String(initialTo);
-    setPageFrom((current) => (current === nextFrom ? current : nextFrom));
-    setPageTo((current) => (current === nextTo ? current : nextTo));
+    const timerId = window.setTimeout(() => {
+      setPageFrom((current) => (current === nextFrom ? current : nextFrom));
+      setPageTo((current) => (current === nextTo ? current : nextTo));
+    }, 0);
+    return () => window.clearTimeout(timerId);
   }, [initialFrom, initialTo, open]);
 
   const previewUrl = useMemo(() => {

@@ -158,8 +158,11 @@ export function WorkbookImageImportCropModal({
 
   useEffect(() => {
     if (!open) return;
-    setCropRect(normalizeForDrag(initialCropRect ?? DEFAULT_WORKBOOK_IMPORT_CROP_RECT));
-    setDragState(null);
+    const timerId = window.setTimeout(() => {
+      setCropRect(normalizeForDrag(initialCropRect ?? DEFAULT_WORKBOOK_IMPORT_CROP_RECT));
+      setDragState(null);
+    }, 0);
+    return () => window.clearTimeout(timerId);
   }, [initialCropRect, open]);
 
   const resolvePointer = useCallback((event: React.PointerEvent<HTMLDivElement>) => {

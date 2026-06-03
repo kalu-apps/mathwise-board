@@ -26,6 +26,18 @@ import {
   type CameraFacingMode,
   type LivekitModule,
 } from "./workbookLivekitRuntime";
+import {
+  configureWorkbookRemoteAudioElement,
+  detachWorkbookRemoteAudioBinding,
+  hasWorkbookLivekitAudioUserActivation,
+  startWorkbookLivekitAudioPlayback,
+  type WorkbookRemoteAudioBinding,
+} from "./workbookLivekitAudio";
+import {
+  clearWorkbookLivekitMicRetryTimeout,
+  syncWorkbookLivekitMicrophoneState,
+  type WorkbookLivekitMicSyncOptions,
+} from "./workbookLivekitMic";
 
 type UseWorkbookLivekitParams = {
   sessionId: string;
@@ -37,11 +49,6 @@ type UseWorkbookLivekitParams = {
   setError: Dispatch<SetStateAction<string | null>>;
 };
 
-type RemoteAudioBinding = {
-  track: RemoteAudioTrack;
-  element: HTMLAudioElement;
-};
-
 export type WorkbookRemoteVideoTrack = {
   participantIdentity: string;
   participantName: string;
@@ -50,7 +57,6 @@ export type WorkbookRemoteVideoTrack = {
 };
 
 const LIVEKIT_CONNECT_RETRY_DELAYS_MS = [800, 2_000] as const;
-
 export const useWorkbookLivekit = ({
   sessionId,
   sessionKind,
@@ -77,19 +83,39 @@ export const useWorkbookLivekit = ({
   const livekitConnectAttemptRef = useRef(0);
   const livekitDisconnectAttemptRef = useRef(0);
   const livekitShouldBeConnectedRef = useRef(false);
+  const livekitMicSyncInFlightRef = useRef<Promise<void> | null>(null);
+  const livekitMicSyncPendingRef = useRef(false);
+  const livekitMicRetryTimeoutRef = useRef<number | null>(null);
+  const livekitMicRetryAttemptRef = useRef(0);
+  const livekitAudioPlaybackInFlightRef = useRef<Promise<void> | null>(null);
+  const livekitAudioPlaybackPendingRef = useRef(false);
+  const canUseMicrophoneRef = useRef(canUseMicrophone);
+  const micEnabledRef = useRef(micEnabled);
   const preferredCameraFacingRef = useRef<CameraFacingMode>("user");
   const isLikelyMobileOrTabletRef = useRef(isLikelyMobileOrTabletDevice());
   const micDefaultSessionKeyRef = useRef<string | null>(null);
   const cameraDefaultSessionKeyRef = useRef<string | null>(null);
   const remoteAudioGestureUnlockedRef = useRef(false);
-  const remoteAudioBindingsRef = useRef<Map<string, RemoteAudioBinding>>(new Map());
+  const remoteAudioBindingsRef = useRef<Map<string, WorkbookRemoteAudioBinding>>(new Map());
   const remoteVideoTracksRef = useRef<Map<string, WorkbookRemoteVideoTrack>>(new Map());
+
+  useEffect(() => {
+    canUseMicrophoneRef.current = canUseMicrophone;
+  }, [canUseMicrophone]);
+
+  useEffect(() => {
+    micEnabledRef.current = micEnabled;
+  }, [micEnabled]);
 
   const clearLivekitRetryTimeout = useCallback(() => {
     if (typeof window === "undefined") return;
     if (livekitRetryTimeoutRef.current === null) return;
     window.clearTimeout(livekitRetryTimeoutRef.current);
     livekitRetryTimeoutRef.current = null;
+  }, []);
+
+  const clearLivekitMicRetryTimeout = useCallback(() => {
+    clearWorkbookLivekitMicRetryTimeout(livekitMicRetryTimeoutRef);
   }, []);
 
   const ensureLivekitRuntime = useCallback(async () => {
@@ -144,18 +170,7 @@ export const useWorkbookLivekit = ({
   const detachRemoteAudio = useCallback((participantIdentity?: string) => {
     Array.from(remoteAudioBindingsRef.current.entries()).forEach(([key, binding]) => {
       if (participantIdentity && !key.startsWith(`${participantIdentity}:`)) return;
-      try {
-        binding.track.detach(binding.element);
-      } catch {
-        // ignore detach errors
-      }
-      try {
-        binding.element.pause();
-      } catch {
-        // ignore pause errors
-      }
-      binding.element.srcObject = null;
-      binding.element.remove();
+      detachWorkbookRemoteAudioBinding(binding);
       remoteAudioBindingsRef.current.delete(key);
     });
   }, []);
@@ -196,6 +211,53 @@ export const useWorkbookLivekit = ({
     [enableRemoteVideoPublication]
   );
 
+  const requestRemoteAudioPlayback = useCallback(() => {
+    remoteAudioGestureUnlockedRef.current = true;
+    if (livekitAudioPlaybackInFlightRef.current) {
+      livekitAudioPlaybackPendingRef.current = true;
+      return;
+    }
+    const run = () => {
+      const audioElementCount = remoteAudioBindingsRef.current.size;
+      emitMediaMetric({
+        scope: "workbook",
+        subsystem: "livekit",
+        phase: "audio_playback_start",
+        sessionId,
+        sessionKind: sessionKind ?? null,
+        timestamp: new Date().toISOString(),
+        audioElementCount,
+      });
+      const task = startWorkbookLivekitAudioPlayback({
+        bindings: remoteAudioBindingsRef.current.values(),
+        room: livekitRoomRef.current,
+      })
+        .then((result) => {
+          const blockedCount =
+            result.blockedAudioElementCount + (result.roomAudioBlocked ? 1 : 0);
+          emitMediaMetric({
+            scope: "workbook",
+            subsystem: "livekit",
+            phase: blockedCount > 0 ? "audio_playback_blocked" : "audio_playback_complete",
+            sessionId,
+            sessionKind: sessionKind ?? null,
+            timestamp: new Date().toISOString(),
+            audioElementCount: result.audioElementCount,
+            blockedAudioElementCount: blockedCount,
+          });
+        })
+        .finally(() => {
+          if (livekitAudioPlaybackInFlightRef.current !== task) return;
+          livekitAudioPlaybackInFlightRef.current = null;
+          if (!livekitAudioPlaybackPendingRef.current) return;
+          livekitAudioPlaybackPendingRef.current = false;
+          run();
+        });
+      livekitAudioPlaybackInFlightRef.current = task;
+    };
+    run();
+  }, [sessionId, sessionKind]);
+
   const handleTrackSubscribed = useCallback(
     (track: unknown, publicationLike: unknown, participantLike: unknown) => {
       const runtime = livekitRuntimeRef.current;
@@ -210,28 +272,14 @@ export const useWorkbookLivekit = ({
         const bindingKey = `${participantIdentity}:${trackSid}`;
         if (remoteAudioBindingsRef.current.has(bindingKey)) return;
         const element = audioTrack.attach() as HTMLAudioElement;
-        element.autoplay = false;
-        element.setAttribute("playsinline", "true");
-        element.muted = false;
-        element.volume = 1;
-        element.style.display = "none";
+        configureWorkbookRemoteAudioElement(element);
         document.body.appendChild(element);
         remoteAudioBindingsRef.current.set(bindingKey, {
           track: audioTrack,
           element,
         });
-        const canResumeImmediately = (() => {
-          if (remoteAudioGestureUnlockedRef.current) return true;
-          if (typeof document === "undefined") return false;
-          const activation = (
-            document as Document & {
-              userActivation?: { hasBeenActive?: boolean; isActive?: boolean };
-            }
-          ).userActivation;
-          return Boolean(activation?.hasBeenActive || activation?.isActive);
-        })();
-        if (canResumeImmediately) {
-          void element.play().catch(() => undefined);
+        if (remoteAudioGestureUnlockedRef.current || hasWorkbookLivekitAudioUserActivation()) {
+          requestRemoteAudioPlayback();
         }
         return;
       }
@@ -251,7 +299,7 @@ export const useWorkbookLivekit = ({
       });
       syncRemoteVideoTracksState();
     },
-    [enableRemoteVideoPublication, syncRemoteVideoTracksState]
+    [enableRemoteVideoPublication, requestRemoteAudioPlayback, syncRemoteVideoTracksState]
   );
 
   const handleTrackUnsubscribed = useCallback(
@@ -271,18 +319,7 @@ export const useWorkbookLivekit = ({
         const bindingKey = `${participantIdentity}:${trackSid}`;
         const binding = remoteAudioBindingsRef.current.get(bindingKey);
         if (!binding) return;
-        try {
-          binding.track.detach(binding.element);
-        } catch {
-          // ignore detach errors
-        }
-        try {
-          binding.element.pause();
-        } catch {
-          // ignore pause errors
-        }
-        binding.element.srcObject = null;
-        binding.element.remove();
+        detachWorkbookRemoteAudioBinding(binding);
         remoteAudioBindingsRef.current.delete(bindingKey);
         return;
       }
@@ -369,10 +406,44 @@ export const useWorkbookLivekit = ({
     setLocalVideoTrack(null);
   }, []);
 
+  const syncLivekitMicState = useCallback(
+    async (options?: WorkbookLivekitMicSyncOptions) => {
+      await syncWorkbookLivekitMicrophoneState({
+        runtimeRef: livekitRuntimeRef,
+        roomRef: livekitRoomRef,
+        shouldBeConnectedRef: livekitShouldBeConnectedRef,
+        canUseMicrophoneRef,
+        micEnabledRef,
+        syncInFlightRef: livekitMicSyncInFlightRef,
+        syncPendingRef: livekitMicSyncPendingRef,
+        retryTimeoutRef: livekitMicRetryTimeoutRef,
+        retryAttemptRef: livekitMicRetryAttemptRef,
+        sessionId,
+        sessionKind,
+        setError,
+        handleMicrophoneError,
+        syncAgain: (nextOptions) => {
+          void syncLivekitMicState(nextOptions);
+        },
+        options,
+      });
+    },
+    [
+      handleMicrophoneError,
+      sessionId,
+      sessionKind,
+      setError,
+    ]
+  );
+
   const disconnectLivekitRoom = useCallback(
     async (options?: { forceStopTracks?: boolean; resetRetryState?: boolean }) => {
       livekitConnectInFlightRef.current = null;
       clearLivekitRetryTimeout();
+      clearLivekitMicRetryTimeout();
+      livekitMicSyncInFlightRef.current = null;
+      livekitMicSyncPendingRef.current = false;
+      livekitMicRetryAttemptRef.current = 0;
       if (options?.resetRetryState !== false) {
         livekitConnectAttemptRef.current = 0;
         livekitDisconnectAttemptRef.current = 0;
@@ -401,7 +472,12 @@ export const useWorkbookLivekit = ({
         setCameraEnabled(false);
       }
     },
-    [clearLivekitRetryTimeout, detachAllRemoteAudio, detachAllRemoteVideo]
+    [
+      clearLivekitMicRetryTimeout,
+      clearLivekitRetryTimeout,
+      detachAllRemoteAudio,
+      detachAllRemoteVideo,
+    ]
   );
 
   const connectLivekitRoom = useCallback(async () => {
@@ -581,6 +657,47 @@ export const useWorkbookLivekit = ({
           void connectLivekitRoom();
         }, reconnectDelayMs);
       });
+      room.on(runtime.RoomEvent.SignalReconnecting, () => {
+        if (!isCurrentRoom()) return;
+        emitMediaMetric({
+          scope: "workbook",
+          subsystem: "livekit",
+          phase: "reconnecting",
+          sessionId,
+          sessionKind: sessionKind ?? null,
+          timestamp: new Date().toISOString(),
+          errorReason: "signal",
+        });
+      });
+      room.on(runtime.RoomEvent.Reconnecting, () => {
+        if (!isCurrentRoom()) return;
+        emitMediaMetric({
+          scope: "workbook",
+          subsystem: "livekit",
+          phase: "reconnecting",
+          sessionId,
+          sessionKind: sessionKind ?? null,
+          timestamp: new Date().toISOString(),
+          errorReason: "media",
+        });
+      });
+      room.on(runtime.RoomEvent.Reconnected, () => {
+        if (!isCurrentRoom()) return;
+        setIsLivekitConnected(true);
+        syncLocalVideoTrackFromRoom();
+        if (remoteAudioGestureUnlockedRef.current || hasWorkbookLivekitAudioUserActivation()) {
+          requestRemoteAudioPlayback();
+        }
+        void syncLivekitMicState({ resetRetry: true, reason: "reconnected" });
+        emitMediaMetric({
+          scope: "workbook",
+          subsystem: "livekit",
+          phase: "reconnected",
+          sessionId,
+          sessionKind: sessionKind ?? null,
+          timestamp: new Date().toISOString(),
+        });
+      });
       room.on(runtime.RoomEvent.ConnectionStateChanged, (state: unknown) => {
         if (!isCurrentRoom()) return;
         setIsLivekitConnected(state === runtime.ConnectionState.Connected);
@@ -607,6 +724,10 @@ export const useWorkbookLivekit = ({
           quality,
           participant,
         });
+      });
+      room.on(runtime.RoomEvent.AudioPlaybackStatusChanged, (playing: unknown) => {
+        if (!isCurrentRoom() || playing !== true) return;
+        remoteAudioGestureUnlockedRef.current = true;
       });
       room.on(runtime.RoomEvent.MediaDevicesError, (error: unknown, kind: unknown) => {
         if (!isCurrentRoom()) return;
@@ -639,6 +760,10 @@ export const useWorkbookLivekit = ({
       });
       setIsLivekitConnected(true);
       syncLocalVideoTrackFromRoom();
+      if (remoteAudioGestureUnlockedRef.current || hasWorkbookLivekitAudioUserActivation()) {
+        requestRemoteAudioPlayback();
+      }
+      void syncLivekitMicState({ resetRetry: true, reason: "connect_success" });
       livekitConnectAttemptRef.current = 0;
       livekitDisconnectAttemptRef.current = 0;
       emitMediaMetric({
@@ -733,32 +858,14 @@ export const useWorkbookLivekit = ({
     handleTrackUnsubscribed,
     enableRemoteVideoForParticipant,
     enableRemoteVideoPublication,
+    requestRemoteAudioPlayback,
     sessionId,
     sessionKind,
     setError,
+    syncLivekitMicState,
     syncLocalVideoTrackFromRoom,
     userId,
   ]);
-
-  const syncLivekitMicState = useCallback(async () => {
-    const runtime = livekitRuntimeRef.current;
-    const room = livekitRoomRef.current;
-    if (!runtime || !room || room.state !== runtime.ConnectionState.Connected) return;
-    const shouldPublishMicrophone = Boolean(canUseMicrophone && micEnabled);
-    try {
-      await room.localParticipant.setMicrophoneEnabled(shouldPublishMicrophone);
-      if (shouldPublishMicrophone) {
-        setError((current) => {
-          if (!current) return current;
-          return current.includes("микрофон") || current.includes("Микрофон")
-            ? null
-            : current;
-        });
-      }
-    } catch (reason) {
-      handleMicrophoneError(reason);
-    }
-  }, [canUseMicrophone, handleMicrophoneError, micEnabled, setError]);
 
   const syncLivekitCameraState = useCallback(async () => {
     const runtime = livekitRuntimeRef.current;
@@ -892,8 +999,15 @@ export const useWorkbookLivekit = ({
     if (sessionKind !== "CLASS" || isEnded || !isLivekitConnected) {
       return;
     }
-    void syncLivekitMicState();
-  }, [isEnded, isLivekitConnected, sessionKind, syncLivekitMicState]);
+    void syncLivekitMicState({ resetRetry: true, reason: "state_change" });
+  }, [
+    canUseMicrophone,
+    isEnded,
+    isLivekitConnected,
+    micEnabled,
+    sessionKind,
+    syncLivekitMicState,
+  ]);
 
   useEffect(() => {
     if (sessionKind !== "CLASS" || isEnded || !isLivekitConnected) {
@@ -973,18 +1087,33 @@ export const useWorkbookLivekit = ({
   useEffect(() => {
     if (sessionKind !== "CLASS" || isEnded) return;
     const resumeRemoteAudio = () => {
-      remoteAudioGestureUnlockedRef.current = true;
-      Array.from(remoteAudioBindingsRef.current.values()).forEach((binding) => {
-        void binding.element.play().catch(() => undefined);
-      });
+      requestRemoteAudioPlayback();
+      if (!isLivekitConnected) return;
+      void syncLivekitMicState({ reason: "user_gesture" });
+    };
+    const resumeRemoteAudioWhenVisible = () => {
+      if (document.hidden || !remoteAudioGestureUnlockedRef.current) return;
+      requestRemoteAudioPlayback();
+      if (!isLivekitConnected) return;
+      void syncLivekitMicState({ reason: "visibility" });
     };
     window.addEventListener("pointerdown", resumeRemoteAudio, { passive: true });
+    window.addEventListener("touchend", resumeRemoteAudio, { passive: true });
     window.addEventListener("keydown", resumeRemoteAudio);
+    document.addEventListener("visibilitychange", resumeRemoteAudioWhenVisible);
     return () => {
       window.removeEventListener("pointerdown", resumeRemoteAudio);
+      window.removeEventListener("touchend", resumeRemoteAudio);
       window.removeEventListener("keydown", resumeRemoteAudio);
+      document.removeEventListener("visibilitychange", resumeRemoteAudioWhenVisible);
     };
-  }, [isEnded, sessionKind]);
+  }, [
+    isEnded,
+    isLivekitConnected,
+    requestRemoteAudioPlayback,
+    sessionKind,
+    syncLivekitMicState,
+  ]);
 
   return {
     isLivekitConnected,

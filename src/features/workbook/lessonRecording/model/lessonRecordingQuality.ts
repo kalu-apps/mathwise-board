@@ -4,38 +4,38 @@ const PROFILE_CANDIDATES: LessonRecordingProfile[] = [
   {
     mimeType: "video/mp4;codecs=avc1.640028,mp4a.40.2",
     extension: "mp4",
-    videoBitsPerSecond: 14_000_000,
-    audioBitsPerSecond: 192_000,
+    videoBitsPerSecond: 5_000_000,
+    audioBitsPerSecond: 128_000,
   },
   {
     mimeType: "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
     extension: "mp4",
-    videoBitsPerSecond: 12_000_000,
-    audioBitsPerSecond: 192_000,
+    videoBitsPerSecond: 4_500_000,
+    audioBitsPerSecond: 128_000,
   },
   {
     mimeType: "video/mp4",
     extension: "mp4",
-    videoBitsPerSecond: 10_000_000,
-    audioBitsPerSecond: 160_000,
+    videoBitsPerSecond: 4_000_000,
+    audioBitsPerSecond: 112_000,
   },
   {
     mimeType: "video/webm;codecs=vp9,opus",
     extension: "webm",
-    videoBitsPerSecond: 14_000_000,
-    audioBitsPerSecond: 192_000,
+    videoBitsPerSecond: 5_000_000,
+    audioBitsPerSecond: 128_000,
   },
   {
     mimeType: "video/webm;codecs=vp8,opus",
     extension: "webm",
-    videoBitsPerSecond: 12_000_000,
-    audioBitsPerSecond: 192_000,
+    videoBitsPerSecond: 4_500_000,
+    audioBitsPerSecond: 128_000,
   },
   {
     mimeType: "video/webm",
     extension: "webm",
-    videoBitsPerSecond: 10_000_000,
-    audioBitsPerSecond: 160_000,
+    videoBitsPerSecond: 4_000_000,
+    audioBitsPerSecond: 112_000,
   },
 ];
 
@@ -55,8 +55,8 @@ const inferResolutionTier = (track: MediaStreamTrack | null): "ultra" | "high" |
 };
 
 const resolveTierMultiplier = (tier: "ultra" | "high" | "mid" | "base") => {
-  if (tier === "ultra") return 1.3;
-  if (tier === "high") return 1.15;
+  if (tier === "ultra") return 1;
+  if (tier === "high") return 1;
   if (tier === "mid") return 1;
   return 0.82;
 };

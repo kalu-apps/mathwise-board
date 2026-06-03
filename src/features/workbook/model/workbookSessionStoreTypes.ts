@@ -48,10 +48,12 @@ export type WorkbookToolPaintSettings = {
 
 export type WorkbookPolygonPresetMode =
   | "regular"
+  | "parallelogram"
   | "trapezoid"
   | "trapezoid_right"
   | "trapezoid_scalene"
-  | "rhombus";
+  | "rhombus"
+  | "rhombus_vertical";
 
 export type WorkbookSessionUiSlice = {
   isSessionChatOpen: boolean;

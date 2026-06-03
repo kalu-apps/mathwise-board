@@ -89,7 +89,9 @@ export const useWorkbookEventCommitPipeline = ({
       }
       if (
         event.type === "board.stroke.preview" ||
-        event.type === "annotations.stroke.preview"
+        event.type === "annotations.stroke.preview" ||
+        event.type === "board.strokes.translate.preview" ||
+        event.type === "annotations.strokes.translate.preview"
       ) {
         const strokeId =
           event.payload &&
@@ -99,6 +101,17 @@ export const useWorkbookEventCommitPipeline = ({
             : "";
         if (strokeId) {
           return `${typeKey}:${strokeId}`;
+        }
+        const strokeIds =
+          event.payload &&
+          typeof event.payload === "object" &&
+          Array.isArray((event.payload as { strokeIds?: unknown }).strokeIds)
+            ? (event.payload as { strokeIds: unknown[] }).strokeIds
+            : [];
+        if (strokeIds.length > 0) {
+          const firstStrokeId =
+            typeof strokeIds[0] === "string" ? strokeIds[0].trim() : "";
+          if (firstStrokeId) return `${typeKey}:${firstStrokeId}:${strokeIds.length}`;
         }
       }
       if (event.type === "board.eraser.preview") {

@@ -13,7 +13,11 @@ export async function requestPasswordLogin(
 }
 
 export async function getAuthSession(): Promise<User | null> {
-  return api.get<User | null>("/auth/session");
+  return api.get<User | null>("/auth/session", {
+    cacheTtlMs: 0,
+    dedupe: false,
+    staleIfErrorMs: 0,
+  });
 }
 
 export async function logoutAuthSession(): Promise<void> {

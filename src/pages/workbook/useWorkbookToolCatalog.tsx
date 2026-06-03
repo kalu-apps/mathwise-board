@@ -245,14 +245,27 @@ export const useWorkbookToolCatalog = ({
         },
       },
       {
-        id: "rhombus",
-        title: "Ромб",
-        subtitle: "Равные стороны",
-        icon: <ShapeCatalogPreview variant="rhombus" />,
+        id: "parallelogram",
+        title: "Параллелограмм",
+        subtitle: "Противоположные стороны параллельны",
+        icon: <ShapeCatalogPreview variant="parallelogram" />,
         tool: "polygon",
         apply: () => {
           setPolygonMode("regular");
-          setPolygonPreset("rhombus");
+          setPolygonPreset("parallelogram");
+          setPolygonSides(4);
+          setTool("polygon");
+        },
+      },
+      {
+        id: "rhombus",
+        title: "Ромб",
+        subtitle: "Равные стороны, не квадрат",
+        icon: <ShapeCatalogPreview variant="rhombus_vertical" />,
+        tool: "polygon",
+        apply: () => {
+          setPolygonMode("regular");
+          setPolygonPreset("rhombus_vertical");
           setPolygonSides(4);
           setTool("polygon");
         },

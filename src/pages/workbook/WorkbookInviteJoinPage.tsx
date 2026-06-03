@@ -5,6 +5,7 @@ import "./workbookRouteStyles";
 import { joinWorkbookInvite, resolveWorkbookInvite } from "@/features/workbook/model/api";
 import { getAuthSession } from "@/features/auth/model/api";
 import { useAuth } from "@/features/auth/model/AuthContext";
+import type { User } from "@/entities/user/model/types";
 import { AuthAmbientScene } from "@/features/auth-ambient/ui/AuthAmbientScene";
 import { ApiError } from "@/shared/api/client";
 import { t } from "@/shared/i18n";
@@ -25,10 +26,32 @@ const createInviteJoinAttemptKey = () => {
   return `invite_join_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 };
 
-const waitForCookieWrite = () =>
+const wait = (delayMs: number) =>
   new Promise((resolve) => {
-    setTimeout(resolve, 120);
+    setTimeout(resolve, delayMs);
   });
+
+const waitForJoinedAuthSession = async (expectedUser?: User) => {
+  const startedAt = Date.now();
+  const timeoutMs = 4_000;
+  const retryDelays = [0, 80, 160, 300, 500, 800, 1_200];
+  for (const delayMs of retryDelays) {
+    if (delayMs > 0) {
+      await wait(delayMs);
+    }
+    try {
+      const sessionUser = await getAuthSession();
+      if (sessionUser && (!expectedUser || sessionUser.id === expectedUser.id)) {
+        return sessionUser;
+      }
+    } catch {
+      // Keep the invite button in a single loading state while the auth cookie
+      // is settling or the mobile network briefly retries the session request.
+    }
+    if (Date.now() - startedAt >= timeoutMs) break;
+  }
+  return null;
+};
 
 export default function WorkbookInviteJoinPage() {
   const { token = "" } = useParams();
@@ -153,6 +176,10 @@ export default function WorkbookInviteJoinPage() {
     }
     navigate(`/workbook/session/${encodeURIComponent(pendingJoinRedirect.sessionId)}`, {
       replace: true,
+      state: {
+        inviteToken: pendingJoinRedirect.token,
+        inviteUserId: pendingJoinRedirect.userId,
+      },
     });
   }, [navigate, pendingJoinRedirect, token, user?.id]);
 
@@ -172,12 +199,8 @@ export default function WorkbookInviteJoinPage() {
         shouldCollectGuestName ? guestDisplayName : undefined,
         { idempotencyKey: createInviteJoinAttemptKey() }
       );
-      let resolvedUser = await getAuthSession();
-      if (!resolvedUser || (joined.user && resolvedUser.id !== joined.user.id)) {
-        await waitForCookieWrite();
-        resolvedUser = await getAuthSession();
-      }
-      if (!resolvedUser || (joined.user && resolvedUser.id !== joined.user.id)) {
+      const resolvedUser = await waitForJoinedAuthSession(joined.user);
+      if (!resolvedUser) {
         joinInFlightRef.current = false;
         setState((prev) => ({
           ...prev,
