@@ -592,10 +592,12 @@ export const renderWorkbookCanvasPrimaryObject = ({
       const vertices = resolve2dFigureVertices(object, normalized);
       const isClosed = is2dFigureClosed(object);
       const objectPreset =
+        object.meta?.polygonPreset === "parallelogram" ||
         object.meta?.polygonPreset === "trapezoid" ||
         object.meta?.polygonPreset === "trapezoid_right" ||
         object.meta?.polygonPreset === "trapezoid_scalene" ||
-        object.meta?.polygonPreset === "rhombus"
+        object.meta?.polygonPreset === "rhombus" ||
+        object.meta?.polygonPreset === "rhombus_vertical"
           ? object.meta.polygonPreset
           : "regular";
       if (Array.isArray(object.points) && object.points.length >= 2) {

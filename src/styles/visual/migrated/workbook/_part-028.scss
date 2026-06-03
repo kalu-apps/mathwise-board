@@ -311,6 +311,20 @@
   .workbook-session__participants-video-rail {
     --video-rail-gap: 6px;
     --video-rail-tile-min-width: min(70vw, 220px);
+    grid-column: 1;
+    grid-row: 2;
+    grid-template-columns: repeat(var(--video-rail-columns), minmax(var(--video-rail-tile-min-width), 1fr));
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(var(--video-rail-tile-min-width), 1fr);
+    align-content: stretch;
+    justify-content: start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-right: 0;
+    padding-bottom: 2px;
+    padding-inline: 2px;
+    height: auto;
+    scroll-snap-type: x proximity;
   }
 
   .workbook-session__participants-video-rail .workbook-session__participant-card.is-video-card {

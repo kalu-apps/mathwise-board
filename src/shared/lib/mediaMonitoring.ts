@@ -14,6 +14,14 @@ export type MediaMetricEventDetail = {
     | "disconnect"
     | "connection_state"
     | "connection_quality"
+    | "reconnecting"
+    | "reconnected"
+    | "audio_playback_start"
+    | "audio_playback_complete"
+    | "audio_playback_blocked"
+    | "mic_publish_start"
+    | "mic_publish_success"
+    | "mic_publish_failure"
     | "media_device_error";
   sessionId: string;
   timestamp: string;
@@ -33,6 +41,9 @@ export type MediaMetricEventDetail = {
   participantIdentity?: string | null;
   participantLocal?: boolean;
   trackKind?: string | null;
+  targetEnabled?: boolean;
+  audioElementCount?: number;
+  blockedAudioElementCount?: number;
   errorName?: string | null;
   errorMessage?: string | null;
   errorReason?: string | null;

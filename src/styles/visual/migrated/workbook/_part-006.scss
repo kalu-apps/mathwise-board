@@ -82,6 +82,24 @@
     font-size: 12px;
   }
 }
+.workbook-session__recording-watermark {
+  position: absolute;
+  right: clamp(14px, 2vw, 34px);
+  bottom: clamp(14px, 2vw, 34px);
+  z-index: 12;
+  max-width: min(360px, calc(100% - 28px));
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(16, 20, 30, 0.54);
+  color: rgba(255, 255, 255, 0.96);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  pointer-events: none;
+  user-select: none;
+  box-shadow: 0 8px 18px rgba(16, 20, 30, 0.12);
+}
 .workbook-session__contextbar label {
   font-size: 12px;
   color: var(--text-secondary);

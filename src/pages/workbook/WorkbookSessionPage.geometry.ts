@@ -182,6 +182,7 @@ export type ConnectedFigureKind =
   | "triangle"
   | "square"
   | "rectangle"
+  | "parallelogram"
   | "rhombus"
   | "trapezoid_right"
   | "trapezoid_isosceles"
@@ -245,6 +246,7 @@ export const classifyConnectedFigureKind = (points: WorkbookPoint[]): ConnectedF
   if (hasRightAngles && allEqual) return "square";
   if (hasRightAngles) return "rectangle";
   if (allEqual) return "rhombus";
+  if (oppositePairAParallel && oppositePairBParallel) return "parallelogram";
 
   const isTrapezoid = (oppositePairAParallel || oppositePairBParallel) && !(
     oppositePairAParallel && oppositePairBParallel
@@ -280,6 +282,7 @@ export const getWorkbookObjectTypeLabel = (object: WorkbookBoardObject) => {
     if (kind === "triangle") return "Треугольник";
     if (kind === "square") return "Квадрат";
     if (kind === "rectangle") return "Прямоугольник";
+    if (kind === "parallelogram") return "Параллелограмм";
     if (kind === "rhombus") return "Ромб";
     if (kind === "trapezoid_right") return "Прямоугольная трапеция";
     if (kind === "trapezoid_isosceles") return "Равнобедренная трапеция";

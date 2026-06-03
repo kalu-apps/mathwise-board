@@ -38,7 +38,7 @@ export function WorkbookLessonRecordingDialogs({
         content={
           <div className="workbook-session__recording-prestart">
             <p>
-              Будет записано видео урока в высоком качестве. После остановки файл
+              Будет записано видео урока в стабильном качестве. После остановки файл
               автоматически сохранится на устройство.
             </p>
             <ul>

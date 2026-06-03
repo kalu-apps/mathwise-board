@@ -136,10 +136,15 @@ export function WorkbookSessionContextbar({
   isCompactViewport,
 }: WorkbookSessionContextbarProps) {
   const safeCurrentBoardPage = Math.max(1, Math.round(currentBoardPage || 1));
-  const orderedPageIds = boardPageOptions.map((option) => option.page);
-  const currentPageOrderIndexRaw = orderedPageIds.indexOf(safeCurrentBoardPage);
-  const currentPageOrderIndex = currentPageOrderIndexRaw >= 0 ? currentPageOrderIndexRaw : 0;
-  const currentPagePosition = currentPageOrderIndex + 1;
+  const pageIdsFromOptions = boardPageOptions.map((option) => option.page);
+  const isCurrentPageInOrder = pageIdsFromOptions.includes(safeCurrentBoardPage);
+  const orderedPageIds = isCurrentPageInOrder
+    ? pageIdsFromOptions
+    : [...pageIdsFromOptions, safeCurrentBoardPage];
+  const currentPageOrderIndex = orderedPageIds.indexOf(safeCurrentBoardPage);
+  const currentPagePosition = isCurrentPageInOrder
+    ? currentPageOrderIndex + 1
+    : safeCurrentBoardPage;
   const safeTotalBoardPages = Math.max(
     currentPagePosition,
     boardPageOptions.length,

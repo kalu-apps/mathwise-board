@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildAreaSelection } from "./sceneSelection";
+import { buildAreaSelection, buildImageScissorsAreaSelection } from "./sceneSelection";
 import type { WorkbookBoardObject, WorkbookStroke } from "./types";
 
 const buildObject = (
@@ -77,6 +77,49 @@ test("area selection does not grab a large background object from a small inner 
     [image],
     []
   );
+
+  assert.equal(selection, null);
+});
+
+test("image scissors selection can keep a small crop marquee inside an image", () => {
+  const image = buildObject({
+    id: "worksheet-image",
+    type: "image",
+    x: 0,
+    y: 0,
+    width: 1200,
+    height: 800,
+  });
+  const rect = { x: 300, y: 200, width: 80, height: 60 };
+
+  const selection = buildImageScissorsAreaSelection({
+    rect,
+    probePoints: [{ x: 340, y: 230 }],
+    resolveTopObject: () => image,
+  });
+
+  assert.deepEqual(selection, {
+    objectIds: ["worksheet-image"],
+    strokeIds: [],
+    rect,
+  });
+});
+
+test("image scissors selection ignores tiny click-like marquees", () => {
+  const image = buildObject({
+    id: "worksheet-image",
+    type: "image",
+    x: 0,
+    y: 0,
+    width: 1200,
+    height: 800,
+  });
+
+  const selection = buildImageScissorsAreaSelection({
+    rect: { x: 300, y: 200, width: 4, height: 4 },
+    probePoints: [{ x: 302, y: 202 }],
+    resolveTopObject: () => image,
+  });
 
   assert.equal(selection, null);
 });

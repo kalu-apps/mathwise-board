@@ -14,6 +14,13 @@ export function MainLayout() {
   const hideAuthModalForWorkbook =
     location.pathname.startsWith("/workbook/invite/") ||
     isWorkbookSessionRoute;
+  const workbookInviteTokenFromRouteState =
+    location.state &&
+    typeof location.state === "object" &&
+    "inviteToken" in location.state &&
+    typeof (location.state as { inviteToken?: unknown }).inviteToken === "string"
+      ? (location.state as { inviteToken: string }).inviteToken.trim()
+      : "";
 
   useEffect(() => {
     if (!isAuthReady || !user) return;
@@ -33,10 +40,22 @@ export function MainLayout() {
     if (!isAuthReady || user) return;
     if (!location.pathname.startsWith("/workbook")) return;
     if (location.pathname.startsWith("/workbook/invite/")) return;
-    if (typeof window !== "undefined") {
-      window.location.replace("/");
+    if (isWorkbookSessionRoute && workbookInviteTokenFromRouteState) {
+      navigate(`/workbook/invite/${encodeURIComponent(workbookInviteTokenFromRouteState)}`, {
+        replace: true,
+        state: null,
+      });
+      return;
     }
-  }, [isAuthReady, location.pathname, user]);
+    navigate("/", { replace: true, state: null });
+  }, [
+    isAuthReady,
+    isWorkbookSessionRoute,
+    location.pathname,
+    navigate,
+    user,
+    workbookInviteTokenFromRouteState,
+  ]);
 
   return (
     <>
