@@ -2,6 +2,10 @@ import type { WorkbookClientEventInput } from "@/features/workbook/model/events"
 import { mergeBoardObjectWithPatch } from "@/features/workbook/model/runtime";
 import { normalizeWorkbookObjectZOrder } from "@/features/workbook/model/objectZOrder";
 import {
+  normalizeWorkbookStrokeTranslatePayload,
+  resolveWorkbookStrokeTranslateLayer,
+} from "@/features/workbook/model/strokeTranslateEvents";
+import {
   normalizeDocumentAnnotationPayload,
   normalizeDocumentAssetPayload,
   normalizeObjectPayload,
@@ -103,6 +107,43 @@ export const buildWorkbookHistoryEntryFromEvents = ({
           layer,
           stroke: cloneSerializable(source),
           expectedCurrent: null,
+        },
+      ];
+    } else if (
+      event.type === "board.strokes.translate" ||
+      event.type === "annotations.strokes.translate"
+    ) {
+      const layer = resolveWorkbookStrokeTranslateLayer(event.type);
+      const payload = normalizeWorkbookStrokeTranslatePayload(event.payload);
+      if (!layer || !payload) return;
+      const collection = layer === "annotations" ? currentAnnotationStrokes : currentBoardStrokes;
+      const existingIds = new Set(collection.map((stroke) => stroke.id));
+      const strokeIds = payload.strokeIds.filter((strokeId) => existingIds.has(strokeId));
+      if (strokeIds.length === 0) return;
+      const sourcePages = collection
+        .filter((stroke) => strokeIds.includes(stroke.id))
+        .map((stroke) => toSafePage(stroke.page));
+      eventPage =
+        payload.page ??
+        (sourcePages.length > 0 && sourcePages.every((page) => page === sourcePages[0])
+          ? sourcePages[0]
+          : fallbackPage);
+      eventForward = [
+        {
+          kind: "translate_strokes",
+          layer,
+          strokeIds,
+          dx: payload.dx,
+          dy: payload.dy,
+        },
+      ];
+      eventInverse = [
+        {
+          kind: "translate_strokes",
+          layer,
+          strokeIds,
+          dx: -payload.dx,
+          dy: -payload.dy,
         },
       ];
     } else if (event.type === "board.object.create") {

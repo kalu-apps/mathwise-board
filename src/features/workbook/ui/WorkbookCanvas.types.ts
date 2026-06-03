@@ -25,6 +25,17 @@ export type WorkbookEraserCommitPayload = {
   objectUpdates: Array<{ objectId: string; patch: Partial<WorkbookBoardObject> }>;
 };
 
+export type WorkbookStrokeTranslateCommitPayload = {
+  strokeMoves: Array<{
+    layer: WorkbookLayer;
+    strokeIds: string[];
+    dx: number;
+    dy: number;
+    page?: number;
+  }>;
+  objectUpdates: Array<{ objectId: string; patch: Partial<WorkbookBoardObject> }>;
+};
+
 export type ShapeDraft = {
   tool:
     | "line"
@@ -134,6 +145,7 @@ export type WorkbookCanvasProps = {
     ended?: boolean;
   }) => void;
   onEraserCommit?: (payload: WorkbookEraserCommitPayload) => void;
+  onStrokeTranslateCommit?: (payload: WorkbookStrokeTranslateCommitPayload) => void;
   onStrokeDelete: (strokeId: string, layer: WorkbookLayer) => void;
   onStrokeReplace: (payload: {
     stroke: WorkbookStroke;

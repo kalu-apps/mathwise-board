@@ -16,6 +16,7 @@
     "phase0:check": "npm run phase0:verify && npm run verify",
     "monitor:workbook": "node scripts/workbook-runtime-check.mjs",
     "logs:workbook": "node scripts/workbook-access-logs.mjs",
+    "incident:workbook": "node scripts/workbook-incident-history.mjs",
     "preview": "vite preview",
     "start:board": "vite preview --mode board --host 0.0.0.0 --port ${PORT:-4173}",
     "backend:start": "NEST_HOST=${HOST:-0.0.0.0} NEST_PORT=${PORT:-4173} TSX_TSCONFIG_PATH=backend/tsconfig.nest.json node --import tsx backend/src/nest/main.ts",

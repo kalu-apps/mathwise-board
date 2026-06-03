@@ -10,6 +10,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  color: var(--text-primary);
 }
 
 .workbook-session__import-item-headline {
@@ -22,6 +23,8 @@
 .workbook-session__import-item-headline strong {
   font-size: 13px;
   line-height: 1.35;
+  color: var(--text-primary);
+  opacity: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -32,7 +35,8 @@
   flex-wrap: wrap;
   gap: 8px;
   font-size: 11px;
-  color: rgba(53, 63, 90, 0.72);
+  color: var(--text-secondary);
+  opacity: 1;
 }
 
 .workbook-session__import-item-actions {
@@ -44,7 +48,8 @@
 
 .workbook-session__import-item-range {
   font-size: 11px;
-  color: rgba(53, 63, 90, 0.78);
+  color: color-mix(in srgb, var(--text-secondary) 92%, var(--text-primary));
+  opacity: 1;
 }
 
 .workbook-session__import-item-actions .MuiButton-root {
@@ -66,7 +71,8 @@
   margin: 0;
   font-size: 11px;
   line-height: 1.35;
-  color: rgba(53, 63, 90, 0.78);
+  color: color-mix(in srgb, var(--text-secondary) 92%, var(--text-primary));
+  opacity: 1;
 }
 
 .workbook-session__import-item-warning {
@@ -93,11 +99,22 @@
   background: transparent !important;
   border-radius: 4px !important;
   color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
+  opacity: 1;
 }
 
 .workbook-session__import-item-remove.MuiIconButton-root:hover {
   background: transparent !important;
   color: var(--text-primary);
+}
+
+.workbook-session__import-item-remove.MuiIconButton-root.Mui-disabled {
+  color: color-mix(in srgb, var(--text-secondary) 72%, transparent);
+  opacity: 0.72;
+}
+
+.workbook-session__import-item-remove.MuiIconButton-root .MuiSvgIcon-root {
+  color: currentColor;
+  opacity: 1;
 }
 
 .workbook-session__import-item-remove.MuiIconButton-root.Mui-focusVisible {

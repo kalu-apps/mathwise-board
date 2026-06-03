@@ -1,10 +1,7 @@
 import { useCallback, useRef, type MutableRefObject } from "react";
 import { generateId } from "@/shared/lib/id";
 import { ApiError, isRecoverableApiError } from "@/shared/api/client";
-import {
-  mergeBoardObjectPatches,
-  mergeBoardObjectWithPatch,
-} from "@/features/workbook/model/runtime";
+import { mergeBoardObjectWithPatch } from "@/features/workbook/model/runtime";
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import type {
   WorkbookBoardObject,
@@ -12,8 +9,13 @@ import type {
   WorkbookPoint,
   WorkbookStroke,
 } from "@/features/workbook/model/types";
-import type { WorkbookEraserCommitPayload } from "@/features/workbook/ui/WorkbookCanvas";
+import type {
+  WorkbookEraserCommitPayload,
+  WorkbookStrokeTranslateCommitPayload,
+} from "@/features/workbook/ui/WorkbookCanvas";
 import type { WorkbookHistoryEntry } from "./WorkbookSessionPage.geometry";
+import { buildWorkbookEraserCommitPlan } from "./workbookEraserCommitPlan";
+import { commitWorkbookStrokeTranslateBatch } from "./workbookStrokeTranslateCommit";
 
 type StateUpdater<T> = T | ((current: T) => T);
 type SetState<T> = (updater: StateUpdater<T>) => void;
@@ -53,6 +55,7 @@ type UseWorkbookStrokeCommitHandlersParams = {
   ) => void;
   boardStrokesRef: MutableRefObject<WorkbookStroke[]>;
   annotationStrokesRef: MutableRefObject<WorkbookStroke[]>;
+  appliedStrokeTranslateOperationIdsRef: MutableRefObject<Set<string>>;
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
   commitInteractiveBoardObjects: (objects: WorkbookBoardObject[]) => void;
   markDirty: () => void;
@@ -62,7 +65,7 @@ const BOARD_SYNC_WARNING_FAILURE_WINDOW_MS = 15_000;
 const BOARD_SYNC_WARNING_MIN_FAILURES = 3;
 const BOARD_SYNC_WARNING_COOLDOWN_MS = 45_000;
 const BOARD_SYNC_WARNING_MESSAGE =
-  "Синхронизация доски заметно задерживается. Проверьте Wi-Fi, мобильную сеть или VPN. Мы продолжаем отправлять изменения.";
+  "Синхронизация доски заметно задерживается. Проверьте Wi-Fi или мобильную сеть. Мы продолжаем отправлять изменения.";
 
 export const useWorkbookStrokeCommitHandlers = ({
   sessionId,
@@ -81,6 +84,7 @@ export const useWorkbookStrokeCommitHandlers = ({
   applyLocalBoardObjects,
   boardStrokesRef,
   annotationStrokesRef,
+  appliedStrokeTranslateOperationIdsRef,
   boardObjectsRef,
   commitInteractiveBoardObjects,
   markDirty,
@@ -292,98 +296,53 @@ export const useWorkbookStrokeCommitHandlers = ({
     ]
   );
 
+  const commitStrokeTranslateBatch = useCallback(
+    (payload: WorkbookStrokeTranslateCommitPayload) =>
+      commitWorkbookStrokeTranslateBatch({
+        payload, sessionId, canDelete, currentBoardPage, buildHistoryEntryFromEvents,
+        appendEventsAndApply, finalizeStrokePreview, boardStrokesRef, annotationStrokesRef,
+        appliedStrokeTranslateOperationIdsRef, boardObjectsRef, setBoardStrokes,
+        setAnnotationStrokes, applyLocalBoardObjects, commitInteractiveBoardObjects,
+        markDirty, clearRecoverableSyncIssue, noteRecoverableSyncIssue, setError,
+      }),
+    [
+      annotationStrokesRef,
+      appendEventsAndApply,
+      appliedStrokeTranslateOperationIdsRef,
+      applyLocalBoardObjects,
+      boardObjectsRef,
+      boardStrokesRef,
+      buildHistoryEntryFromEvents,
+      canDelete,
+      clearRecoverableSyncIssue,
+      commitInteractiveBoardObjects,
+      currentBoardPage,
+      finalizeStrokePreview,
+      markDirty,
+      noteRecoverableSyncIssue,
+      sessionId,
+      setAnnotationStrokes,
+      setBoardStrokes,
+      setError,
+    ]
+  );
+
   const commitEraserBatch = useCallback(
     async (payload: WorkbookEraserCommitPayload) => {
       if (!sessionId || !canDelete) return;
-      const deleteBoardStrokeIds = new Set<string>();
-      const deleteAnnotationStrokeIds = new Set<string>();
-      const replacementBoardStrokes: WorkbookStroke[] = [];
-      const replacementAnnotationStrokes: WorkbookStroke[] = [];
-      const createStrokeEvents: WorkbookClientEventInput[] = [];
-      const objectPatchById = new Map<string, Partial<WorkbookBoardObject>>();
       const nowIso = new Date().toISOString();
-
-      payload.strokeReplacements.forEach((entry) => {
-        const sourceStroke = entry.stroke;
-        const sourceId =
-          sourceStroke && typeof sourceStroke.id === "string"
-            ? sourceStroke.id.trim()
-            : "";
-        const sourceLayer: WorkbookLayer =
-          sourceStroke?.layer === "annotations" ? "annotations" : "board";
-        if (!sourceId) return;
-        if (sourceLayer === "annotations") {
-          deleteAnnotationStrokeIds.add(sourceId);
-        } else {
-          deleteBoardStrokeIds.add(sourceId);
-        }
-        const sanitizedFragments = entry.fragments
-          .map((fragment) =>
-            fragment.filter(
-              (point) => Number.isFinite(point?.x) && Number.isFinite(point?.y)
-            )
-          )
-          .filter((fragment) => fragment.length > 0);
-        if (sanitizedFragments.length === 0) return;
-        const replacements = sanitizedFragments.map((points, index) => ({
-          ...sourceStroke,
-          id: entry.preserveSourceId && index === 0 ? sourceId : generateId(),
-          points,
-          createdAt: nowIso,
-          page: Math.max(1, sourceStroke.page ?? currentBoardPage),
-        }));
-        replacements.forEach((stroke) => {
-          createStrokeEvents.push({
-            type:
-              sourceLayer === "annotations"
-                ? "annotations.stroke"
-                : "board.stroke",
-            payload: { stroke },
-          });
-        });
-        if (sourceLayer === "annotations") {
-          replacementAnnotationStrokes.push(...replacements);
-        } else {
-          replacementBoardStrokes.push(...replacements);
-        }
+      const {
+        events,
+        deleteBoardStrokeIds,
+        deleteAnnotationStrokeIds,
+        replacementBoardStrokes,
+        replacementAnnotationStrokes,
+        objectPatchById,
+      } = buildWorkbookEraserCommitPlan({
+        payload,
+        currentBoardPage,
+        nowIso,
       });
-
-      payload.strokeDeletes.forEach((entry) => {
-        const strokeId = typeof entry.strokeId === "string" ? entry.strokeId.trim() : "";
-        if (!strokeId) return;
-        if (entry.layer === "annotations") {
-          deleteAnnotationStrokeIds.add(strokeId);
-        } else {
-          deleteBoardStrokeIds.add(strokeId);
-        }
-      });
-
-      payload.objectUpdates.forEach((entry) => {
-        const objectId = typeof entry.objectId === "string" ? entry.objectId.trim() : "";
-        const patch =
-          entry.patch && typeof entry.patch === "object"
-            ? (entry.patch as Partial<WorkbookBoardObject>)
-            : null;
-        if (!objectId || !patch) return;
-        const currentPatch = objectPatchById.get(objectId) ?? {};
-        objectPatchById.set(objectId, mergeBoardObjectPatches(currentPatch, patch));
-      });
-
-      const events: WorkbookClientEventInput[] = [
-        ...Array.from(deleteBoardStrokeIds.values()).map((strokeId) => ({
-          type: "board.stroke.delete" as const,
-          payload: { strokeId },
-        })),
-        ...Array.from(deleteAnnotationStrokeIds.values()).map((strokeId) => ({
-          type: "annotations.stroke.delete" as const,
-          payload: { strokeId },
-        })),
-        ...createStrokeEvents,
-        ...Array.from(objectPatchById.entries()).map(([objectId, patch]) => ({
-          type: "board.object.update" as const,
-          payload: { objectId, patch },
-        })),
-      ];
 
       if (events.length === 0) return;
       const historyEntry = buildHistoryEntryFromEvents(events);
@@ -465,6 +424,7 @@ export const useWorkbookStrokeCommitHandlers = ({
     commitStroke,
     commitStrokeDelete,
     commitStrokeReplace,
+    commitStrokeTranslateBatch,
     commitEraserBatch,
   };
 };

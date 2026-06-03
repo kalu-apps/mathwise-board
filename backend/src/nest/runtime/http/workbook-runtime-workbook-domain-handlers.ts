@@ -81,6 +81,22 @@ const isPdfBinaryRequest = (req: IncomingMessage) => {
   return contentType.startsWith("application/pdf");
 };
 
+const isWorkbookAssetBinaryRequest = (req: IncomingMessage) => {
+  const contentType = firstHeaderValue(req.headers["content-type"]).toLowerCase();
+  if (!contentType) return false;
+  return (
+    !contentType.startsWith("application/json") &&
+    !contentType.startsWith("application/x-www-form-urlencoded") &&
+    !contentType.startsWith("multipart/form-data")
+  );
+};
+
+const resolveRequestContentMimeType = (req: IncomingMessage) => {
+  const contentType = firstHeaderValue(req.headers["content-type"]).toLowerCase();
+  const mimeType = contentType.split(";")[0]?.trim();
+  return mimeType || "application/octet-stream";
+};
+
 const readNumberFromSearch = (
   searchParams: URLSearchParams,
   key: string
@@ -392,7 +408,7 @@ const handleWorkbookAssetsRoute = async (
         mimeType: string;
         sizeBytes: number;
       };
-      if (isPdfBinaryRequest(req)) {
+      if (isWorkbookAssetBinaryRequest(req)) {
         const binaryBody = await readPdfBinaryBody(req, deps);
         const fileNameFromQuery = searchParams.get("fileName");
         const mimeTypeFromQuery = searchParams.get("mimeType");
@@ -403,7 +419,7 @@ const handleWorkbookAssetsRoute = async (
           mimeType:
             typeof mimeTypeFromQuery === "string" && mimeTypeFromQuery.trim().length > 0
               ? mimeTypeFromQuery
-              : "application/pdf",
+              : resolveRequestContentMimeType(req),
         });
       } else {
         const body = (await deps.readBody(req)) as {
@@ -432,6 +448,10 @@ const handleWorkbookAssetsRoute = async (
     } catch (error) {
       const message = error instanceof Error ? error.message : "workbook_asset_upload_failed";
       if (message === "workbook_asset_too_large") {
+        deps.json(res, 413, { error: message });
+        return true;
+      }
+      if (message === "request_body_too_large") {
         deps.json(res, 413, { error: message });
         return true;
       }
@@ -1024,7 +1044,6 @@ const handleWorkbookSnapshotAndPdfRoute = async (
       sessionId: snapshot.sessionId,
       layer: snapshot.layer,
       version: snapshot.version,
-      payload: snapshot.payload,
       accepted,
       requestedVersion,
       barrierSeq: barrier.barrierSeq,

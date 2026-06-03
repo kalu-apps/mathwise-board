@@ -12,6 +12,7 @@ import {
   observeWorkbookEventsPostAttempt,
   observeWorkbookEventsPostConflict,
 } from "./workbookEventsPostDiagnostics";
+import { postWorkbookPdfBinary } from "./workbookBinaryUploadApi";
 import type {
   WorkbookDraftCard,
   WorkbookEvent,
@@ -26,6 +27,8 @@ import type {
   WorkbookSnapshot,
   WorkbookStroke,
 } from "./types";
+
+export { uploadWorkbookAsset, uploadWorkbookAssetFile } from "./workbookBinaryUploadApi";
 
 const buildWorkbookWebSocketUrl = (pathname: string) => {
   if (typeof window === "undefined") return null;
@@ -129,14 +132,23 @@ export async function resolveWorkbookInvite(token: string) {
   }>(`/workbook/invites/${encodeURIComponent(token)}`);
 }
 
-export async function joinWorkbookInvite(token: string, guestName?: string) {
+export async function joinWorkbookInvite(
+  token: string,
+  guestName?: string,
+  options?: { idempotencyKey?: string }
+) {
   return api.post<{
     session: WorkbookSession;
     draft: WorkbookDraftCard;
     user?: User;
   }>(
     `/workbook/invites/${encodeURIComponent(token)}/join`,
-    typeof guestName === "string" ? { guestName } : {}
+    typeof guestName === "string" ? { guestName } : {},
+    {
+      idempotencyKey: options?.idempotencyKey,
+      idempotencyPrefix: "workbook-invite-join",
+      notifyDataUpdate: false,
+    }
   );
 }
 
@@ -519,7 +531,7 @@ export async function saveWorkbookSnapshot(params: {
   };
   const idempotencyKey = `snapshot-${params.sessionId}-${params.layer}-v${normalizedVersion}-${generateId()}`;
   try {
-    const response = await api.put<WorkbookSnapshot>(
+    const response = await api.put<{ id: string; sessionId: string; layer: WorkbookLayer; version: number; accepted?: boolean; requestedVersion?: number; barrierSeq?: number; createdAt: string }>(
       `/workbook/sessions/${encodeURIComponent(params.sessionId)}/snapshot`,
       requestPayload,
       {
@@ -701,143 +713,6 @@ export async function createWorkbookPdfSource(params: { fileName: string; file: 
     },
   });
 }
-
-export async function uploadWorkbookAsset(params: {
-  sessionId: string;
-  fileName: string;
-  dataUrl: string;
-  mimeType?: string;
-}) {
-  return api.post<{
-    assetId: string;
-    url: string;
-    mimeType: string;
-    sizeBytes: number;
-  }>(
-    `/workbook/sessions/${encodeURIComponent(params.sessionId)}/assets`,
-    {
-      fileName: params.fileName,
-      dataUrl: params.dataUrl,
-      mimeType: params.mimeType,
-    },
-    { notifyDataUpdate: false, timeoutMs: 60_000 }
-  );
-}
-
-export async function uploadWorkbookAssetFile(params: {
-  sessionId: string;
-  fileName: string;
-  file: File;
-  mimeType?: string;
-  timeoutMs?: number;
-}) {
-  const query = new URLSearchParams();
-  query.set("fileName", params.fileName);
-  if (typeof params.mimeType === "string" && params.mimeType.trim().length > 0) {
-    query.set("mimeType", params.mimeType);
-  }
-  const response = await fetch(
-    buildApiUrl(
-      `/workbook/sessions/${encodeURIComponent(params.sessionId)}/assets?${query.toString()}`
-    ),
-    {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type":
-          params.mimeType?.trim() || params.file.type || "application/octet-stream",
-      },
-      body: params.file,
-      signal: createTimeoutSignal(params.timeoutMs ?? 60_000),
-    }
-  );
-  const data = await parseBinaryApiResponse(response);
-  if (!response.ok) {
-    throw asApiError(response, data);
-  }
-  return data as {
-    assetId: string;
-    url: string;
-    mimeType: string;
-    sizeBytes: number;
-  };
-}
-
-const createTimeoutSignal = (timeoutMs: number) => {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, Math.max(1_000, Math.floor(timeoutMs)));
-  controller.signal.addEventListener(
-    "abort",
-    () => {
-      clearTimeout(timeoutId);
-    },
-    { once: true }
-  );
-  return controller.signal;
-};
-
-const parseBinaryApiResponse = async (response: Response) => {
-  const raw = await response.text();
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch {
-    return raw;
-  }
-};
-
-const extractBinaryApiErrorMessage = (response: Response, data: unknown) => {
-  if (typeof data === "object" && data !== null && "error" in data) {
-    const maybeError = (data as { error?: unknown }).error;
-    if (typeof maybeError === "string" && maybeError.trim().length > 0) {
-      return maybeError;
-    }
-  }
-  if (typeof data === "string" && data.trim().length > 0) {
-    return data;
-  }
-  return response.statusText || "Request failed";
-};
-
-const asApiError = (response: Response, data: unknown) => {
-  const message = extractBinaryApiErrorMessage(response, data);
-  return new ApiError(message, response.status, data);
-};
-
-const postWorkbookPdfBinary = async <T>(
-  path: string,
-  params: {
-    file: File;
-    timeoutMs: number;
-    query?: Record<string, string | number | undefined>;
-  }
-) => {
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(params.query ?? {})) {
-    if (value == null) continue;
-    query.set(key, String(value));
-  }
-  const querySuffix = query.toString();
-  const response = await fetch(
-    buildApiUrl(`${path}${querySuffix ? `?${querySuffix}` : ""}`),
-    {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/pdf",
-      },
-      body: params.file,
-      signal: createTimeoutSignal(params.timeoutMs),
-    }
-  );
-  const data = await parseBinaryApiResponse(response);
-  if (!response.ok) {
-    throw asApiError(response, data);
-  }
-  return data as T;
-};
 
 export async function updateWorkbookSessionDraftPreview(params: {
   sessionId: string;

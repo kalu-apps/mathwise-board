@@ -10,22 +10,22 @@ import type {
   RemoteTrackPublication,
   RemoteParticipant,
   RemoteVideoTrack,
-  RoomConnectOptions,
-  TrackPublishOptions,
-  VideoCaptureOptions,
 } from "livekit-client";
-
-type LivekitModule = typeof import("livekit-client");
-type LivekitVideoPreset = LivekitModule["VideoPresets"][keyof LivekitModule["VideoPresets"]];
-type LivekitVideoProfile = {
-  capturePreset: LivekitVideoPreset | undefined;
-  simulcastLayers: LivekitVideoPreset[];
-  captureProfile: string;
-  constrainedNetwork: boolean;
-  mobileOrTablet: boolean;
-  pixelDensity: number;
-};
-type CameraFacingMode = "user" | "environment";
+import {
+  buildCameraCaptureOptions,
+  buildCameraPublishOptions,
+  buildLivekitConnectOptions,
+  emitLivekitConnectionQualityMetric,
+  emitLivekitMediaDevicesErrorMetric,
+  hasRelayIceServer,
+  isLikelyMobileOrTabletDevice,
+  isLocalSecureContext,
+  normalizeLivekitIceServers,
+  resolveLivekitVideoProfile,
+  summarizeLivekitConnectFailure,
+  type CameraFacingMode,
+  type LivekitModule,
+} from "./workbookLivekitRuntime";
 
 type UseWorkbookLivekitParams = {
   sessionId: string;
@@ -49,270 +49,7 @@ export type WorkbookRemoteVideoTrack = {
   track: RemoteVideoTrack;
 };
 
-type LivekitConnectFailureSummary = {
-  errorName: string | null;
-  errorMessage: string | null;
-  errorReason: string | null;
-  errorStatus: number | null;
-  retryable: boolean;
-  userMessage: string;
-};
-
 const LIVEKIT_CONNECT_RETRY_DELAYS_MS = [800, 2_000] as const;
-
-type NetworkInformationLike = {
-  saveData?: boolean;
-  effectiveType?: string;
-  downlink?: number;
-};
-
-const isLikelyConstrainedNetwork = () => {
-  if (typeof navigator === "undefined") return false;
-  const connection = (navigator as Navigator & { connection?: NetworkInformationLike }).connection;
-  if (!connection) return false;
-  if (connection.saveData) return true;
-  const effectiveType = (connection.effectiveType ?? "").toLowerCase();
-  if (effectiveType === "slow-2g" || effectiveType === "2g" || effectiveType === "3g") {
-    return true;
-  }
-  const downlink = Number(connection.downlink ?? Number.NaN);
-  return Number.isFinite(downlink) && downlink > 0 && downlink < 2;
-};
-
-const resolveAdaptivePixelDensity = (isMobileOrTablet: boolean) => {
-  if (typeof window === "undefined") return 1;
-  const rawDevicePixelRatio = Number(window.devicePixelRatio ?? 1);
-  const normalizedDevicePixelRatio =
-    Number.isFinite(rawDevicePixelRatio) && rawDevicePixelRatio > 0 ? rawDevicePixelRatio : 1;
-  const cappedDensity = isMobileOrTablet
-    ? Math.min(2, normalizedDevicePixelRatio)
-    : Math.min(2.5, normalizedDevicePixelRatio);
-  return Math.max(1, cappedDensity);
-};
-
-const isPresent = <T,>(value: T | null | undefined): value is T => value != null;
-
-const resolveLivekitVideoProfile = (
-  runtime: LivekitModule,
-  mobileOrTablet: boolean
-): LivekitVideoProfile => {
-  const constrainedNetwork = isLikelyConstrainedNetwork();
-  const pixelDensity = constrainedNetwork ? 1 : resolveAdaptivePixelDensity(mobileOrTablet);
-  const capturePreset = constrainedNetwork
-    ? runtime.VideoPresets.h540 ?? runtime.VideoPresets.h360
-    : mobileOrTablet
-      ? runtime.VideoPresets.h720 ?? runtime.VideoPresets.h540
-      : runtime.VideoPresets.h1080 ?? runtime.VideoPresets.h720;
-  const simulcastLayers = constrainedNetwork
-    ? [runtime.VideoPresets.h360, runtime.VideoPresets.h216].filter(isPresent)
-    : mobileOrTablet
-      ? [runtime.VideoPresets.h360, runtime.VideoPresets.h180].filter(isPresent)
-      : [runtime.VideoPresets.h720, runtime.VideoPresets.h360].filter(isPresent);
-
-  return {
-    capturePreset,
-    simulcastLayers,
-    captureProfile: constrainedNetwork ? "constrained" : mobileOrTablet ? "mobile" : "desktop",
-    constrainedNetwork,
-    mobileOrTablet,
-    pixelDensity,
-  };
-};
-
-const buildCameraCaptureOptions = (
-  profile: LivekitVideoProfile,
-  facingMode: CameraFacingMode | null
-): VideoCaptureOptions => ({
-  ...(profile.capturePreset ? { resolution: profile.capturePreset.resolution } : {}),
-  ...(facingMode ? { facingMode } : {}),
-});
-
-const buildCameraPublishOptions = (
-  profile: LivekitVideoProfile
-): TrackPublishOptions => ({
-  videoEncoding: profile.capturePreset?.encoding,
-  videoSimulcastLayers:
-    profile.simulcastLayers.length > 0 ? profile.simulcastLayers : undefined,
-});
-
-const normalizeLivekitIceServers = (
-  iceServers: Awaited<ReturnType<typeof getWorkbookMediaConfig>>["iceServers"] | undefined
-): RTCIceServer[] | undefined => {
-  if (!Array.isArray(iceServers)) return undefined;
-  const normalized = iceServers.flatMap<RTCIceServer>((server) => {
-    const urls = Array.isArray(server.urls)
-      ? server.urls.filter((url) => typeof url === "string" && url.trim().length > 0)
-      : typeof server.urls === "string" && server.urls.trim().length > 0
-        ? server.urls
-        : null;
-    if (!urls || (Array.isArray(urls) && urls.length === 0)) return [];
-    const rtcServer: RTCIceServer = {
-      urls,
-    };
-    if (typeof server.username === "string" && server.username.length > 0) {
-      rtcServer.username = server.username;
-    }
-    if (typeof server.credential === "string" && server.credential.length > 0) {
-      rtcServer.credential = server.credential;
-    }
-    return [rtcServer];
-  });
-  return normalized.length > 0 ? normalized : undefined;
-};
-
-const hasRelayIceServer = (iceServers: RTCIceServer[] | undefined) =>
-  Boolean(
-    iceServers?.some((server) => {
-      const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
-      return urls.some((url) => /^turns?:/i.test(url));
-    })
-  );
-
-const isLikelyMobileOrTabletDevice = () => {
-  if (typeof navigator === "undefined") return false;
-  const userAgent = navigator.userAgent ?? "";
-  if (/android|iphone|ipad|ipod|mobile|tablet/i.test(userAgent)) {
-    return true;
-  }
-  // iPadOS may report itself as macOS in userAgent/platform.
-  const platform = navigator.platform ?? "";
-  return /mac/i.test(platform) && navigator.maxTouchPoints > 1;
-};
-
-const isLocalSecureContext = () => {
-  if (typeof window === "undefined") return true;
-  if (window.isSecureContext) return true;
-  return (
-    window.location.hostname === "localhost" ||
-    window.location.hostname === "127.0.0.1" ||
-    window.location.hostname === "::1"
-  );
-};
-
-const summarizeLivekitConnectFailure = (reason: unknown): LivekitConnectFailureSummary => {
-  if (reason instanceof Error && reason.message === "media_secure_context_required") {
-    return {
-      errorName: reason.name,
-      errorMessage: reason.message,
-      errorReason: "secure_context_required",
-      errorStatus: null,
-      retryable: false,
-      userMessage:
-        "Микрофон доступен только в защищённом режиме: откройте сайт по HTTPS (или localhost).",
-    };
-  }
-
-  if (reason instanceof Error && reason.message === "livekit_token_invalid") {
-    return {
-      errorName: reason.name,
-      errorMessage: reason.message,
-      errorReason: "token_invalid",
-      errorStatus: null,
-      retryable: false,
-      userMessage: "Сервер выдал некорректный LiveKit token. Проверьте media/livekit-token endpoint.",
-    };
-  }
-
-  if (reason instanceof ApiError && reason.status === 503) {
-    return {
-      errorName: "ApiError",
-      errorMessage: reason.message,
-      errorReason: "livekit_unavailable",
-      errorStatus: reason.status,
-      retryable: false,
-      userMessage: "LiveKit не настроен на сервере. Проверьте MEDIA_LIVEKIT_* переменные.",
-    };
-  }
-
-  if (reason instanceof ApiError && reason.status >= 500) {
-    return {
-      errorName: "ApiError",
-      errorMessage: reason.message,
-      errorReason: "api_unavailable",
-      errorStatus: reason.status,
-      retryable: true,
-      userMessage: "Сервис аудио временно недоступен. Повторите попытку подключения через несколько секунд.",
-    };
-  }
-
-  const source =
-    reason && typeof reason === "object"
-      ? (reason as {
-          name?: unknown;
-          message?: unknown;
-          reasonName?: unknown;
-          reason?: unknown;
-          status?: unknown;
-        })
-      : null;
-
-  const errorName =
-    reason instanceof Error
-      ? reason.name
-      : typeof source?.name === "string"
-        ? source.name
-        : null;
-  const errorMessage =
-    reason instanceof Error
-      ? reason.message
-      : typeof source?.message === "string"
-        ? source.message
-        : null;
-  const errorReason =
-    typeof source?.reasonName === "string"
-      ? source.reasonName
-      : typeof source?.reason === "string"
-        ? source.reason
-        : null;
-  const errorStatus = typeof source?.status === "number" ? source.status : null;
-  const normalizedMessage = (errorMessage ?? "").toLowerCase();
-
-  if (errorReason === "NotAllowed" || errorStatus === 401 || errorStatus === 403) {
-    return {
-      errorName,
-      errorMessage,
-      errorReason,
-      errorStatus,
-      retryable: false,
-      userMessage:
-        "Сервис аудио отклонил подключение. Проверьте LiveKit API key/secret и корректность токена.",
-    };
-  }
-
-  if (errorReason === "ServiceNotFound" || errorStatus === 404) {
-    return {
-      errorName,
-      errorMessage,
-      errorReason,
-      errorStatus,
-      retryable: false,
-      userMessage:
-        "LiveKit недоступен на media-сервере. Проверьте прокси rtc.board.mathwise.ru и сам сервис LiveKit.",
-    };
-  }
-
-  const retryable =
-    errorReason === "ServerUnreachable" ||
-    errorReason === "Timeout" ||
-    errorReason === "WebSocket" ||
-    errorReason === "InternalError" ||
-    normalizedMessage.includes("timeout") ||
-    normalizedMessage.includes("timed out") ||
-    normalizedMessage.includes("unreachable") ||
-    normalizedMessage.includes("websocket") ||
-    normalizedMessage.includes("network");
-
-  return {
-    errorName,
-    errorMessage,
-    errorReason,
-    errorStatus,
-    retryable,
-    userMessage: retryable
-      ? "Сервис аудио временно недоступен. Повторите попытку подключения через несколько секунд."
-      : "Не удалось подключить аудио-комнату LiveKit.",
-  };
-};
 
 export const useWorkbookLivekit = ({
   sessionId,
@@ -864,41 +601,20 @@ export const useWorkbookLivekit = ({
       });
       room.on(runtime.RoomEvent.ConnectionQualityChanged, (quality: unknown, participant: unknown) => {
         if (!isCurrentRoom()) return;
-        const participantLike = participant as {
-          identity?: unknown;
-          sid?: unknown;
-          isLocal?: unknown;
-        } | null;
-        const participantIdentity =
-          typeof participantLike?.identity === "string"
-            ? participantLike.identity
-            : typeof participantLike?.sid === "string"
-              ? participantLike.sid
-              : null;
-        emitMediaMetric({
-          scope: "workbook",
-          subsystem: "livekit",
-          phase: "connection_quality",
+        emitLivekitConnectionQualityMetric({
           sessionId,
-          sessionKind: sessionKind ?? null,
-          timestamp: new Date().toISOString(),
-          connectionQuality: typeof quality === "string" ? quality : String(quality ?? ""),
-          participantIdentity,
-          participantLocal: Boolean(participantLike?.isLocal),
+          sessionKind,
+          quality,
+          participant,
         });
       });
       room.on(runtime.RoomEvent.MediaDevicesError, (error: unknown, kind: unknown) => {
         if (!isCurrentRoom()) return;
-        emitMediaMetric({
-          scope: "workbook",
-          subsystem: "livekit",
-          phase: "media_device_error",
+        emitLivekitMediaDevicesErrorMetric({
           sessionId,
-          sessionKind: sessionKind ?? null,
-          timestamp: new Date().toISOString(),
-          trackKind: typeof kind === "string" ? kind : String(kind ?? ""),
-          errorName: error instanceof Error ? error.name : null,
-          errorMessage: error instanceof Error ? error.message : null,
+          sessionKind,
+          error,
+          kind,
         });
       });
       emitMediaMetric({
@@ -916,15 +632,7 @@ export const useWorkbookLivekit = ({
         constrainedNetwork: videoProfile.constrainedNetwork,
         mobileOrTablet: videoProfile.mobileOrTablet,
       });
-      const connectOptions: RoomConnectOptions = {
-        autoSubscribe: true,
-      };
-      if (rtcIceServersForConnect) {
-        connectOptions.rtcConfig = {
-          iceServers: rtcIceServersForConnect,
-        };
-      }
-      await room.connect(tokenConfig.wsUrl, tokenConfig.token, connectOptions);
+      await room.connect(tokenConfig.wsUrl, tokenConfig.token, buildLivekitConnectOptions(rtcIceServersForConnect));
       if (!isCurrentRoom()) return;
       room.remoteParticipants.forEach((participant) => {
         enableRemoteVideoForParticipant(participant);

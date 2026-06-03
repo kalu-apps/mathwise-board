@@ -71,7 +71,7 @@ import {
   getSessionOwnerKey,
   getSessionUserKey,
 } from "./core/dbIndex";
-import { getWorkbookPersistenceReadiness } from "./core/runtimeReadiness";
+import { getWorkbookPersistenceReadiness, getWorkbookRuntimeReadiness } from "./core/runtimeReadiness";
 import {
   INVALID_JSON_BODY_ERROR,
   readRawBody as readRawBodyInternal,
@@ -2018,10 +2018,9 @@ const splitName = (displayName: string) => {
 
 const createGuestUser = (db: MockDb, displayName: string): UserRecord => {
   const normalized = normalizeGuestName(displayName);
-  const existing = db.users.find(
-    (user) => user.role === "student" && `${user.firstName} ${user.lastName}`.trim() === normalized
-  );
-  if (existing) return existing;
+  // Guest display names are labels, not identities: unrelated students can enter
+  // the same name from different invite links/devices. Reuse is handled through
+  // an existing auth cookie before this function is called.
   const { firstName, lastName } = splitName(normalized);
   const user: UserRecord = {
     id: `guest_${ensureId()}`,
@@ -2645,7 +2644,7 @@ export const handleWorkbookApiRequestByDomains = async (
         handleRuntimeInfraDomainRoute(
           { req, res, db, method, pathname, searchParams },
           {
-            getWorkbookPersistenceReadiness,
+            getWorkbookRuntimeReadiness,
             getStorageDiagnostics,
             getRuntimeServicesStatus,
             getTelemetryDiagnostics,

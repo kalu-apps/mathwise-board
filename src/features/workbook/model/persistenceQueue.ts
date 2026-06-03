@@ -5,6 +5,10 @@ import { buildIdempotencyHeaders } from "@/shared/lib/idempotency";
 import type { WorkbookClientEventInput } from "./events";
 import type { WorkbookLayer } from "./types";
 import {
+  safeJsonClone,
+  shouldQueueWorkbookSnapshotPayload,
+} from "./workbookPersistencePayloadBudget";
+import {
   observeWorkbookEventsPostAttempt,
   observeWorkbookEventsPostConflict,
 } from "./workbookEventsPostDiagnostics";
@@ -78,14 +82,6 @@ const createSnapshotIdempotencyKey = (
 const isLegacySnapshotIdempotencyKey = (task: WorkbookSnapshotPersistenceTask) =>
   task.idempotencyKey.trim() === `snapshot-${task.sessionId}-${task.layer}`;
 
-const safeJsonClone = <T>(value: T): T => {
-  try {
-    return JSON.parse(JSON.stringify(value)) as T;
-  } catch {
-    return value;
-  }
-};
-
 const parseTs = (value?: string | null) => {
   const parsed = Date.parse(String(value ?? ""));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -139,6 +135,9 @@ const clampQueueLength = () => {
 const normalizeQueue = () => {
   const now = nowTs();
   queue = queue.filter((task) => parseTs(task.expiresAt) > now);
+  queue = queue.filter(
+    (task) => task.type !== "snapshot" || shouldQueueWorkbookSnapshotPayload(task.payload)
+  );
   queue = queue.map((task) => {
     if (task.type !== "snapshot") return task;
     if (!task.idempotencyKey || isLegacySnapshotIdempotencyKey(task)) {
@@ -242,15 +241,7 @@ const executeTask = async (task: WorkbookPersistenceTask) => {
     );
     return;
   }
-  await api.put<{
-    id: string;
-    sessionId: string;
-    layer: WorkbookLayer;
-    version: number;
-    payload: unknown;
-    accepted?: boolean;
-    createdAt: string;
-  }>(
+  await api.put<{ id: string; sessionId: string; layer: WorkbookLayer; version: number; accepted?: boolean; requestedVersion?: number; barrierSeq?: number; createdAt: string }>(
     `/workbook/sessions/${encodeURIComponent(task.sessionId)}/snapshot`,
     {
       sessionId: task.sessionId,
@@ -383,6 +374,9 @@ export const enqueueWorkbookSnapshotPersistence = (params: {
   idempotencyKey?: string;
 }) => {
   ensureRuntime();
+  if (!shouldQueueWorkbookSnapshotPayload(params.payload)) {
+    return;
+  }
   const timestamp = nowIso();
   const version = normalizeSnapshotVersion(params.version);
   const idempotencyKey =

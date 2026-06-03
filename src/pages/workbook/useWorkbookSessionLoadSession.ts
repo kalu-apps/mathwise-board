@@ -38,6 +38,7 @@ import {
   applyWorkbookSessionAccessError,
   reportWorkbookFirstInteractiveMetric,
 } from "./workbookSessionLoadHelpers";
+import { getWorkbookRecoverableSyncWarningMessage } from "./workbookSyncNoticeMessages";
 
 export const useWorkbookSessionLoadSession = ({
   sessionId,
@@ -82,6 +83,7 @@ export const useWorkbookSessionLoadSession = ({
   lastAppliedBoardSettingsSeqRef,
   recoveryModeRef,
   processedEventIdsRef,
+  appliedStrokeTranslateOperationIdsRef,
   applyIncomingEvents,
   filterUnseenWorkbookEvents,
   dirtyRef,
@@ -459,6 +461,7 @@ export const useWorkbookSessionLoadSession = ({
             }
             if (!isBackground) {
               processedEventIdsRef.current.clear();
+              appliedStrokeTranslateOperationIdsRef.current.clear();
             }
             clearObjectSyncRuntime();
             clearStrokePreviewRuntime();
@@ -667,9 +670,7 @@ export const useWorkbookSessionLoadSession = ({
           ) {
             emitAccessError(error.status, isBackground);
           } else if (isBackground) {
-            setSaveSyncWarning(
-              "Синхронизация доски заметно задерживается. Проверьте сеть, VPN или прокси. Мы продолжаем восстановление автоматически."
-            );
+            setSaveSyncWarning(getWorkbookRecoverableSyncWarningMessage(error));
           } else {
             setError("Не удалось открыть сессию. Проверьте подключение и повторите попытку.");
           }
@@ -698,8 +699,7 @@ export const useWorkbookSessionLoadSession = ({
       firstInteractiveMetricReportedRef, queuedBoardSettingsCommitRef,
       queuedBoardSettingsHistoryBeforeRef, boardSettingsCommitTimerRef, latestSeqRef,
       lastAppliedSeqRef, lastAppliedBoardSettingsSeqRef, recoveryModeRef, processedEventIdsRef,
-      applyIncomingEvents, filterUnseenWorkbookEvents, dirtyRef,
-      undoStackRef, redoStackRef, focusResetTimersByUserRef, boardObjectsRef, boardObjectIndexByIdRef,
+      appliedStrokeTranslateOperationIdsRef, applyIncomingEvents, filterUnseenWorkbookEvents, dirtyRef, undoStackRef, redoStackRef, focusResetTimersByUserRef, boardObjectsRef, boardObjectIndexByIdRef
     ]
   );
 

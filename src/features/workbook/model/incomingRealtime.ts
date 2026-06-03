@@ -1,9 +1,5 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import {
-  normalizeObjectPayload,
-  normalizeScenePayload,
-  normalizeStrokePayload,
-} from "./scene";
+import { normalizeObjectPayload, normalizeScenePayload, normalizeStrokePayload } from "./scene";
 import {
   ensureWorkbookObjectZOrder,
   normalizeWorkbookObjectZOrder,
@@ -13,6 +9,8 @@ import {
   resolveWorkbookPageFrameBounds,
 } from "./pageFrame";
 import { mergeBoardObjectWithPatch, mergePreviewPathPoints } from "./runtime";
+import { upsertWorkbookStrokeById } from "./strokeCollection";
+import { applyIncomingWorkbookStrokeTranslateEvent } from "./incomingStrokeTranslate";
 import type {
   WorkbookBoardSettings,
   WorkbookBoardObject,
@@ -125,6 +123,7 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
   viewportLastReceivedAtRef: MutableRefObject<number>;
   finalizedStrokePreviewIdsRef: MutableRefObject<Set<string>>;
   incomingStrokePreviewVersionRef: MutableRefObject<Map<string, number>>;
+  appliedStrokeTranslateOperationIdsRef: MutableRefObject<Set<string>>;
   objectLastCommittedEventAtRef: MutableRefObject<Map<string, number>>;
   incomingPreviewQueuedPatchRef: MutableRefObject<
     Map<string, Partial<WorkbookBoardObject>[]>
@@ -190,6 +189,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     setPointerPointsByUser,
     finalizedStrokePreviewIdsRef,
     incomingStrokePreviewVersionRef,
+    appliedStrokeTranslateOperationIdsRef,
     objectLastCommittedEventAtRef,
     incomingPreviewQueuedPatchRef,
     incomingPreviewVersionByAuthorObjectRef,
@@ -396,9 +396,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     const stroke = normalizeStrokePayload((event.payload as { stroke?: unknown })?.stroke);
     if (!stroke || stroke.layer !== "board") return true;
     finalizeStrokePreview(stroke.id);
-    setBoardStrokes((current) =>
-      current.some((item) => item.id === stroke.id) ? current : [...current, stroke]
-    );
+    setBoardStrokes((current) => upsertWorkbookStrokeById(current, stroke));
     return true;
   }
 
@@ -410,13 +408,13 @@ export const applyWorkbookIncomingRealtimeEvent = (
     return true;
   }
 
+  if (applyIncomingWorkbookStrokeTranslateEvent({ event, userId, appliedStrokeTranslateOperationIdsRef, finalizeStrokePreview, setBoardStrokes, setAnnotationStrokes })) return true;
+
   if (event.type === "annotations.stroke") {
     const stroke = normalizeStrokePayload((event.payload as { stroke?: unknown })?.stroke);
     if (!stroke || stroke.layer !== "annotations") return true;
     finalizeStrokePreview(stroke.id);
-    setAnnotationStrokes((current) =>
-      current.some((item) => item.id === stroke.id) ? current : [...current, stroke]
-    );
+    setAnnotationStrokes((current) => upsertWorkbookStrokeById(current, stroke));
     return true;
   }
 

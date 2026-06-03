@@ -15,6 +15,13 @@ import type {
   WorkbookTimerState,
 } from "@/features/workbook/model/types";
 import { ApiError, isRecoverableApiError } from "@/shared/api/client";
+import { useWorkbookSnapshotRecoverableWarning } from "./useWorkbookSnapshotRecoverableWarning";
+import {
+  estimateWorkbookSnapshotEmbeddedDataUrlChars,
+  resolveWorkbookSnapshotAutosaveGapMs,
+  SNAPSHOT_PREEMPTIVE_COMPACTION_DATA_URL_CHARS,
+  WORKBOOK_SNAPSHOT_PENDING_RETRY_MS,
+} from "./workbookSnapshotAutosavePolicy";
 
 type SnapshotCompactionLevel = "moderate" | "aggressive" | "minimal";
 
@@ -25,19 +32,10 @@ const SNAPSHOT_OBJECT_IMAGE_AGGRESSIVE_MAX_DATA_URL_CHARS = 18_000;
 const SNAPSHOT_ASSET_IMAGE_AGGRESSIVE_MAX_DATA_URL_CHARS = 24_000;
 const SNAPSHOT_RENDERED_PAGE_IMAGE_AGGRESSIVE_MAX_DATA_URL_CHARS = 12_000;
 const SNAPSHOT_OBJECT_IMAGE_MINIMAL_MAX_DATA_URL_CHARS = 8_000;
-const SNAPSHOT_PREEMPTIVE_COMPACTION_DATA_URL_CHARS = 160_000;
-const SNAPSHOT_MIN_AUTOSAVE_GAP_MS = 2_600;
-const SNAPSHOT_SYNC_WARNING_FAILURE_WINDOW_MS = 45_000;
-const SNAPSHOT_SYNC_WARNING_MIN_FAILURES = 3;
-const SNAPSHOT_SYNC_WARNING_COOLDOWN_MS = 90_000;
-const SNAPSHOT_SYNC_WARNING_MESSAGE =
-  "Резервное сохранение доски заметно задерживается. Проверьте сеть или VPN. Работа на доске продолжается.";
 
 const isImageDataUrl = (value: unknown): value is string =>
   typeof value === "string" && value.startsWith("data:image/");
-
-const isDataUrl = (value: unknown): value is string =>
-  typeof value === "string" && value.startsWith("data:");
+const isDataUrl = (value: unknown): value is string => typeof value === "string" && value.startsWith("data:");
 
 const resolveSnapshotCompactionProfile = (level: SnapshotCompactionLevel) => {
   if (level === "minimal") {
@@ -93,28 +91,6 @@ const collectReferencedAssetIds = (boardObjects: WorkbookBoardObject[]) => {
     }
   });
   return referencedAssetIds;
-};
-
-const estimateEmbeddedDataUrlChars = (
-  boardObjects: WorkbookBoardObject[],
-  documentState: WorkbookDocumentState
-) => {
-  const objectChars = boardObjects.reduce((sum, object) => {
-    if (object.type !== "image") return sum;
-    return sum + (isImageDataUrl(object.imageUrl) ? object.imageUrl.length : 0);
-  }, 0);
-  const assetChars = documentState.assets.reduce((sum, asset) => {
-    const assetUrlChars = isDataUrl(asset.url) ? asset.url.length : 0;
-    const renderedPagesChars = Array.isArray(asset.renderedPages)
-      ? asset.renderedPages.reduce(
-          (renderedSum, renderedPage) =>
-            renderedSum + (isImageDataUrl(renderedPage.imageUrl) ? renderedPage.imageUrl.length : 0),
-          0
-        )
-      : 0;
-    return sum + assetUrlChars + renderedPagesChars;
-  }, 0);
-  return objectChars + assetChars;
 };
 
 const compactSnapshotState = async (params: {
@@ -269,35 +245,8 @@ export function useWorkbookPersistSnapshots({
   scheduleAutosave,
 }: UseWorkbookPersistSnapshotsParams) {
   const lastPersistCompletedAtRef = useRef(0);
-  const recoverableSnapshotIssueRef = useRef({
-    firstFailureAtMs: 0,
-    failureCount: 0,
-    lastWarningAtMs: 0,
-  });
-  const clearRecoverableSnapshotIssue = useCallback(() => {
-    recoverableSnapshotIssueRef.current.firstFailureAtMs = 0;
-    recoverableSnapshotIssueRef.current.failureCount = 0;
-  }, []);
-  const noteRecoverableSnapshotIssue = useCallback(() => {
-    const now = Date.now();
-    const state = recoverableSnapshotIssueRef.current;
-    if (
-      state.firstFailureAtMs <= 0 ||
-      now - state.firstFailureAtMs > SNAPSHOT_SYNC_WARNING_FAILURE_WINDOW_MS
-    ) {
-      state.firstFailureAtMs = now;
-      state.failureCount = 1;
-      return;
-    }
-    state.failureCount += 1;
-    if (
-      state.failureCount >= SNAPSHOT_SYNC_WARNING_MIN_FAILURES &&
-      now - state.lastWarningAtMs >= SNAPSHOT_SYNC_WARNING_COOLDOWN_MS
-    ) {
-      state.lastWarningAtMs = now;
-      setSaveSyncWarning(SNAPSHOT_SYNC_WARNING_MESSAGE);
-    }
-  }, [setSaveSyncWarning]);
+  const { clearRecoverableSnapshotIssue, noteRecoverableSnapshotIssue } =
+    useWorkbookSnapshotRecoverableWarning(setSaveSyncWarning);
 
   return useCallback(
     async (options?: { silent?: boolean; force?: boolean }) => {
@@ -308,15 +257,22 @@ export function useWorkbookPersistSnapshots({
         pendingAutosaveAfterSaveRef.current = true;
         return true;
       }
-      if (
-        options?.force &&
-        !options?.silent &&
-        lastPersistCompletedAtRef.current > 0
-      ) {
+      const embeddedDataUrlChars = estimateWorkbookSnapshotEmbeddedDataUrlChars(
+        boardObjects,
+        documentState
+      );
+      const autosaveGapMs = resolveWorkbookSnapshotAutosaveGapMs({
+        boardObjects,
+        documentState,
+        boardStrokes,
+        annotationStrokes,
+        embeddedDataUrlChars,
+      });
+      if (options?.force && lastPersistCompletedAtRef.current > 0) {
         const elapsedMs = Date.now() - lastPersistCompletedAtRef.current;
-        if (elapsedMs < SNAPSHOT_MIN_AUTOSAVE_GAP_MS) {
+        if (elapsedMs < autosaveGapMs) {
           pendingAutosaveAfterSaveRef.current = true;
-          scheduleAutosave(SNAPSHOT_MIN_AUTOSAVE_GAP_MS - elapsedMs + 120);
+          scheduleAutosave(autosaveGapMs - elapsedMs + 250);
           return true;
         }
       }
@@ -423,8 +379,7 @@ export function useWorkbookPersistSnapshots({
       let compactionAttempted = false;
       try {
         const shouldPreemptiveCompact =
-          estimateEmbeddedDataUrlChars(boardObjects, documentState) >=
-          SNAPSHOT_PREEMPTIVE_COMPACTION_DATA_URL_CHARS;
+          embeddedDataUrlChars >= SNAPSHOT_PREEMPTIVE_COMPACTION_DATA_URL_CHARS;
         if (shouldPreemptiveCompact) {
           compactionAttempted = true;
           const compacted = await persistCompactedSnapshots(["moderate", "aggressive", "minimal"]);
@@ -485,7 +440,7 @@ export function useWorkbookPersistSnapshots({
       } finally {
         isSavingRef.current = false;
         if (pendingAutosaveAfterSaveRef.current) {
-          scheduleAutosave(1_400);
+          scheduleAutosave(WORKBOOK_SNAPSHOT_PENDING_RETRY_MS);
         }
       }
     },

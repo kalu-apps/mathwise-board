@@ -2,6 +2,7 @@ import type { MutableRefObject } from "react";
 import { compactWorkbookObjectUpdateEvents } from "@/features/workbook/model/runtime";
 import { applyWorkbookIncomingRealtimeEvent } from "@/features/workbook/model/incomingRealtime";
 import { applyWorkbookIncomingSessionMetaEvent } from "@/features/workbook/model/incomingSessionMeta";
+import { findVisuallyAbsorbedWorkbookStrokeDeleteIndexes } from "@/features/workbook/model/strokeReplacementEvents";
 import {
   isHistoryTrackedWorkbookEventType,
   isLiveReplayableWorkbookEventType,
@@ -126,9 +127,12 @@ export const applyWorkbookIncomingEventsBatch = ({
       return left.index - right.index;
     })
     .map((entry) => entry.event);
+  const visuallyAbsorbedStrokeDeleteIndexes =
+    findVisuallyAbsorbedWorkbookStrokeDeleteIndexes(orderedEvents);
   let realtimeEventsApplied = 0;
   let sessionMetaEventsApplied = 0;
   let staleEventsSkipped = 0;
+  let strokeDeletesVisuallyAbsorbed = 0;
   let pageApplyRequested = 0;
   let pageApplyAccepted = 0;
   let pageApplyRejected = 0;
@@ -176,7 +180,7 @@ export const applyWorkbookIncomingEventsBatch = ({
       processedEventIds.add(id);
     });
   };
-  orderedEvents.forEach((event) => {
+  orderedEvents.forEach((event, orderedEventIndex) => {
     try {
       const eventSeq =
         typeof event?.seq === "number" && Number.isFinite(event.seq)
@@ -245,6 +249,15 @@ export const applyWorkbookIncomingEventsBatch = ({
       } else {
         flushIncomingHistoryBatch();
       }
+      if (visuallyAbsorbedStrokeDeleteIndexes.has(orderedEventIndex)) {
+        strokeDeletesVisuallyAbsorbed += 1;
+        realtimeEventsApplied += 1;
+        markEventProcessed(event);
+        if (eventSeq !== null) {
+          maxAppliedSeq = Math.max(maxAppliedSeq, eventSeq);
+        }
+        return;
+      }
       if (
         applyWorkbookIncomingRealtimeEvent({
           event,
@@ -292,6 +305,7 @@ export const applyWorkbookIncomingEventsBatch = ({
           viewportLastReceivedAtRef: refs.viewportLastReceivedAtRef,
           finalizedStrokePreviewIdsRef: refs.finalizedStrokePreviewIdsRef,
           incomingStrokePreviewVersionRef: refs.incomingStrokePreviewVersionRef,
+          appliedStrokeTranslateOperationIdsRef: refs.appliedStrokeTranslateOperationIdsRef,
           objectLastCommittedEventAtRef: refs.objectLastCommittedEventAtRef,
           incomingPreviewQueuedPatchRef: refs.incomingPreviewQueuedPatchRef,
           incomingPreviewVersionByAuthorObjectRef: refs.incomingPreviewVersionByAuthorObjectRef,
@@ -393,6 +407,7 @@ export const applyWorkbookIncomingEventsBatch = ({
       realtimeEventsApplied,
       sessionMetaEventsApplied,
       staleEventsSkipped,
+      strokeDeletesVisuallyAbsorbed,
       pageApplyRequested,
       pageApplyAccepted,
       pageApplyRejected,
