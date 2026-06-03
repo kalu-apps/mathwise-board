@@ -298,23 +298,29 @@ export const useWorkbookPageVisibilityState = ({
 
   useEffect(() => {
     if (typeof window === "undefined") {
-      setVisibleImagesReady(true);
-      setPendingVisibleImageCount(0);
+      globalThis.queueMicrotask(() => {
+        setVisibleImagesReady(true);
+        setPendingVisibleImageCount(0);
+      });
       return;
     }
     if (visibleImageUrls.length === 0) {
-      setVisibleImagesReady(true);
-      setPendingVisibleImageCount(0);
-      return;
+      const timerId = window.setTimeout(() => {
+        setVisibleImagesReady(true);
+        setPendingVisibleImageCount(0);
+      }, 0);
+      return () => window.clearTimeout(timerId);
     }
 
     const resolveRunId = visibleImageResolveRunRef.current + 1;
     visibleImageResolveRunRef.current = resolveRunId;
     let disposed = false;
+    let finished = false;
     let remaining = visibleImageUrls.length;
     const finish = () => {
       if (disposed) return;
       if (visibleImageResolveRunRef.current !== resolveRunId) return;
+      finished = true;
       setPendingVisibleImageCount(0);
       setVisibleImagesReady(true);
     };
@@ -328,8 +334,12 @@ export const useWorkbookPageVisibilityState = ({
       }
     };
 
-    setVisibleImagesReady(false);
-    setPendingVisibleImageCount(visibleImageUrls.length);
+    const pendingTimer = window.setTimeout(() => {
+      if (disposed || finished) return;
+      if (visibleImageResolveRunRef.current !== resolveRunId) return;
+      setVisibleImagesReady(false);
+      setPendingVisibleImageCount(visibleImageUrls.length);
+    }, 0);
 
     const hardStopTimer = window.setTimeout(finish, IMAGE_VISIBILITY_READY_TIMEOUT_MS);
     visibleImageUrls.forEach((assetUrl) => {
@@ -338,6 +348,7 @@ export const useWorkbookPageVisibilityState = ({
 
     return () => {
       disposed = true;
+      window.clearTimeout(pendingTimer);
       window.clearTimeout(hardStopTimer);
     };
   }, [visibleImageUrls]);

@@ -168,7 +168,10 @@ export function useWorkbookPageZoomPersistence({
       zoomByPageRef.current = normalizeZoomByPage(stored?.zoomByPage, allowedPages);
     }
     readyRef.current = true;
-    setStorageEpoch((current) => current + 1);
+    const timerId = window.setTimeout(() => {
+      setStorageEpoch((current) => current + 1);
+    }, 0);
+    return () => window.clearTimeout(timerId);
   }, [enabled, normalizedAvailablePages, storageKey]);
 
   useEffect(() => {

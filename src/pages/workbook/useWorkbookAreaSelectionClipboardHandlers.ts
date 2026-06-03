@@ -377,6 +377,7 @@ export const useWorkbookAreaSelectionClipboardHandlers = ({
   }, [
     appendEventsAndApply,
     areaSelectionClipboardRef,
+    boardSettings.pageFrameWidth,
     boardObjectsRef,
     canSelect,
     setAreaSelectionContextMenu,

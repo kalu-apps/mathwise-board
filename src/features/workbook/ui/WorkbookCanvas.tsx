@@ -722,40 +722,43 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     [getObjectSceneLayerId, unpinnedSceneLayerObjectsById]
   );
 
-  const mapPointer = (
-    svg: SVGSVGElement | null,
-    clientX: number,
-    clientY: number,
-    useSnap = false,
-    clampToViewport = true
-  ): WorkbookPoint => {
-    if (!svg || typeof svg.getBoundingClientRect !== "function") {
-      return { x: 0, y: 0 };
-    }
-    try {
-      const rect = svg.getBoundingClientRect();
-      const rawX =
-        (clientX - rect.left - displayBias.x) / safeZoom + resolvedViewportOffset.x;
-      const rawY =
-        (clientY - rect.top - displayBias.y) / safeZoom + resolvedViewportOffset.y;
-      const x = clampToViewport
-        ? Math.max(
-            0 + resolvedViewportOffset.x,
-            Math.min(rect.width / safeZoom + resolvedViewportOffset.x, rawX)
-          )
-        : rawX;
-      const y = clampToViewport
-        ? Math.max(
-            0 + resolvedViewportOffset.y,
-            Math.min(rect.height / safeZoom + resolvedViewportOffset.y, rawY)
-          )
-        : rawY;
-      const point = clampWorkbookPointToPageFrame({ x, y }, pageFrameBounds);
-      return useSnap ? snapPoint(point) : point;
-    } catch {
-      return { x: 0, y: 0 };
-    }
-  };
+  const mapPointer = useCallback(
+    (
+      svg: SVGSVGElement | null,
+      clientX: number,
+      clientY: number,
+      useSnap = false,
+      clampToViewport = true
+    ): WorkbookPoint => {
+      if (!svg || typeof svg.getBoundingClientRect !== "function") {
+        return { x: 0, y: 0 };
+      }
+      try {
+        const rect = svg.getBoundingClientRect();
+        const rawX =
+          (clientX - rect.left - displayBias.x) / safeZoom + resolvedViewportOffset.x;
+        const rawY =
+          (clientY - rect.top - displayBias.y) / safeZoom + resolvedViewportOffset.y;
+        const x = clampToViewport
+          ? Math.max(
+              0 + resolvedViewportOffset.x,
+              Math.min(rect.width / safeZoom + resolvedViewportOffset.x, rawX)
+            )
+          : rawX;
+        const y = clampToViewport
+          ? Math.max(
+              0 + resolvedViewportOffset.y,
+              Math.min(rect.height / safeZoom + resolvedViewportOffset.y, rawY)
+            )
+          : rawY;
+        const point = clampWorkbookPointToPageFrame({ x, y }, pageFrameBounds);
+        return useSnap ? snapPoint(point) : point;
+      } catch {
+        return { x: 0, y: 0 };
+      }
+    },
+    [displayBias.x, displayBias.y, pageFrameBounds, resolvedViewportOffset.x, resolvedViewportOffset.y, safeZoom, snapPoint]
+  );
 
   const resolveTopObject = useCallback(
     (point: WorkbookPoint) => {

@@ -637,7 +637,8 @@ export default function WorkbookSessionPage() {
       (item) => item.id === solid3dHostedDraft.objectId && item.type === "solid3d"
     );
     if (!targetExists) {
-      setSolid3dHostedDraft(null);
+      const timerId = window.setTimeout(() => setSolid3dHostedDraft(null), 0);
+      return () => window.clearTimeout(timerId);
     }
   }, [boardObjects, solid3dHostedDraft]);
 
@@ -646,43 +647,47 @@ export default function WorkbookSessionPage() {
     const targetObject = boardObjects.find(
       (item) => item.id === selectedHostedEntity.objectId && item.type === "solid3d"
     );
-    if (!targetObject) {
-      setSelectedHostedEntity(null);
-      return;
+    let shouldClear = !targetObject;
+    if (targetObject) {
+      const solidState = readSolid3dState(targetObject.meta);
+      shouldClear =
+        selectedHostedEntity.entityType === "point"
+          ? !solidState.hostedPoints.some((point) => point.id === selectedHostedEntity.entityId)
+          : !solidState.hostedSegments.some(
+              (segment) => segment.id === selectedHostedEntity.entityId
+            );
     }
-    const solidState = readSolid3dState(targetObject.meta);
-    const exists =
-      selectedHostedEntity.entityType === "point"
-        ? solidState.hostedPoints.some((point) => point.id === selectedHostedEntity.entityId)
-        : solidState.hostedSegments.some(
-            (segment) => segment.id === selectedHostedEntity.entityId
-          );
-    if (!exists) {
-      setSelectedHostedEntity(null);
+    if (shouldClear) {
+      const timerId = window.setTimeout(() => setSelectedHostedEntity(null), 0);
+      return () => window.clearTimeout(timerId);
     }
   }, [boardObjects, selectedHostedEntity]);
 
   useEffect(() => {
     if (!selectedHostedEntity) return;
     if (!selectedObjectId || selectedHostedEntity.objectId !== selectedObjectId) {
-      setSelectedHostedEntity(null);
+      const timerId = window.setTimeout(() => setSelectedHostedEntity(null), 0);
+      return () => window.clearTimeout(timerId);
     }
   }, [selectedHostedEntity, selectedObjectId]);
 
   useEffect(() => {
     if (!solid3dHostedDraft || !solid3dSectionPointCollecting) return;
-    setSolid3dHostedDraft(null);
+    const timerId = window.setTimeout(() => setSolid3dHostedDraft(null), 0);
+    return () => window.clearTimeout(timerId);
   }, [solid3dHostedDraft, solid3dSectionPointCollecting]);
 
   useEffect(() => {
     if (!selectedHostedEntity || !solid3dSectionPointCollecting) return;
-    setSelectedHostedEntity(null);
+    const timerId = window.setTimeout(() => setSelectedHostedEntity(null), 0);
+    return () => window.clearTimeout(timerId);
   }, [selectedHostedEntity, solid3dSectionPointCollecting]);
 
   useEffect(() => {
     if (!solid3dHostedDraft) return;
     if (!selectedObjectId || selectedObjectId !== solid3dHostedDraft.objectId) {
-      setSolid3dHostedDraft(null);
+      const timerId = window.setTimeout(() => setSolid3dHostedDraft(null), 0);
+      return () => window.clearTimeout(timerId);
     }
   }, [selectedObjectId, solid3dHostedDraft]);
 
@@ -818,20 +823,7 @@ export default function WorkbookSessionPage() {
           onStop={() => lessonRecording.stopRecording("stopped")}
         />
       ) : null,
-    [
-      lessonRecording.audioSummary,
-      lessonRecording.canToggleMicrophone,
-      lessonRecording.canShowControls,
-      lessonRecording.elapsedMs,
-      lessonRecording.isSupported,
-      lessonRecording.micEnabled,
-      lessonRecording.openPreStartDialog,
-      lessonRecording.pauseRecording,
-      lessonRecording.resumeRecording,
-      lessonRecording.status,
-      lessonRecording.stopRecording,
-      lessonRecording.toggleMicrophone,
-    ]
+    [lessonRecording]
   );
   const lessonRecordingWatermark =
     lessonRecording.status === "recording" || lessonRecording.status === "paused" ? (
@@ -1608,7 +1600,9 @@ export default function WorkbookSessionPage() {
     sessionId,
     canManageSharedBoardSettings,
     boardSettingsRef,
+    dirtyRef,
     handleSharedBoardSettingsChange,
+    refs.sessionResyncInFlightRef,
     workspaceRef,
   ]);
 

@@ -64,7 +64,7 @@ export const useWorkbookSessionCleanupEffects = ({
       });
       focusResetTimersByUserRef.current.clear();
     },
-    []
+    [focusResetTimersByUserRef]
   );
 
   useEffect(
@@ -74,7 +74,7 @@ export const useWorkbookSessionCleanupEffects = ({
         autosaveDebounceRef.current = null;
       }
     },
-    []
+    [autosaveDebounceRef]
   );
 
   useEffect(
@@ -88,7 +88,13 @@ export const useWorkbookSessionCleanupEffects = ({
       eraserPreviewQueuedAtRef.current.clear();
       appliedStrokeTranslateOperationIdsRef.current.clear();
     },
-    []
+    [
+      appliedStrokeTranslateOperationIdsRef,
+      eraserPreviewQueuedAtRef,
+      eraserPreviewQueuedByGestureRef,
+      viewportSyncQueuedOffsetRef,
+      volatileSyncTimerRef,
+    ]
   );
 
   useEffect(

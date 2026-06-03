@@ -215,8 +215,14 @@ export function WorkbookSessionPagePreview({
     8,
     96
   );
-  const boardStrokes = previewData?.strokes ?? [];
-  const annotationStrokes = previewData?.annotationStrokes ?? [];
+  const boardStrokes = useMemo(
+    () => previewData?.strokes ?? [],
+    [previewData?.strokes]
+  );
+  const annotationStrokes = useMemo(
+    () => previewData?.annotationStrokes ?? [],
+    [previewData?.annotationStrokes]
+  );
 
   const visibleObjects = useMemo(
     () => previewData?.objects ?? [],
@@ -334,7 +340,7 @@ export function WorkbookSessionPagePreview({
           <g key={`preview-object-${object.id}`}>{renderedSecondary}</g>
         ) : null;
       }),
-    [functionGraphRenderStateById, imageAssetUrls, visibleObjects]
+    [functionGraphRenderStateById, imageAssetUrls, pageFrameBounds, visibleObjects]
   );
 
   return (
