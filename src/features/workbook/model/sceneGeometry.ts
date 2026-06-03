@@ -262,6 +262,7 @@ export const resolvePolygonFigureKind = (
   sides: number,
   preset: WorkbookPolygonPreset
 ): string | undefined => {
+  if (preset === "square") return "square";
   if (preset === "parallelogram") return "parallelogram";
   if (preset === "rhombus") return "rhombus";
   if (preset === "rhombus_vertical") return "rhombus";
@@ -305,6 +306,7 @@ export const resolve2dFigureVertices = (
     }
     const objectPreset =
       object.meta?.polygonPreset === "parallelogram" ||
+      object.meta?.polygonPreset === "square" ||
       object.meta?.polygonPreset === "trapezoid" ||
       object.meta?.polygonPreset === "trapezoid_right" ||
       object.meta?.polygonPreset === "trapezoid_scalene" ||

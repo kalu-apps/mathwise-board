@@ -9,6 +9,7 @@ export type WorkbookShapeRect = {
 
 export type WorkbookPolygonPreset =
   | "regular"
+  | "square"
   | "parallelogram"
   | "trapezoid"
   | "trapezoid_right"
@@ -108,11 +109,31 @@ const buildVerticalRhombus = (rect: WorkbookShapeRect): WorkbookPoint[] => {
   ];
 };
 
+const buildSquare = (rect: WorkbookShapeRect): WorkbookPoint[] => {
+  const normalized = normalizeRect(rect);
+  const side = Math.max(1, Math.min(normalized.width, normalized.height));
+  const cx = normalized.x + normalized.width / 2;
+  const cy = normalized.y + normalized.height / 2;
+  const left = cx - side / 2;
+  const right = cx + side / 2;
+  const top = cy - side / 2;
+  const bottom = cy + side / 2;
+  return [
+    { x: left, y: top },
+    { x: right, y: top },
+    { x: right, y: bottom },
+    { x: left, y: bottom },
+  ];
+};
+
 export const getWorkbookPolygonPoints = (
   rect: WorkbookShapeRect,
   sides: number,
   preset: WorkbookPolygonPreset = "regular"
 ): WorkbookPoint[] => {
+  if (preset === "square") {
+    return buildSquare(rect);
+  }
   if (preset === "parallelogram") {
     return buildParallelogram(rect);
   }

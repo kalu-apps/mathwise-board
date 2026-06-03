@@ -593,6 +593,7 @@ export const renderWorkbookCanvasPrimaryObject = ({
       const isClosed = is2dFigureClosed(object);
       const objectPreset =
         object.meta?.polygonPreset === "parallelogram" ||
+        object.meta?.polygonPreset === "square" ||
         object.meta?.polygonPreset === "trapezoid" ||
         object.meta?.polygonPreset === "trapezoid_right" ||
         object.meta?.polygonPreset === "trapezoid_scalene" ||

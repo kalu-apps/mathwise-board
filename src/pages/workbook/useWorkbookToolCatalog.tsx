@@ -273,12 +273,12 @@ export const useWorkbookToolCatalog = ({
       {
         id: "polygon-4",
         title: "Квадрат",
-        subtitle: "Регулярный 4-угольник",
-        icon: <ShapeCatalogPreview variant="polygon" sides={4} />,
+        subtitle: "Равные стороны и прямые углы",
+        icon: <ShapeCatalogPreview variant="square" />,
         tool: "polygon",
         apply: () => {
           setPolygonMode("regular");
-          setPolygonPreset("regular");
+          setPolygonPreset("square");
           setPolygonSides(4);
           setTool("polygon");
         },

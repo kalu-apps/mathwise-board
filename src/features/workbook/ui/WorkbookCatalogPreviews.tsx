@@ -254,6 +254,7 @@ export const ShapeCatalogPreview = ({
 }: {
   variant:
     | "polygon"
+    | "square"
     | "rectangle"
     | "ellipse"
     | "circle"
@@ -268,6 +269,7 @@ export const ShapeCatalogPreview = ({
 }) => {
   const previewPolygonPoints =
     variant === "polygon" ||
+    variant === "square" ||
     variant === "parallelogram" ||
     variant === "trapezoid" ||
     variant === "trapezoid_right" ||
