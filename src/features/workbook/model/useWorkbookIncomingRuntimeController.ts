@@ -19,6 +19,8 @@ import type {
   WorkbookStroke,
 } from "./types";
 
+const INCOMING_STROKE_PREVIEW_RETAIN_MS = 5_000;
+
 export type WorkbookStrokePreviewEntry = {
   stroke: WorkbookStroke;
   previewVersion: number;
@@ -39,6 +41,8 @@ export type WorkbookIncomingEraserPreviewEntry = {
 type UseWorkbookIncomingRuntimeControllerParams = {
   pageFrameWidth: number;
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
+  boardStrokesRef: MutableRefObject<WorkbookStroke[]>;
+  annotationStrokesRef: MutableRefObject<WorkbookStroke[]>;
   setBoardObjects: Dispatch<SetStateAction<WorkbookBoardObject[]>>;
   setIncomingStrokePreviews: Dispatch<
     SetStateAction<Record<string, WorkbookStrokePreviewEntry>>
@@ -96,6 +100,8 @@ export const useWorkbookIncomingRuntimeController = (
   const {
     pageFrameWidth,
     boardObjectsRef,
+    boardStrokesRef,
+    annotationStrokesRef,
     setBoardObjects,
     setIncomingStrokePreviews,
     setIncomingEraserPreviews,
@@ -128,6 +134,102 @@ export const useWorkbookIncomingRuntimeController = (
 
   const queuedBoardObjectsRef = useRef<WorkbookBoardObject[] | null>(null);
   const boardObjectsFrameRef = useRef<number | null>(null);
+  const incomingStrokePreviewRetentionTimerRef = useRef<number | null>(null);
+
+  const clearIncomingStrokePreviewRetentionTimer = useCallback(() => {
+    if (incomingStrokePreviewRetentionTimerRef.current === null) return;
+    window.clearTimeout(incomingStrokePreviewRetentionTimerRef.current);
+    incomingStrokePreviewRetentionTimerRef.current = null;
+  }, []);
+
+  const buildConfirmedStrokeIds = useCallback((extraIds?: ReadonlySet<string>) => {
+    const confirmed = new Set<string>();
+    boardStrokesRef.current.forEach((stroke) => {
+      if (stroke.id) confirmed.add(stroke.id);
+    });
+    annotationStrokesRef.current.forEach((stroke) => {
+      if (stroke.id) confirmed.add(stroke.id);
+    });
+    extraIds?.forEach((strokeId) => {
+      if (strokeId) confirmed.add(strokeId);
+    });
+    return confirmed;
+  }, [annotationStrokesRef, boardStrokesRef]);
+
+  const filterRecentUnconfirmedStrokePreviews = useCallback(
+    (
+      current: Record<string, WorkbookStrokePreviewEntry>,
+      queued: Map<string, WorkbookStrokePreviewEntry | null>,
+      options?: { confirmedStrokeIds?: ReadonlySet<string> }
+    ) => {
+      const now = Date.now();
+      const confirmedStrokeIds = buildConfirmedStrokeIds(options?.confirmedStrokeIds);
+      const next: Record<string, WorkbookStrokePreviewEntry> = {};
+      const applyCandidate = (strokeId: string, entry: WorkbookStrokePreviewEntry | null) => {
+        if (!entry) return;
+        const stroke = entry.stroke;
+        if (stroke.tool !== "pen" && stroke.tool !== "highlighter") return;
+        if (finalizedStrokePreviewIdsRef.current.has(strokeId)) return;
+        if (confirmedStrokeIds.has(strokeId)) return;
+        if (now - entry.updatedAt > INCOMING_STROKE_PREVIEW_RETAIN_MS) return;
+        const existing = next[strokeId];
+        if (existing && existing.previewVersion >= entry.previewVersion) return;
+        next[strokeId] = entry;
+      };
+      Object.entries(current).forEach(([strokeId, entry]) => applyCandidate(strokeId, entry));
+      queued.forEach((entry, strokeId) => applyCandidate(strokeId, entry));
+      return next;
+    },
+    [buildConfirmedStrokeIds, finalizedStrokePreviewIdsRef]
+  );
+
+  const scheduleIncomingStrokePreviewRetentionPrune = useCallback(
+    (options?: { confirmedStrokeIds?: ReadonlySet<string> }) => {
+      clearIncomingStrokePreviewRetentionTimer();
+      incomingStrokePreviewRetentionTimerRef.current = window.setTimeout(() => {
+        incomingStrokePreviewRetentionTimerRef.current = null;
+        setIncomingStrokePreviews((latest) => {
+          const next = filterRecentUnconfirmedStrokePreviews(latest, new Map(), options);
+          const nextKeys = Object.keys(next);
+          if (nextKeys.length !== Object.keys(latest).length) return next;
+          return nextKeys.some((strokeId) => latest[strokeId] !== next[strokeId]) ? next : latest;
+        });
+      }, INCOMING_STROKE_PREVIEW_RETAIN_MS);
+    },
+    [
+      clearIncomingStrokePreviewRetentionTimer,
+      filterRecentUnconfirmedStrokePreviews,
+      setIncomingStrokePreviews,
+    ]
+  );
+
+  const retainRecentUnconfirmedStrokePreviews = useCallback(
+    (
+      current: Record<string, WorkbookStrokePreviewEntry>,
+      queued: Map<string, WorkbookStrokePreviewEntry | null>,
+      options?: { confirmedStrokeIds?: ReadonlySet<string> }
+    ) => {
+      const next = filterRecentUnconfirmedStrokePreviews(current, queued, options);
+      const nextKeys = Object.keys(next);
+      let changed = false;
+      if (nextKeys.length !== Object.keys(current).length) {
+        changed = true;
+      } else {
+        changed = nextKeys.some((strokeId) => current[strokeId] !== next[strokeId]);
+      }
+      if (nextKeys.length > 0) {
+        scheduleIncomingStrokePreviewRetentionPrune(options);
+      } else {
+        clearIncomingStrokePreviewRetentionTimer();
+      }
+      return changed ? next : current;
+    },
+    [
+      clearIncomingStrokePreviewRetentionTimer,
+      filterRecentUnconfirmedStrokePreviews,
+      scheduleIncomingStrokePreviewRetentionPrune,
+    ]
+  );
 
   const flushQueuedBoardObjectsCommit = useCallback(() => {
     boardObjectsFrameRef.current = null;
@@ -170,8 +272,9 @@ export const useWorkbookIncomingRuntimeController = (
         boardObjectsFrameRef.current = null;
       }
       queuedBoardObjectsRef.current = null;
+      clearIncomingStrokePreviewRetentionTimer();
     },
-    []
+    [clearIncomingStrokePreviewRetentionTimer]
   );
 
   const clearObjectSyncRuntime = useCallback((options?: { cancelIncomingFrame?: boolean }) => {
@@ -305,8 +408,16 @@ export const useWorkbookIncomingRuntimeController = (
   );
 
   const clearStrokePreviewRuntime = useCallback(
-    (options?: { clearFinalized?: boolean; cancelIncomingFrame?: boolean }) => {
+    (options?: {
+      clearFinalized?: boolean;
+      cancelIncomingFrame?: boolean;
+      retainUnconfirmedRecent?: boolean;
+      confirmedStrokeIds?: ReadonlySet<string>;
+    }) => {
       strokePreviewQueuedByIdRef.current.clear();
+      const queuedIncomingPreviews = options?.retainUnconfirmedRecent
+        ? new Map(incomingStrokePreviewQueuedRef.current)
+        : new Map<string, WorkbookStrokePreviewEntry | null>();
       incomingStrokePreviewQueuedRef.current.clear();
       incomingStrokePreviewVersionRef.current.clear();
       if (options?.clearFinalized !== false) {
@@ -319,13 +430,24 @@ export const useWorkbookIncomingRuntimeController = (
         window.cancelAnimationFrame(incomingStrokePreviewFrameRef.current);
         incomingStrokePreviewFrameRef.current = null;
       }
+      if (options?.retainUnconfirmedRecent) {
+        setIncomingStrokePreviews((current) =>
+          retainRecentUnconfirmedStrokePreviews(current, queuedIncomingPreviews, {
+            confirmedStrokeIds: options.confirmedStrokeIds,
+          })
+        );
+        return;
+      }
+      clearIncomingStrokePreviewRetentionTimer();
       setIncomingStrokePreviews({});
     },
     [
+      clearIncomingStrokePreviewRetentionTimer,
       finalizedStrokePreviewIdsRef,
       incomingStrokePreviewFrameRef,
       incomingStrokePreviewQueuedRef,
       incomingStrokePreviewVersionRef,
+      retainRecentUnconfirmedStrokePreviews,
       setIncomingStrokePreviews,
       strokePreviewQueuedByIdRef,
     ]

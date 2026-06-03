@@ -2,9 +2,12 @@
 .workbook-session__participants-scroll {
   display: grid;
   gap: 6px;
-  max-height: min(53vh, 468px);
+  max-height: min(72vh, 640px);
+  max-height: min(72dvh, 640px);
+  min-height: 0;
   overflow: auto;
   padding: 0;
+  scroll-padding: 6px;
 }
 
 .workbook-session__participants-card {
@@ -13,6 +16,8 @@
   transition: background-color 0.18s ease, border-color 0.18s ease;
   padding: 5px;
   gap: 5px;
+  min-height: 0;
+  max-height: inherit;
 }
 
 .workbook-session__participants-card.is-video-only {
@@ -37,19 +42,22 @@
 }
 
 .workbook-session__participants-scroll--video-grid:not(.is-video-only-layout) {
-  grid-auto-rows: minmax(132px, auto);
+  grid-auto-rows: minmax(156px, auto);
   overscroll-behavior: contain;
+  scroll-snap-type: y proximity;
   scrollbar-width: thin;
 }
 
 .workbook-session__participants-scroll--video-grid:not(.is-video-only-layout)
   .workbook-session__participant-card.is-video-card {
-  min-height: 132px;
+  min-height: 156px;
+  scroll-snap-align: start;
+  scroll-margin: 6px;
 }
 
 .workbook-session__participants-scroll--video-grid:not(.is-video-only-layout)
   .workbook-session__participant-video-wrap {
-  min-height: 132px;
+  min-height: 156px;
 }
 
 .workbook-session__participants-scroll--video-grid.is-video-only-layout {

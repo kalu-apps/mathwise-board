@@ -92,7 +92,12 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
   restoreSceneSnapshot: (payload: RestoreSceneSnapshotPayload) => void;
   clearLocalPreviewPatchRuntime: () => void;
   clearObjectSyncRuntime: () => void;
-  clearStrokePreviewRuntime: (options?: { clearFinalized?: boolean }) => void;
+  clearStrokePreviewRuntime: (options?: {
+    clearFinalized?: boolean;
+    cancelIncomingFrame?: boolean;
+    retainUnconfirmedRecent?: boolean;
+    confirmedStrokeIds?: ReadonlySet<string>;
+  }) => void;
   clearIncomingEraserPreviewRuntime: () => void;
   scheduleIncomingEraserPreviewExpiry: (previewId: string, delayMs: number) => void;
   queueIncomingStrokePreview: (payload: StrokePreviewPayload, strokeId: string) => void;

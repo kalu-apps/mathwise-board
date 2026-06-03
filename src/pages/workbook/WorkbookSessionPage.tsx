@@ -1283,6 +1283,8 @@ export default function WorkbookSessionPage() {
       undoStackRef: refs.undoStackRef,
       redoStackRef: refs.redoStackRef,
       focusResetTimersByUserRef: refs.focusResetTimersByUserRef,
+      boardStrokesRef: refs.boardStrokesRef,
+      annotationStrokesRef: refs.annotationStrokesRef,
       boardObjectsRef: refs.boardObjectsRef,
       boardObjectIndexByIdRef: refs.boardObjectIndexByIdRef,
       sessionResyncInFlightRef: refs.sessionResyncInFlightRef,

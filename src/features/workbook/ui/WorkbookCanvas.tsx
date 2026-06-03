@@ -2091,6 +2091,8 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           : !svg || !isClientPointInsideSvg(svg, event.clientX, event.clientY);
       if (shouldClearTeacherCursor) {
         onTeacherCursorClear?.();
+      } else if (!disabled && svg && onTeacherCursorPoint) {
+        onTeacherCursorPoint(mapPointer(svg, event.clientX, event.clientY), { force: true });
       }
 
       if (!isTouchTap || !onObjectDoubleClick || disabled || tool !== "select") {
@@ -2130,6 +2132,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       mapPointer,
       onObjectDoubleClick,
       onTeacherCursorClear,
+      onTeacherCursorPoint,
       resolveTopObject,
       startPinchGesture,
       tool,

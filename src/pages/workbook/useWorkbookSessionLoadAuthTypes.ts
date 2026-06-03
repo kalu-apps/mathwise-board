@@ -24,7 +24,12 @@ export type WorkbookSessionLoadAndAuthParams = {
   clearIncomingRealtimeApplyQueue: () => void;
   clearLocalPreviewPatchRuntime: () => void;
   clearObjectSyncRuntime: () => void;
-  clearStrokePreviewRuntime: () => void;
+  clearStrokePreviewRuntime: (options?: {
+    clearFinalized?: boolean;
+    cancelIncomingFrame?: boolean;
+    retainUnconfirmedRecent?: boolean;
+    confirmedStrokeIds?: ReadonlySet<string>;
+  }) => void;
   clearIncomingEraserPreviewRuntime: () => void;
   recoverChatMessagesFromEvents: (events: WorkbookEvent[]) => WorkbookChatMessage[];
   setSaveState: SetState<"saved" | "unsaved" | "saving" | "error">;
@@ -72,6 +77,8 @@ export type WorkbookSessionLoadAndAuthParams = {
   undoStackRef: MutableRefObject<WorkbookHistoryEntry[]>;
   redoStackRef: MutableRefObject<WorkbookHistoryEntry[]>;
   focusResetTimersByUserRef: MutableRefObject<Map<string, number>>;
+  boardStrokesRef: MutableRefObject<WorkbookStroke[]>;
+  annotationStrokesRef: MutableRefObject<WorkbookStroke[]>;
   boardObjectsRef: MutableRefObject<WorkbookBoardObject[]>;
   boardObjectIndexByIdRef: MutableRefObject<Map<string, number>>;
   sessionResyncInFlightRef: MutableRefObject<boolean>;

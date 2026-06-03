@@ -75,6 +75,8 @@ type ApplyWorkbookIncomingEventsBatchParams = {
   clearStrokePreviewRuntime: (options?: {
     clearFinalized?: boolean;
     cancelIncomingFrame?: boolean;
+    retainUnconfirmedRecent?: boolean;
+    confirmedStrokeIds?: ReadonlySet<string>;
   }) => void;
   clearIncomingEraserPreviewRuntime: () => void;
   scheduleIncomingEraserPreviewExpiry: IncomingRuntimeControllerResult["scheduleIncomingEraserPreviewExpiry"];
