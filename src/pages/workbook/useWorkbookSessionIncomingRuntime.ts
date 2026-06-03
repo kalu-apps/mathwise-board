@@ -34,6 +34,8 @@ export const useWorkbookSessionIncomingRuntime = ({
   } = useWorkbookIncomingRuntimeController({
     pageFrameWidth,
     boardObjectsRef: refs.boardObjectsRef,
+    boardStrokesRef: refs.boardStrokesRef,
+    annotationStrokesRef: refs.annotationStrokesRef,
     setBoardObjects,
     setIncomingStrokePreviews,
     setIncomingEraserPreviews,
@@ -72,7 +74,12 @@ export const useWorkbookSessionIncomingRuntime = ({
   }, [clearIncomingEraserPreviewRuntimeRaw, refs]);
 
   const clearStrokePreviewRuntime = useCallback(
-    (options?: { clearFinalized?: boolean; cancelIncomingFrame?: boolean }) => {
+    (options?: {
+      clearFinalized?: boolean;
+      cancelIncomingFrame?: boolean;
+      retainUnconfirmedRecent?: boolean;
+      confirmedStrokeIds?: ReadonlySet<string>;
+    }) => {
       clearStrokePreviewRuntimeRaw(options);
       refs.strokePreviewQueuedAtRef.current.clear();
     },

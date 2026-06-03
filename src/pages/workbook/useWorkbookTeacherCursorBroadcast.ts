@@ -95,7 +95,7 @@ export const useWorkbookTeacherCursorBroadcast = ({
   }, [resetLocalState, sendWorkbookLiveEvents, userId]);
 
   const publishTeacherCursorPoint = useCallback(
-    (point: WorkbookPoint) => {
+    (point: WorkbookPoint, options?: { force?: boolean }) => {
       if (!enabled || !userId) return;
       const now = Date.now();
       const previousPoint = lastSentPointRef.current;
@@ -103,6 +103,7 @@ export const useWorkbookTeacherCursorBroadcast = ({
         ? Math.hypot(point.x - previousPoint.x, point.y - previousPoint.y)
         : Number.POSITIVE_INFINITY;
       if (
+        !options?.force &&
         now - lastSentAtRef.current < TEACHER_CURSOR_MIN_SEND_INTERVAL_MS &&
         delta < TEACHER_CURSOR_MIN_DISTANCE_PX
       ) {

@@ -48,6 +48,7 @@ export type WorkbookToolPaintSettings = {
 
 export type WorkbookPolygonPresetMode =
   | "regular"
+  | "square"
   | "parallelogram"
   | "trapezoid"
   | "trapezoid_right"
