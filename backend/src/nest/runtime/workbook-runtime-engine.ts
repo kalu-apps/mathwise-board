@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import os from "node:os";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { Readable } from "node:stream";
 import { WebSocket } from "ws";
 import {
   appendWorkbookAccessLog,
@@ -75,11 +76,17 @@ import { getWorkbookPersistenceReadiness, getWorkbookRuntimeReadiness } from "./
 import {
   getWorkbookServerRecordingAvailability,
   getWorkbookServerRecordingForSession,
+  getWorkbookServerRecordingForUser,
+  listWorkbookServerRecordingsForUser,
+  deleteWorkbookServerRecording,
+  renameWorkbookServerRecording,
   resolveWorkbookRecordingAccessPayload,
   resolveWorkbookRecordingReadUser,
+  serializeWorkbookRecordingLibraryItem,
   serializeWorkbookServerRecording,
   startWorkbookServerRecording,
   stopWorkbookServerRecording,
+  type WorkbookServerRecordingRecord,
 } from "./core/workbookServerRecordingService";
 import {
   INVALID_JSON_BODY_ERROR,
@@ -747,6 +754,163 @@ const buildInviteUrl = (req: IncomingMessage, token: string) => {
   const base = PUBLIC_BASE_URL || inferPublicOrigin(req);
   const path = `/workbook/invite/${encodeURIComponent(token)}`;
   return base ? `${base}${path}` : path;
+};
+
+const readTrimmedEnv = (name: string) => String(process.env[name] ?? "").trim();
+
+const readBoolEnv = (name: string, fallback = false) => {
+  const raw = readTrimmedEnv(name).toLowerCase();
+  if (!raw) return fallback;
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+};
+
+const normalizeDownloadFilename = (value: string) => {
+  const normalized =
+    value
+      .replace(/[\\/:*?"<>|]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120) || "recording";
+  return normalized.endsWith(".mp4") ? normalized : `${normalized}.mp4`;
+};
+
+const buildContentDisposition = (mode: "inline" | "attachment", filename: string) => {
+  const asciiFallback = filename
+    .normalize("NFKD")
+    .replace(/[^\x20-\x7E]+/g, "")
+    .replace(/["\\]/g, "")
+    .trim() || "recording.mp4";
+  return `${mode}; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+};
+
+const encodeS3ObjectPath = (value: string) =>
+  value
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+
+const hmacSha256 = (key: string | Buffer, value: string) =>
+  crypto.createHmac("sha256", key).update(value).digest();
+
+const sha256Hex = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
+
+const buildRecordingS3Request = (filePath: string | null) => {
+  const objectPath = filePath?.trim();
+  const endpoint = readTrimmedEnv("WORKBOOK_RECORDING_S3_ENDPOINT").replace(/\/+$/g, "");
+  const bucket = readTrimmedEnv("WORKBOOK_RECORDING_S3_BUCKET");
+  const accessKey = readTrimmedEnv("WORKBOOK_RECORDING_S3_ACCESS_KEY");
+  const secret = readTrimmedEnv("WORKBOOK_RECORDING_S3_SECRET");
+  if (!objectPath || !endpoint || !bucket || !accessKey || !secret) return null;
+
+  const region = readTrimmedEnv("WORKBOOK_RECORDING_S3_REGION") || "auto";
+  const forcePathStyle = readBoolEnv("WORKBOOK_RECORDING_S3_FORCE_PATH_STYLE", true);
+  const endpointUrl = new URL(endpoint);
+  const encodedObjectPath = encodeS3ObjectPath(objectPath);
+  const encodedBucket = encodeURIComponent(bucket);
+  const url = forcePathStyle
+    ? new URL(`${encodedBucket}/${encodedObjectPath}`, `${endpointUrl.toString()}/`)
+    : new URL(`${encodedObjectPath}`, `${endpointUrl.protocol}//${bucket}.${endpointUrl.host}/`);
+
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const dateStamp = amzDate.slice(0, 8);
+  const payloadHash = "UNSIGNED-PAYLOAD";
+  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+  const canonicalHeaders = [
+    `host:${url.host}`,
+    `x-amz-content-sha256:${payloadHash}`,
+    `x-amz-date:${amzDate}`,
+  ].join("\n");
+  const canonicalRequest = [
+    "GET",
+    url.pathname,
+    "",
+    `${canonicalHeaders}\n`,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+  const scope = `${dateStamp}/${region}/s3/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    scope,
+    sha256Hex(canonicalRequest),
+  ].join("\n");
+  const dateKey = hmacSha256(`AWS4${secret}`, dateStamp);
+  const regionKey = hmacSha256(dateKey, region);
+  const serviceKey = hmacSha256(regionKey, "s3");
+  const signingKey = hmacSha256(serviceKey, "aws4_request");
+  const signature = crypto.createHmac("sha256", signingKey).update(stringToSign).digest("hex");
+
+  return {
+    url: url.toString(),
+    headers: {
+      Authorization: `AWS4-HMAC-SHA256 Credential=${accessKey}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+      "x-amz-content-sha256": payloadHash,
+      "x-amz-date": amzDate,
+    },
+  };
+};
+
+const buildRecordingMediaRequest = (recording: WorkbookServerRecordingRecord) =>
+  buildRecordingS3Request(recording.filePath) ??
+  (recording.outputUrl?.trim()
+    ? {
+        url: recording.outputUrl.trim(),
+        headers: {},
+      }
+    : null);
+
+const streamWorkbookRecordingMedia = async (params: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  recording: WorkbookServerRecordingRecord;
+  disposition: "inline" | "attachment";
+}) => {
+  const source = buildRecordingMediaRequest(params.recording);
+  if (!source) {
+    notFound(params.res);
+    return;
+  }
+  const headers: Record<string, string> = { ...source.headers };
+  const range = params.req.headers.range;
+  if (typeof range === "string" && range.trim().length > 0) {
+    headers.Range = range.trim();
+  }
+  const upstream = await fetch(source.url, { headers });
+  if (!upstream.ok && upstream.status !== 206) {
+    serviceUnavailable(params.res, `recording_source_http_${upstream.status}`);
+    return;
+  }
+
+  params.res.statusCode = upstream.status;
+  const passthroughHeaders = [
+    "accept-ranges",
+    "content-length",
+    "content-range",
+    "etag",
+    "last-modified",
+  ];
+  passthroughHeaders.forEach((headerName) => {
+    const value = upstream.headers.get(headerName);
+    if (value) params.res.setHeader(headerName, value);
+  });
+  params.res.setHeader("Content-Type", upstream.headers.get("content-type") || "video/mp4");
+  params.res.setHeader(
+    "Content-Disposition",
+    buildContentDisposition(params.disposition, normalizeDownloadFilename(params.recording.title))
+  );
+  params.res.setHeader("Cache-Control", "private, max-age=60");
+
+  if (!upstream.body) {
+    params.res.end();
+    return;
+  }
+  const stream = Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]);
+  stream.on("error", () => {
+    params.res.destroy();
+  });
+  stream.pipe(params.res);
 };
 
 const readBody = async (req: IncomingMessage): Promise<unknown> => {
@@ -3693,6 +3857,112 @@ export const handleWorkbookApiRequestByDomains = async (
         return;
       }
 
+      if (pathname === "/api/workbook/recordings" && method === "GET") {
+        const actor = requireAuthUser(req, res, db);
+        if (!actor) return;
+        if (actor.role !== "teacher") {
+          forbidden(res);
+          return;
+        }
+        json(res, 200, {
+          items: listWorkbookServerRecordingsForUser(db, actor.id).map(
+            serializeWorkbookRecordingLibraryItem
+          ),
+          serverTime: nowIso(),
+        });
+        return;
+      }
+
+      const workbookRecordingLibraryMatch = pathname.match(
+        /^\/api\/workbook\/recordings\/([^/]+)(?:\/(title|playback|download))?$/
+      );
+      if (workbookRecordingLibraryMatch) {
+        const actor = requireAuthUser(req, res, db);
+        if (!actor) return;
+        if (actor.role !== "teacher") {
+          forbidden(res);
+          return;
+        }
+        const recordingId = decodeURIComponent(workbookRecordingLibraryMatch[1]);
+        const action = workbookRecordingLibraryMatch[2] ?? "";
+
+        if (method === "PUT" && action === "title") {
+          const body = (await readBody(req)) as { title?: unknown } | null;
+          if (typeof body?.title !== "string" || body.title.trim().length < 2) {
+            badRequest(res, "Введите название записи.");
+            return;
+          }
+          try {
+            const recording = renameWorkbookServerRecording(
+              db,
+              actor.id,
+              recordingId,
+              body.title
+            );
+            if (!recording) {
+              notFound(res);
+              return;
+            }
+            saveDb();
+            json(res, 200, {
+              ok: true,
+              recording: serializeWorkbookRecordingLibraryItem(recording),
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "recording_rename_failed";
+            badRequest(res, message);
+          }
+          return;
+        }
+
+        if (method === "DELETE" && action === "") {
+          try {
+            const recording = deleteWorkbookServerRecording(db, actor.id, recordingId);
+            if (!recording) {
+              notFound(res);
+              return;
+            }
+            saveDb();
+            json(res, 200, {
+              ok: true,
+              deletedRecordingId: recording.id,
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "recording_delete_failed";
+            if (message === "recording_is_active") {
+              conflict(res, message);
+              return;
+            }
+            badRequest(res, message);
+          }
+          return;
+        }
+
+        if (method === "GET" && (action === "playback" || action === "download")) {
+          const recording = getWorkbookServerRecordingForUser(db, actor.id, recordingId);
+          if (!recording) {
+            notFound(res);
+            return;
+          }
+          if (recording.status !== "ready" || (!recording.filePath && !recording.outputUrl)) {
+            badRequest(res, "recording_not_ready");
+            return;
+          }
+          try {
+            await streamWorkbookRecordingMedia({
+              req,
+              res,
+              recording,
+              disposition: action === "download" ? "attachment" : "inline",
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "recording_stream_failed";
+            serviceUnavailable(res, message);
+          }
+          return;
+        }
+      }
+
       const workbookRecordingStatusMatch = pathname.match(
         /^\/api\/workbook\/sessions\/([^/]+)\/recording$/
       );
@@ -3715,7 +3985,9 @@ export const handleWorkbookApiRequestByDomains = async (
           available: availability.available,
           unavailableReason: availability.reason,
           serverTime: nowIso(),
-          recording: serializeWorkbookServerRecording(getWorkbookServerRecordingForSession(sessionId)),
+          recording: serializeWorkbookServerRecording(
+            getWorkbookServerRecordingForSession(db, sessionId)
+          ),
         });
         return;
       }
@@ -3759,10 +4031,14 @@ export const handleWorkbookApiRequestByDomains = async (
         }
         try {
           const recording = await startWorkbookServerRecording({
+            db,
             sessionId,
+            sessionTitle: session.title,
             publicBaseUrl: PUBLIC_BASE_URL || inferPublicOrigin(req),
             createdBy: actor.id,
+            persist: saveDb,
           });
+          saveDb();
           json(res, 200, {
             available: true,
             unavailableReason: null,
@@ -3770,6 +4046,7 @@ export const handleWorkbookApiRequestByDomains = async (
             recording: serializeWorkbookServerRecording(recording),
           });
         } catch (error) {
+          saveDb();
           const message = error instanceof Error ? error.message : "recording_start_failed";
           if (message === "recording_stop_in_progress") {
             conflict(res, message);
@@ -3811,12 +4088,15 @@ export const handleWorkbookApiRequestByDomains = async (
         const body = (await readBody(req)) as { recordingId?: unknown } | null;
         try {
           const recording = await stopWorkbookServerRecording({
+            db,
             sessionId,
             recordingId:
               typeof body?.recordingId === "string" && body.recordingId.trim().length > 0
                 ? body.recordingId.trim()
                 : null,
+            persist: saveDb,
           });
+          saveDb();
           json(res, 200, {
             available: true,
             unavailableReason: null,
@@ -3824,6 +4104,7 @@ export const handleWorkbookApiRequestByDomains = async (
             recording: serializeWorkbookServerRecording(recording),
           });
         } catch (error) {
+          saveDb();
           const message = error instanceof Error ? error.message : "recording_stop_failed";
           if (message === "recording_not_found") {
             notFound(res);

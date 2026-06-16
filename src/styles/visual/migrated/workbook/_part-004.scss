@@ -101,6 +101,102 @@
   }
 }
 
+.workbook-hub__recording-preview {
+  display: grid;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 72%, var(--brand-soft));
+  border-radius: 16px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-elevated) 96%, transparent),
+      color-mix(in srgb, var(--surface-soft) 92%, transparent)
+    );
+  padding: 12px;
+  box-shadow: 0 18px 42px color-mix(in srgb, var(--brand-solid) 12%, transparent);
+}
+
+.workbook-hub__recording-preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  h2 {
+    margin: 2px 0 0;
+    color: var(--text-primary);
+    font-size: clamp(1rem, 1.4vw, 1.18rem);
+    line-height: 1.22;
+  }
+  p {
+    margin: 4px 0 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+}
+
+.workbook-hub__recording-preview-kicker {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workbook-hub__recording-preview-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.workbook-hub__recording-video {
+  display: block;
+  width: 100%;
+  max-height: min(58vh, 560px);
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  background: #05070b;
+  object-fit: contain;
+}
+
+.workbook-hub__list--recordings {
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+.workbook-hub__recording-card {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  cursor: pointer;
+}
+
+.workbook-hub__recording-card.is-selected {
+  border-color: color-mix(in srgb, var(--brand-solid) 42%, var(--workbook-card-hover-border));
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--brand-solid) 16%, transparent);
+}
+
+.workbook-hub__recording-card.is-disabled {
+  cursor: default;
+}
+
+.workbook-hub__recording-thumb {
+  min-height: 132px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: color-mix(in srgb, var(--brand-solid) 68%, var(--text-primary));
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--brand-soft) 18%, transparent),
+      color-mix(in srgb, var(--surface-soft) 92%, transparent)
+    );
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
+  svg {
+    font-size: 32px;
+  }
+}
+
 .workbook-hub__card--with-preview .workbook-hub__card-action-btn.MuiButton-root {
   color: var(--workbook-card-text-primary);
   border: 1px solid color-mix(in srgb, #ffffff 66%, #b3c0d1 34%);

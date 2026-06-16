@@ -16,10 +16,13 @@ import {
 } from "@mui/material";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
+import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import MenuBookRoundedIcon from "@mui/icons-material/MenuBookRounded";
+import MovieRoundedIcon from "@mui/icons-material/MovieRounded";
 import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
+import PlayCircleOutlineRoundedIcon from "@mui/icons-material/PlayCircleOutlineRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
 import "./workbookRouteStyles";
@@ -30,13 +33,20 @@ import { AuthAmbientScene } from "@/features/auth-ambient/ui/AuthAmbientScene";
 import {
   createWorkbookInvite,
   createWorkbookSession,
+  deleteWorkbookRecording,
   deleteWorkbookSession,
   getWorkbookDrafts,
+  getWorkbookRecordings,
+  renameWorkbookRecording,
   renameWorkbookSession,
   updateWorkbookSessionDraftPreview,
   uploadWorkbookAsset,
 } from "@/features/workbook/model/api";
-import type { WorkbookDraftCard, WorkbookInviteInfo } from "@/features/workbook/model/types";
+import type {
+  WorkbookDraftCard,
+  WorkbookInviteInfo,
+  WorkbookRecordingLibraryItem,
+} from "@/features/workbook/model/types";
 import { prefetchWorkbookSessionRuntime } from "./prefetchWorkbookSessionRuntime";
 import { APP_DATA_UPDATED_EVENT } from "@/shared/lib/dataUpdateBus";
 import { InlineMobiusLoader } from "@/shared/ui/loading";
@@ -48,7 +58,7 @@ import {
   type WorkbookHubPreviewRefreshHint,
 } from "./workbookHubPreviewBridge";
 
-type HubScope = "class" | "personal";
+type HubScope = "class" | "personal" | "recordings";
 
 const toSessionPath = (sessionId: string) =>
   `/workbook/session/${encodeURIComponent(sessionId)}`;
@@ -118,6 +128,54 @@ const formatDuration = (minutes?: number | null) => {
   return `${hours} ч ${restMinutes} мин`;
 };
 
+const formatVideoDuration = (seconds?: number | null) => {
+  if (!seconds || seconds <= 0) return "Без данных";
+  const totalSeconds = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const restSeconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(restSeconds).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(restSeconds).padStart(2, "0")}`;
+};
+
+const resolveRecordingStatusLabel = (status: WorkbookRecordingLibraryItem["status"]) => {
+  if (status === "ready") return "Готово";
+  if (status === "recording") return "Идет запись";
+  if (status === "starting") return "Запускается";
+  if (status === "stopping") return "Останавливается";
+  if (status === "processing") return "Готовится файл";
+  if (status === "failed") return "Ошибка записи";
+  return "Нет данных";
+};
+
+const areRecordingItemsEqual = (
+  left: WorkbookRecordingLibraryItem[],
+  right: WorkbookRecordingLibraryItem[]
+) => {
+  if (left.length !== right.length) return false;
+  return left.every((current, index) => {
+    const next = right[index];
+    return (
+      next &&
+      current.id === next.id &&
+      current.sessionId === next.sessionId &&
+      current.title === next.title &&
+      current.sessionTitle === next.sessionTitle &&
+      current.status === next.status &&
+      current.createdAt === next.createdAt &&
+      current.startedAt === next.startedAt &&
+      current.stoppedAt === next.stoppedAt &&
+      current.updatedAt === next.updatedAt &&
+      current.durationSeconds === next.durationSeconds &&
+      current.playbackUrl === next.playbackUrl &&
+      current.downloadUrl === next.downloadUrl &&
+      current.errorMessage === next.errorMessage
+    );
+  });
+};
+
 const resolveInviteUrl = (invite: WorkbookInviteInfo) => {
   const rawInviteUrl = typeof invite.inviteUrl === "string" ? invite.inviteUrl.trim() : "";
   const invitePath = rawInviteUrl.startsWith("http://") || rawInviteUrl.startsWith("https://")
@@ -142,20 +200,30 @@ export default function WorkbookHubPage() {
   );
   const [scope, setScope] = useState<HubScope>("class");
   const [drafts, setDrafts] = useState<WorkbookDraftCard[]>([]);
+  const [recordings, setRecordings] = useState<WorkbookRecordingLibraryItem[]>([]);
+  const [selectedRecordingId, setSelectedRecordingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [recordingsError, setRecordingsError] = useState<string | null>(null);
   const [creatingClass, setCreatingClass] = useState(false);
   const [creatingPersonal, setCreatingPersonal] = useState(false);
   const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [deletingRecordingId, setDeletingRecordingId] = useState<string | null>(null);
+  const [renamingRecordingId, setRenamingRecordingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [pageByScope, setPageByScope] = useState<Record<HubScope, number>>({
     class: 1,
     personal: 1,
+    recordings: 1,
   });
   const [pendingDeleteCard, setPendingDeleteCard] = useState<WorkbookDraftCard | null>(null);
+  const [pendingDeleteRecording, setPendingDeleteRecording] =
+    useState<WorkbookRecordingLibraryItem | null>(null);
   const [pendingRenameCard, setPendingRenameCard] = useState<WorkbookDraftCard | null>(null);
+  const [pendingRenameRecording, setPendingRenameRecording] =
+    useState<WorkbookRecordingLibraryItem | null>(null);
   const [renameTitleDraft, setRenameTitleDraft] = useState("");
   const [previewLoadErrorBySessionId, setPreviewLoadErrorBySessionId] = useState<
     Record<string, string>
@@ -194,6 +262,12 @@ export default function WorkbookHubPage() {
   }, [drafts]);
 
   useEffect(() => {
+    if (!selectedRecordingId) return;
+    if (recordings.some((recording) => recording.id === selectedRecordingId)) return;
+    setSelectedRecordingId(null);
+  }, [recordings, selectedRecordingId]);
+
+  useEffect(() => {
     if (!isAuthReady) return;
     if (!user) {
       openAuthModal();
@@ -210,6 +284,9 @@ export default function WorkbookHubPage() {
       loadingInFlightRef.current = false;
       queuedReloadRef.current = false;
       hasLoadedAtLeastOnceRef.current = false;
+      setRecordings([]);
+      setRecordingsError(null);
+      setSelectedRecordingId(null);
       return;
     }
     if (loadingInFlightRef.current) {
@@ -224,14 +301,33 @@ export default function WorkbookHubPage() {
       if (showSkeleton) {
         setLoading(true);
       }
-      const response = await getWorkbookDrafts("all");
+      const draftsResponse = await getWorkbookDrafts("all");
+      let sortedRecordings: WorkbookRecordingLibraryItem[] | null = null;
+      try {
+        const recordingsResponse = await getWorkbookRecordings();
+        sortedRecordings = [...recordingsResponse.items].sort(
+          (left, right) => toSortTimestamp(right.updatedAt) - toSortTimestamp(left.updatedAt)
+        );
+      } catch {
+        sortedRecordings = null;
+      }
       if (loadRequestVersionRef.current !== requestVersion) return;
-      const sorted = dedupeDraftCards(response.items).sort(
+      const sorted = dedupeDraftCards(draftsResponse.items).sort(
         (left, right) => toSortTimestamp(right.updatedAt) - toSortTimestamp(left.updatedAt)
       );
       hasLoadedAtLeastOnceRef.current = true;
       setError(null);
       setDrafts((current) => (areDraftCardsEqual(current, sorted) ? current : sorted));
+      if (sortedRecordings) {
+        setRecordingsError(null);
+        setRecordings((current) =>
+          areRecordingItemsEqual(current, sortedRecordings) ? current : sortedRecordings
+        );
+      } else {
+        setRecordingsError(
+          "Не удалось синхронизировать записи занятий. Показываем последние доступные данные."
+        );
+      }
     } catch {
       if (loadRequestVersionRef.current !== requestVersion) return;
       hasLoadedAtLeastOnceRef.current = true;
@@ -341,6 +437,7 @@ export default function WorkbookHubPage() {
     const personalDrafts = drafts.filter((item) => item.kind === "PERSONAL");
     return [classDrafts, personalDrafts];
   }, [drafts]);
+  const isRecordingsScope = scope === "recordings";
   const cards = scope === "class" ? classCards : personalCards;
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase("ru-RU");
   const filteredCards = useMemo(() => {
@@ -349,13 +446,29 @@ export default function WorkbookHubPage() {
       card.title.toLocaleLowerCase("ru-RU").includes(normalizedSearchQuery)
     );
   }, [cards, normalizedSearchQuery]);
+  const filteredRecordings = useMemo(() => {
+    if (normalizedSearchQuery.length === 0) return recordings;
+    return recordings.filter((recording) => {
+      const title = recording.title.toLocaleLowerCase("ru-RU");
+      const sessionTitle = (recording.sessionTitle ?? "").toLocaleLowerCase("ru-RU");
+      return title.includes(normalizedSearchQuery) || sessionTitle.includes(normalizedSearchQuery);
+    });
+  }, [normalizedSearchQuery, recordings]);
+  const visibleItemCount = isRecordingsScope ? filteredRecordings.length : filteredCards.length;
   const requestedPage = pageByScope[scope] ?? 1;
-  const totalPages = Math.max(1, Math.ceil(filteredCards.length / HUB_CARDS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(visibleItemCount / HUB_CARDS_PER_PAGE));
   const currentPage = Math.min(Math.max(requestedPage, 1), totalPages);
   const pageCards = useMemo(() => {
     const offset = (currentPage - 1) * HUB_CARDS_PER_PAGE;
     return filteredCards.slice(offset, offset + HUB_CARDS_PER_PAGE);
   }, [currentPage, filteredCards]);
+  const pageRecordings = useMemo(() => {
+    const offset = (currentPage - 1) * HUB_CARDS_PER_PAGE;
+    return filteredRecordings.slice(offset, offset + HUB_CARDS_PER_PAGE);
+  }, [currentPage, filteredRecordings]);
+  const selectedRecording = selectedRecordingId
+    ? recordings.find((recording) => recording.id === selectedRecordingId) ?? null
+    : null;
   const paginationItems = useMemo(() => {
     if (totalPages <= 7) {
       return Array.from({ length: totalPages }, (_, index) => index + 1);
@@ -369,7 +482,10 @@ export default function WorkbookHubPage() {
     return [1, -1, currentPage - 1, currentPage, currentPage + 1, -1, totalPages];
   }, [currentPage, totalPages]);
   const hasSearchResults = normalizedSearchQuery.length > 0;
-  const skeletonCount = Math.max(3, Math.min(cards.length || 0, 6));
+  const skeletonCount = Math.max(
+    3,
+    Math.min((isRecordingsScope ? recordings.length : cards.length) || 0, 6)
+  );
 
   useEffect(() => {
     if (requestedPage === currentPage) return;
@@ -525,6 +641,71 @@ export default function WorkbookHubPage() {
       setError("Не удалось изменить название карточки.");
     } finally {
       setRenamingSessionId(null);
+    }
+  };
+
+  const handleOpenRecordingPreview = (recording: WorkbookRecordingLibraryItem) => {
+    if (recording.status !== "ready") {
+      setError("Запись еще не готова к просмотру.");
+      return;
+    }
+    setError(null);
+    setSelectedRecordingId(recording.id);
+  };
+
+  const handleRenameRecording = (recording: WorkbookRecordingLibraryItem) => {
+    setPendingRenameRecording(recording);
+    setRenameTitleDraft(recording.title);
+  };
+
+  const handleConfirmRenameRecording = async () => {
+    const recording = pendingRenameRecording;
+    if (!recording) return;
+    const nextTitle = renameTitleDraft.trim();
+    if (nextTitle.length < 2) {
+      setError("Название должно содержать минимум 2 символа.");
+      return;
+    }
+    if (nextTitle === recording.title) return;
+    try {
+      setRenamingRecordingId(recording.id);
+      setError(null);
+      const result = await renameWorkbookRecording(recording.id, nextTitle);
+      setRecordings((current) =>
+        current.map((item) => (item.id === recording.id ? result.recording : item))
+      );
+      setPendingRenameRecording(null);
+    } catch {
+      setError("Не удалось изменить название записи.");
+    } finally {
+      setRenamingRecordingId(null);
+    }
+  };
+
+  const handleDeleteRecording = (recording: WorkbookRecordingLibraryItem) => {
+    setPendingDeleteRecording(recording);
+  };
+
+  const handleConfirmDeleteRecording = async () => {
+    const recording = pendingDeleteRecording;
+    if (!recording) return;
+    try {
+      setDeletingRecordingId(recording.id);
+      setError(null);
+      await deleteWorkbookRecording(recording.id);
+      setRecordings((current) => current.filter((item) => item.id !== recording.id));
+      if (selectedRecordingId === recording.id) {
+        setSelectedRecordingId(null);
+      }
+      setPendingDeleteRecording(null);
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 409) {
+        setError("Нельзя удалить запись, пока она еще обрабатывается или идет.");
+        return;
+      }
+      setError("Не удалось удалить запись.");
+    } finally {
+      setDeletingRecordingId(null);
     }
   };
 
@@ -815,16 +996,19 @@ export default function WorkbookHubPage() {
             className="workbook-hub__search-input"
             type="search"
             value={searchQuery}
-            placeholder="Поиск карточки по названию"
+            placeholder={
+              scope === "recordings" ? "Поиск записи по названию" : "Поиск карточки по названию"
+            }
             onChange={(event) => {
               const nextQuery = event.target.value;
               setSearchQuery(nextQuery);
               setPageByScope((current) =>
-                current.class === 1 && current.personal === 1
+                current.class === 1 && current.personal === 1 && current.recordings === 1
                   ? current
                   : {
                       class: 1,
                       personal: 1,
+                      recordings: 1,
                     }
               );
             }}
@@ -836,11 +1020,12 @@ export default function WorkbookHubPage() {
               onClick={() => {
                 setSearchQuery("");
                 setPageByScope((current) =>
-                  current.class === 1 && current.personal === 1
+                  current.class === 1 && current.personal === 1 && current.recordings === 1
                     ? current
                     : {
                         class: 1,
                         personal: 1,
+                        recordings: 1,
                       }
                 );
               }}
@@ -865,9 +1050,16 @@ export default function WorkbookHubPage() {
           >
             Личные тетради ({personalCards.length})
           </button>
+          <button
+            type="button"
+            className={scope === "recordings" ? "is-active" : ""}
+            onClick={() => setScope("recordings")}
+          >
+            Записи занятий ({recordings.length})
+          </button>
         </div>
         <div className="workbook-hub__search-meta">
-          {filteredCards.length > 0 ? (
+          {visibleItemCount > 0 ? (
             <span>
               Страница {currentPage} из {totalPages}
             </span>
@@ -877,6 +1069,11 @@ export default function WorkbookHubPage() {
         {error ? (
           <Alert severity="error" onClose={() => setError(null)}>
             {error}
+          </Alert>
+        ) : null}
+        {isRecordingsScope && recordingsError ? (
+          <Alert severity="warning" onClose={() => setRecordingsError(null)}>
+            {recordingsError}
           </Alert>
         ) : null}
 
@@ -907,14 +1104,228 @@ export default function WorkbookHubPage() {
               </article>
             ))}
           </div>
-        ) : filteredCards.length === 0 ? (
+        ) : visibleItemCount === 0 ? (
           <Alert severity="info">
             {hasSearchResults
-              ? "По вашему запросу карточки не найдены. Попробуйте другое название."
+              ? isRecordingsScope
+                ? "По вашему запросу записи не найдены. Попробуйте другое название."
+                : "По вашему запросу карточки не найдены. Попробуйте другое название."
               : scope === "class"
                 ? "Карточек индивидуальных занятий пока нет. Нажмите «Начать индивидуальное занятие»."
-                : "Личных тетрадей пока нет. Нажмите «Новая личная тетрадь»."}
+                : scope === "personal"
+                  ? "Личных тетрадей пока нет. Нажмите «Новая личная тетрадь»."
+                  : "Записей занятий пока нет. После остановки записи готовые видео появятся здесь."}
           </Alert>
+        ) : isRecordingsScope ? (
+          <>
+            {selectedRecording ? (
+              <section className="workbook-hub__recording-preview" aria-label="Просмотр записи">
+                <div className="workbook-hub__recording-preview-head">
+                  <div>
+                    <span className="workbook-hub__recording-preview-kicker">Запись занятия</span>
+                    <h2>{selectedRecording.title}</h2>
+                    <p>
+                      {selectedRecording.sessionTitle ?? "Без привязки к тетради"} ·{" "}
+                      {formatDateTime(selectedRecording.updatedAt)}
+                    </p>
+                  </div>
+                  <div className="workbook-hub__recording-preview-actions">
+                    <Button
+                      href={selectedRecording.downloadUrl}
+                      variant="outlined"
+                      size="small"
+                      startIcon={<DownloadRoundedIcon />}
+                    >
+                      Скачать
+                    </Button>
+                    <IconButton
+                      size="small"
+                      aria-label="Закрыть просмотр записи"
+                      onClick={() => setSelectedRecordingId(null)}
+                    >
+                      <CloseRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </div>
+                </div>
+                <video
+                  className="workbook-hub__recording-video"
+                  src={selectedRecording.playbackUrl}
+                  controls
+                  playsInline
+                  preload="metadata"
+                />
+              </section>
+            ) : null}
+
+            <div className="workbook-hub__list workbook-hub__list--recordings">
+              {pageRecordings.map((recording) => {
+                const isReady = recording.status === "ready";
+                const isDeleting = deletingRecordingId === recording.id;
+                const isRenaming = renamingRecordingId === recording.id;
+                return (
+                  <article
+                    className={`workbook-hub__card workbook-hub__recording-card${
+                      selectedRecordingId === recording.id ? " is-selected" : ""
+                    }${!isReady ? " is-disabled" : ""}`}
+                    key={recording.id}
+                    onClick={() => handleOpenRecordingPreview(recording)}
+                  >
+                    <div className="workbook-hub__recording-thumb" aria-hidden="true">
+                      <MovieRoundedIcon />
+                    </div>
+                    <div className="workbook-hub__card-main">
+                      <div className="workbook-hub__card-title-row">
+                        <Avatar sx={{ width: 26, height: 26 }}>
+                          <MovieRoundedIcon fontSize="small" />
+                        </Avatar>
+                        <h3 title={recording.title}>{recording.title}</h3>
+                      </div>
+
+                      <div className="workbook-hub__card-meta">
+                        <span>{recording.sessionTitle ?? "Запись занятия"}</span>
+                        <span>•</span>
+                        <span>{resolveRecordingStatusLabel(recording.status)}</span>
+                      </div>
+
+                      <div className="workbook-hub__card-timeline">
+                        <div className="workbook-hub__card-timeline-row">
+                          <span className="workbook-hub__card-timeline-label">Сохранено</span>
+                          <span className="workbook-hub__card-timeline-value">
+                            {formatDateTime(recording.updatedAt)}
+                          </span>
+                        </div>
+                        <div className="workbook-hub__card-timeline-row">
+                          <span className="workbook-hub__card-timeline-label">Длительность</span>
+                          <span className="workbook-hub__card-timeline-value">
+                            {formatVideoDuration(recording.durationSeconds)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="workbook-hub__card-actions-row">
+                        <Button
+                          className="workbook-hub__card-action-btn workbook-hub__card-action-btn--open"
+                          size="small"
+                          variant="text"
+                          startIcon={<PlayCircleOutlineRoundedIcon />}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleOpenRecordingPreview(recording);
+                          }}
+                          disabled={!isReady}
+                        >
+                          Смотреть
+                        </Button>
+                        <div className="workbook-hub__card-actions">
+                          <Button
+                            className="workbook-hub__card-action-btn"
+                            size="small"
+                            variant="text"
+                            startIcon={
+                              isRenaming ? (
+                                <InlineMobiusLoader size="tiny" decorative />
+                              ) : (
+                                <EditRoundedIcon fontSize="small" />
+                              )
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleRenameRecording(recording);
+                            }}
+                            disabled={isRenaming}
+                          >
+                            Редактировать
+                          </Button>
+                          <Button
+                            className="workbook-hub__card-action-btn"
+                            size="small"
+                            variant="text"
+                            href={isReady ? recording.downloadUrl : undefined}
+                            startIcon={<DownloadRoundedIcon fontSize="small" />}
+                            onClick={(event) => event.stopPropagation()}
+                            disabled={!isReady}
+                          >
+                            Скачать
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                    <Tooltip title="Удалить запись">
+                      <span>
+                        <IconButton
+                          size="small"
+                          className="workbook-hub__card-remove"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleDeleteRecording(recording);
+                          }}
+                          disabled={isDeleting}
+                        >
+                          <DeleteOutlineRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </article>
+                );
+              })}
+            </div>
+            {totalPages > 1 ? (
+              <nav className="workbook-hub__pagination" aria-label="Пагинация записей">
+                <button
+                  type="button"
+                  className="workbook-hub__pagination-btn"
+                  onClick={() =>
+                    setPageByScope((current) => ({
+                      ...current,
+                      [scope]: Math.max(1, currentPage - 1),
+                    }))
+                  }
+                  disabled={currentPage <= 1}
+                >
+                  Назад
+                </button>
+                <div className="workbook-hub__pagination-pages">
+                  {paginationItems.map((pageItem, index) =>
+                    pageItem === -1 ? (
+                      <span key={`ellipsis-${index}`} className="workbook-hub__pagination-ellipsis">
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={pageItem}
+                        type="button"
+                        className={`workbook-hub__pagination-btn workbook-hub__pagination-btn--page${
+                          currentPage === pageItem ? " is-active" : ""
+                        }`}
+                        onClick={() =>
+                          setPageByScope((current) => ({
+                            ...current,
+                            [scope]: pageItem,
+                          }))
+                        }
+                        aria-current={currentPage === pageItem ? "page" : undefined}
+                      >
+                        {pageItem}
+                      </button>
+                    )
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="workbook-hub__pagination-btn"
+                  onClick={() =>
+                    setPageByScope((current) => ({
+                      ...current,
+                      [scope]: Math.min(totalPages, currentPage + 1),
+                    }))
+                  }
+                  disabled={currentPage >= totalPages}
+                >
+                  Вперед
+                </button>
+              </nav>
+            ) : null}
+          </>
         ) : (
           <>
             <div className="workbook-hub__list">
@@ -1207,6 +1618,24 @@ export default function WorkbookHubPage() {
       </Dialog>
 
       <PlatformConfirmDialog
+        open={Boolean(pendingDeleteRecording)}
+        title="Удалить запись?"
+        description={
+          pendingDeleteRecording
+            ? `Запись «${pendingDeleteRecording.title}» будет скрыта из списка записей занятий.`
+            : "Запись будет скрыта из списка записей занятий."
+        }
+        confirmLabel="Удалить"
+        tone="destructive"
+        loading={Boolean(deletingRecordingId)}
+        onCancel={() => {
+          if (deletingRecordingId) return;
+          setPendingDeleteRecording(null);
+        }}
+        onConfirm={() => void handleConfirmDeleteRecording()}
+      />
+
+      <PlatformConfirmDialog
         open={Boolean(pendingRenameCard)}
         title="Изменить название карточки"
         description="Введите новое название. Изменение сразу отобразится в карточке."
@@ -1238,6 +1667,40 @@ export default function WorkbookHubPage() {
           setPendingRenameCard(null);
         }}
         onConfirm={() => void handleConfirmRenameCard()}
+      />
+
+      <PlatformConfirmDialog
+        open={Boolean(pendingRenameRecording)}
+        title="Изменить название записи"
+        description="Введите новое название. Оно будет использовано в карточке и имени скачиваемого файла."
+        confirmLabel="Сохранить"
+        tone="neutral"
+        loading={Boolean(renamingRecordingId)}
+        confirmDisabled={
+          renameTitleDraft.trim().length < 2 ||
+          renameTitleDraft.trim() === (pendingRenameRecording?.title ?? "")
+        }
+        content={
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="Название записи"
+            value={renameTitleDraft}
+            onChange={(event) => setRenameTitleDraft(event.target.value)}
+            disabled={Boolean(renamingRecordingId)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || event.shiftKey) return;
+              event.preventDefault();
+              void handleConfirmRenameRecording();
+            }}
+          />
+        }
+        onCancel={() => {
+          if (renamingRecordingId) return;
+          setPendingRenameRecording(null);
+        }}
+        onConfirm={() => void handleConfirmRenameRecording()}
       />
 
     </section>

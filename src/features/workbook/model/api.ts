@@ -23,6 +23,8 @@ import type {
   WorkbookLessonRecordingStatusResponse,
   WorkbookLivekitTokenResponse,
   WorkbookMediaConfig,
+  WorkbookRecordingLibraryItem,
+  WorkbookRecordingLibraryResponse,
   WorkbookSessionSettings,
   WorkbookSession,
   WorkbookSessionKind,
@@ -214,6 +216,28 @@ export async function stopWorkbookLessonRecording(sessionId: string, recordingId
       notifyDataUpdate: false,
       timeoutMs: 30_000,
     }
+  );
+}
+
+export async function getWorkbookRecordings() {
+  return api.get<WorkbookRecordingLibraryResponse>("/workbook/recordings", {
+    cacheTtlMs: 1_000,
+    staleIfErrorMs: 0,
+  });
+}
+
+export async function renameWorkbookRecording(recordingId: string, title: string) {
+  return api.put<{ ok: true; recording: WorkbookRecordingLibraryItem }>(
+    `/workbook/recordings/${encodeURIComponent(recordingId)}/title`,
+    { title },
+    { notifyDataUpdate: true }
+  );
+}
+
+export async function deleteWorkbookRecording(recordingId: string) {
+  return api.del<{ ok: true; deletedRecordingId: string }>(
+    `/workbook/recordings/${encodeURIComponent(recordingId)}`,
+    { notifyDataUpdate: true }
   );
 }
 

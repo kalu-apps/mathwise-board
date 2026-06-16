@@ -1,39 +1,32 @@
 import crypto from "node:crypto";
 import type { IncomingMessage } from "node:http";
-import type { MockDb, UserRecord } from "./db";
+import type {
+  MockDb,
+  UserRecord,
+  WorkbookRecordingRecord,
+  WorkbookRecordingStatus,
+} from "./db";
 
 export type WorkbookServerRecordingStatus =
   | "idle"
-  | "starting"
-  | "recording"
-  | "stopping"
-  | "processing"
-  | "ready"
-  | "failed";
+  | WorkbookRecordingStatus;
 
-export type WorkbookServerRecordingRecord = {
-  id: string;
-  sessionId: string;
-  status: WorkbookServerRecordingStatus;
-  startedAt: string | null;
-  stoppedAt: string | null;
-  updatedAt: string;
-  outputUrl: string | null;
-  errorMessage: string | null;
-  egressId: string | null;
-  recordingPageUrl: string | null;
-  createdBy: string;
-};
+export type WorkbookServerRecordingRecord = WorkbookRecordingRecord;
 
 type StartWorkbookServerRecordingParams = {
+  db: MockDb;
   sessionId: string;
+  sessionTitle?: string | null;
   publicBaseUrl: string;
   createdBy: string;
+  persist?: () => void;
 };
 
 type StopWorkbookServerRecordingParams = {
+  db: MockDb;
   sessionId: string;
   recordingId?: string | null;
+  persist?: () => void;
 };
 
 type RecordingTokenPayload = {
@@ -133,6 +126,60 @@ const sanitizeFilePathPart = (value: string) =>
     .replace(/[^a-zA-Z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 96) || "session";
+
+const sanitizeRecordingTitle = (value: string) =>
+  value
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 140);
+
+const buildDefaultRecordingTitle = (sessionTitle: string | null | undefined, timestamp: string) => {
+  const titlePrefix = sanitizeRecordingTitle(sessionTitle ?? "") || "Запись занятия";
+  const dateLabel = new Intl.DateTimeFormat("ru-RU", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(timestamp));
+  return sanitizeRecordingTitle(`${titlePrefix} · ${dateLabel}`) || "Запись занятия";
+};
+
+const ensureWorkbookRecordings = (db: MockDb) => {
+  if (!Array.isArray(db.workbookRecordings)) {
+    db.workbookRecordings = [];
+  }
+  return db.workbookRecordings;
+};
+
+const upsertWorkbookRecording = (db: MockDb, recording: WorkbookServerRecordingRecord) => {
+  const recordings = ensureWorkbookRecordings(db);
+  const index = recordings.findIndex((item) => item.id === recording.id);
+  if (index >= 0) {
+    recordings[index] = recording;
+  } else {
+    recordings.push(recording);
+  }
+  recordingsById.set(recording.id, recording);
+};
+
+const readWorkbookRecordingById = (db: MockDb, recordingId: string) =>
+  recordingsById.get(recordingId) ??
+  ensureWorkbookRecordings(db).find((recording) => recording.id === recordingId) ??
+  null;
+
+const isActiveRecordingStatus = (status: WorkbookServerRecordingStatus) =>
+  status === "starting" ||
+  status === "recording" ||
+  status === "stopping" ||
+  status === "processing";
+
+const resolveRecordingDurationSeconds = (recording: WorkbookServerRecordingRecord) => {
+  if (!recording.startedAt || !recording.stoppedAt) return null;
+  const startedAt = Date.parse(recording.startedAt);
+  const stoppedAt = Date.parse(recording.stoppedAt);
+  if (!Number.isFinite(startedAt) || !Number.isFinite(stoppedAt) || stoppedAt < startedAt) {
+    return null;
+  }
+  return Math.max(0, Math.round((stoppedAt - startedAt) / 1_000));
+};
 
 const buildRecordingFilePath = (sessionId: string, recordingId: string) => {
   const prefix = (readTrimmedEnv("WORKBOOK_RECORDING_FILE_PREFIX") || DEFAULT_RECORDING_FILE_PREFIX)
@@ -299,6 +346,8 @@ export const serializeWorkbookServerRecording = (
     ? {
         id: recording.id,
         sessionId: recording.sessionId,
+        title: recording.title,
+        sessionTitle: recording.sessionTitle ?? null,
         status: recording.status,
         startedAt: recording.startedAt,
         stoppedAt: recording.stoppedAt,
@@ -308,25 +357,95 @@ export const serializeWorkbookServerRecording = (
       }
     : null;
 
-export const getWorkbookServerRecordingForSession = (sessionId: string) => {
+export const serializeWorkbookRecordingLibraryItem = (
+  recording: WorkbookServerRecordingRecord
+) => ({
+  id: recording.id,
+  sessionId: recording.sessionId,
+  title: recording.title,
+  sessionTitle: recording.sessionTitle ?? null,
+  status: recording.status,
+  createdAt: recording.createdAt,
+  startedAt: recording.startedAt,
+  stoppedAt: recording.stoppedAt,
+  updatedAt: recording.updatedAt,
+  durationSeconds: resolveRecordingDurationSeconds(recording),
+  playbackUrl: `/api/workbook/recordings/${encodeURIComponent(recording.id)}/playback`,
+  downloadUrl: `/api/workbook/recordings/${encodeURIComponent(recording.id)}/download`,
+  errorMessage: recording.errorMessage,
+});
+
+export const getWorkbookServerRecordingForSession = (db: MockDb, sessionId: string) => {
   const activeId = activeRecordingIdBySession.get(sessionId);
-  if (activeId) return recordingsById.get(activeId) ?? null;
-  const recordings = Array.from(recordingsById.values())
-    .filter((recording) => recording.sessionId === sessionId)
+  if (activeId) return readWorkbookRecordingById(db, activeId);
+  const recordings = ensureWorkbookRecordings(db)
+    .filter((recording) => recording.sessionId === sessionId && !recording.deletedAt)
     .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
   return recordings[0] ?? null;
 };
 
+export const listWorkbookServerRecordingsForUser = (db: MockDb, userId: string) =>
+  ensureWorkbookRecordings(db)
+    .filter((recording) => recording.createdBy === userId && !recording.deletedAt)
+    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+
+export const getWorkbookServerRecordingForUser = (
+  db: MockDb,
+  userId: string,
+  recordingId: string
+) => {
+  const recording = readWorkbookRecordingById(db, recordingId);
+  if (!recording || recording.createdBy !== userId || recording.deletedAt) return null;
+  return recording;
+};
+
+export const renameWorkbookServerRecording = (
+  db: MockDb,
+  userId: string,
+  recordingId: string,
+  title: string
+) => {
+  const recording = getWorkbookServerRecordingForUser(db, userId, recordingId);
+  if (!recording) return null;
+  const nextTitle = sanitizeRecordingTitle(title);
+  if (nextTitle.length < 2) {
+    throw new Error("recording_title_too_short");
+  }
+  recording.title = nextTitle;
+  recording.updatedAt = nowIso();
+  upsertWorkbookRecording(db, recording);
+  return recording;
+};
+
+export const deleteWorkbookServerRecording = (
+  db: MockDb,
+  userId: string,
+  recordingId: string
+) => {
+  const recording = getWorkbookServerRecordingForUser(db, userId, recordingId);
+  if (!recording) return null;
+  if (isActiveRecordingStatus(recording.status)) {
+    throw new Error("recording_is_active");
+  }
+  recording.deletedAt = nowIso();
+  recording.updatedAt = recording.deletedAt;
+  upsertWorkbookRecording(db, recording);
+  return recording;
+};
+
 export const startWorkbookServerRecording = async ({
+  db,
   sessionId,
+  sessionTitle,
   publicBaseUrl,
   createdBy,
+  persist,
 }: StartWorkbookServerRecordingParams) => {
   const availability = getWorkbookServerRecordingAvailability();
   if (!availability.available) {
     throw new Error(availability.reason ?? "server_recording_unavailable");
   }
-  const active = getWorkbookServerRecordingForSession(sessionId);
+  const active = getWorkbookServerRecordingForSession(db, sessionId);
   if (active && activeRecordingIdBySession.get(sessionId) === active.id) {
     if (active.status === "starting" || active.status === "recording") {
       return active;
@@ -352,17 +471,23 @@ export const startWorkbookServerRecording = async ({
   const recording: WorkbookServerRecordingRecord = {
     id: recordingId,
     sessionId,
+    createdBy,
+    title: buildDefaultRecordingTitle(sessionTitle, timestamp),
+    sessionTitle: sanitizeRecordingTitle(sessionTitle ?? "") || null,
     status: "starting",
+    createdAt: timestamp,
     startedAt: timestamp,
     stoppedAt: null,
     updatedAt: timestamp,
     outputUrl: buildOutputUrl(filePath),
+    filePath,
     errorMessage: null,
     egressId: null,
     recordingPageUrl,
-    createdBy,
+    deletedAt: null,
   };
-  recordingsById.set(recording.id, recording);
+  upsertWorkbookRecording(db, recording);
+  persist?.();
   activeRecordingIdBySession.set(sessionId, recording.id);
 
   try {
@@ -377,23 +502,29 @@ export const startWorkbookServerRecording = async ({
     recording.egressId = parseEgressId(response);
     recording.status = "recording";
     recording.updatedAt = nowIso();
+    upsertWorkbookRecording(db, recording);
+    persist?.();
     return recording;
   } catch (error) {
     recording.status = "failed";
     recording.errorMessage = error instanceof Error ? error.message : "recording_start_failed";
     recording.updatedAt = nowIso();
+    upsertWorkbookRecording(db, recording);
+    persist?.();
     activeRecordingIdBySession.delete(sessionId);
     throw error;
   }
 };
 
 export const stopWorkbookServerRecording = async ({
+  db,
   sessionId,
   recordingId,
+  persist,
 }: StopWorkbookServerRecordingParams) => {
   const activeId = activeRecordingIdBySession.get(sessionId);
   const resolvedRecordingId = recordingId || activeId;
-  const recording = resolvedRecordingId ? recordingsById.get(resolvedRecordingId) ?? null : null;
+  const recording = resolvedRecordingId ? readWorkbookRecordingById(db, resolvedRecordingId) : null;
   if (!recording || recording.sessionId !== sessionId) {
     throw new Error("recording_not_found");
   }
@@ -402,6 +533,8 @@ export const stopWorkbookServerRecording = async ({
   }
   recording.status = "stopping";
   recording.updatedAt = nowIso();
+  upsertWorkbookRecording(db, recording);
+  persist?.();
   try {
     if (recording.egressId) {
       await fetchLivekitEgress({
@@ -411,15 +544,19 @@ export const stopWorkbookServerRecording = async ({
         },
       });
     }
-    recording.status = recording.outputUrl ? "ready" : "processing";
+    recording.status = recording.filePath || recording.outputUrl ? "ready" : "processing";
     recording.stoppedAt = nowIso();
     recording.updatedAt = recording.stoppedAt;
+    upsertWorkbookRecording(db, recording);
+    persist?.();
     activeRecordingIdBySession.delete(sessionId);
     return recording;
   } catch (error) {
     recording.status = "failed";
     recording.errorMessage = error instanceof Error ? error.message : "recording_stop_failed";
     recording.updatedAt = nowIso();
+    upsertWorkbookRecording(db, recording);
+    persist?.();
     activeRecordingIdBySession.delete(sessionId);
     throw error;
   }

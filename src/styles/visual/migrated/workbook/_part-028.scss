@@ -380,6 +380,23 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .workbook-hub__recording-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbook-hub__recording-thumb {
+    min-height: 104px;
+  }
+
+  .workbook-hub__recording-preview-head {
+    flex-direction: column;
+  }
+
+  .workbook-hub__recording-preview-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
   .workbook-hub__card-title-row h3 {
     font-size: 14px;
     white-space: normal;

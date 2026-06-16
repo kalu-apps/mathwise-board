@@ -517,6 +517,8 @@ export type WorkbookLessonRecordingStatus =
 export type WorkbookLessonRecordingInfo = {
   id: string;
   sessionId: string;
+  title?: string;
+  sessionTitle?: string | null;
   status: WorkbookLessonRecordingStatus;
   startedAt: string | null;
   stoppedAt: string | null;
@@ -530,4 +532,25 @@ export type WorkbookLessonRecordingStatusResponse = {
   unavailableReason: string | null;
   serverTime: string;
   recording: WorkbookLessonRecordingInfo | null;
+};
+
+export type WorkbookRecordingLibraryItem = {
+  id: string;
+  sessionId: string;
+  title: string;
+  sessionTitle: string | null;
+  status: WorkbookLessonRecordingStatus;
+  createdAt: string;
+  startedAt: string | null;
+  stoppedAt: string | null;
+  updatedAt: string;
+  durationSeconds: number | null;
+  playbackUrl: string;
+  downloadUrl: string;
+  errorMessage: string | null;
+};
+
+export type WorkbookRecordingLibraryResponse = {
+  items: WorkbookRecordingLibraryItem[];
+  serverTime: string;
 };
