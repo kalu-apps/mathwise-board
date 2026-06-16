@@ -1178,6 +1178,7 @@ export default function WorkbookSessionPage() {
         events,
         userId: user?.id,
         currentBoardPageRef,
+        followRemoteViewport: isServerRecordingView,
         selectedObjectId: selectedObjectIdRef.current,
         awaitingClearRequest: awaitingClearRequestRef.current,
         lastAppliedSeqRef: refs.lastAppliedSeqRef,
@@ -1205,6 +1206,7 @@ export default function WorkbookSessionPage() {
     [
       user?.id,
       sessionId,
+      isServerRecordingView,
       currentBoardPageRef,
       refs,
       workbookSessionActions,
@@ -1457,6 +1459,7 @@ export default function WorkbookSessionPage() {
   const {
     scheduleVolatileSyncFlush,
     handleCanvasViewportOffsetChange,
+    handleCanvasViewportZoomChange,
     queueStrokePreview,
     queueStrokeTranslatePreview,
     queueEraserPreview,
@@ -1466,11 +1469,20 @@ export default function WorkbookSessionPage() {
     isEnded,
     canDraw,
     canSelect,
+    canBroadcastViewportSync:
+      isTeacherActor &&
+      canEdit &&
+      !boardLocked &&
+      !isWorkspaceInteractionBlocked,
     realtimeBackpressureV2Enabled,
     volatilePreviewMaxPerFlush,
     volatilePreviewQueueMax,
     sendWorkbookLiveEvents,
+    currentBoardPage,
+    canvasViewport,
+    viewportZoom,
     setCanvasViewport,
+    setViewportZoom,
     volatileSyncTimerRef,
     viewportSyncLastSentAtRef,
     viewportSyncQueuedOffsetRef,
@@ -3143,7 +3155,7 @@ export default function WorkbookSessionPage() {
     pointerPoints,
     viewportOffset: canvasViewport,
     onViewportOffsetChange: handleCanvasViewportOffsetChange,
-    onViewportZoomChange: setViewportZoom,
+    onViewportZoomChange: handleCanvasViewportZoomChange,
     onEraserRadiusChange: handleEraserRadiusChange,
     forcePanMode: spacePanActive,
     autoDividersEnabled: boardSettings.autoSectionDividers,

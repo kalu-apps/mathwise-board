@@ -2345,6 +2345,19 @@ const sanitizeWorkbookLiveEvents = (
       ) {
         continue;
       }
+      const page =
+        typeof (payload as { page?: unknown }).page === "number" &&
+        Number.isFinite((payload as { page: number }).page)
+          ? Math.max(1, Math.trunc((payload as { page: number }).page))
+          : null;
+      const zoom =
+        typeof (payload as { zoom?: unknown }).zoom === "number" &&
+        Number.isFinite((payload as { zoom: number }).zoom)
+          ? Math.max(
+              0.3,
+              Math.min(3, Number((payload as { zoom: number }).zoom.toFixed(2)))
+            )
+          : null;
       sanitized.push({
         ...(clientEventId ? { clientEventId } : {}),
         type,
@@ -2353,6 +2366,8 @@ const sanitizeWorkbookLiveEvents = (
             x: (offset as { x: number }).x,
             y: (offset as { y: number }).y,
           },
+          ...(page !== null ? { page } : {}),
+          ...(zoom !== null ? { zoom } : {}),
         },
       });
       continue;

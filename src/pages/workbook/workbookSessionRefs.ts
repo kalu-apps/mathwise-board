@@ -8,7 +8,10 @@ import type {
   WorkbookPoint,
   WorkbookStroke,
 } from "@/features/workbook/model/types";
-import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
+import type {
+  WorkbookClientEventInput,
+  WorkbookViewportSyncPayload,
+} from "@/features/workbook/model/events";
 import type { WorkbookStrokePreviewEntry } from "@/features/workbook/model/useWorkbookIncomingRuntimeController";
 import type { WorkbookAreaSelectionClipboard } from "@/features/workbook/model/workbookSessionUiTypes";
 import type { WorkbookRecoveryMode } from "@/features/workbook/model/workbookPerformance";
@@ -153,7 +156,7 @@ export const useWorkbookSessionRefs = () => {
   );
   const volatileSyncTimerRef = useRef<number | null>(null);
   const viewportSyncLastSentAtRef = useRef(0);
-  const viewportSyncQueuedOffsetRef = useRef<WorkbookPoint | null>(null);
+  const viewportSyncQueuedOffsetRef = useRef<WorkbookViewportSyncPayload | null>(null);
   const viewportLastReceivedAtRef = useRef(0);
 
   return useMemo(

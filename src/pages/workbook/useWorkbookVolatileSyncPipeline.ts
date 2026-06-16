@@ -7,6 +7,7 @@ import {
 } from "@/features/workbook/model/strokeTranslateEvents";
 import type {
   WorkbookClientEventInput,
+  WorkbookViewportSyncPayload,
 } from "@/features/workbook/model/events";
 import type {
   WorkbookBoardObject,
@@ -20,6 +21,8 @@ import {
   VIEWPORT_SYNC_MIN_INTERVAL_MS,
   VOLATILE_SYNC_FLUSH_INTERVAL_MS,
 } from "./WorkbookSessionPage.core";
+
+const VIEWPORT_SYNC_HEARTBEAT_MS = 1_000;
 
 type QueuedStrokePreviewEntry = {
   stroke: WorkbookStroke;
@@ -51,14 +54,19 @@ type UseWorkbookVolatileSyncPipelineParams = {
   isEnded: boolean;
   canDraw: boolean;
   canSelect: boolean;
+  canBroadcastViewportSync: boolean;
   realtimeBackpressureV2Enabled: boolean;
   volatilePreviewMaxPerFlush: number;
   volatilePreviewQueueMax: number;
   sendWorkbookLiveEvents: (events: WorkbookClientEventInput[]) => void;
+  currentBoardPage: number;
+  canvasViewport: WorkbookPoint;
+  viewportZoom: number;
   setCanvasViewport: (offset: WorkbookPoint) => void;
+  setViewportZoom: (zoom: number) => void;
   volatileSyncTimerRef: MutableRefObject<number | null>;
   viewportSyncLastSentAtRef: MutableRefObject<number>;
-  viewportSyncQueuedOffsetRef: MutableRefObject<WorkbookPoint | null>;
+  viewportSyncQueuedOffsetRef: MutableRefObject<WorkbookViewportSyncPayload | null>;
   objectPreviewQueuedPatchRef: MutableRefObject<Map<string, Partial<WorkbookBoardObject>>>;
   objectPreviewQueuedAtRef: MutableRefObject<Map<string, number>>;
   objectPreviewVersionRef: MutableRefObject<Map<string, number>>;
@@ -74,11 +82,16 @@ export const useWorkbookVolatileSyncPipeline = ({
   isEnded,
   canDraw,
   canSelect,
+  canBroadcastViewportSync,
   realtimeBackpressureV2Enabled,
   volatilePreviewMaxPerFlush,
   volatilePreviewQueueMax,
   sendWorkbookLiveEvents,
+  currentBoardPage,
+  canvasViewport,
+  viewportZoom,
   setCanvasViewport,
+  setViewportZoom,
   volatileSyncTimerRef,
   viewportSyncLastSentAtRef,
   viewportSyncQueuedOffsetRef,
@@ -114,8 +127,11 @@ export const useWorkbookVolatileSyncPipeline = ({
     }
 
     const events: WorkbookClientEventInput[] = [];
-    const queuedOffset = viewportSyncQueuedOffsetRef.current;
-    if (queuedOffset && session.kind === "CLASS") {
+    const queuedViewport = viewportSyncQueuedOffsetRef.current;
+    if (queuedViewport && session.kind === "CLASS" && !canBroadcastViewportSync) {
+      viewportSyncQueuedOffsetRef.current = null;
+    }
+    if (queuedViewport && session.kind === "CLASS" && canBroadcastViewportSync) {
       const now = Date.now();
       const elapsed = now - viewportSyncLastSentAtRef.current;
       if (elapsed >= VIEWPORT_SYNC_MIN_INTERVAL_MS) {
@@ -123,7 +139,7 @@ export const useWorkbookVolatileSyncPipeline = ({
         viewportSyncLastSentAtRef.current = now;
         events.push({
           type: "board.viewport.sync",
-          payload: { offset: queuedOffset },
+          payload: queuedViewport,
         });
       } else if (volatileSyncTimerRef.current === null) {
         volatileSyncTimerRef.current = window.setTimeout(() => {
@@ -289,6 +305,7 @@ export const useWorkbookVolatileSyncPipeline = ({
     }
   }, [
     canDraw,
+    canBroadcastViewportSync,
     canSelect,
     isEnded,
     realtimeBackpressureV2Enabled,
@@ -323,12 +340,72 @@ export const useWorkbookVolatileSyncPipeline = ({
     [flushQueuedVolatileSync, volatileSyncTimerRef]
   );
 
+  const queueViewportSyncSnapshot = useCallback(
+    (next: WorkbookViewportSyncPayload, delay = VOLATILE_SYNC_FLUSH_INTERVAL_MS) => {
+      if (!canBroadcastViewportSync || !session || session.kind !== "CLASS" || isEnded) {
+        return;
+      }
+      viewportSyncQueuedOffsetRef.current = next;
+      scheduleVolatileSyncFlush(delay);
+    },
+    [
+      canBroadcastViewportSync,
+      isEnded,
+      scheduleVolatileSyncFlush,
+      session,
+      viewportSyncQueuedOffsetRef,
+    ]
+  );
+
   const handleCanvasViewportOffsetChange = useCallback(
     (offset: WorkbookPoint) => {
       setCanvasViewport(offset);
+      queueViewportSyncSnapshot({
+        offset,
+        page: Math.max(1, Math.round(currentBoardPage || 1)),
+        zoom: viewportZoom,
+      });
     },
-    [setCanvasViewport]
+    [currentBoardPage, queueViewportSyncSnapshot, setCanvasViewport, viewportZoom]
   );
+
+  const handleCanvasViewportZoomChange = useCallback(
+    (zoom: number) => {
+      setViewportZoom(zoom);
+      queueViewportSyncSnapshot({
+        offset: canvasViewport,
+        page: Math.max(1, Math.round(currentBoardPage || 1)),
+        zoom,
+      });
+    },
+    [canvasViewport, currentBoardPage, queueViewportSyncSnapshot, setViewportZoom]
+  );
+
+  useEffect(() => {
+    if (!canBroadcastViewportSync || !session || session.kind !== "CLASS" || isEnded) {
+      return;
+    }
+    const syncCurrentViewport = () => {
+      queueViewportSyncSnapshot({
+        offset: canvasViewport,
+        page: Math.max(1, Math.round(currentBoardPage || 1)),
+        zoom: viewportZoom,
+      });
+    };
+    syncCurrentViewport();
+    const timerId = window.setInterval(syncCurrentViewport, VIEWPORT_SYNC_HEARTBEAT_MS);
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, [
+    canBroadcastViewportSync,
+    canvasViewport,
+    currentBoardPage,
+    isEnded,
+    queueViewportSyncSnapshot,
+    session,
+    viewportZoom,
+  ]);
 
   const queueStrokePreview = useCallback(
     (payload: { stroke: WorkbookStroke; previewVersion: number; flush?: "immediate" }) => {
@@ -490,6 +567,7 @@ export const useWorkbookVolatileSyncPipeline = ({
   return {
     scheduleVolatileSyncFlush,
     handleCanvasViewportOffsetChange,
+    handleCanvasViewportZoomChange,
     queueStrokePreview,
     queueStrokeTranslatePreview,
     queueEraserPreview,
