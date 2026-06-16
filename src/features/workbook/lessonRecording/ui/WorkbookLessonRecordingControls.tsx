@@ -1,24 +1,15 @@
 import { CircularProgress, IconButton, Tooltip } from "@mui/material";
 import FiberManualRecordRoundedIcon from "@mui/icons-material/FiberManualRecordRounded";
-import PauseRoundedIcon from "@mui/icons-material/PauseRounded";
-import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import StopRoundedIcon from "@mui/icons-material/StopRounded";
-import MicRoundedIcon from "@mui/icons-material/MicRounded";
-import MicOffRoundedIcon from "@mui/icons-material/MicOffRounded";
 import VideocamOffRoundedIcon from "@mui/icons-material/VideocamOffRounded";
-import type { LessonRecordingAudioSummary, LessonRecordingStatus } from "../model/lessonRecordingTypes";
+import type { LessonRecordingStatus } from "../model/lessonRecordingTypes";
 
 type WorkbookLessonRecordingControlsProps = {
   status: LessonRecordingStatus;
   elapsedMs: number;
   isSupported: boolean;
-  audioSummary: LessonRecordingAudioSummary;
-  micEnabled: boolean;
-  canToggleMicrophone: boolean;
+  outputUrl?: string | null;
   onRequestStart: () => void;
-  onPause: () => void;
-  onResume: () => void;
-  onToggleMicrophone: () => void;
   onStop: () => void;
 };
 
@@ -33,38 +24,24 @@ const formatDuration = (valueMs: number) => {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 };
 
-const resolveMicrophoneTooltip = (summary: LessonRecordingAudioSummary) => {
-  if (summary.hasDisplayAudio && summary.hasMicrophoneAudio) {
-    return "Аудио: вкладка + микрофон";
-  }
-  if (summary.hasDisplayAudio) return "Аудио: только вкладка";
-  if (summary.hasMicrophoneAudio) return "Аудио: только микрофон";
-  return "Аудио не захватывается";
-};
-
 export function WorkbookLessonRecordingControls({
   status,
   elapsedMs,
   isSupported,
-  audioSummary,
-  micEnabled,
-  canToggleMicrophone,
+  outputUrl,
   onRequestStart,
-  onPause,
-  onResume,
-  onToggleMicrophone,
   onStop,
 }: WorkbookLessonRecordingControlsProps) {
   if (!isSupported) {
     return (
       <div className="workbook-session__recording-cluster">
-        <Tooltip title="Браузер не поддерживает запись урока" placement="bottom" arrow>
+        <Tooltip title="Серверная запись не настроена" placement="bottom" arrow>
           <span>
             <IconButton
               size="small"
               className="workbook-session__toolbar-icon workbook-session__toolbar-icon--recording"
               disabled
-              aria-label="Запись урока недоступна в этом браузере"
+              aria-label="Серверная запись недоступна"
             >
               <VideocamOffRoundedIcon />
             </IconButton>
@@ -77,13 +54,13 @@ export function WorkbookLessonRecordingControls({
   if (status === "idle") {
     return (
       <div className="workbook-session__recording-cluster is-idle">
-        <Tooltip title="Записать урок" placement="bottom" arrow>
+        <Tooltip title={outputUrl ? "Записать новый урок" : "Записать урок"} placement="bottom" arrow>
           <span>
             <IconButton
               size="small"
               className="workbook-session__toolbar-icon workbook-session__toolbar-icon--recording workbook-session__toolbar-icon--recording-idle"
               onClick={onRequestStart}
-              aria-label="Начать запись урока"
+              aria-label="Начать серверную запись урока"
             >
               <FiberManualRecordRoundedIcon />
             </IconButton>
@@ -93,14 +70,20 @@ export function WorkbookLessonRecordingControls({
     );
   }
 
-  if (status === "starting" || status === "stopping") {
+  if (status === "starting" || status === "stopping" || status === "processing") {
+    const label =
+      status === "starting"
+        ? "Запуск..."
+        : status === "stopping"
+          ? "Остановка..."
+          : "Подготовка файла...";
     return (
       <div className={`workbook-session__recording-cluster is-${status}`}>
         <span
           className="workbook-session__recording-timer is-pending"
           aria-live="polite"
         >
-          {status === "starting" ? "Подготовка..." : "Сохранение..."}
+          {label}
         </span>
         <span className="workbook-session__recording-spinner" aria-hidden="true">
           <CircularProgress size={16} thickness={5} />
@@ -109,88 +92,18 @@ export function WorkbookLessonRecordingControls({
     );
   }
 
-  const isPaused = status === "paused";
-  const isMicrophoneActive = audioSummary.hasMicrophoneAudio && micEnabled;
-
   return (
-    <div className={`workbook-session__recording-cluster ${isPaused ? "is-paused" : "is-recording"}`}>
-      <span
-        className={`workbook-session__recording-timer ${isPaused ? "is-paused" : ""}`}
-        aria-live="polite"
-      >
-        {isPaused ? "Пауза" : "REC"} · {formatDuration(elapsedMs)}
+    <div className="workbook-session__recording-cluster is-recording">
+      <span className="workbook-session__recording-timer" aria-live="polite">
+        REC · {formatDuration(elapsedMs)}
       </span>
-      <Tooltip
-        title={
-          canToggleMicrophone
-            ? micEnabled
-              ? "Выключить микрофон"
-              : "Включить микрофон"
-            : resolveMicrophoneTooltip(audioSummary)
-        }
-        placement="bottom"
-        arrow
-      >
-        <span>
-          <IconButton
-            size="small"
-            className={`workbook-session__toolbar-icon workbook-session__toolbar-icon--recording-mic ${
-              isMicrophoneActive
-                ? "is-audio-on"
-                : "is-audio-off"
-            }`}
-            disabled={!canToggleMicrophone}
-            onClick={onToggleMicrophone}
-            aria-label={
-              canToggleMicrophone
-                ? micEnabled
-                  ? "Выключить микрофон"
-                  : "Включить микрофон"
-                : resolveMicrophoneTooltip(audioSummary)
-            }
-          >
-            {isMicrophoneActive ? (
-              <MicRoundedIcon />
-            ) : (
-              <MicOffRoundedIcon />
-            )}
-          </IconButton>
-        </span>
-      </Tooltip>
-      {isPaused ? (
-        <Tooltip title="Продолжить запись" placement="bottom" arrow>
-          <span>
-            <IconButton
-              size="small"
-              className="workbook-session__toolbar-icon workbook-session__toolbar-icon--recording"
-              onClick={onResume}
-              aria-label="Продолжить запись"
-            >
-              <PlayArrowRoundedIcon />
-            </IconButton>
-          </span>
-        </Tooltip>
-      ) : (
-        <Tooltip title="Пауза записи" placement="bottom" arrow>
-          <span>
-            <IconButton
-              size="small"
-              className="workbook-session__toolbar-icon workbook-session__toolbar-icon--recording"
-              onClick={onPause}
-              aria-label="Поставить запись на паузу"
-            >
-              <PauseRoundedIcon />
-            </IconButton>
-          </span>
-        </Tooltip>
-      )}
       <Tooltip title="Остановить запись" placement="bottom" arrow>
         <span>
           <IconButton
             size="small"
             className="workbook-session__toolbar-icon workbook-session__toolbar-icon--recording-stop"
             onClick={onStop}
-            aria-label="Остановить запись и сохранить видео"
+            aria-label="Остановить серверную запись"
           >
             <StopRoundedIcon />
           </IconButton>

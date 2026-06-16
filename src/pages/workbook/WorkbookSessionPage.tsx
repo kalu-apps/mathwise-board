@@ -193,6 +193,7 @@ export default function WorkbookSessionPage() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const isServerRecordingView = location.pathname.startsWith("/workbook/recording/");
   const [isBackNavigationPending, setIsBackNavigationPending] = useState(false);
   const [inviteLinkNoticeOpen, setInviteLinkNoticeOpen] = useState(false);
   const [inviteLinkNoticeVersion, setInviteLinkNoticeVersion] = useState(0);
@@ -693,7 +694,7 @@ export default function WorkbookSessionPage() {
 
   const fallbackBackPath = "/workbook";
   const fromPath = searchParams.get("from") || fallbackBackPath;
-  const isWorkbookSessionAuthLost = isAuthReady && !user;
+  const isWorkbookSessionAuthLost = isAuthReady && !user && !isServerRecordingView;
   const inviteTokenFromRouteState =
     location.state &&
     typeof location.state === "object" &&
@@ -704,6 +705,10 @@ export default function WorkbookSessionPage() {
   const isSessionAccessBlocked = refs.authRequiredRef.current;
   const isWorkspaceInteractionBlocked =
     isSessionTabPassive || isSessionAccessBlocked || !bootstrapReady;
+  const workbookSessionViewUser = useMemo(
+    () => (isServerRecordingView ? { id: "__workbook_recorder__" } : user),
+    [isServerRecordingView, user]
+  );
 
   useEffect(() => {
     if (!isWorkbookSessionAuthLost) return;
@@ -769,11 +774,12 @@ export default function WorkbookSessionPage() {
     getObjectSceneLayerId,
   } = useWorkbookSessionDerivedState({
     sessionId,
-    user,
+    user: workbookSessionViewUser,
     currentBoardPage,
     session,
     setError,
     isSessionTabPassive: isWorkspaceInteractionBlocked,
+    readOnlyMode: isServerRecordingView,
     awaitingClearRequest,
     isParticipantsCollapsed,
     focusPointsByUser,
@@ -790,20 +796,18 @@ export default function WorkbookSessionPage() {
     isParticipantsCollapsed ? "sidebar" : participantsPanelMode;
 
   const canAccessLessonRecording = useMemo(() => {
+    if (isServerRecordingView) return false;
     if (session?.kind === "PERSONAL") return true;
     if (session?.kind === "CLASS") return isTeacherActor;
     return false;
-  }, [isTeacherActor, session?.kind]);
+  }, [isServerRecordingView, isTeacherActor, session?.kind]);
   const lessonRecording = useWorkbookLessonRecording({
     canAccessRecording: canAccessLessonRecording,
     canRecord:
       canAccessLessonRecording &&
       !isEnded &&
       !isWorkspaceInteractionBlocked,
-    canUseMedia: canUseMicrophone,
-    micEnabled,
-    setMicEnabled,
-    sessionTitle: session?.title,
+    sessionId,
     setError,
   });
   const lessonRecordingControls = useMemo(
@@ -813,20 +817,15 @@ export default function WorkbookSessionPage() {
           status={lessonRecording.status}
           elapsedMs={lessonRecording.elapsedMs}
           isSupported={lessonRecording.isSupported}
-          audioSummary={lessonRecording.audioSummary}
-          micEnabled={lessonRecording.micEnabled}
-          canToggleMicrophone={lessonRecording.canToggleMicrophone}
+          outputUrl={lessonRecording.outputUrl}
           onRequestStart={lessonRecording.openPreStartDialog}
-          onPause={lessonRecording.pauseRecording}
-          onResume={lessonRecording.resumeRecording}
-          onToggleMicrophone={lessonRecording.toggleMicrophone}
-          onStop={() => lessonRecording.stopRecording("stopped")}
+          onStop={lessonRecording.stopRecording}
         />
       ) : null,
     [lessonRecording]
   );
   const lessonRecordingWatermark =
-    lessonRecording.status === "recording" || lessonRecording.status === "paused" ? (
+    lessonRecording.status === "recording" ? (
       <div className="workbook-session__recording-watermark" aria-hidden="true">
         Автор: Калугина Анна Викторовна
       </div>
@@ -1238,6 +1237,7 @@ export default function WorkbookSessionPage() {
     loadAndAuthParams: {
       sessionId,
       isWorkbookSessionAuthLost,
+      readOnlyMode: isServerRecordingView,
       clearLocalPreviewPatchRuntime,
       clearObjectSyncRuntime,
       clearStrokePreviewRuntime,
@@ -1295,7 +1295,7 @@ export default function WorkbookSessionPage() {
     clearStrokePreviewRuntime,
     clearIncomingEraserPreviewRuntime,
     realtimeTransportParams: {
-      enabled: Boolean(user?.id) && !isWorkbookSessionAuthLost,
+      enabled: Boolean(user?.id || isServerRecordingView) && !isWorkbookSessionAuthLost,
       bootstrapReady,
       filterUnseenWorkbookEvents,
       latestSeqRef: refs.latestSeqRef,
@@ -3564,7 +3564,7 @@ export default function WorkbookSessionPage() {
         showSidebarParticipantsInLayout && effectiveParticipantsPanelMode === "video_only"
           ? " is-video-only-mode"
           : ""
-      }`}
+      }${isServerRecordingView ? " is-server-recording-view" : ""}`}
       ref={handleSessionRootRef}
     >
       <WorkbookSessionTopScaffold

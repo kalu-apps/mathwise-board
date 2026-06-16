@@ -8,9 +8,6 @@
   border-color: color-mix(in srgb, #f34d6d 58%, var(--border-strong));
   box-shadow: 0 0 0 1px color-mix(in srgb, #f34d6d 16%, transparent);
 }
-.workbook-session__recording-cluster.is-paused {
-  border-color: color-mix(in srgb, #d4962d 58%, var(--border-strong));
-}
 .workbook-session__recording-timer {
   display: inline-flex;
   align-items: center;
@@ -24,9 +21,6 @@
   letter-spacing: 0.04em;
   color: color-mix(in srgb, #cc1f46 70%, var(--text-primary));
   white-space: nowrap;
-}
-.workbook-session__recording-timer.is-paused {
-  color: color-mix(in srgb, #b2781d 68%, var(--text-primary));
 }
 .workbook-session__recording-timer.is-pending {
   color: var(--text-secondary);
@@ -51,19 +45,6 @@
   border-color: color-mix(in srgb, #f34d6d 72%, var(--border-strong)) !important;
   background: color-mix(in srgb, #f34d6d 24%, var(--surface-elevated)) !important;
   color: color-mix(in srgb, #a90f34 92%, var(--text-primary)) !important;
-}
-.workbook-session__toolbar-icon--recording-mic {
-  width: 28px !important;
-  height: 28px !important;
-  border-radius: 8px !important;
-}
-.workbook-session__toolbar-icon--recording-mic.is-audio-on {
-  border-color: color-mix(in srgb, #37b76b 52%, var(--border-strong)) !important;
-  color: color-mix(in srgb, #178948 72%, var(--text-primary)) !important;
-}
-.workbook-session__toolbar-icon--recording-mic.is-audio-off {
-  border-color: color-mix(in srgb, #c87373 48%, var(--border-subtle)) !important;
-  color: color-mix(in srgb, #a94949 68%, var(--text-primary)) !important;
 }
 .workbook-session__recording-prestart {
   display: grid;
@@ -99,6 +80,48 @@
   pointer-events: none;
   user-select: none;
   box-shadow: 0 8px 18px rgba(16, 20, 30, 0.12);
+}
+.workbook-session.is-server-recording-view {
+  padding: 0;
+  overflow: hidden;
+}
+.workbook-session.is-server-recording-view .workbook-session__layout {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+.workbook-session.is-server-recording-view .workbook-session__workspace {
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 0;
+}
+.workbook-session.is-server-recording-view .workbook-session__board-shell {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+  height: 100vh;
+  height: 100dvh;
+}
+.workbook-session.is-server-recording-view .workbook-session__canvas {
+  height: 100%;
+  min-height: 0;
+  border-radius: 0;
+}
+.workbook-session.is-server-recording-view .workbook-session__workspace-head,
+.workbook-session.is-server-recording-view .workbook-session__tools,
+.workbook-session.is-server-recording-view .workbook-session__sidebar,
+.workbook-session.is-server-recording-view .workbook-session__video-dock,
+.workbook-session.is-server-recording-view .workbook-session__docs-window,
+.workbook-session.is-server-recording-view .workbook-session__utility-float,
+.workbook-session.is-server-recording-view .workbook-session__alert,
+.workbook-session.is-server-recording-view .workbook-session__recording-watermark,
+.workbook-session.is-server-recording-view .workbook-session__top-scaffold,
+.workbook-session.is-server-recording-view .workbook-session__contextbar {
+  display: none !important;
 }
 .workbook-session__contextbar label {
   font-size: 12px;

@@ -73,6 +73,15 @@ import {
 } from "./core/dbIndex";
 import { getWorkbookPersistenceReadiness, getWorkbookRuntimeReadiness } from "./core/runtimeReadiness";
 import {
+  getWorkbookServerRecordingAvailability,
+  getWorkbookServerRecordingForSession,
+  resolveWorkbookRecordingAccessPayload,
+  resolveWorkbookRecordingReadUser,
+  serializeWorkbookServerRecording,
+  startWorkbookServerRecording,
+  stopWorkbookServerRecording,
+} from "./core/workbookServerRecordingService";
+import {
   INVALID_JSON_BODY_ERROR,
   readRawBody as readRawBodyInternal,
   readJsonBody,
@@ -705,7 +714,7 @@ const applyCors = (req: IncomingMessage, res: ServerResponse) => {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type, X-Request-Id, X-Retry-Attempt, X-Idempotency-Key, X-Workbook-Device-Id, X-Workbook-Session-Affinity"
+    "Content-Type, X-Request-Id, X-Retry-Attempt, X-Idempotency-Key, X-Workbook-Device-Id, X-Workbook-Session-Affinity, X-Workbook-Recording-Token"
   );
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   appendVary(res, "Origin");
@@ -2560,6 +2569,8 @@ const closeUserPresenceAcrossSessions = (db: MockDb, userId: string, timestamp =
 const requireAuthUser = (req: IncomingMessage, res: ServerResponse, db: MockDb) => {
   const auth = resolveAuthSession(req, db);
   if (!auth) {
+    const recordingUser = resolveWorkbookRecordingReadUser(req, db);
+    if (recordingUser) return recordingUser;
     unauthorized(res);
     return null;
   }
@@ -3664,6 +3675,148 @@ export const handleWorkbookApiRequestByDomains = async (
         return;
       }
 
+      const workbookRecordingStatusMatch = pathname.match(
+        /^\/api\/workbook\/sessions\/([^/]+)\/recording$/
+      );
+      if (workbookRecordingStatusMatch && method === "GET") {
+        const actor = requireAuthUser(req, res, db);
+        if (!actor) return;
+        const sessionId = decodeURIComponent(workbookRecordingStatusMatch[1]);
+        const session = getWorkbookSessionById(db, sessionId);
+        if (!session) {
+          notFound(res);
+          return;
+        }
+        const participant = getWorkbookParticipant(db, sessionId, actor.id);
+        if (!participant) {
+          forbidden(res);
+          return;
+        }
+        const availability = getWorkbookServerRecordingAvailability();
+        json(res, 200, {
+          available: availability.available,
+          unavailableReason: availability.reason,
+          serverTime: nowIso(),
+          recording: serializeWorkbookServerRecording(getWorkbookServerRecordingForSession(sessionId)),
+        });
+        return;
+      }
+
+      const workbookRecordingStartMatch = pathname.match(
+        /^\/api\/workbook\/sessions\/([^/]+)\/recording\/start$/
+      );
+      if (workbookRecordingStartMatch && method === "POST") {
+        const actor = requireAuthUser(req, res, db);
+        if (!actor) return;
+        const sessionId = decodeURIComponent(workbookRecordingStartMatch[1]);
+        const session = getWorkbookSessionById(db, sessionId);
+        if (!session) {
+          notFound(res);
+          return;
+        }
+        const participant = getWorkbookParticipant(db, sessionId, actor.id);
+        if (!participant) {
+          forbidden(res);
+          return;
+        }
+        const permissions = normalizeParticipantPermissions(
+          participant.roleInSession,
+          participant.permissions
+        );
+        const canManageRecording = Boolean(
+          permissions.canManageSession || session.createdBy === actor.id
+        );
+        if (!canManageRecording) {
+          forbidden(res);
+          return;
+        }
+        if (session.status === "ended") {
+          badRequest(res, "lesson_ended");
+          return;
+        }
+        const availability = getWorkbookServerRecordingAvailability();
+        if (!availability.available) {
+          serviceUnavailable(res, availability.reason ?? "server_recording_unavailable");
+          return;
+        }
+        try {
+          const recording = await startWorkbookServerRecording({
+            sessionId,
+            roomName: buildWorkbookLivekitRoomName(sessionId),
+            publicBaseUrl: PUBLIC_BASE_URL || inferPublicOrigin(req),
+            createdBy: actor.id,
+          });
+          json(res, 200, {
+            available: true,
+            unavailableReason: null,
+            serverTime: nowIso(),
+            recording: serializeWorkbookServerRecording(recording),
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "recording_start_failed";
+          if (message === "recording_stop_in_progress") {
+            conflict(res, message);
+            return;
+          }
+          serviceUnavailable(res, message);
+        }
+        return;
+      }
+
+      const workbookRecordingStopMatch = pathname.match(
+        /^\/api\/workbook\/sessions\/([^/]+)\/recording\/stop$/
+      );
+      if (workbookRecordingStopMatch && method === "POST") {
+        const actor = requireAuthUser(req, res, db);
+        if (!actor) return;
+        const sessionId = decodeURIComponent(workbookRecordingStopMatch[1]);
+        const session = getWorkbookSessionById(db, sessionId);
+        if (!session) {
+          notFound(res);
+          return;
+        }
+        const participant = getWorkbookParticipant(db, sessionId, actor.id);
+        if (!participant) {
+          forbidden(res);
+          return;
+        }
+        const permissions = normalizeParticipantPermissions(
+          participant.roleInSession,
+          participant.permissions
+        );
+        const canManageRecording = Boolean(
+          permissions.canManageSession || session.createdBy === actor.id
+        );
+        if (!canManageRecording) {
+          forbidden(res);
+          return;
+        }
+        const body = (await readBody(req)) as { recordingId?: unknown } | null;
+        try {
+          const recording = await stopWorkbookServerRecording({
+            sessionId,
+            recordingId:
+              typeof body?.recordingId === "string" && body.recordingId.trim().length > 0
+                ? body.recordingId.trim()
+                : null,
+          });
+          json(res, 200, {
+            available: true,
+            unavailableReason: null,
+            serverTime: nowIso(),
+            recording: serializeWorkbookServerRecording(recording),
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "recording_stop_failed";
+          if (message === "recording_not_found") {
+            notFound(res);
+            return;
+          }
+          serviceUnavailable(res, message);
+        }
+        return;
+      }
+
       const workbookMediaConfigMatch = pathname.match(
         /^\/api\/workbook\/sessions\/([^/]+)\/media\/config$/
       );
@@ -3715,6 +3868,37 @@ export const handleWorkbookApiRequestByDomains = async (
         }
         if (!MEDIA_LIVEKIT_ENABLED) {
           serviceUnavailable(res, "livekit_unavailable");
+          return;
+        }
+        const recordingAccess = resolveWorkbookRecordingAccessPayload(req);
+        if (recordingAccess?.sessionId === sessionId) {
+          const recorderUser: UserRecord = {
+            id: `recorder-${recordingAccess.recordingId}`.slice(0, 120),
+            role: "student",
+            email: "recording@mathwise.local",
+            firstName: "Recorder",
+            lastName: "",
+            createdAt: nowIso(),
+          };
+          const tokenConfig = buildWorkbookLivekitTokenPayload(
+            session.id,
+            recorderUser,
+            false
+          );
+          const token = signJwtHs256(tokenConfig.payload, MEDIA_LIVEKIT_API_SECRET);
+          json(res, 200, {
+            generatedAt: nowIso(),
+            ttlSeconds: MEDIA_LIVEKIT_TOKEN_TTL_SECONDS,
+            wsUrl: MEDIA_LIVEKIT_WS_URL,
+            roomName: tokenConfig.roomName,
+            participant: {
+              identity: tokenConfig.identity,
+              name: tokenConfig.payload.name,
+              canPublish: false,
+              roleInSession: "student",
+            },
+            token,
+          });
           return;
         }
         const permissions = normalizeParticipantPermissions(

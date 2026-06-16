@@ -504,3 +504,30 @@ export type WorkbookLivekitTokenResponse = {
   };
   token: string;
 };
+
+export type WorkbookLessonRecordingStatus =
+  | "idle"
+  | "starting"
+  | "recording"
+  | "stopping"
+  | "processing"
+  | "ready"
+  | "failed";
+
+export type WorkbookLessonRecordingInfo = {
+  id: string;
+  sessionId: string;
+  status: WorkbookLessonRecordingStatus;
+  startedAt: string | null;
+  stoppedAt: string | null;
+  updatedAt: string;
+  outputUrl: string | null;
+  errorMessage: string | null;
+};
+
+export type WorkbookLessonRecordingStatusResponse = {
+  available: boolean;
+  unavailableReason: string | null;
+  serverTime: string;
+  recording: WorkbookLessonRecordingInfo | null;
+};

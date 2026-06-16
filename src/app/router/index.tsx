@@ -47,6 +47,10 @@ const whiteboardChildren: RouteObject[] = [
     element: withSuspense(<WorkbookSessionPage />),
   },
   {
+    path: "/workbook/recording/:sessionId",
+    element: withSuspense(<WorkbookSessionPage />),
+  },
+  {
     path: "/workbook/invite/:token",
     element: withSuspense(<WorkbookInviteJoinPage />),
   },
