@@ -27,7 +27,6 @@ export type WorkbookServerRecordingRecord = {
 
 type StartWorkbookServerRecordingParams = {
   sessionId: string;
-  roomName: string;
   publicBaseUrl: string;
   createdBy: string;
 };
@@ -110,7 +109,7 @@ const resolveRecordingSecret = () =>
 const resolveEgressPath = (methodName: "StartWebEgress" | "StopEgress") =>
   `${resolveLivekitEgressApiUrl()}/twirp/livekit.Egress/${methodName}`;
 
-const createLivekitApiToken = (roomName?: string) => {
+const createLivekitApiToken = () => {
   const apiKey = readTrimmedEnv("MEDIA_LIVEKIT_API_KEY");
   const apiSecret = readTrimmedEnv("MEDIA_LIVEKIT_API_SECRET");
   const issuedAtUnix = Math.floor(Date.now() / 1000);
@@ -123,7 +122,6 @@ const createLivekitApiToken = (roomName?: string) => {
       exp: issuedAtUnix + 10 * 60,
       video: {
         roomRecord: true,
-        ...(roomName ? { room: roomName } : {}),
       },
     },
     apiSecret
@@ -244,13 +242,12 @@ const parseEgressId = (payload: unknown) => {
 
 const fetchLivekitEgress = async (params: {
   methodName: "StartWebEgress" | "StopEgress";
-  roomName?: string;
   payload: unknown;
 }) => {
   const response = await fetch(resolveEgressPath(params.methodName), {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${createLivekitApiToken(params.roomName)}`,
+      Authorization: `Bearer ${createLivekitApiToken()}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(params.payload),
@@ -322,7 +319,6 @@ export const getWorkbookServerRecordingForSession = (sessionId: string) => {
 
 export const startWorkbookServerRecording = async ({
   sessionId,
-  roomName,
   publicBaseUrl,
   createdBy,
 }: StartWorkbookServerRecordingParams) => {
@@ -372,7 +368,6 @@ export const startWorkbookServerRecording = async ({
   try {
     const response = await fetchLivekitEgress({
       methodName: "StartWebEgress",
-      roomName,
       payload: {
         url: recordingPageUrl,
         file_outputs: [output],
@@ -411,7 +406,6 @@ export const stopWorkbookServerRecording = async ({
     if (recording.egressId) {
       await fetchLivekitEgress({
         methodName: "StopEgress",
-        roomName: undefined,
         payload: {
           egress_id: recording.egressId,
         },

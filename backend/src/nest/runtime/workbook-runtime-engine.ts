@@ -3742,7 +3742,6 @@ export const handleWorkbookApiRequestByDomains = async (
         try {
           const recording = await startWorkbookServerRecording({
             sessionId,
-            roomName: buildWorkbookLivekitRoomName(sessionId),
             publicBaseUrl: PUBLIC_BASE_URL || inferPublicOrigin(req),
             createdBy: actor.id,
           });
