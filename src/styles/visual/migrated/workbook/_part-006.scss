@@ -5,20 +5,21 @@
   box-shadow: none;
 }
 .workbook-session__recording-cluster.is-recording {
-  border-color: color-mix(in srgb, #f34d6d 58%, var(--border-strong));
-  box-shadow: 0 0 0 1px color-mix(in srgb, #f34d6d 16%, transparent);
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 .workbook-session__recording-timer {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: 24px;
-  padding: 0 8px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--border-subtle) 88%, transparent);
-  background: color-mix(in srgb, var(--surface-soft) 94%, transparent);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  min-width: 44px;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
   color: color-mix(in srgb, #cc1f46 70%, var(--text-primary));
   white-space: nowrap;
 }
@@ -118,7 +119,6 @@
 .workbook-session.is-server-recording-view .workbook-session__docs-window,
 .workbook-session.is-server-recording-view .workbook-session__utility-float,
 .workbook-session.is-server-recording-view .workbook-session__alert,
-.workbook-session.is-server-recording-view .workbook-session__recording-watermark,
 .workbook-session.is-server-recording-view .workbook-session__top-scaffold,
 .workbook-session.is-server-recording-view .workbook-session__contextbar {
   display: none !important;

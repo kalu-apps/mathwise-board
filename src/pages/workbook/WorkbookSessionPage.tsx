@@ -825,7 +825,7 @@ export default function WorkbookSessionPage() {
     [lessonRecording]
   );
   const lessonRecordingWatermark =
-    lessonRecording.status === "recording" ? (
+    isServerRecordingView ? (
       <div className="workbook-session__recording-watermark" aria-hidden="true">
         Автор: Калугина Анна Викторовна
       </div>

@@ -95,7 +95,7 @@ export function WorkbookLessonRecordingControls({
   return (
     <div className="workbook-session__recording-cluster is-recording">
       <span className="workbook-session__recording-timer" aria-live="polite">
-        REC · {formatDuration(elapsedMs)}
+        {formatDuration(elapsedMs)}
       </span>
       <Tooltip title="Остановить запись" placement="bottom" arrow>
         <span>
