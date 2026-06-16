@@ -270,6 +270,7 @@ type WorkbookStreamClient = {
 type WorkbookLiveSocketClient = {
   id: string;
   userId: string;
+  readOnly?: boolean;
   socket: WebSocket;
 };
 
@@ -1835,7 +1836,8 @@ const deliverWorkbookLiveEventsToLocalClients = (
   });
   let deliveredClientCount = 0;
   for (const [clientId, client] of sessionClients.entries()) {
-    const hasAccess = Boolean(getWorkbookParticipant(db, payload.sessionId, client.userId));
+    const hasAccess =
+      client.readOnly || Boolean(getWorkbookParticipant(db, payload.sessionId, client.userId));
     if (!hasAccess || client.socket.readyState !== WebSocket.OPEN) {
       closeWorkbookLiveSocketClient(payload.sessionId, clientId);
       continue;
@@ -2630,6 +2632,7 @@ const workbookLiveSocketRuntime = {
   pickTeacher,
   ensureDbParticipantPermissionsNormalized,
   resolveAuthUser,
+  resolveRecordingReadUser: resolveWorkbookRecordingReadUser,
   getWorkbookParticipant,
   ensureRuntimeSessionBridge,
   ensureId,

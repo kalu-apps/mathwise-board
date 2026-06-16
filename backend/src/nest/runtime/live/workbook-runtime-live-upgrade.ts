@@ -46,13 +46,18 @@ export const ensureWorkbookLiveSocketServer = (
     const db = workbookLiveSocketRuntime.getDb();
     workbookLiveSocketRuntime.pickTeacher(db);
     workbookLiveSocketRuntime.ensureDbParticipantPermissionsNormalized(db);
-    const actor = workbookLiveSocketRuntime.resolveAuthUser(req, db);
+    const authenticatedActor = workbookLiveSocketRuntime.resolveAuthUser(req, db);
+    const recordingActor = authenticatedActor
+      ? null
+      : workbookLiveSocketRuntime.resolveRecordingReadUser(req, db);
+    const actor = authenticatedActor ?? recordingActor;
     if (!actor) {
       rejectUpgrade(socket, 401, "Unauthorized");
       return;
     }
+    const readOnly = !authenticatedActor && Boolean(recordingActor);
     const sessionId = decodeURIComponent(match[1]);
-    if (!workbookLiveSocketRuntime.getWorkbookParticipant(db, sessionId, actor.id)) {
+    if (!readOnly && !workbookLiveSocketRuntime.getWorkbookParticipant(db, sessionId, actor.id)) {
       rejectUpgrade(socket, 403, "Forbidden");
       return;
     }
@@ -68,7 +73,7 @@ export const ensureWorkbookLiveSocketServer = (
       const clientId = workbookLiveSocketRuntime.ensureId();
       const sessionClients =
         workbookLiveSocketRuntime.workbookLiveSocketClientsBySession.get(sessionId) ?? new Map();
-      sessionClients.set(clientId, { id: clientId, userId: actor.id, socket: ws });
+      sessionClients.set(clientId, { id: clientId, userId: actor.id, readOnly, socket: ws });
       workbookLiveSocketRuntime.workbookLiveSocketClientsBySession.set(sessionId, sessionClients);
 
       const cleanup = () => {
@@ -104,6 +109,9 @@ export const ensureWorkbookLiveSocketServer = (
             } catch {
               // ignore close failures
             }
+            return;
+          }
+          if (readOnly) {
             return;
           }
           workbookLiveSocketRuntime.applyStudentControls(currentSession, currentDb);
