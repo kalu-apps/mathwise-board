@@ -199,6 +199,16 @@ export default function WorkbookSessionPage() {
   const [inviteLinkNoticeVersion, setInviteLinkNoticeVersion] = useState(0);
 
   useEffect(() => {
+    if (!isServerRecordingView) return;
+    document.documentElement.classList.add("is-workbook-server-recording-document");
+    document.body.classList.add("is-workbook-server-recording-document");
+    return () => {
+      document.documentElement.classList.remove("is-workbook-server-recording-document");
+      document.body.classList.remove("is-workbook-server-recording-document");
+    };
+  }, [isServerRecordingView]);
+
+  useEffect(() => {
     if (!sessionId.trim()) return;
     return startWorkbookPerformanceSession(sessionId);
   }, [sessionId]);

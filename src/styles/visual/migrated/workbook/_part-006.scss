@@ -82,35 +82,73 @@
   user-select: none;
   box-shadow: 0 8px 18px rgba(16, 20, 30, 0.12);
 }
+html.is-workbook-server-recording-document,
+body.is-workbook-server-recording-document {
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden !important;
+  overscroll-behavior: none;
+  scrollbar-width: none;
+}
+html.is-workbook-server-recording-document::-webkit-scrollbar,
+body.is-workbook-server-recording-document::-webkit-scrollbar,
+body.is-workbook-server-recording-document #root::-webkit-scrollbar,
+body.is-workbook-server-recording-document .app-main::-webkit-scrollbar,
+body.is-workbook-server-recording-document .workbook-session::-webkit-scrollbar {
+  display: none;
+}
+body.is-workbook-server-recording-document #root,
+body.is-workbook-server-recording-document .app-main {
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden !important;
+  scrollbar-width: none;
+}
 .workbook-session.is-server-recording-view {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: hidden !important;
+  scrollbar-width: none;
 }
 .workbook-session.is-server-recording-view .workbook-session__layout {
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
-  min-height: 100vh;
-  min-height: 100dvh;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 .workbook-session.is-server-recording-view .workbook-session__workspace {
   grid-template-rows: minmax(0, 1fr);
   gap: 0;
-  min-height: 100vh;
-  min-height: 100dvh;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   padding: 0;
+  overflow: hidden;
 }
 .workbook-session.is-server-recording-view .workbook-session__board-shell {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   gap: 0;
   min-height: 0;
-  height: 100vh;
-  height: 100dvh;
+  height: 100%;
+  overflow: hidden;
 }
 .workbook-session.is-server-recording-view .workbook-session__canvas {
   height: 100%;
   min-height: 0;
   border-radius: 0;
+  overflow: hidden;
 }
 .workbook-session.is-server-recording-view .workbook-session__workspace-head,
 .workbook-session.is-server-recording-view .workbook-session__tools,
