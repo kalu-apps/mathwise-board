@@ -202,6 +202,23 @@
   cursor: not-allowed;
 }
 
+.workbook-hub__recording-date {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  z-index: 1;
+  max-width: calc(100% - 70px);
+  overflow: hidden;
+  color: color-mix(in srgb, var(--workbook-card-text-primary) 76%, var(--brand-solid) 24%);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 0 color-mix(in srgb, #ffffff 76%, transparent);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .workbook-hub__recording-duration {
   position: absolute;
   z-index: 1;
@@ -321,6 +338,11 @@
   border-color: color-mix(in srgb, #ffffff 18%, transparent);
   color: #ffffff;
   background: color-mix(in srgb, #020617 64%, transparent);
+}
+
+:root[data-theme="dark"] .workbook-hub__recording-date {
+  color: color-mix(in srgb, #ffffff 82%, var(--brand-soft) 18%);
+  text-shadow: 0 1px 8px color-mix(in srgb, #000000 56%, transparent);
 }
 
 :root[data-theme="dark"] .workbook-hub__recording-remove.MuiIconButton-root {

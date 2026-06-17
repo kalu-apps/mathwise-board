@@ -119,6 +119,16 @@ const formatDateTime = (value: string) => {
   }).format(timestamp);
 };
 
+const formatRecordingDate = (value: string) => {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "";
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(timestamp);
+};
+
 const formatDuration = (minutes?: number | null) => {
   if (!minutes || minutes <= 0) return "Без данных";
   const hours = Math.floor(minutes / 60);
@@ -1131,6 +1141,9 @@ export default function WorkbookHubPage() {
                     }}
                   >
                     <div className="workbook-hub__recording-thumb">
+                      <span className="workbook-hub__recording-date">
+                        {formatRecordingDate(recording.createdAt)}
+                      </span>
                       <button
                         type="button"
                         className="workbook-hub__recording-play"
