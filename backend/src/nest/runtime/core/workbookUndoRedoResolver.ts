@@ -1,5 +1,5 @@
 import { isHistoryTrackedWorkbookEventType, type WorkbookClientEventInput } from "../../../../../src/features/workbook/model/events";
-import { normalizeWorkbookObjectZOrder } from "../../../../../src/features/workbook/model/objectZOrder";
+import { normalizeWorkbookObjectZOrder, resolveWorkbookObjectReorderUpdate } from "../../../../../src/features/workbook/model/objectZOrder";
 import { normalizeDocumentAnnotationPayload, normalizeDocumentAssetPayload, normalizeObjectPayload, normalizeScenePayload, normalizeStrokePayload } from "../../../../../src/features/workbook/model/scene";
 import type { WorkbookBoardObject, WorkbookBoardSettings, WorkbookConstraint, WorkbookDocumentState, WorkbookEvent, WorkbookLayer, WorkbookStroke } from "../../../../../src/features/workbook/model/types";
 import { applyWorkbookStrokeTranslateHistoryOperation, buildWorkbookStrokeTranslateHistoryDraft, type WorkbookStrokeTranslateHistoryOperation } from "./workbookUndoRedoStrokeTranslate";
@@ -430,13 +430,13 @@ const buildHistoryEntryFromEvent = (
       },
     ];
   } else if (event.type === "board.object.reorder") {
-    const payload = event.payload as { objectId?: unknown; zOrder?: unknown };
+    const payload = event.payload as { objectId?: unknown; stackingLayer?: unknown; zOrder?: unknown };
     const objectId = typeof payload.objectId === "string" ? payload.objectId : "";
     const zOrder = normalizeWorkbookObjectZOrder(payload.zOrder);
     if (!objectId || zOrder === undefined) return null;
     const currentObject = state.boardObjects.find((item) => item.id === objectId);
     if (!currentObject) return null;
-    const nextObject = { ...currentObject, zOrder };
+    const nextObject = resolveWorkbookObjectReorderUpdate(currentObject, zOrder, payload.stackingLayer);
     const forwardPatch = buildBoardObjectDiffPatch(currentObject, nextObject);
     const inversePatch = buildBoardObjectDiffPatch(nextObject, currentObject);
     if (!forwardPatch || !inversePatch) return null;

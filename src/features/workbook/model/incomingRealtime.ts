@@ -1,9 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { normalizeObjectPayload, normalizeScenePayload, normalizeStrokePayload } from "./scene";
-import {
-  ensureWorkbookObjectZOrder,
-  normalizeWorkbookObjectZOrder,
-} from "./objectZOrder";
+import { ensureWorkbookObjectZOrder, normalizeWorkbookObjectZOrder, resolveWorkbookObjectReorderUpdate } from "./objectZOrder";
 import {
   clampWorkbookObjectToPageFrame,
   resolveWorkbookPageFrameBounds,
@@ -629,14 +626,14 @@ export const applyWorkbookIncomingRealtimeEvent = (
   }
 
   if (event.type === "board.object.reorder") {
-    const payload = event.payload as { objectId?: unknown; zOrder?: unknown };
+    const payload = event.payload as { objectId?: unknown; stackingLayer?: unknown; zOrder?: unknown };
     const objectId = typeof payload.objectId === "string" ? payload.objectId : "";
     const zOrder = normalizeWorkbookObjectZOrder(payload.zOrder);
     if (!objectId || zOrder === undefined) return true;
     objectLastCommittedEventAtRef.current.set(objectId, eventTimestamp);
     incomingPreviewQueuedPatchRef.current.delete(objectId);
     applyLocalBoardObjects((current) =>
-      current.map((item) => (item.id === objectId ? { ...item, zOrder } : item))
+      current.map((item) => item.id === objectId ? resolveWorkbookObjectReorderUpdate(item, zOrder, payload.stackingLayer) : item)
     );
     return true;
   }

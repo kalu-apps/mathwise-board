@@ -1,6 +1,9 @@
 import type { WorkbookClientEventInput } from "@/features/workbook/model/events";
 import { mergeBoardObjectWithPatch } from "@/features/workbook/model/runtime";
-import { normalizeWorkbookObjectZOrder } from "@/features/workbook/model/objectZOrder";
+import {
+  normalizeWorkbookObjectZOrder,
+  resolveWorkbookObjectReorderUpdate,
+} from "@/features/workbook/model/objectZOrder";
 import {
   normalizeWorkbookStrokeTranslatePayload,
   resolveWorkbookStrokeTranslateLayer,
@@ -243,14 +246,18 @@ export const buildWorkbookHistoryEntryFromEvents = ({
         },
       ];
     } else if (event.type === "board.object.reorder") {
-      const payload = event.payload as { objectId?: unknown; zOrder?: unknown };
+      const payload = event.payload as { objectId?: unknown; stackingLayer?: unknown; zOrder?: unknown };
       const objectId = typeof payload.objectId === "string" ? payload.objectId : "";
       const zOrder = normalizeWorkbookObjectZOrder(payload.zOrder);
       if (!objectId || zOrder === undefined) return;
       const currentObject = currentObjects.find((item) => item.id === objectId);
       if (!currentObject) return;
       eventPage = toSafePage(currentObject.page);
-      const nextObject = { ...currentObject, zOrder };
+      const nextObject = resolveWorkbookObjectReorderUpdate(
+        currentObject,
+        zOrder,
+        payload.stackingLayer
+      );
       const forwardPatch = buildBoardObjectDiffPatch(currentObject, nextObject);
       const inversePatch = buildBoardObjectDiffPatch(nextObject, currentObject);
       if (!forwardPatch || !inversePatch) return;

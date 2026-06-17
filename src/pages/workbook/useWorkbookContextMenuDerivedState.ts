@@ -3,7 +3,10 @@ import {
   buildWorkbookImageCropUpdate,
   isWorkbookImageCropActive,
 } from "@/features/workbook/model/imageCrop";
-import { resolveWorkbookObjectReorderZOrder } from "@/features/workbook/model/objectZOrder";
+import {
+  resolveWorkbookObjectReorderZOrder,
+  resolveWorkbookObjectStackingLayer,
+} from "@/features/workbook/model/objectZOrder";
 import type { WorkbookBoardObject } from "@/features/workbook/model/types";
 import type { Solid3dState } from "@/features/workbook/model/solid3dState";
 import type {
@@ -85,11 +88,12 @@ export const useWorkbookContextMenuDerivedState = ({
       contextMenuObject.type === "image" &&
       !contextMenuObject.locked &&
       canSelect &&
-      resolveWorkbookObjectReorderZOrder({
-        objects: boardObjects,
-        targetObjectId: contextMenuObject.id,
-        direction: "front",
-      }) !== null
+      (resolveWorkbookObjectStackingLayer(contextMenuObject) !== "overlay" ||
+        resolveWorkbookObjectReorderZOrder({
+          objects: boardObjects,
+          targetObjectId: contextMenuObject.id,
+          direction: "front",
+        }) !== null)
   );
 
   const canSendContextMenuImageToBack = Boolean(
@@ -97,11 +101,12 @@ export const useWorkbookContextMenuDerivedState = ({
       contextMenuObject.type === "image" &&
       !contextMenuObject.locked &&
       canSelect &&
-      resolveWorkbookObjectReorderZOrder({
-        objects: boardObjects,
-        targetObjectId: contextMenuObject.id,
-        direction: "back",
-      }) !== null
+      (resolveWorkbookObjectStackingLayer(contextMenuObject) === "overlay" ||
+        resolveWorkbookObjectReorderZOrder({
+          objects: boardObjects,
+          targetObjectId: contextMenuObject.id,
+          direction: "back",
+        }) !== null)
   );
 
   const contextMenuShapeVertexObject = useMemo(() => {

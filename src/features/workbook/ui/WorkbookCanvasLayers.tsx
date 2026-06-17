@@ -206,22 +206,22 @@ export const WorkbookPresenceLayer = memo(function WorkbookPresenceLayer({
         <g
           key={`laser-pointer-${Math.round(pointer.x)}-${Math.round(pointer.y)}-${index}`}
           className="workbook-session__teacher-pointer"
-          transform={`translate(${pointer.x} ${pointer.y}) rotate(-22) scale(0.5)`}
+          transform={`translate(${pointer.x} ${pointer.y}) rotate(-24) scale(0.5)`}
         >
           <path
             className="workbook-session__teacher-pointer-shaft"
-            d="M -82 -5 C -74 -8 -44 -9 -11 -7 L -11 7 C -44 9 -74 8 -82 5 Z"
+            d="M 22 -7 C 48 -10 76 -10 84 -5 L 84 5 C 76 10 48 10 22 7 Z"
           />
           <path
             className="workbook-session__teacher-pointer-tip"
-            d="M -11 -7 L 13 0 L -11 7 Z"
+            d="M 0 0 L 24 -8 L 24 8 Z"
           />
           <path
             className="workbook-session__teacher-pointer-accent"
-            d="M -78 -2 C -58 -5 -33 -5 -13 -4"
+            d="M 28 -4 C 48 -6 68 -5 80 -3"
           />
-          <circle className="workbook-session__teacher-pointer-glow" cx={15} cy={0} r={7.4} />
-          <circle className="workbook-session__teacher-pointer-point" cx={15} cy={0} r={3.4} />
+          <circle className="workbook-session__teacher-pointer-glow" cx={0} cy={0} r={7.4} />
+          <circle className="workbook-session__teacher-pointer-point" cx={0} cy={0} r={3.4} />
         </g>
       ))}
     </>
