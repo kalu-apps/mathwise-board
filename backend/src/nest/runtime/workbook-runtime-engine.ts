@@ -1,7 +1,6 @@
 import crypto from "node:crypto";
 import os from "node:os";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { Readable } from "node:stream";
 import { WebSocket } from "ws";
 import {
   appendWorkbookAccessLog,
@@ -764,6 +763,12 @@ const readBoolEnv = (name: string, fallback = false) => {
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 };
 
+const readPositiveIntEnv = (name: string, fallback: number, max: number) => {
+  const parsed = Number.parseInt(readTrimmedEnv(name), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(max, Math.floor(parsed));
+};
+
 const normalizeDownloadFilename = (value: string) => {
   const normalized =
     value
@@ -794,7 +799,18 @@ const hmacSha256 = (key: string | Buffer, value: string) =>
 
 const sha256Hex = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 
-const buildRecordingS3Request = (filePath: string | null) => {
+const awsPercentEncode = (value: string) =>
+  encodeURIComponent(value).replace(/[!'()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+
+const toCanonicalQueryString = (params: Array<[string, string]>) =>
+  params
+    .map(([key, value]) => `${awsPercentEncode(key)}=${awsPercentEncode(value)}`)
+    .sort()
+    .join("&");
+
+const buildRecordingS3ObjectUrl = (filePath: string | null) => {
   const objectPath = filePath?.trim();
   const endpoint = readTrimmedEnv("WORKBOOK_RECORDING_S3_ENDPOINT").replace(/\/+$/g, "");
   const bucket = readTrimmedEnv("WORKBOOK_RECORDING_S3_BUCKET");
@@ -811,126 +827,94 @@ const buildRecordingS3Request = (filePath: string | null) => {
     ? new URL(`${encodedBucket}/${encodedObjectPath}`, `${endpointUrl.toString()}/`)
     : new URL(`${encodedObjectPath}`, `${endpointUrl.protocol}//${bucket}.${endpointUrl.host}/`);
 
+  return {
+    url,
+    accessKey,
+    region,
+    secret,
+  };
+};
+
+const buildRecordingS3PresignedUrl = (
+  filePath: string | null,
+  disposition: "inline" | "attachment",
+  filename: string
+) => {
+  const object = buildRecordingS3ObjectUrl(filePath);
+  if (!object) return null;
+
   const now = new Date();
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
   const dateStamp = amzDate.slice(0, 8);
-  const payloadHash = sha256Hex("");
-  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
-  const canonicalHeaders = [
-    `host:${url.host}`,
-    `x-amz-content-sha256:${payloadHash}`,
-    `x-amz-date:${amzDate}`,
-  ].join("\n");
+  const expires = String(
+    readPositiveIntEnv("WORKBOOK_RECORDING_S3_PRESIGNED_URL_TTL_SECONDS", 5 * 60, 60 * 60)
+  );
+  const scope = `${dateStamp}/${object.region}/s3/aws4_request`;
+  const signedHeaders = "host";
+  const contentDisposition = buildContentDisposition(disposition, filename);
+  const unsignedPayload = "UNSIGNED-PAYLOAD";
+  const queryParams: Array<[string, string]> = [
+    ["X-Amz-Algorithm", "AWS4-HMAC-SHA256"],
+    ["X-Amz-Credential", `${object.accessKey}/${scope}`],
+    ["X-Amz-Date", amzDate],
+    ["X-Amz-Expires", expires],
+    ["X-Amz-SignedHeaders", signedHeaders],
+    ["response-content-disposition", contentDisposition],
+    ["response-content-type", "video/mp4"],
+  ];
+  const canonicalQueryString = toCanonicalQueryString(queryParams);
+  const canonicalHeaders = `host:${object.url.host}\n`;
   const canonicalRequest = [
     "GET",
-    url.pathname,
-    "",
-    `${canonicalHeaders}\n`,
+    object.url.pathname,
+    canonicalQueryString,
+    canonicalHeaders,
     signedHeaders,
-    payloadHash,
+    unsignedPayload,
   ].join("\n");
-  const scope = `${dateStamp}/${region}/s3/aws4_request`;
   const stringToSign = [
     "AWS4-HMAC-SHA256",
     amzDate,
     scope,
     sha256Hex(canonicalRequest),
   ].join("\n");
-  const dateKey = hmacSha256(`AWS4${secret}`, dateStamp);
-  const regionKey = hmacSha256(dateKey, region);
+  const dateKey = hmacSha256(`AWS4${object.secret}`, dateStamp);
+  const regionKey = hmacSha256(dateKey, object.region);
   const serviceKey = hmacSha256(regionKey, "s3");
   const signingKey = hmacSha256(serviceKey, "aws4_request");
   const signature = crypto.createHmac("sha256", signingKey).update(stringToSign).digest("hex");
-
-  return {
-    url: url.toString(),
-    headers: {
-      Authorization: `AWS4-HMAC-SHA256 Credential=${accessKey}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
-      "x-amz-content-sha256": payloadHash,
-      "x-amz-date": amzDate,
-    },
-  };
+  object.url.search = `${canonicalQueryString}&X-Amz-Signature=${signature}`;
+  return object.url.toString();
 };
 
-const buildRecordingMediaRequests = (recording: WorkbookServerRecordingRecord) => {
-  const requests: Array<{ url: string; headers: Record<string, string> }> = [];
-  const signedS3Request = buildRecordingS3Request(recording.filePath);
-  if (signedS3Request) {
-    requests.push(signedS3Request);
-  }
+const buildRecordingMediaRedirectUrl = (
+  recording: WorkbookServerRecordingRecord,
+  disposition: "inline" | "attachment"
+) => {
+  const presignedUrl = buildRecordingS3PresignedUrl(
+    recording.filePath,
+    disposition,
+    normalizeDownloadFilename(recording.title)
+  );
+  if (presignedUrl) return presignedUrl;
   const outputUrl = recording.outputUrl?.trim();
-  if (outputUrl && !requests.some((request) => request.url === outputUrl)) {
-    requests.push({
-      url: outputUrl,
-      headers: {},
-    });
-  }
-  return requests;
+  return outputUrl || null;
 };
 
-const streamWorkbookRecordingMedia = async (params: {
-  req: IncomingMessage;
+const redirectWorkbookRecordingMedia = (params: {
   res: ServerResponse;
   recording: WorkbookServerRecordingRecord;
   disposition: "inline" | "attachment";
 }) => {
-  const sources = buildRecordingMediaRequests(params.recording);
-  if (sources.length === 0) {
+  const redirectUrl = buildRecordingMediaRedirectUrl(params.recording, params.disposition);
+  if (!redirectUrl) {
     notFound(params.res);
     return;
   }
-  const range = params.req.headers.range;
-  const failures: string[] = [];
-  let upstream: Response | null = null;
-  for (const source of sources) {
-    const headers: Record<string, string> = { ...source.headers };
-    if (typeof range === "string" && range.trim().length > 0) {
-      headers.Range = range.trim();
-    }
-    try {
-      const candidate = await fetch(source.url, { headers });
-      if (candidate.ok || candidate.status === 206) {
-        upstream = candidate;
-        break;
-      }
-      failures.push(`http_${candidate.status}`);
-    } catch (error) {
-      failures.push(error instanceof Error ? error.message : "fetch_failed");
-    }
-  }
-  if (!upstream) {
-    serviceUnavailable(params.res, failures[0] ?? "recording_source_unavailable");
-    return;
-  }
-
-  params.res.statusCode = upstream.status;
-  const passthroughHeaders = [
-    "accept-ranges",
-    "content-length",
-    "content-range",
-    "etag",
-    "last-modified",
-  ];
-  passthroughHeaders.forEach((headerName) => {
-    const value = upstream.headers.get(headerName);
-    if (value) params.res.setHeader(headerName, value);
-  });
-  params.res.setHeader("Content-Type", upstream.headers.get("content-type") || "video/mp4");
-  params.res.setHeader(
-    "Content-Disposition",
-    buildContentDisposition(params.disposition, normalizeDownloadFilename(params.recording.title))
-  );
-  params.res.setHeader("Cache-Control", "private, max-age=60");
-
-  if (!upstream.body) {
-    params.res.end();
-    return;
-  }
-  const stream = Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]);
-  stream.on("error", () => {
-    params.res.destroy();
-  });
-  stream.pipe(params.res);
+  params.res.statusCode = 302;
+  params.res.setHeader("Location", redirectUrl);
+  params.res.setHeader("Cache-Control", "private, no-store");
+  params.res.end();
 };
 
 const readBody = async (req: IncomingMessage): Promise<unknown> => {
@@ -3969,8 +3953,7 @@ export const handleWorkbookApiRequestByDomains = async (
             return;
           }
           try {
-            await streamWorkbookRecordingMedia({
-              req,
+            redirectWorkbookRecordingMedia({
               res,
               recording,
               disposition: action === "download" ? "attachment" : "inline",
