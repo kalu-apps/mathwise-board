@@ -1118,45 +1118,6 @@ export default function WorkbookHubPage() {
           </Alert>
         ) : isRecordingsScope ? (
           <>
-            {selectedRecording ? (
-              <section className="workbook-hub__recording-preview" aria-label="Просмотр записи">
-                <div className="workbook-hub__recording-preview-head">
-                  <div>
-                    <span className="workbook-hub__recording-preview-kicker">Запись занятия</span>
-                    <h2>{selectedRecording.title}</h2>
-                    <p>
-                      {selectedRecording.sessionTitle ?? "Без привязки к тетради"} ·{" "}
-                      {formatDateTime(selectedRecording.updatedAt)}
-                    </p>
-                  </div>
-                  <div className="workbook-hub__recording-preview-actions">
-                    <Button
-                      href={selectedRecording.downloadUrl}
-                      variant="outlined"
-                      size="small"
-                      startIcon={<DownloadRoundedIcon />}
-                    >
-                      Скачать
-                    </Button>
-                    <IconButton
-                      size="small"
-                      aria-label="Закрыть просмотр записи"
-                      onClick={() => setSelectedRecordingId(null)}
-                    >
-                      <CloseRoundedIcon fontSize="small" />
-                    </IconButton>
-                  </div>
-                </div>
-                <video
-                  className="workbook-hub__recording-video"
-                  src={selectedRecording.playbackUrl}
-                  controls
-                  playsInline
-                  preload="metadata"
-                />
-              </section>
-            ) : null}
-
             <div className="workbook-hub__list workbook-hub__list--recordings">
               {pageRecordings.map((recording) => {
                 const isReady = recording.status === "ready";
@@ -1168,23 +1129,62 @@ export default function WorkbookHubPage() {
                       selectedRecordingId === recording.id ? " is-selected" : ""
                     }${!isReady ? " is-disabled" : ""}`}
                     key={recording.id}
-                    onClick={() => handleOpenRecordingPreview(recording)}
+                    role={isReady ? "button" : undefined}
+                    tabIndex={isReady ? 0 : -1}
+                    onClick={() => {
+                      if (isReady) handleOpenRecordingPreview(recording);
+                    }}
+                    onKeyDown={(event) => {
+                      if (!isReady || (event.key !== "Enter" && event.key !== " ")) return;
+                      event.preventDefault();
+                      handleOpenRecordingPreview(recording);
+                    }}
                   >
-                    <div className="workbook-hub__recording-thumb" aria-hidden="true">
-                      <MovieRoundedIcon />
+                    <div className="workbook-hub__recording-thumb">
+                      <span className="workbook-hub__recording-status">
+                        {resolveRecordingStatusLabel(recording.status)}
+                      </span>
+                      <button
+                        type="button"
+                        className="workbook-hub__recording-play"
+                        aria-label={`Открыть запись «${recording.title}»`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleOpenRecordingPreview(recording);
+                        }}
+                        disabled={!isReady}
+                      >
+                        <PlayCircleOutlineRoundedIcon />
+                      </button>
+                      <span className="workbook-hub__recording-duration">
+                        {formatVideoDuration(recording.durationSeconds)}
+                      </span>
                     </div>
                     <div className="workbook-hub__card-main">
-                      <div className="workbook-hub__card-title-row">
-                        <Avatar sx={{ width: 26, height: 26 }}>
+                      <div className="workbook-hub__recording-title-row">
+                        <span className="workbook-hub__recording-type">
                           <MovieRoundedIcon fontSize="small" />
-                        </Avatar>
+                        </span>
                         <h3 title={recording.title}>{recording.title}</h3>
+                        <Tooltip title="Удалить запись">
+                          <span>
+                            <IconButton
+                              size="small"
+                              className="workbook-hub__card-remove workbook-hub__recording-remove"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDeleteRecording(recording);
+                              }}
+                              disabled={isDeleting}
+                            >
+                              <DeleteOutlineRoundedIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
                       </div>
 
                       <div className="workbook-hub__card-meta">
                         <span>{recording.sessionTitle ?? "Запись занятия"}</span>
-                        <span>•</span>
-                        <span>{resolveRecordingStatusLabel(recording.status)}</span>
                       </div>
 
                       <div className="workbook-hub__card-timeline">
@@ -1206,7 +1206,7 @@ export default function WorkbookHubPage() {
                         <Button
                           className="workbook-hub__card-action-btn workbook-hub__card-action-btn--open"
                           size="small"
-                          variant="text"
+                          variant="contained"
                           startIcon={<PlayCircleOutlineRoundedIcon />}
                           onClick={(event) => {
                             event.stopPropagation();
@@ -1250,21 +1250,6 @@ export default function WorkbookHubPage() {
                         </div>
                       </div>
                     </div>
-                    <Tooltip title="Удалить запись">
-                      <span>
-                        <IconButton
-                          size="small"
-                          className="workbook-hub__card-remove"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleDeleteRecording(recording);
-                          }}
-                          disabled={isDeleting}
-                        >
-                          <DeleteOutlineRoundedIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
                   </article>
                 );
               })}
@@ -1582,6 +1567,56 @@ export default function WorkbookHubPage() {
           </>
         )}
       </article>
+
+      <Dialog
+        open={Boolean(selectedRecording)}
+        onClose={() => setSelectedRecordingId(null)}
+        maxWidth="lg"
+        fullWidth
+        className="workbook-hub__recording-dialog"
+      >
+        <DialogTitle component="div" className="workbook-hub__recording-dialog-title">
+          <div>
+            <span className="workbook-hub__recording-dialog-kicker">Запись занятия</span>
+            <h2>{selectedRecording?.title ?? "Запись занятия"}</h2>
+            <p>
+              {selectedRecording?.sessionTitle ?? "Без привязки к тетради"}
+              {selectedRecording ? ` · ${formatDateTime(selectedRecording.updatedAt)}` : ""}
+            </p>
+          </div>
+          <IconButton
+            size="small"
+            aria-label="Закрыть просмотр записи"
+            onClick={() => setSelectedRecordingId(null)}
+          >
+            <CloseRoundedIcon fontSize="small" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent className="workbook-hub__recording-dialog-content">
+          {selectedRecording ? (
+            <video
+              key={selectedRecording.id}
+              className="workbook-hub__recording-video"
+              src={selectedRecording.playbackUrl}
+              controls
+              playsInline
+              preload="metadata"
+            />
+          ) : null}
+        </DialogContent>
+        <DialogActions className="workbook-hub__recording-dialog-actions">
+          {selectedRecording ? (
+            <Button
+              href={selectedRecording.downloadUrl}
+              variant="outlined"
+              size="small"
+              startIcon={<DownloadRoundedIcon />}
+            >
+              Скачать
+            </Button>
+          ) : null}
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={Boolean(pendingDeleteCard)}
