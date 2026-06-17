@@ -140,16 +140,6 @@ const formatVideoDuration = (seconds?: number | null) => {
   return `${minutes}:${String(restSeconds).padStart(2, "0")}`;
 };
 
-const resolveRecordingStatusLabel = (status: WorkbookRecordingLibraryItem["status"]) => {
-  if (status === "ready") return "Готово";
-  if (status === "recording") return "Идет запись";
-  if (status === "starting") return "Запускается";
-  if (status === "stopping") return "Останавливается";
-  if (status === "processing") return "Готовится файл";
-  if (status === "failed") return "Ошибка записи";
-  return "Нет данных";
-};
-
 const areRecordingItemsEqual = (
   left: WorkbookRecordingLibraryItem[],
   right: WorkbookRecordingLibraryItem[]
@@ -1141,9 +1131,6 @@ export default function WorkbookHubPage() {
                     }}
                   >
                     <div className="workbook-hub__recording-thumb">
-                      <span className="workbook-hub__recording-status">
-                        {resolveRecordingStatusLabel(recording.status)}
-                      </span>
                       <button
                         type="button"
                         className="workbook-hub__recording-play"
@@ -1160,62 +1147,30 @@ export default function WorkbookHubPage() {
                         {formatVideoDuration(recording.durationSeconds)}
                       </span>
                     </div>
+                    <Tooltip title="Удалить запись">
+                      <span className="workbook-hub__recording-remove-wrap">
+                        <IconButton
+                          size="small"
+                          className="workbook-hub__card-remove workbook-hub__recording-remove"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleDeleteRecording(recording);
+                          }}
+                          disabled={isDeleting}
+                        >
+                          <DeleteOutlineRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
                     <div className="workbook-hub__card-main">
                       <div className="workbook-hub__recording-title-row">
                         <span className="workbook-hub__recording-type">
                           <MovieRoundedIcon fontSize="small" />
                         </span>
                         <h3 title={recording.title}>{recording.title}</h3>
-                        <Tooltip title="Удалить запись">
-                          <span>
-                            <IconButton
-                              size="small"
-                              className="workbook-hub__card-remove workbook-hub__recording-remove"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleDeleteRecording(recording);
-                              }}
-                              disabled={isDeleting}
-                            >
-                              <DeleteOutlineRoundedIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
                       </div>
 
-                      <div className="workbook-hub__card-meta">
-                        <span>{recording.sessionTitle ?? "Запись занятия"}</span>
-                      </div>
-
-                      <div className="workbook-hub__card-timeline">
-                        <div className="workbook-hub__card-timeline-row">
-                          <span className="workbook-hub__card-timeline-label">Сохранено</span>
-                          <span className="workbook-hub__card-timeline-value">
-                            {formatDateTime(recording.updatedAt)}
-                          </span>
-                        </div>
-                        <div className="workbook-hub__card-timeline-row">
-                          <span className="workbook-hub__card-timeline-label">Длительность</span>
-                          <span className="workbook-hub__card-timeline-value">
-                            {formatVideoDuration(recording.durationSeconds)}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="workbook-hub__card-actions-row">
-                        <Button
-                          className="workbook-hub__card-action-btn workbook-hub__card-action-btn--open"
-                          size="small"
-                          variant="contained"
-                          startIcon={<PlayCircleOutlineRoundedIcon />}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleOpenRecordingPreview(recording);
-                          }}
-                          disabled={!isReady}
-                        >
-                          Смотреть
-                        </Button>
+                      <div className="workbook-hub__card-actions-row workbook-hub__recording-actions-row">
                         <div className="workbook-hub__card-actions">
                           <Button
                             className="workbook-hub__card-action-btn"
@@ -1577,12 +1532,15 @@ export default function WorkbookHubPage() {
       >
         <DialogTitle component="div" className="workbook-hub__recording-dialog-title">
           <div>
-            <span className="workbook-hub__recording-dialog-kicker">Запись занятия</span>
+            <div className="workbook-hub__recording-dialog-kicker-row">
+              <span className="workbook-hub__recording-dialog-kicker">Запись занятия</span>
+              {selectedRecording ? (
+                <span className="workbook-hub__recording-dialog-date">
+                  {formatDateTime(selectedRecording.updatedAt)}
+                </span>
+              ) : null}
+            </div>
             <h2>{selectedRecording?.title ?? "Запись занятия"}</h2>
-            <p>
-              {selectedRecording?.sessionTitle ?? "Без привязки к тетради"}
-              {selectedRecording ? ` · ${formatDateTime(selectedRecording.updatedAt)}` : ""}
-            </p>
           </div>
           <IconButton
             size="small"

@@ -102,7 +102,7 @@
 }
 
 .workbook-hub__list--recordings {
-  grid-template-columns: repeat(auto-fill, minmax(286px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: stretch;
 }
 
@@ -110,8 +110,14 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-height: 356px;
+  min-height: 292px;
   padding: 12px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-elevated) 96%, #ffffff 4%),
+      color-mix(in srgb, var(--surface-soft) 88%, #ffffff 12%)
+    );
   cursor: pointer;
 }
 
@@ -126,7 +132,7 @@
 
 .workbook-hub__recording-card .workbook-hub__card-main {
   flex: 1;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto 1fr;
 }
 
 .workbook-hub__recording-thumb {
@@ -138,25 +144,25 @@
   min-height: 0;
   overflow: hidden;
   border-radius: 14px;
-  color: #ffffff;
+  color: color-mix(in srgb, var(--brand-solid) 78%, var(--text-primary));
   background:
-    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--brand-solid) 32%, transparent), transparent 34%),
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--brand-solid) 18%, transparent), transparent 34%),
     linear-gradient(
       135deg,
-      color-mix(in srgb, #111827 88%, var(--brand-solid) 12%),
-      color-mix(in srgb, #020617 92%, var(--brand-soft) 8%)
+      color-mix(in srgb, #ffffff 82%, var(--brand-soft) 18%),
+      color-mix(in srgb, #edf4fb 84%, var(--brand-solid) 16%)
     );
-  border: 1px solid color-mix(in srgb, #ffffff 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
 }
 
 .workbook-hub__recording-thumb::before {
   content: "";
   position: absolute;
   inset: 0;
-  opacity: 0.24;
+  opacity: 0.42;
   background-image:
-    linear-gradient(color-mix(in srgb, #ffffff 20%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, #ffffff 20%, transparent) 1px, transparent 1px);
+    linear-gradient(color-mix(in srgb, var(--brand-solid) 14%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--brand-solid) 14%, transparent) 1px, transparent 1px);
   background-size: 28px 28px;
   mask-image: linear-gradient(180deg, transparent, #000 22%, #000 78%, transparent);
 }
@@ -168,11 +174,13 @@
   place-items: center;
   width: 58px;
   height: 58px;
-  border: 1px solid color-mix(in srgb, #ffffff 48%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand-solid) 28%, #ffffff 72%);
   border-radius: 999px;
-  color: #ffffff;
-  background: color-mix(in srgb, #0f172a 58%, transparent);
-  box-shadow: 0 14px 32px color-mix(in srgb, #000000 30%, transparent);
+  color: color-mix(in srgb, var(--brand-solid) 82%, var(--text-primary));
+  background: color-mix(in srgb, #ffffff 82%, transparent);
+  box-shadow:
+    0 14px 32px color-mix(in srgb, var(--brand-solid) 18%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
   cursor: pointer;
   transition:
     transform 160ms ease,
@@ -185,8 +193,8 @@
 
 .workbook-hub__recording-play:hover:not(:disabled) {
   transform: translateY(-1px) scale(1.03);
-  border-color: color-mix(in srgb, #ffffff 68%, transparent);
-  background: color-mix(in srgb, var(--brand-solid) 42%, #0f172a 58%);
+  border-color: color-mix(in srgb, var(--brand-solid) 46%, #ffffff 54%);
+  background: color-mix(in srgb, #ffffff 92%, var(--brand-soft) 8%);
 }
 
 .workbook-hub__recording-play:disabled {
@@ -194,26 +202,20 @@
   cursor: not-allowed;
 }
 
-.workbook-hub__recording-status,
 .workbook-hub__recording-duration {
   position: absolute;
   z-index: 1;
   display: inline-flex;
   align-items: center;
   min-height: 24px;
-  border: 1px solid color-mix(in srgb, #ffffff 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
   border-radius: 999px;
   padding: 3px 8px;
-  color: #ffffff;
-  background: color-mix(in srgb, #020617 64%, transparent);
+  color: var(--text-primary);
+  background: color-mix(in srgb, #ffffff 82%, transparent);
   font-size: 11px;
   font-weight: 700;
   line-height: 1;
-}
-
-.workbook-hub__recording-status {
-  top: 10px;
-  left: 10px;
 }
 
 .workbook-hub__recording-duration {
@@ -222,9 +224,14 @@
   font-variant-numeric: tabular-nums;
 }
 
+.workbook-hub__recording-actions-row {
+  align-self: end;
+  justify-content: flex-end;
+}
+
 .workbook-hub__recording-title-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   h3 {
@@ -249,11 +256,78 @@
   background: color-mix(in srgb, var(--brand-soft) 24%, transparent);
 }
 
+.workbook-hub__recording-remove-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  line-height: 0;
+  pointer-events: none;
+}
+
 .workbook-hub__recording-remove.MuiIconButton-root {
-  position: static !important;
-  transform: none;
-  width: 30px;
-  height: 30px;
+  pointer-events: auto;
+  top: 14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
+  color: var(--text-secondary) !important;
+  background: color-mix(in srgb, #ffffff 86%, transparent);
+  box-shadow: 0 8px 18px color-mix(in srgb, #64748b 16%, transparent);
+}
+
+.workbook-hub__recording-remove.MuiIconButton-root:hover {
+  color: var(--feedback-danger) !important;
+  background: color-mix(in srgb, #ffffff 94%, var(--feedback-danger) 6%);
+}
+
+:root[data-theme="dark"] .workbook-hub__recording-card {
+  background: var(--workbook-card-bg);
+}
+
+:root[data-theme="dark"] .workbook-hub__recording-thumb {
+  color: #ffffff;
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--brand-solid) 32%, transparent), transparent 34%),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, #111827 88%, var(--brand-solid) 12%),
+      color-mix(in srgb, #020617 92%, var(--brand-soft) 8%)
+    );
+  border-color: color-mix(in srgb, #ffffff 16%, transparent);
+}
+
+:root[data-theme="dark"] .workbook-hub__recording-thumb::before {
+  opacity: 0.24;
+  background-image:
+    linear-gradient(color-mix(in srgb, #ffffff 20%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, #ffffff 20%, transparent) 1px, transparent 1px);
+}
+
+:root[data-theme="dark"] .workbook-hub__recording-play {
+  border-color: color-mix(in srgb, #ffffff 48%, transparent);
+  color: #ffffff;
+  background: color-mix(in srgb, #0f172a 58%, transparent);
+  box-shadow: 0 14px 32px color-mix(in srgb, #000000 30%, transparent);
+}
+
+:root[data-theme="dark"] .workbook-hub__recording-play:hover:not(:disabled) {
+  border-color: color-mix(in srgb, #ffffff 68%, transparent);
+  background: color-mix(in srgb, var(--brand-solid) 42%, #0f172a 58%);
+}
+
+:root[data-theme="dark"] .workbook-hub__recording-duration {
+  border-color: color-mix(in srgb, #ffffff 18%, transparent);
+  color: #ffffff;
+  background: color-mix(in srgb, #020617 64%, transparent);
+}
+
+:root[data-theme="dark"] .workbook-hub__recording-remove.MuiIconButton-root {
+  border-color: color-mix(in srgb, #ffffff 16%, transparent);
+  color: color-mix(in srgb, #ffffff 82%, transparent) !important;
+  background: color-mix(in srgb, #020617 72%, transparent);
+  box-shadow: 0 8px 18px color-mix(in srgb, #000000 26%, transparent);
 }
 
 .workbook-hub__recording-dialog .MuiDialog-paper {
@@ -276,11 +350,14 @@
     font-size: clamp(1.05rem, 1.45vw, 1.28rem);
     line-height: 1.22;
   }
-  p {
-    margin: 5px 0 0;
-    color: var(--text-secondary);
-    font-size: 12px;
-  }
+}
+
+.workbook-hub__recording-dialog-kicker-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .workbook-hub__recording-dialog-kicker {
@@ -289,6 +366,23 @@
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.workbook-hub__recording-dialog-date {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.workbook-hub__recording-dialog-date::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  margin: 0 8px 2px 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 68%, transparent);
 }
 
 .workbook-hub__recording-dialog-content.MuiDialogContent-root {
