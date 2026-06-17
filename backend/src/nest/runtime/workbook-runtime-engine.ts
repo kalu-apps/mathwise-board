@@ -814,7 +814,7 @@ const buildRecordingS3Request = (filePath: string | null) => {
   const now = new Date();
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
   const dateStamp = amzDate.slice(0, 8);
-  const payloadHash = "UNSIGNED-PAYLOAD";
+  const payloadHash = sha256Hex("");
   const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
   const canonicalHeaders = [
     `host:${url.host}`,
@@ -852,14 +852,21 @@ const buildRecordingS3Request = (filePath: string | null) => {
   };
 };
 
-const buildRecordingMediaRequest = (recording: WorkbookServerRecordingRecord) =>
-  buildRecordingS3Request(recording.filePath) ??
-  (recording.outputUrl?.trim()
-    ? {
-        url: recording.outputUrl.trim(),
-        headers: {},
-      }
-    : null);
+const buildRecordingMediaRequests = (recording: WorkbookServerRecordingRecord) => {
+  const requests: Array<{ url: string; headers: Record<string, string> }> = [];
+  const signedS3Request = buildRecordingS3Request(recording.filePath);
+  if (signedS3Request) {
+    requests.push(signedS3Request);
+  }
+  const outputUrl = recording.outputUrl?.trim();
+  if (outputUrl && !requests.some((request) => request.url === outputUrl)) {
+    requests.push({
+      url: outputUrl,
+      headers: {},
+    });
+  }
+  return requests;
+};
 
 const streamWorkbookRecordingMedia = async (params: {
   req: IncomingMessage;
@@ -867,19 +874,32 @@ const streamWorkbookRecordingMedia = async (params: {
   recording: WorkbookServerRecordingRecord;
   disposition: "inline" | "attachment";
 }) => {
-  const source = buildRecordingMediaRequest(params.recording);
-  if (!source) {
+  const sources = buildRecordingMediaRequests(params.recording);
+  if (sources.length === 0) {
     notFound(params.res);
     return;
   }
-  const headers: Record<string, string> = { ...source.headers };
   const range = params.req.headers.range;
-  if (typeof range === "string" && range.trim().length > 0) {
-    headers.Range = range.trim();
+  const failures: string[] = [];
+  let upstream: Response | null = null;
+  for (const source of sources) {
+    const headers: Record<string, string> = { ...source.headers };
+    if (typeof range === "string" && range.trim().length > 0) {
+      headers.Range = range.trim();
+    }
+    try {
+      const candidate = await fetch(source.url, { headers });
+      if (candidate.ok || candidate.status === 206) {
+        upstream = candidate;
+        break;
+      }
+      failures.push(`http_${candidate.status}`);
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : "fetch_failed");
+    }
   }
-  const upstream = await fetch(source.url, { headers });
-  if (!upstream.ok && upstream.status !== 206) {
-    serviceUnavailable(params.res, `recording_source_http_${upstream.status}`);
+  if (!upstream) {
+    serviceUnavailable(params.res, failures[0] ?? "recording_source_unavailable");
     return;
   }
 
