@@ -821,11 +821,13 @@ const buildRecordingS3ObjectUrl = (filePath: string | null) => {
   const region = readTrimmedEnv("WORKBOOK_RECORDING_S3_REGION") || "auto";
   const forcePathStyle = readBoolEnv("WORKBOOK_RECORDING_S3_FORCE_PATH_STYLE", true);
   const endpointUrl = new URL(endpoint);
+  const endpointOrigin = `${endpointUrl.protocol}//${endpointUrl.host}`;
+  const endpointPath = endpointUrl.pathname.replace(/\/+$/g, "");
   const encodedObjectPath = encodeS3ObjectPath(objectPath);
   const encodedBucket = encodeURIComponent(bucket);
   const url = forcePathStyle
-    ? new URL(`${encodedBucket}/${encodedObjectPath}`, `${endpointUrl.toString()}/`)
-    : new URL(`${encodedObjectPath}`, `${endpointUrl.protocol}//${bucket}.${endpointUrl.host}/`);
+    ? new URL(`${endpointPath}/${encodedBucket}/${encodedObjectPath}`, endpointOrigin)
+    : new URL(`${endpointPath}/${encodedObjectPath}`, `${endpointUrl.protocol}//${bucket}.${endpointUrl.host}`);
 
   return {
     url,
