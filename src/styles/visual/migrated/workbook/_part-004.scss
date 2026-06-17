@@ -407,6 +407,44 @@
   }
 }
 
+.workbook-hub__recording-download-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-primary, #385a91);
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1;
+  text-decoration: none;
+  text-underline-offset: 4px;
+  transition:
+    color 160ms ease,
+    opacity 160ms ease;
+
+  svg {
+    font-size: 18px;
+  }
+
+  &:hover {
+    color: color-mix(in srgb, var(--color-primary, #385a91) 72%, var(--text-primary) 28%);
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-primary, #385a91) 42%, transparent);
+    outline-offset: 4px;
+    border-radius: 6px;
+  }
+}
+
+:root[data-theme="dark"] .workbook-hub__recording-download-link {
+  color: color-mix(in srgb, var(--color-primary, #7ba6ff) 62%, #ffffff 38%);
+
+  &:hover {
+    color: #ffffff;
+  }
+}
+
 .workbook-hub__card--with-preview .workbook-hub__card-action-btn.MuiButton-root {
   color: var(--workbook-card-text-primary);
   border: 1px solid color-mix(in srgb, #ffffff 66%, #b3c0d1 34%);

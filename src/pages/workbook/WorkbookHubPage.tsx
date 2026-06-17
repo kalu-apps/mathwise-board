@@ -1564,14 +1564,13 @@ export default function WorkbookHubPage() {
         </DialogContent>
         <DialogActions className="workbook-hub__recording-dialog-actions">
           {selectedRecording ? (
-            <Button
+            <a
+              className="workbook-hub__recording-download-link"
               href={selectedRecording.downloadUrl}
-              variant="outlined"
-              size="small"
-              startIcon={<DownloadRoundedIcon />}
             >
+              <DownloadRoundedIcon fontSize="small" aria-hidden="true" />
               Скачать
-            </Button>
+            </a>
           ) : null}
         </DialogActions>
       </Dialog>

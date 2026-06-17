@@ -128,10 +128,10 @@ export const useWorkbookVolatileSyncPipeline = ({
 
     const events: WorkbookClientEventInput[] = [];
     const queuedViewport = viewportSyncQueuedOffsetRef.current;
-    if (queuedViewport && session.kind === "CLASS" && !canBroadcastViewportSync) {
+    if (queuedViewport && !canBroadcastViewportSync) {
       viewportSyncQueuedOffsetRef.current = null;
     }
-    if (queuedViewport && session.kind === "CLASS" && canBroadcastViewportSync) {
+    if (queuedViewport && canBroadcastViewportSync) {
       const now = Date.now();
       const elapsed = now - viewportSyncLastSentAtRef.current;
       if (elapsed >= VIEWPORT_SYNC_MIN_INTERVAL_MS) {
@@ -342,7 +342,7 @@ export const useWorkbookVolatileSyncPipeline = ({
 
   const queueViewportSyncSnapshot = useCallback(
     (next: WorkbookViewportSyncPayload, delay = VOLATILE_SYNC_FLUSH_INTERVAL_MS) => {
-      if (!canBroadcastViewportSync || !session || session.kind !== "CLASS" || isEnded) {
+      if (!canBroadcastViewportSync || !session || isEnded) {
         return;
       }
       viewportSyncQueuedOffsetRef.current = next;
@@ -382,7 +382,7 @@ export const useWorkbookVolatileSyncPipeline = ({
   );
 
   useEffect(() => {
-    if (!canBroadcastViewportSync || !session || session.kind !== "CLASS" || isEnded) {
+    if (!canBroadcastViewportSync || !session || isEnded) {
       return;
     }
     const syncCurrentViewport = () => {

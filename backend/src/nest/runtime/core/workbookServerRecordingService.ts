@@ -133,14 +133,8 @@ const sanitizeRecordingTitle = (value: string) =>
     .trim()
     .slice(0, 140);
 
-const buildDefaultRecordingTitle = (sessionTitle: string | null | undefined, timestamp: string) => {
-  const titlePrefix = sanitizeRecordingTitle(sessionTitle ?? "") || "Запись занятия";
-  const dateLabel = new Intl.DateTimeFormat("ru-RU", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(timestamp));
-  return sanitizeRecordingTitle(`${titlePrefix} · ${dateLabel}`) || "Запись занятия";
-};
+const buildDefaultRecordingTitle = (sessionTitle: string | null | undefined) =>
+  sanitizeRecordingTitle(sessionTitle ?? "") || "Запись занятия";
 
 const ensureWorkbookRecordings = (db: MockDb) => {
   if (!Array.isArray(db.workbookRecordings)) {
@@ -472,7 +466,7 @@ export const startWorkbookServerRecording = async ({
     id: recordingId,
     sessionId,
     createdBy,
-    title: buildDefaultRecordingTitle(sessionTitle, timestamp),
+    title: buildDefaultRecordingTitle(sessionTitle),
     sessionTitle: sanitizeRecordingTitle(sessionTitle ?? "") || null,
     status: "starting",
     createdAt: timestamp,

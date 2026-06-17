@@ -1095,7 +1095,7 @@ export default function WorkbookSessionPage() {
     viewportZoom,
     setViewportZoom,
     availablePages: availablePagesForLocalPersistence,
-    enabled: bootstrapReady && Boolean(sessionId),
+    enabled: bootstrapReady && Boolean(sessionId) && !isServerRecordingView,
   });
 
   useWorkbookSessionContextbar({
@@ -2690,7 +2690,7 @@ export default function WorkbookSessionPage() {
     setCanvasViewport,
     applyZoomForPage: applyPageZoomForPage,
     availablePages: orderedBoardPages,
-    enabled: bootstrapReady && Boolean(sessionId),
+    enabled: bootstrapReady && Boolean(sessionId) && !isServerRecordingView,
     restoreLastPage: false,
     restoreSavedViewport: false,
   });
