@@ -1615,8 +1615,8 @@ export default function WorkbookHubPage() {
         title="Удалить запись?"
         description={
           pendingDeleteRecording
-            ? `Запись «${pendingDeleteRecording.title}» будет скрыта из списка записей занятий.`
-            : "Запись будет скрыта из списка записей занятий."
+            ? `Запись «${pendingDeleteRecording.title}» будет удалена из списка и хранилища записей.`
+            : "Запись будет удалена из списка и хранилища записей."
         }
         confirmLabel="Удалить"
         tone="destructive"

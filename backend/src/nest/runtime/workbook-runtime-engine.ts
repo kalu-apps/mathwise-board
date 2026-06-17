@@ -973,6 +973,22 @@ const deleteRecordingS3Object = async (filePath: string | null) => {
   throw new Error(`recording_s3_delete_http_${response.status}`);
 };
 
+const buildRecordingCompanionMetadataPath = (recording: WorkbookServerRecordingRecord) => {
+  const filePath = recording.filePath?.trim();
+  const egressId = recording.egressId?.trim();
+  if (!filePath || !egressId) return null;
+  const directory = filePath.split("/").slice(0, -1).join("/");
+  if (!directory) return null;
+  const safeEgressId = egressId.replace(/[^a-zA-Z0-9._-]+/g, "");
+  if (!safeEgressId) return null;
+  return `${directory}/${safeEgressId}.json`;
+};
+
+const deleteRecordingS3Objects = async (recording: WorkbookServerRecordingRecord) => {
+  await deleteRecordingS3Object(buildRecordingCompanionMetadataPath(recording));
+  await deleteRecordingS3Object(recording.filePath);
+};
+
 const resolveRecordingS3ObjectPresence = async (
   filePath: string | null
 ): Promise<"exists" | "missing" | "unknown"> => {
@@ -1000,6 +1016,12 @@ const reconcileMissingRecordingMediaForUser = async (db: MockDb, userId: string)
     if (recording.status !== "ready" || !recording.filePath) continue;
     const presence = await resolveRecordingS3ObjectPresence(recording.filePath);
     if (presence !== "missing") continue;
+    try {
+      await deleteRecordingS3Object(buildRecordingCompanionMetadataPath(recording));
+    } catch {
+      // Missing media should still disappear from the teacher library even if
+      // best-effort cleanup of the LiveKit companion metadata fails.
+    }
     deleteWorkbookServerRecording(db, userId, recording.id);
     changed = true;
   }
@@ -4062,7 +4084,7 @@ export const handleWorkbookApiRequestByDomains = async (
               });
               return;
             }
-            await deleteRecordingS3Object(existingRecording.filePath);
+            await deleteRecordingS3Objects(existingRecording);
             const recording = deleteWorkbookServerRecording(db, actor.id, recordingId);
             if (!recording) {
               notFound(res);
