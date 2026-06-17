@@ -53,6 +53,14 @@ const workbookSessionKindSet = new Set(["PERSONAL", "CLASS"]);
 const workbookSessionStatusSet = new Set(["draft", "in_progress", "ended"]);
 const workbookRoleInSessionSet = new Set(["teacher", "student"]);
 const workbookSnapshotLayerSet = new Set(["board", "annotations"]);
+const workbookRecordingStatusSet = new Set([
+  "starting",
+  "recording",
+  "stopping",
+  "processing",
+  "ready",
+  "failed",
+]);
 const workbookAccessEventTypeSet = new Set([
   "invite_resolved",
   "invite_joined",
@@ -377,6 +385,42 @@ export const sanitizeWorkbookSnapshots = (entries: unknown[]): unknown[] => {
       version: Math.floor(readNumber(entry.version, 0, { min: 0 })),
       payload: serializeUnknownJson(entry.payload, null),
       createdAt: normalizeIsoDate(entry.createdAt, nowIso()),
+    });
+  }
+  return sanitized;
+};
+
+export const sanitizeWorkbookRecordings = (entries: unknown[]): unknown[] => {
+  const sanitized: unknown[] = [];
+  for (const entry of entries) {
+    if (!isObjectRecord(entry)) continue;
+    const id = readTrimmedString(entry.id);
+    const sessionId = readTrimmedString(entry.sessionId);
+    const createdBy = readTrimmedString(entry.createdBy);
+    if (!id || !sessionId || !createdBy) continue;
+    const statusRaw = readTrimmedString(entry.status);
+    const status = workbookRecordingStatusSet.has(statusRaw) ? statusRaw : "failed";
+    const startedAt = normalizeNullableIsoDate(entry.startedAt);
+    const createdAt = normalizeIsoDate(entry.createdAt, startedAt ?? nowIso());
+    const updatedAt = normalizeIsoDate(entry.updatedAt, startedAt ?? createdAt);
+    const title = readTrimmedString(entry.title) || "Запись занятия";
+    sanitized.push({
+      id,
+      sessionId,
+      createdBy,
+      title: title.slice(0, 140),
+      sessionTitle: readTrimmedString(entry.sessionTitle).slice(0, 140) || null,
+      status,
+      createdAt,
+      startedAt,
+      stoppedAt: normalizeNullableIsoDate(entry.stoppedAt),
+      updatedAt,
+      outputUrl: readTrimmedString(entry.outputUrl) || null,
+      filePath: readTrimmedString(entry.filePath) || null,
+      errorMessage: readTrimmedString(entry.errorMessage).slice(0, 600) || null,
+      egressId: readTrimmedString(entry.egressId) || null,
+      recordingPageUrl: readTrimmedString(entry.recordingPageUrl) || null,
+      deletedAt: normalizeNullableIsoDate(entry.deletedAt),
     });
   }
   return sanitized;

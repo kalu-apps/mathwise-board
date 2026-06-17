@@ -1,13 +1,13 @@
 import { useEffect, useRef } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import type { WorkbookPoint } from "@/features/workbook/model/types";
+import type { WorkbookViewportSyncPayload } from "@/features/workbook/model/events";
 import type { WorkbookStrokePreviewEntry } from "@/features/workbook/model/useWorkbookIncomingRuntimeController";
 
 type UseWorkbookSessionCleanupEffectsParams = {
   focusResetTimersByUserRef: MutableRefObject<Map<string, number>>;
   autosaveDebounceRef: MutableRefObject<number | null>;
   volatileSyncTimerRef: MutableRefObject<number | null>;
-  viewportSyncQueuedOffsetRef: MutableRefObject<WorkbookPoint | null>;
+  viewportSyncQueuedOffsetRef: MutableRefObject<WorkbookViewportSyncPayload | null>;
   eraserPreviewQueuedByGestureRef: MutableRefObject<Map<string, unknown>>;
   eraserPreviewQueuedAtRef: MutableRefObject<Map<string, number>>;
   appliedStrokeTranslateOperationIdsRef: MutableRefObject<Set<string>>;

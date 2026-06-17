@@ -4,6 +4,7 @@ import type { WebSocket } from "ws";
 type WorkbookLiveSocketRuntimeClient = {
   id: string;
   userId: string;
+  readOnly?: boolean;
   socket: WebSocket;
 };
 
@@ -20,6 +21,7 @@ export type WorkbookLiveSocketRuntime = {
   pickTeacher: (db: unknown) => unknown;
   ensureDbParticipantPermissionsNormalized: (db: unknown) => void;
   resolveAuthUser: (req: IncomingMessage, db: unknown) => { id: string } | null;
+  resolveRecordingReadUser: (req: IncomingMessage, db: unknown) => { id: string } | null;
   getWorkbookParticipant: (db: unknown, sessionId: string, userId: string) => unknown | null;
   ensureRuntimeSessionBridge: (sessionId: string) => Promise<void>;
   ensureId: () => string;

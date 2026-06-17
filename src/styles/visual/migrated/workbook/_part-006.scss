@@ -5,28 +5,23 @@
   box-shadow: none;
 }
 .workbook-session__recording-cluster.is-recording {
-  border-color: color-mix(in srgb, #f34d6d 58%, var(--border-strong));
-  box-shadow: 0 0 0 1px color-mix(in srgb, #f34d6d 16%, transparent);
-}
-.workbook-session__recording-cluster.is-paused {
-  border-color: color-mix(in srgb, #d4962d 58%, var(--border-strong));
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 .workbook-session__recording-timer {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: 24px;
-  padding: 0 8px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--border-subtle) 88%, transparent);
-  background: color-mix(in srgb, var(--surface-soft) 94%, transparent);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  min-width: 44px;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
   color: color-mix(in srgb, #cc1f46 70%, var(--text-primary));
   white-space: nowrap;
-}
-.workbook-session__recording-timer.is-paused {
-  color: color-mix(in srgb, #b2781d 68%, var(--text-primary));
 }
 .workbook-session__recording-timer.is-pending {
   color: var(--text-secondary);
@@ -51,19 +46,6 @@
   border-color: color-mix(in srgb, #f34d6d 72%, var(--border-strong)) !important;
   background: color-mix(in srgb, #f34d6d 24%, var(--surface-elevated)) !important;
   color: color-mix(in srgb, #a90f34 92%, var(--text-primary)) !important;
-}
-.workbook-session__toolbar-icon--recording-mic {
-  width: 28px !important;
-  height: 28px !important;
-  border-radius: 8px !important;
-}
-.workbook-session__toolbar-icon--recording-mic.is-audio-on {
-  border-color: color-mix(in srgb, #37b76b 52%, var(--border-strong)) !important;
-  color: color-mix(in srgb, #178948 72%, var(--text-primary)) !important;
-}
-.workbook-session__toolbar-icon--recording-mic.is-audio-off {
-  border-color: color-mix(in srgb, #c87373 48%, var(--border-subtle)) !important;
-  color: color-mix(in srgb, #a94949 68%, var(--text-primary)) !important;
 }
 .workbook-session__recording-prestart {
   display: grid;
@@ -99,6 +81,85 @@
   pointer-events: none;
   user-select: none;
   box-shadow: 0 8px 18px rgba(16, 20, 30, 0.12);
+}
+html.is-workbook-server-recording-document,
+body.is-workbook-server-recording-document {
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden !important;
+  overscroll-behavior: none;
+  scrollbar-width: none;
+}
+html.is-workbook-server-recording-document::-webkit-scrollbar,
+body.is-workbook-server-recording-document::-webkit-scrollbar,
+body.is-workbook-server-recording-document #root::-webkit-scrollbar,
+body.is-workbook-server-recording-document .app-main::-webkit-scrollbar,
+body.is-workbook-server-recording-document .workbook-session::-webkit-scrollbar {
+  display: none;
+}
+body.is-workbook-server-recording-document #root,
+body.is-workbook-server-recording-document .app-main {
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden !important;
+  scrollbar-width: none;
+}
+.workbook-session.is-server-recording-view {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden !important;
+  scrollbar-width: none;
+}
+.workbook-session.is-server-recording-view .workbook-session__layout {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.workbook-session.is-server-recording-view .workbook-session__workspace {
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.workbook-session.is-server-recording-view .workbook-session__board-shell {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.workbook-session.is-server-recording-view .workbook-session__canvas {
+  height: 100%;
+  min-height: 0;
+  border-radius: 0;
+  overflow: hidden;
+}
+.workbook-session.is-server-recording-view .workbook-session__workspace-head,
+.workbook-session.is-server-recording-view .workbook-session__tools,
+.workbook-session.is-server-recording-view .workbook-session__sidebar,
+.workbook-session.is-server-recording-view .workbook-session__video-dock,
+.workbook-session.is-server-recording-view .workbook-session__docs-window,
+.workbook-session.is-server-recording-view .workbook-session__utility-float,
+.workbook-session.is-server-recording-view .workbook-session__alert,
+.workbook-session.is-server-recording-view .workbook-session__top-scaffold,
+.workbook-session.is-server-recording-view .workbook-session__contextbar {
+  display: none !important;
 }
 .workbook-session__contextbar label {
   font-size: 12px;

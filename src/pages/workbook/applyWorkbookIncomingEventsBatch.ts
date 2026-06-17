@@ -51,6 +51,7 @@ type ApplyWorkbookIncomingEventsBatchParams = {
   events: WorkbookEvent[];
   userId: string | undefined;
   currentBoardPageRef: MutableRefObject<number>;
+  followRemoteViewport: boolean;
   selectedObjectId: string | null;
   awaitingClearRequest: {
     requestId: string;
@@ -91,6 +92,7 @@ export const applyWorkbookIncomingEventsBatch = ({
   events,
   userId,
   currentBoardPageRef,
+  followRemoteViewport,
   selectedObjectId,
   awaitingClearRequest,
   lastAppliedSeqRef,
@@ -266,6 +268,7 @@ export const applyWorkbookIncomingEventsBatch = ({
           eventTimestamp,
           userId,
           currentBoardPageRef,
+          followRemoteViewport,
           selectedObjectId,
           selectedTextDraftDirty: refs.selectedTextDraftDirtyRef.current,
           selectedTextDraftObjectId: refs.selectedTextDraftObjectIdRef.current,
@@ -292,7 +295,9 @@ export const applyWorkbookIncomingEventsBatch = ({
           boardStrokesRef: refs.boardStrokesRef,
           annotationStrokesRef: refs.annotationStrokesRef,
           setSession: actions.setSession,
+          setCurrentBoardPage: actions.setCurrentBoardPage,
           setCanvasViewport: actions.setCanvasViewport,
+          setViewportZoom: actions.setViewportZoom,
           setIncomingEraserPreviews: actions.setIncomingEraserPreviews,
           setBoardStrokes: actions.setBoardStrokes,
           setAnnotationStrokes: actions.setAnnotationStrokes,

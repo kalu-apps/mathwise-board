@@ -31,6 +31,7 @@ type WorkbookSessionDerivedStateParams = {
   session: WorkbookSession | null;
   setError: WorkbookSessionStoreActions["setError"];
   isSessionTabPassive: boolean;
+  readOnlyMode?: boolean;
   awaitingClearRequest: ClearRequest | null;
   isParticipantsCollapsed: boolean;
   focusPointsByUser: Record<string, WorkbookPoint>;
@@ -51,6 +52,7 @@ export const useWorkbookSessionDerivedState = ({
   session,
   setError,
   isSessionTabPassive,
+  readOnlyMode,
   awaitingClearRequest,
   isParticipantsCollapsed,
   focusPointsByUser,
@@ -121,8 +123,8 @@ export const useWorkbookSessionDerivedState = ({
     actorPermissions.canClear && canManageSession && !isEnded && !isSessionTabPassive
   );
   const canUseLaser = Boolean(actorPermissions.canUseLaser && !isEnded && !isSessionTabPassive);
-  const canUseMicrophone = Boolean(actorPermissions.canUseMicrophone);
-  const canUseCamera = Boolean(actorPermissions.canUseCamera);
+  const canUseMicrophone = Boolean(actorPermissions.canUseMicrophone && !readOnlyMode);
+  const canUseCamera = Boolean(actorPermissions.canUseCamera && !readOnlyMode);
   const canUseMedia = Boolean(
     canUseMicrophone || canUseCamera || actorPermissions.canUseMedia
   );

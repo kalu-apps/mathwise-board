@@ -21,6 +21,7 @@ export type SetState<T> = Dispatch<SetStateAction<T>>;
 export type WorkbookSessionLoadAndAuthParams = {
   sessionId: string;
   isWorkbookSessionAuthLost: boolean;
+  readOnlyMode?: boolean;
   clearIncomingRealtimeApplyQueue: () => void;
   clearLocalPreviewPatchRuntime: () => void;
   clearObjectSyncRuntime: () => void;

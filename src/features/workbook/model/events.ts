@@ -50,7 +50,7 @@ export type WorkbookKnownEventPayloadMap = {
     patch: Partial<WorkbookBoardObject>;
     previewVersion?: number;
   };
-  "board.viewport.sync": { offset: WorkbookPoint };
+  "board.viewport.sync": WorkbookViewportSyncPayload;
   "presence.sync": { participants: WorkbookSessionParticipant[] };
   "board.object.update": {
     objectId: string;
@@ -99,6 +99,12 @@ export type WorkbookKnownEventPayloadMap = {
     userId?: string;
     permissions?: WorkbookUnknownPayload;
   };
+};
+
+export type WorkbookViewportSyncPayload = {
+  offset: WorkbookPoint;
+  page?: number;
+  zoom?: number;
 };
 
 export type WorkbookEventPayloadFor<T extends WorkbookEventType> =

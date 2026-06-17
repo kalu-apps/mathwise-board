@@ -1,5 +1,6 @@
 import { api, ApiError, isRecoverableApiError } from "@/shared/api/client";
 import { buildApiUrl } from "@/shared/api/base";
+import { appendWorkbookRecordingAccessToken } from "@/shared/api/workbookRecordingAccess";
 import { generateId } from "@/shared/lib/id";
 import type { User } from "@/entities/user/model/types";
 import type { WorkbookClientEventInput } from "./events";
@@ -19,8 +20,11 @@ import type {
   WorkbookEventsResponse,
   WorkbookInviteInfo,
   WorkbookLayer,
+  WorkbookLessonRecordingStatusResponse,
   WorkbookLivekitTokenResponse,
   WorkbookMediaConfig,
+  WorkbookRecordingLibraryItem,
+  WorkbookRecordingLibraryResponse,
   WorkbookSessionSettings,
   WorkbookSession,
   WorkbookSessionKind,
@@ -32,7 +36,7 @@ export { uploadWorkbookAsset, uploadWorkbookAssetFile } from "./workbookBinaryUp
 
 const buildWorkbookWebSocketUrl = (pathname: string) => {
   if (typeof window === "undefined") return null;
-  const url = new URL(buildApiUrl(pathname), window.location.href);
+  const url = new URL(appendWorkbookRecordingAccessToken(buildApiUrl(pathname)), window.location.href);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 };
@@ -183,6 +187,60 @@ export async function getWorkbookLivekitToken(sessionId: string) {
   );
 }
 
+export async function getWorkbookLessonRecordingStatus(sessionId: string) {
+  return api.get<WorkbookLessonRecordingStatusResponse>(
+    `/workbook/sessions/${encodeURIComponent(sessionId)}/recording`,
+    {
+      cacheTtlMs: 0,
+      dedupe: false,
+    }
+  );
+}
+
+export async function startWorkbookLessonRecording(sessionId: string) {
+  return api.post<WorkbookLessonRecordingStatusResponse>(
+    `/workbook/sessions/${encodeURIComponent(sessionId)}/recording/start`,
+    {},
+    {
+      notifyDataUpdate: false,
+      timeoutMs: 30_000,
+    }
+  );
+}
+
+export async function stopWorkbookLessonRecording(sessionId: string, recordingId?: string | null) {
+  return api.post<WorkbookLessonRecordingStatusResponse>(
+    `/workbook/sessions/${encodeURIComponent(sessionId)}/recording/stop`,
+    recordingId ? { recordingId } : {},
+    {
+      notifyDataUpdate: false,
+      timeoutMs: 30_000,
+    }
+  );
+}
+
+export async function getWorkbookRecordings() {
+  return api.get<WorkbookRecordingLibraryResponse>("/workbook/recordings", {
+    cacheTtlMs: 1_000,
+    staleIfErrorMs: 0,
+  });
+}
+
+export async function renameWorkbookRecording(recordingId: string, title: string) {
+  return api.put<{ ok: true; recording: WorkbookRecordingLibraryItem }>(
+    `/workbook/recordings/${encodeURIComponent(recordingId)}/title`,
+    { title },
+    { notifyDataUpdate: true }
+  );
+}
+
+export async function deleteWorkbookRecording(recordingId: string) {
+  return api.del<{ ok: true; deletedRecordingId: string }>(
+    `/workbook/recordings/${encodeURIComponent(recordingId)}`,
+    { notifyDataUpdate: true }
+  );
+}
+
 export function subscribeWorkbookEventsStream(params: {
   sessionId: string;
   onEvents: (payload: WorkbookEventsResponse) => void;
@@ -195,7 +253,9 @@ export function subscribeWorkbookEventsStream(params: {
     };
   }
   const source = new EventSource(
-    buildApiUrl(`/workbook/sessions/${encodeURIComponent(params.sessionId)}/events/stream`),
+    appendWorkbookRecordingAccessToken(
+      buildApiUrl(`/workbook/sessions/${encodeURIComponent(params.sessionId)}/events/stream`)
+    ),
     { withCredentials: true }
   );
 

@@ -1,267 +1,116 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
-import { mixLessonRecordingAudio } from "./lessonRecordingAudio";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  createLessonRecordingChunkStore,
-  type LessonRecordingChunkStore,
-} from "./lessonRecordingChunkStore";
-import { buildLessonRecordingFileName, triggerLessonRecordingDownload } from "./lessonRecordingFile";
-import { resolveLessonRecordingProfile } from "./lessonRecordingQuality";
+  getWorkbookLessonRecordingStatus,
+  startWorkbookLessonRecording,
+  stopWorkbookLessonRecording,
+} from "@/features/workbook/model/api";
 import type {
-  LessonRecordingAudioSummary,
+  WorkbookLessonRecordingInfo,
+  WorkbookLessonRecordingStatus,
+} from "@/features/workbook/model/types";
+import { ApiError } from "@/shared/api/client";
+import type {
   LessonRecordingNotice,
   LessonRecordingStatus,
 } from "./lessonRecordingTypes";
 
-type DisplayMediaWithHints = MediaStreamConstraints & {
-  preferCurrentTab?: boolean;
-  selfBrowserSurface?: "include" | "exclude";
-  surfaceSwitching?: "include" | "exclude";
-  systemAudio?: "include" | "exclude";
-  monitorTypeSurfaces?: "include" | "exclude";
-};
-
 type UseWorkbookLessonRecordingParams = {
   canAccessRecording: boolean;
   canRecord: boolean;
-  canUseMedia: boolean;
-  micEnabled: boolean;
-  setMicEnabled: (next: SetStateAction<boolean>) => void;
-  sessionTitle?: string | null;
+  sessionId: string;
   setError: (
     updater: string | null | ((current: string | null) => string | null)
   ) => void;
 };
 
-type LessonRecordingRuntime = {
-  displayStream: MediaStream | null;
-  microphoneStream: MediaStream | null;
-  recorderStream: MediaStream | null;
-  mixedAudioCleanup: (() => void) | null;
-  setMixedMicrophoneEnabled: ((enabled: boolean) => void) | null;
-  videoWatermarkCleanup: (() => void) | null;
-  displayVideoTrack: MediaStreamTrack | null;
-  displayEndedHandler: (() => void) | null;
-  extension: "webm" | "mp4";
-  mimeType: string;
-  audioSummary: LessonRecordingAudioSummary;
+const ACTIVE_SERVER_STATUSES = new Set<WorkbookLessonRecordingStatus>([
+  "starting",
+  "recording",
+  "stopping",
+  "processing",
+]);
+
+const POLL_ACTIVE_RECORDING_MS = 2_000;
+const POLL_IDLE_RECORDING_MS = 12_000;
+
+const toClientStatus = (
+  recording: WorkbookLessonRecordingInfo | null
+): LessonRecordingStatus => {
+  if (!recording) return "idle";
+  if (recording.status === "starting") return "starting";
+  if (recording.status === "recording") return "recording";
+  if (recording.status === "stopping") return "stopping";
+  if (recording.status === "processing") return "processing";
+  return "idle";
 };
 
-const INITIAL_AUDIO_SUMMARY: LessonRecordingAudioSummary = {
-  hasDisplayAudio: false,
-  hasMicrophoneAudio: false,
+const resolveElapsedMs = (recording: WorkbookLessonRecordingInfo | null) => {
+  if (!recording?.startedAt) return 0;
+  const startedAt = Date.parse(recording.startedAt);
+  if (!Number.isFinite(startedAt)) return 0;
+  const endedAt = recording.stoppedAt ? Date.parse(recording.stoppedAt) : Date.now();
+  return Math.max(0, (Number.isFinite(endedAt) ? endedAt : Date.now()) - startedAt);
 };
 
-const LESSON_RECORDING_MAX_WIDTH = 1920;
-const LESSON_RECORDING_MAX_HEIGHT = 1080;
-const LESSON_RECORDING_MAX_FRAME_RATE = 30;
-
-const isLessonRecordingSupported = () =>
-  typeof window !== "undefined" &&
-  typeof navigator !== "undefined" &&
-  Boolean(navigator.mediaDevices?.getDisplayMedia) &&
-  typeof MediaRecorder !== "undefined";
-
-const constrainLessonRecordingVideoTrack = async (track: MediaStreamTrack) => {
-  if (typeof track.applyConstraints !== "function") return;
-  try {
-    await track.applyConstraints({
-      width: { max: LESSON_RECORDING_MAX_WIDTH },
-      height: { max: LESSON_RECORDING_MAX_HEIGHT },
-      frameRate: { max: LESSON_RECORDING_MAX_FRAME_RATE },
-    });
-  } catch {
-    // Capture constraints are browser- and source-dependent; recording can proceed safely.
+const formatServerRecordingError = (error: unknown) => {
+  if (error instanceof ApiError && error.status === 503) {
+    return "Серверная запись не настроена. Проверьте LiveKit Egress и хранилище записей.";
   }
-};
-
-const resolveNowElapsedMs = (params: {
-  status: LessonRecordingStatus;
-  elapsedBeforePauseMs: number;
-  startedAtMs: number | null;
-}) => {
-  const { status, elapsedBeforePauseMs, startedAtMs } = params;
-  if (status !== "recording") return elapsedBeforePauseMs;
-  if (!startedAtMs) return elapsedBeforePauseMs;
-  return elapsedBeforePauseMs + Math.max(0, Date.now() - startedAtMs);
+  if (error instanceof ApiError && error.status === 409) {
+    return "Запись уже выполняется для этого занятия.";
+  }
+  if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+    return "Запуск записи доступен только преподавателю или владельцу тетради.";
+  }
+  return "Не удалось выполнить действие с серверной записью.";
 };
 
 export const useWorkbookLessonRecording = ({
   canAccessRecording,
   canRecord,
-  canUseMedia,
-  micEnabled,
-  setMicEnabled,
-  sessionTitle,
+  sessionId,
   setError,
 }: UseWorkbookLessonRecordingParams) => {
   const [status, setStatus] = useState<LessonRecordingStatus>("idle");
   const [elapsedMs, setElapsedMs] = useState(0);
   const [preStartDialogOpen, setPreStartDialogOpen] = useState(false);
   const [notice, setNotice] = useState<LessonRecordingNotice | null>(null);
-  const [audioSummary, setAudioSummary] = useState<LessonRecordingAudioSummary>(
-    INITIAL_AUDIO_SUMMARY
-  );
-
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunkStoreRef = useRef<LessonRecordingChunkStore | null>(null);
-  const chunkWritePromisesRef = useRef<Set<Promise<void>>>(new Set());
-  const runtimeRef = useRef<LessonRecordingRuntime>({
-    displayStream: null,
-    microphoneStream: null,
-    recorderStream: null,
-    mixedAudioCleanup: null,
-    setMixedMicrophoneEnabled: null,
-    videoWatermarkCleanup: null,
-    displayVideoTrack: null,
-    displayEndedHandler: null,
-    extension: "webm",
-    mimeType: "video/webm",
-    audioSummary: INITIAL_AUDIO_SUMMARY,
-  });
-  const startedAtMsRef = useRef<number | null>(null);
-  const elapsedBeforePauseMsRef = useRef(0);
+  const [recording, setRecording] = useState<WorkbookLessonRecordingInfo | null>(null);
+  const [isSupported, setIsSupported] = useState(true);
+  const activeRequestRef = useRef<"start" | "stop" | null>(null);
   const statusRef = useRef<LessonRecordingStatus>("idle");
-  const isFinalizingRef = useRef(false);
-  const stopReasonRef = useRef<"stopped" | "interrupted" | "error">("stopped");
 
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
 
-  const cleanupRuntimeResources = useCallback(() => {
-    const runtime = runtimeRef.current;
-    if (runtime.displayVideoTrack && runtime.displayEndedHandler) {
-      runtime.displayVideoTrack.removeEventListener("ended", runtime.displayEndedHandler);
-    }
-    if (runtime.mixedAudioCleanup) {
-      runtime.mixedAudioCleanup();
-    }
-    if (runtime.videoWatermarkCleanup) {
-      runtime.videoWatermarkCleanup();
-    }
-
-    const trackSet = new Set<MediaStreamTrack>();
-    [runtime.displayStream, runtime.microphoneStream, runtime.recorderStream].forEach((stream) => {
-      stream?.getTracks().forEach((track) => trackSet.add(track));
-    });
-    trackSet.forEach((track) => {
-      try {
-        track.stop();
-      } catch {
-        // ignore cleanup failures
-      }
-    });
-
-    runtimeRef.current = {
-      displayStream: null,
-      microphoneStream: null,
-      recorderStream: null,
-      mixedAudioCleanup: null,
-      setMixedMicrophoneEnabled: null,
-      videoWatermarkCleanup: null,
-      displayVideoTrack: null,
-      displayEndedHandler: null,
-      extension: "webm",
-      mimeType: "video/webm",
-      audioSummary: INITIAL_AUDIO_SUMMARY,
-    };
+  const applyRecordingState = useCallback((nextRecording: WorkbookLessonRecordingInfo | null) => {
+    setRecording(nextRecording);
+    setStatus(toClientStatus(nextRecording));
+    setElapsedMs(resolveElapsedMs(nextRecording));
   }, []);
 
-  const waitForPendingChunkWrites = useCallback(async () => {
-    const pendingWrites = Array.from(chunkWritePromisesRef.current);
-    if (pendingWrites.length === 0) return;
-    await Promise.allSettled(pendingWrites);
-  }, []);
-
-  const finalizeRecording = useCallback(
-    async (options?: { reason?: "stopped" | "interrupted" | "error"; errorMessage?: string }) => {
-      if (isFinalizingRef.current) return;
-      isFinalizingRef.current = true;
-      const chunkStore = chunkStoreRef.current;
-      try {
-        await waitForPendingChunkWrites();
-        const runtime = runtimeRef.current;
-        const blobType = runtime.mimeType || "video/webm";
-        const blob = chunkStore ? await chunkStore.buildBlob(blobType) : null;
-
-        if (blob && blob.size > 0) {
-          const fileName = buildLessonRecordingFileName({
-            sessionTitle,
-            extension: runtime.extension,
-          });
-          triggerLessonRecordingDownload(blob, fileName);
-          if (options?.reason === "interrupted") {
-            setNotice({
-              tone: "warning",
-              message:
-                "Запись была прервана, но частичный файл сохранен на устройство.",
-            });
-          } else if (options?.reason === "error") {
-            setNotice({
-              tone: "warning",
-              message:
-                "Запись завершилась с ошибкой, но файл был сохранен на устройство.",
-            });
-          } else {
-            setNotice({
-              tone: "success",
-              message: `Запись сохранена: ${fileName}`,
-            });
-          }
-        } else if (options?.reason !== "stopped") {
-          setNotice({
-            tone: "error",
-            message: options?.errorMessage || "Не удалось сохранить видеофайл записи.",
-          });
-        } else {
-          setNotice({
-            tone: "error",
-            message:
-              "Запись остановлена, но файл не был сформирован. Повторите попытку.",
-          });
-        }
-      } catch {
-        setNotice({
-          tone: "error",
-          message: "Не удалось завершить запись и сохранить файл.",
-        });
-      } finally {
-        chunkWritePromisesRef.current.clear();
-        await chunkStore?.clear().catch(() => undefined);
-        chunkStoreRef.current = null;
-        recorderRef.current = null;
-        cleanupRuntimeResources();
-        elapsedBeforePauseMsRef.current = 0;
-        startedAtMsRef.current = null;
-        setElapsedMs(0);
-        setStatus("idle");
-        setAudioSummary(INITIAL_AUDIO_SUMMARY);
-        isFinalizingRef.current = false;
+  const refreshRecordingStatus = useCallback(async () => {
+    if (!sessionId || !canAccessRecording) return;
+    try {
+      const response = await getWorkbookLessonRecordingStatus(sessionId);
+      setIsSupported(response.available);
+      applyRecordingState(response.recording);
+      if (!response.available && response.unavailableReason) {
+        setNotice((current) =>
+          current?.tone === "error"
+            ? current
+            : {
+                tone: "warning",
+                message:
+                  "Серверная запись сейчас недоступна: не настроен серверный контур записи.",
+              }
+        );
       }
-    },
-    [cleanupRuntimeResources, sessionTitle, waitForPendingChunkWrites]
-  );
-
-  const stopRecording = useCallback(
-    (reason: "stopped" | "interrupted" | "error" = "stopped", errorMessage?: string) => {
-      stopReasonRef.current = reason;
-      const recorder = recorderRef.current;
-      if (!recorder || recorder.state === "inactive") {
-        void finalizeRecording({ reason, errorMessage });
-        return;
-      }
-      setStatus("stopping");
-      try {
-        recorder.stop();
-      } catch {
-        void finalizeRecording({
-          reason: "error",
-          errorMessage: "Не удалось корректно остановить запись.",
-        });
-      }
-    },
-    [finalizeRecording]
-  );
+    } catch {
+      setIsSupported(false);
+    }
+  }, [applyRecordingState, canAccessRecording, sessionId]);
 
   const startRecording = useCallback(async () => {
     if (!canAccessRecording) {
@@ -274,252 +123,59 @@ export const useWorkbookLessonRecording = ({
       setError("Сейчас запись недоступна. Проверьте статус сессии и права.");
       return;
     }
-    if (!isLessonRecordingSupported()) {
-      setError("Ваш браузер не поддерживает запись урока в этом режиме.");
-      return;
-    }
-    if (statusRef.current !== "idle") return;
+    if (!sessionId || activeRequestRef.current) return;
+    activeRequestRef.current = "start";
     setNotice(null);
-    setStatus("starting");
     setPreStartDialogOpen(false);
-
-    const displayOptions: DisplayMediaWithHints = {
-      video: {
-        frameRate: {
-          ideal: LESSON_RECORDING_MAX_FRAME_RATE,
-          max: LESSON_RECORDING_MAX_FRAME_RATE,
-        },
-        width: {
-          ideal: LESSON_RECORDING_MAX_WIDTH,
-          max: LESSON_RECORDING_MAX_WIDTH,
-        },
-        height: {
-          ideal: LESSON_RECORDING_MAX_HEIGHT,
-          max: LESSON_RECORDING_MAX_HEIGHT,
-        },
-      },
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      },
-      preferCurrentTab: true,
-      selfBrowserSurface: "include",
-      surfaceSwitching: "exclude",
-      systemAudio: "include",
-      monitorTypeSurfaces: "include",
-    };
-
-    let displayStream: MediaStream | null = null;
-    let microphoneStream: MediaStream | null = null;
-    let mixedAudioCleanup: (() => void) | null = null;
-    let setMixedMicrophoneEnabled: ((enabled: boolean) => void) | null = null;
-    let videoWatermarkCleanup: (() => void) | null = null;
-
+    setStatus("starting");
     try {
-      displayStream = await navigator.mediaDevices.getDisplayMedia(
-        displayOptions as MediaStreamConstraints
-      );
-    } catch (reason) {
-      setStatus("idle");
-      if (
-        reason instanceof DOMException &&
-        (reason.name === "NotAllowedError" || reason.name === "AbortError")
-      ) {
-        setNotice({
-          tone: "info",
-          message: "Запись отменена: источник захвата не был выбран.",
-        });
-        return;
-      }
-      setError("Не удалось запустить захват экрана/вкладки для записи.");
-      return;
-    }
-
-    const displayVideoTrack = displayStream.getVideoTracks()[0] ?? null;
-    if (!displayVideoTrack) {
-      displayStream.getTracks().forEach((track) => track.stop());
-      setStatus("idle");
-      setError("Не удалось получить видеопоток для записи урока.");
-      return;
-    }
-    await constrainLessonRecordingVideoTrack(displayVideoTrack);
-
-    if (canUseMedia) {
-      try {
-        microphoneStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-          video: false,
-        });
-      } catch {
-        setNotice({
-          tone: "warning",
-          message:
-            "Микрофон недоступен для записи. Будет использовано только доступное аудио вкладки.",
-        });
-      }
-    }
-
-    const recorderStream = new MediaStream();
-    const recorderVideoTrack = displayVideoTrack.clone();
-    videoWatermarkCleanup = () => {
-      try {
-        recorderVideoTrack.stop();
-      } catch {
-        // ignore cleanup failures
-      }
-    };
-    recorderStream.addTrack(recorderVideoTrack);
-
-    const hasMicrophoneTrack = Boolean(microphoneStream?.getAudioTracks()[0]);
-    const shouldEnableMicrophone = hasMicrophoneTrack;
-    if (hasMicrophoneTrack) {
-      microphoneStream?.getAudioTracks().forEach((track) => {
-        track.enabled = shouldEnableMicrophone;
+      const response = await startWorkbookLessonRecording(sessionId);
+      setIsSupported(response.available);
+      applyRecordingState(response.recording);
+      setNotice({
+        tone: "success",
+        message:
+          "Серверная запись запущена. Видео собирается на сервере, вкладка преподавателя не кодирует файл.",
       });
-      if (!micEnabled) {
-        setMicEnabled(true);
-      }
+      setError((current) => {
+        if (!current) return current;
+        return current.includes("запис") || current.includes("Запуск") ? null : current;
+      });
+    } catch (error) {
+      setStatus("idle");
+      setNotice({
+        tone: "error",
+        message: formatServerRecordingError(error),
+      });
+    } finally {
+      activeRequestRef.current = null;
     }
+  }, [applyRecordingState, canAccessRecording, canRecord, sessionId, setError]);
 
-    let resolvedAudioSummary = INITIAL_AUDIO_SUMMARY;
+  const stopRecording = useCallback(async () => {
+    if (!sessionId || activeRequestRef.current) return;
+    const recordingId = recording?.id ?? null;
+    activeRequestRef.current = "stop";
+    setStatus("stopping");
     try {
-      const mixedAudio = await mixLessonRecordingAudio({
-        displayStream,
-        microphoneStream,
-        microphoneEnabled: shouldEnableMicrophone,
-      });
-      if (mixedAudio?.track) {
-        recorderStream.addTrack(mixedAudio.track);
-        mixedAudioCleanup = mixedAudio.cleanup;
-        setMixedMicrophoneEnabled = mixedAudio.setMicrophoneEnabled ?? null;
-        resolvedAudioSummary = mixedAudio.summary;
-      }
-    } catch {
+      const response = await stopWorkbookLessonRecording(sessionId, recordingId);
+      applyRecordingState(response.recording);
       setNotice({
-        tone: "warning",
-        message:
-          "Не удалось смешать аудио-источники. Видео будет сохранено без общего микса.",
+        tone: "success",
+        message: response.recording?.status === "ready" && response.recording.outputUrl
+          ? "Запись остановлена. Файл готов к просмотру."
+          : "Запись остановлена. Сервер завершает подготовку видеофайла.",
       });
-    }
-
-    const profile = resolveLessonRecordingProfile(displayVideoTrack);
-    const options: MediaRecorderOptions = {
-      mimeType: profile.mimeType,
-      videoBitsPerSecond: profile.videoBitsPerSecond,
-      audioBitsPerSecond: profile.audioBitsPerSecond,
-    };
-
-    let recorder: MediaRecorder;
-    try {
-      recorder = new MediaRecorder(recorderStream, options);
-    } catch {
-      cleanupRuntimeResources();
-      displayStream.getTracks().forEach((track) => track.stop());
-      microphoneStream?.getTracks().forEach((track) => track.stop());
-      recorderStream.getTracks().forEach((track) => track.stop());
-      setStatus("idle");
-      setError("Браузер не смог создать recorder для выбранного источника.");
-      return;
-    }
-
-    const chunkStore = await createLessonRecordingChunkStore();
-    chunkStoreRef.current = chunkStore;
-    chunkWritePromisesRef.current.clear();
-    recorder.ondataavailable = (event) => {
-      if (!(event.data instanceof Blob) || event.data.size <= 0) return;
-      const writePromise = chunkStore.append(event.data);
-      chunkWritePromisesRef.current.add(writePromise);
-      void writePromise.finally(() => {
-        chunkWritePromisesRef.current.delete(writePromise);
-      });
-    };
-    recorder.onerror = () => {
-      stopRecording("error", "Запись прервана из-за ошибки браузера.");
-    };
-    recorder.onstop = () => {
-      const reason =
-        statusRef.current === "stopping"
-          ? stopReasonRef.current
-          : "interrupted";
-      void finalizeRecording({ reason });
-    };
-
-    const onDisplayEnded = () => {
+    } catch (error) {
+      setStatus(toClientStatus(recording));
       setNotice({
-        tone: "warning",
-        message:
-          "Захват источника завершен. Запись остановлена и будет сохранена.",
+        tone: "error",
+        message: formatServerRecordingError(error),
       });
-      stopRecording("interrupted");
-    };
-    displayVideoTrack.addEventListener("ended", onDisplayEnded);
-
-    runtimeRef.current = {
-      displayStream,
-      microphoneStream,
-      recorderStream,
-      mixedAudioCleanup,
-      setMixedMicrophoneEnabled,
-      videoWatermarkCleanup,
-      displayVideoTrack,
-      displayEndedHandler: onDisplayEnded,
-      extension: profile.extension,
-      mimeType: profile.mimeType,
-      audioSummary: resolvedAudioSummary,
-    };
-
-    setAudioSummary(resolvedAudioSummary);
-    if (!resolvedAudioSummary.hasDisplayAudio && !resolvedAudioSummary.hasMicrophoneAudio) {
-      setNotice({
-        tone: "warning",
-        message:
-          "Запись начата без аудио. Проверьте, что для вкладки включен захват звука и доступ к микрофону.",
-      });
-    } else if (!resolvedAudioSummary.hasDisplayAudio) {
-      setNotice({
-        tone: "warning",
-        message:
-          "Для записи голосов всех участников выбирайте вкладку с опцией «Поделиться аудио».",
-      });
+    } finally {
+      activeRequestRef.current = null;
     }
-    try {
-      recorder.start(1_000);
-    } catch {
-      void chunkStore.clear().catch(() => undefined);
-      chunkStoreRef.current = null;
-      chunkWritePromisesRef.current.clear();
-      cleanupRuntimeResources();
-      setStatus("idle");
-      setError("Не удалось начать запись.");
-      return;
-    }
-
-    recorderRef.current = recorder;
-    elapsedBeforePauseMsRef.current = 0;
-    startedAtMsRef.current = Date.now();
-    setElapsedMs(0);
-    setStatus("recording");
-    setError((current) => {
-      if (!current) return current;
-      if (current.includes("Запуск записи") || current.includes("запись")) return null;
-      return current;
-    });
-  }, [
-    canAccessRecording,
-    canRecord,
-    canUseMedia,
-    cleanupRuntimeResources,
-    finalizeRecording,
-    micEnabled,
-    setError,
-    setMicEnabled,
-    stopRecording,
-  ]);
+  }, [applyRecordingState, recording, sessionId]);
 
   const openPreStartDialog = useCallback(() => {
     if (!canAccessRecording) {
@@ -532,126 +188,60 @@ export const useWorkbookLessonRecording = ({
       setError("Сейчас запись недоступна.");
       return;
     }
-    if (!isLessonRecordingSupported()) {
-      setError("Ваш браузер не поддерживает запись урока в этом режиме.");
+    if (!isSupported) {
+      setError("Серверная запись сейчас недоступна.");
       return;
     }
     if (statusRef.current !== "idle") return;
     setNotice(null);
     setPreStartDialogOpen(true);
-  }, [canAccessRecording, canRecord, setError]);
+  }, [canAccessRecording, canRecord, isSupported, setError]);
 
   const closePreStartDialog = useCallback(() => {
     if (statusRef.current === "starting") return;
     setPreStartDialogOpen(false);
   }, []);
 
-  const pauseRecording = useCallback(() => {
-    const recorder = recorderRef.current;
-    if (!recorder || recorder.state !== "recording") return;
-    const resolvedElapsed = resolveNowElapsedMs({
-      status: "recording",
-      elapsedBeforePauseMs: elapsedBeforePauseMsRef.current,
-      startedAtMs: startedAtMsRef.current,
-    });
-    elapsedBeforePauseMsRef.current = resolvedElapsed;
-    startedAtMsRef.current = null;
-    setElapsedMs(resolvedElapsed);
-    try {
-      recorder.pause();
-      setStatus("paused");
-    } catch {
-      setError("Не удалось поставить запись на паузу.");
-    }
-  }, [setError]);
-
-  const resumeRecording = useCallback(() => {
-    const recorder = recorderRef.current;
-    if (!recorder || recorder.state !== "paused") return;
-    startedAtMsRef.current = Date.now();
-    try {
-      recorder.resume();
-      setStatus("recording");
-    } catch {
-      setError("Не удалось возобновить запись.");
-    }
-  }, [setError]);
-
   const closeNotice = useCallback(() => {
     setNotice(null);
   }, []);
 
-  const toggleMicrophone = useCallback(() => {
-    if (!canUseMedia) {
-      setError("Микрофон недоступен для текущего участника.");
-      return;
-    }
-    setMicEnabled((current) => !current);
-  }, [canUseMedia, setError, setMicEnabled]);
+  useEffect(() => {
+    void refreshRecordingStatus();
+  }, [refreshRecordingStatus]);
+
+  useEffect(() => {
+    if (!sessionId || !canAccessRecording) return;
+    const active = recording ? ACTIVE_SERVER_STATUSES.has(recording.status) : false;
+    const interval = window.setInterval(
+      () => {
+        void refreshRecordingStatus();
+      },
+      active ? POLL_ACTIVE_RECORDING_MS : POLL_IDLE_RECORDING_MS
+    );
+    return () => window.clearInterval(interval);
+  }, [canAccessRecording, recording, refreshRecordingStatus, sessionId]);
 
   useEffect(() => {
     if (status !== "recording") return;
     const timer = window.setInterval(() => {
-      const nextElapsed = resolveNowElapsedMs({
-        status,
-        elapsedBeforePauseMs: elapsedBeforePauseMsRef.current,
-        startedAtMs: startedAtMsRef.current,
-      });
-      setElapsedMs(nextElapsed);
-    }, 250);
+      setElapsedMs(resolveElapsedMs(recording));
+    }, 500);
     return () => window.clearInterval(timer);
-  }, [status]);
+  }, [recording, status]);
 
   useEffect(() => {
-    if (!canRecord && (status === "recording" || status === "paused")) {
+    if (!canRecord && status === "recording") {
       setNotice({
         tone: "warning",
         message:
-          "Запись остановлена: текущий пользователь больше не может продолжать запись.",
+          "Права на запись изменились. Остановите серверную запись вручную или завершите занятие.",
       });
-      stopRecording("interrupted");
     }
-  }, [canRecord, status, stopRecording]);
+  }, [canRecord, status]);
 
-  useEffect(() => {
-    const runtime = runtimeRef.current;
-    runtime.microphoneStream?.getAudioTracks().forEach((track) => {
-      track.enabled = micEnabled;
-    });
-    runtime.setMixedMicrophoneEnabled?.(micEnabled);
-  }, [micEnabled]);
-
-  useEffect(() => {
-    const isRecordingActive = status === "recording" || status === "paused" || status === "stopping";
-    if (!isRecordingActive) return;
-    const beforeUnloadHandler = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", beforeUnloadHandler);
-    return () => {
-      window.removeEventListener("beforeunload", beforeUnloadHandler);
-    };
-  }, [status]);
-
-  useEffect(
-    () => () => {
-      if (recorderRef.current && recorderRef.current.state !== "inactive") {
-        try {
-          recorderRef.current.stop();
-        } catch {
-          // ignore cleanup failures
-        }
-      }
-      cleanupRuntimeResources();
-    },
-    [cleanupRuntimeResources]
-  );
-
-  const isSupported = isLessonRecordingSupported();
   const canShowControls = canAccessRecording;
-  const isRecordingActive = status === "recording" || status === "paused";
-  const canToggleMicrophone = isRecordingActive && canUseMedia && audioSummary.hasMicrophoneAudio;
+  const outputUrl = recording?.outputUrl ?? null;
 
   return useMemo(
     () => ({
@@ -659,37 +249,27 @@ export const useWorkbookLessonRecording = ({
       elapsedMs,
       notice,
       preStartDialogOpen,
-      audioSummary,
+      outputUrl,
       isSupported,
       canShowControls,
-      micEnabled,
-      canToggleMicrophone,
       openPreStartDialog,
       closePreStartDialog,
       startRecording,
-      pauseRecording,
-      resumeRecording,
-      toggleMicrophone,
       stopRecording,
       closeNotice,
     }),
     [
-      audioSummary,
-      canToggleMicrophone,
       canShowControls,
       closeNotice,
       closePreStartDialog,
       elapsedMs,
       isSupported,
-      micEnabled,
       notice,
       openPreStartDialog,
-      pauseRecording,
+      outputUrl,
       preStartDialogOpen,
-      resumeRecording,
       startRecording,
       status,
-      toggleMicrophone,
       stopRecording,
     ]
   );

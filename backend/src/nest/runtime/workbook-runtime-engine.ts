@@ -73,6 +73,23 @@ import {
 } from "./core/dbIndex";
 import { getWorkbookPersistenceReadiness, getWorkbookRuntimeReadiness } from "./core/runtimeReadiness";
 import {
+  getWorkbookServerRecordingAvailability,
+  getWorkbookServerRecordingForSession,
+  getWorkbookServerRecordingForUser,
+  listWorkbookServerRecordingsForUser,
+  reconcileWorkbookServerRecordingState,
+  deleteWorkbookServerRecording,
+  renameWorkbookServerRecording,
+  resolveWorkbookRecordingAccessPayload,
+  resolveWorkbookRecordingReadUser,
+  serializeWorkbookRecordingLibraryItem,
+  serializeWorkbookServerRecording,
+  startWorkbookServerRecording,
+  stopWorkbookServerRecording,
+  type WorkbookRecordingOutputPresence,
+  type WorkbookServerRecordingRecord,
+} from "./core/workbookServerRecordingService";
+import {
   INVALID_JSON_BODY_ERROR,
   readRawBody as readRawBodyInternal,
   readJsonBody,
@@ -219,6 +236,18 @@ const MEDIA_LIVEKIT_ENABLED =
   MEDIA_LIVEKIT_API_KEY.length > 0 &&
   MEDIA_LIVEKIT_API_SECRET.length > 0;
 const PUBLIC_BASE_URL = String(process.env.VITE_PUBLIC_BASE_URL ?? "").trim().replace(/\/+$/g, "");
+const WORKBOOK_RECORDING_SAFETY_SWEEP_INTERVAL_MS = readPositiveInt(
+  "WORKBOOK_RECORDING_SAFETY_SWEEP_INTERVAL_MS",
+  60_000
+);
+const WORKBOOK_RECORDING_TEACHER_INACTIVE_AUTO_STOP_MS = readPositiveInt(
+  "WORKBOOK_RECORDING_TEACHER_INACTIVE_AUTO_STOP_MS",
+  10 * 60_000
+);
+const WORKBOOK_RECORDING_MAX_DURATION_MS = readPositiveInt(
+  "WORKBOOK_RECORDING_MAX_DURATION_MS",
+  4 * 60 * 60_000
+);
 
 type WorkbookSettings = {
   undoPolicy: "everyone" | "teacher_only" | "own_only";
@@ -261,6 +290,7 @@ type WorkbookStreamClient = {
 type WorkbookLiveSocketClient = {
   id: string;
   userId: string;
+  readOnly?: boolean;
   socket: WebSocket;
 };
 
@@ -705,7 +735,7 @@ const applyCors = (req: IncomingMessage, res: ServerResponse) => {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type, X-Request-Id, X-Retry-Attempt, X-Idempotency-Key, X-Workbook-Device-Id, X-Workbook-Session-Affinity"
+    "Content-Type, X-Request-Id, X-Retry-Attempt, X-Idempotency-Key, X-Workbook-Device-Id, X-Workbook-Session-Affinity, X-Workbook-Recording-Token"
   );
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   appendVary(res, "Origin");
@@ -737,6 +767,460 @@ const buildInviteUrl = (req: IncomingMessage, token: string) => {
   const base = PUBLIC_BASE_URL || inferPublicOrigin(req);
   const path = `/workbook/invite/${encodeURIComponent(token)}`;
   return base ? `${base}${path}` : path;
+};
+
+const readTrimmedEnv = (name: string) => String(process.env[name] ?? "").trim();
+
+const readBoolEnv = (name: string, fallback = false) => {
+  const raw = readTrimmedEnv(name).toLowerCase();
+  if (!raw) return fallback;
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+};
+
+const readPositiveIntEnv = (name: string, fallback: number, max: number) => {
+  const parsed = Number.parseInt(readTrimmedEnv(name), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(max, Math.floor(parsed));
+};
+
+const normalizeDownloadFilename = (value: string) => {
+  const normalized =
+    value
+      .replace(/[\\/:*?"<>|]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120) || "recording";
+  return normalized.endsWith(".mp4") ? normalized : `${normalized}.mp4`;
+};
+
+const buildContentDisposition = (mode: "inline" | "attachment", filename: string) => {
+  const asciiFallback = filename
+    .normalize("NFKD")
+    .replace(/[^\x20-\x7E]+/g, "")
+    .replace(/["\\]/g, "")
+    .trim() || "recording.mp4";
+  return `${mode}; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+};
+
+const encodeS3ObjectPath = (value: string) =>
+  value
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+
+const hmacSha256 = (key: string | Buffer, value: string) =>
+  crypto.createHmac("sha256", key).update(value).digest();
+
+const sha256Hex = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
+
+const awsPercentEncode = (value: string) =>
+  encodeURIComponent(value).replace(/[!'()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+
+const toCanonicalQueryString = (params: Array<[string, string]>) =>
+  params
+    .map(([key, value]) => `${awsPercentEncode(key)}=${awsPercentEncode(value)}`)
+    .sort()
+    .join("&");
+
+const buildRecordingS3ObjectUrl = (filePath: string | null) => {
+  const objectPath = filePath?.trim();
+  const endpoint = readTrimmedEnv("WORKBOOK_RECORDING_S3_ENDPOINT").replace(/\/+$/g, "");
+  const bucket = readTrimmedEnv("WORKBOOK_RECORDING_S3_BUCKET");
+  const accessKey = readTrimmedEnv("WORKBOOK_RECORDING_S3_ACCESS_KEY");
+  const secret = readTrimmedEnv("WORKBOOK_RECORDING_S3_SECRET");
+  if (!objectPath || !endpoint || !bucket || !accessKey || !secret) return null;
+
+  const region = readTrimmedEnv("WORKBOOK_RECORDING_S3_REGION") || "auto";
+  const forcePathStyle = readBoolEnv("WORKBOOK_RECORDING_S3_FORCE_PATH_STYLE", true);
+  let endpointUrl: URL;
+  try {
+    endpointUrl = new URL(endpoint);
+  } catch {
+    return null;
+  }
+  const endpointOrigin = `${endpointUrl.protocol}//${endpointUrl.host}`;
+  const endpointPath = endpointUrl.pathname.replace(/\/+$/g, "");
+  const encodedObjectPath = encodeS3ObjectPath(objectPath);
+  const encodedBucket = encodeURIComponent(bucket);
+  const url = forcePathStyle
+    ? new URL(`${endpointPath}/${encodedBucket}/${encodedObjectPath}`, endpointOrigin)
+    : new URL(`${endpointPath}/${encodedObjectPath}`, `${endpointUrl.protocol}//${bucket}.${endpointUrl.host}`);
+
+  return {
+    url,
+    accessKey,
+    region,
+    secret,
+  };
+};
+
+const buildRecordingS3PresignedUrl = (
+  filePath: string | null,
+  disposition: "inline" | "attachment",
+  filename: string
+) => {
+  const object = buildRecordingS3ObjectUrl(filePath);
+  if (!object) return null;
+
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const dateStamp = amzDate.slice(0, 8);
+  const expires = String(
+    readPositiveIntEnv("WORKBOOK_RECORDING_S3_PRESIGNED_URL_TTL_SECONDS", 5 * 60, 60 * 60)
+  );
+  const scope = `${dateStamp}/${object.region}/s3/aws4_request`;
+  const signedHeaders = "host";
+  const contentDisposition = buildContentDisposition(disposition, filename);
+  const unsignedPayload = "UNSIGNED-PAYLOAD";
+  const queryParams: Array<[string, string]> = [
+    ["X-Amz-Algorithm", "AWS4-HMAC-SHA256"],
+    ["X-Amz-Credential", `${object.accessKey}/${scope}`],
+    ["X-Amz-Date", amzDate],
+    ["X-Amz-Expires", expires],
+    ["X-Amz-SignedHeaders", signedHeaders],
+    ["response-content-disposition", contentDisposition],
+    ["response-content-type", "video/mp4"],
+  ];
+  const canonicalQueryString = toCanonicalQueryString(queryParams);
+  const canonicalHeaders = `host:${object.url.host}\n`;
+  const canonicalRequest = [
+    "GET",
+    object.url.pathname,
+    canonicalQueryString,
+    canonicalHeaders,
+    signedHeaders,
+    unsignedPayload,
+  ].join("\n");
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    scope,
+    sha256Hex(canonicalRequest),
+  ].join("\n");
+  const dateKey = hmacSha256(`AWS4${object.secret}`, dateStamp);
+  const regionKey = hmacSha256(dateKey, object.region);
+  const serviceKey = hmacSha256(regionKey, "s3");
+  const signingKey = hmacSha256(serviceKey, "aws4_request");
+  const signature = crypto.createHmac("sha256", signingKey).update(stringToSign).digest("hex");
+  object.url.search = `${canonicalQueryString}&X-Amz-Signature=${signature}`;
+  return object.url.toString();
+};
+
+const buildRecordingS3SignedRequest = (
+  filePath: string | null,
+  method: "DELETE" | "GET"
+) => {
+  const object = buildRecordingS3ObjectUrl(filePath);
+  if (!object) return null;
+
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const dateStamp = amzDate.slice(0, 8);
+  const payloadHash = sha256Hex("");
+  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+  const canonicalHeaders = [
+    `host:${object.url.host}`,
+    `x-amz-content-sha256:${payloadHash}`,
+    `x-amz-date:${amzDate}`,
+  ].join("\n");
+  const canonicalRequest = [
+    method,
+    object.url.pathname,
+    "",
+    `${canonicalHeaders}\n`,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+  const scope = `${dateStamp}/${object.region}/s3/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    scope,
+    sha256Hex(canonicalRequest),
+  ].join("\n");
+  const dateKey = hmacSha256(`AWS4${object.secret}`, dateStamp);
+  const regionKey = hmacSha256(dateKey, object.region);
+  const serviceKey = hmacSha256(regionKey, "s3");
+  const signingKey = hmacSha256(serviceKey, "aws4_request");
+  const signature = crypto.createHmac("sha256", signingKey).update(stringToSign).digest("hex");
+
+  return {
+    url: object.url.toString(),
+    headers: {
+      Authorization: `AWS4-HMAC-SHA256 Credential=${object.accessKey}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+      "x-amz-content-sha256": payloadHash,
+      "x-amz-date": amzDate,
+    },
+    method,
+  };
+};
+
+const readS3ErrorCode = async (response: Response) => {
+  try {
+    const text = await response.text();
+    const match = text.match(/<Code>([^<]+)<\/Code>/i);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const isMissingRecordingS3ObjectResponse = async (response: Response) => {
+  if (response.status !== 404) return false;
+  const errorCode = await readS3ErrorCode(response);
+  return errorCode === "NoSuchKey";
+};
+
+const deleteRecordingS3Object = async (filePath: string | null) => {
+  if (!filePath) return;
+  const request = buildRecordingS3SignedRequest(filePath, "DELETE");
+  if (!request) {
+    throw new Error("recording_s3_delete_unconfigured");
+  }
+  const response = await fetch(request.url, {
+    method: request.method,
+    headers: request.headers,
+  });
+  if (response.ok || (await isMissingRecordingS3ObjectResponse(response))) return;
+  throw new Error(`recording_s3_delete_http_${response.status}`);
+};
+
+const buildRecordingCompanionMetadataPath = (recording: WorkbookServerRecordingRecord) => {
+  const filePath = recording.filePath?.trim();
+  const egressId = recording.egressId?.trim();
+  if (!filePath || !egressId) return null;
+  const directory = filePath.split("/").slice(0, -1).join("/");
+  if (!directory) return null;
+  const safeEgressId = egressId.replace(/[^a-zA-Z0-9._-]+/g, "");
+  if (!safeEgressId) return null;
+  return `${directory}/${safeEgressId}.json`;
+};
+
+const deleteRecordingS3Objects = async (recording: WorkbookServerRecordingRecord) => {
+  await deleteRecordingS3Object(buildRecordingCompanionMetadataPath(recording));
+  await deleteRecordingS3Object(recording.filePath);
+};
+
+const resolveRecordingS3ObjectPresence = async (
+  filePath: string | null
+): Promise<"exists" | "missing" | "unknown"> => {
+  try {
+    const request = buildRecordingS3SignedRequest(filePath, "GET");
+    if (!request) return "unknown";
+    const response = await fetch(request.url, {
+      method: request.method,
+      headers: {
+        ...request.headers,
+        Range: "bytes=0-0",
+      },
+    });
+    if (response.ok || response.status === 206) return "exists";
+    if (await isMissingRecordingS3ObjectResponse(response)) return "missing";
+  } catch {
+    return "unknown";
+  }
+  return "unknown";
+};
+
+const resolveRecordingOutputPresence = (recording: WorkbookServerRecordingRecord) =>
+  resolveRecordingS3ObjectPresence(recording.filePath) as Promise<WorkbookRecordingOutputPresence>;
+
+const reconcileWorkbookRecording = (db: MockDb, recording: WorkbookServerRecordingRecord) =>
+  reconcileWorkbookServerRecordingState({
+    db,
+    recording,
+    resolveOutputPresence: resolveRecordingOutputPresence,
+    persist: saveDb,
+  });
+
+const reconcileMissingRecordingMediaForUser = async (db: MockDb, userId: string) => {
+  let changed = false;
+  for (const recording of listWorkbookServerRecordingsForUser(db, userId)) {
+    if (
+      recording.status === "starting" ||
+      recording.status === "recording" ||
+      recording.status === "stopping" ||
+      recording.status === "processing"
+    ) {
+      changed = (await reconcileWorkbookRecording(db, recording)) || changed;
+    }
+    if (recording.status !== "ready" || !recording.filePath) continue;
+    const presence = await resolveRecordingS3ObjectPresence(recording.filePath);
+    if (presence !== "missing") continue;
+    try {
+      await deleteRecordingS3Object(buildRecordingCompanionMetadataPath(recording));
+    } catch {
+      // Missing media should still disappear from the teacher library even if
+      // best-effort cleanup of the LiveKit companion metadata fails.
+    }
+    deleteWorkbookServerRecording(db, userId, recording.id);
+    changed = true;
+  }
+  return changed;
+};
+
+const isWorkbookRecordingLifecycleStatus = (recording: WorkbookServerRecordingRecord) =>
+  recording.status === "starting" ||
+  recording.status === "recording" ||
+  recording.status === "stopping" ||
+  recording.status === "processing";
+
+const parseRecordingTimeMs = (value: string | null | undefined) => {
+  const parsed = Date.parse(String(value ?? ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const hasRecordingExceededMaxDuration = (recording: WorkbookServerRecordingRecord) => {
+  const startedAt = parseRecordingTimeMs(recording.startedAt);
+  return startedAt > 0 && nowTs() - startedAt >= WORKBOOK_RECORDING_MAX_DURATION_MS;
+};
+
+const isRecordingTeacherInactive = (
+  db: MockDb,
+  session: WorkbookSessionRecord,
+  recording: WorkbookServerRecordingRecord
+) => {
+  if (recording.status === "stopping" || recording.status === "processing") return false;
+  const teacher =
+    db.workbookParticipants.find(
+      (participant) =>
+        participant.sessionId === session.id &&
+        participant.userId === session.createdBy &&
+        participant.roleInSession === "teacher"
+    ) ??
+    db.workbookParticipants.find(
+      (participant) => participant.sessionId === session.id && participant.roleInSession === "teacher"
+    );
+  if (!teacher || isParticipantOnline(teacher)) return false;
+  const lastSeenAt =
+    parseRecordingTimeMs(teacher.lastSeenAt) ||
+    parseRecordingTimeMs(teacher.leftAt) ||
+    parseRecordingTimeMs(teacher.lastVisitEndedAt) ||
+    parseRecordingTimeMs(session.lastActivityAt);
+  return lastSeenAt > 0 && nowTs() - lastSeenAt >= WORKBOOK_RECORDING_TEACHER_INACTIVE_AUTO_STOP_MS;
+};
+
+const shouldAutoStopWorkbookRecording = (
+  db: MockDb,
+  recording: WorkbookServerRecordingRecord
+) => {
+  const session = getWorkbookSessionById(db, recording.sessionId);
+  if (!session) return { stop: true, reason: "session_missing" };
+  if (session.status === "ended") return { stop: true, reason: "lesson_ended" };
+  if (hasRecordingExceededMaxDuration(recording)) {
+    return { stop: true, reason: "max_duration_exceeded" };
+  }
+  if (isRecordingTeacherInactive(db, session, recording)) {
+    return { stop: true, reason: "teacher_inactive" };
+  }
+  return { stop: false, reason: null };
+};
+
+let workbookRecordingSafetySweepTimer: NodeJS.Timeout | null = null;
+let workbookRecordingSafetySweepInFlight = false;
+
+const runWorkbookRecordingSafetySweep = async () => {
+  if (workbookRecordingSafetySweepInFlight) return;
+  workbookRecordingSafetySweepInFlight = true;
+  try {
+    const db = getDb();
+    const recordings = [...(db.workbookRecordings ?? [])].filter(
+      (recording) => !recording.deletedAt && isWorkbookRecordingLifecycleStatus(recording)
+    );
+    for (const recording of recordings) {
+      await reconcileWorkbookRecording(db, recording);
+      if (
+        recording.status !== "starting" &&
+        recording.status !== "recording" &&
+        recording.status !== "stopping"
+      ) {
+        continue;
+      }
+      const autoStop =
+        recording.status === "stopping"
+          ? { stop: true, reason: "stop_retry" }
+          : shouldAutoStopWorkbookRecording(db, recording);
+      if (!autoStop.stop) continue;
+      try {
+        await stopWorkbookServerRecording({
+          db,
+          sessionId: recording.sessionId,
+          recordingId: recording.id,
+          resolveOutputPresence: resolveRecordingOutputPresence,
+          persist: saveDb,
+        });
+      } catch (error) {
+        recording.errorMessage = normalizeError(error).slice(0, 600);
+        recording.updatedAt = nowIso();
+        saveDb();
+      }
+    }
+  } finally {
+    workbookRecordingSafetySweepInFlight = false;
+  }
+};
+
+const ensureWorkbookRecordingSafetySweep = () => {
+  if (workbookRecordingSafetySweepTimer) return;
+  workbookRecordingSafetySweepTimer = setInterval(() => {
+    void runWorkbookRecordingSafetySweep();
+  }, WORKBOOK_RECORDING_SAFETY_SWEEP_INTERVAL_MS);
+  workbookRecordingSafetySweepTimer.unref?.();
+};
+
+const stopActiveWorkbookRecordingForSession = async (db: MockDb, sessionId: string) => {
+  const recording = getWorkbookServerRecordingForSession(db, sessionId);
+  if (!recording || !isWorkbookRecordingLifecycleStatus(recording)) return null;
+  if (recording.status === "processing") {
+    await reconcileWorkbookRecording(db, recording);
+    return recording;
+  }
+  try {
+    return await stopWorkbookServerRecording({
+      db,
+      sessionId,
+      recordingId: recording.id,
+      resolveOutputPresence: resolveRecordingOutputPresence,
+      persist: saveDb,
+    });
+  } catch (error) {
+    recording.errorMessage = normalizeError(error).slice(0, 600);
+    recording.updatedAt = nowIso();
+    saveDb();
+    return recording;
+  }
+};
+
+const buildRecordingMediaRedirectUrl = (
+  recording: WorkbookServerRecordingRecord,
+  disposition: "inline" | "attachment"
+) => {
+  const presignedUrl = buildRecordingS3PresignedUrl(
+    recording.filePath,
+    disposition,
+    normalizeDownloadFilename(recording.title)
+  );
+  if (presignedUrl) return presignedUrl;
+  const outputUrl = recording.outputUrl?.trim();
+  return outputUrl || null;
+};
+
+const redirectWorkbookRecordingMedia = (params: {
+  res: ServerResponse;
+  recording: WorkbookServerRecordingRecord;
+  disposition: "inline" | "attachment";
+}) => {
+  const redirectUrl = buildRecordingMediaRedirectUrl(params.recording, params.disposition);
+  if (!redirectUrl) {
+    notFound(params.res);
+    return;
+  }
+  params.res.statusCode = 302;
+  params.res.setHeader("Location", redirectUrl);
+  params.res.setHeader("Cache-Control", "private, no-store");
+  params.res.end();
 };
 
 const readBody = async (req: IncomingMessage): Promise<unknown> => {
@@ -1826,7 +2310,8 @@ const deliverWorkbookLiveEventsToLocalClients = (
   });
   let deliveredClientCount = 0;
   for (const [clientId, client] of sessionClients.entries()) {
-    const hasAccess = Boolean(getWorkbookParticipant(db, payload.sessionId, client.userId));
+    const hasAccess =
+      client.readOnly || Boolean(getWorkbookParticipant(db, payload.sessionId, client.userId));
     if (!hasAccess || client.socket.readyState !== WebSocket.OPEN) {
       closeWorkbookLiveSocketClient(payload.sessionId, clientId);
       continue;
@@ -2336,6 +2821,19 @@ const sanitizeWorkbookLiveEvents = (
       ) {
         continue;
       }
+      const page =
+        typeof (payload as { page?: unknown }).page === "number" &&
+        Number.isFinite((payload as { page: number }).page)
+          ? Math.max(1, Math.trunc((payload as { page: number }).page))
+          : null;
+      const zoom =
+        typeof (payload as { zoom?: unknown }).zoom === "number" &&
+        Number.isFinite((payload as { zoom: number }).zoom)
+          ? Math.max(
+              0.3,
+              Math.min(3, Number((payload as { zoom: number }).zoom.toFixed(2)))
+            )
+          : null;
       sanitized.push({
         ...(clientEventId ? { clientEventId } : {}),
         type,
@@ -2344,6 +2842,8 @@ const sanitizeWorkbookLiveEvents = (
             x: (offset as { x: number }).x,
             y: (offset as { y: number }).y,
           },
+          ...(page !== null ? { page } : {}),
+          ...(zoom !== null ? { zoom } : {}),
         },
       });
       continue;
@@ -2560,6 +3060,8 @@ const closeUserPresenceAcrossSessions = (db: MockDb, userId: string, timestamp =
 const requireAuthUser = (req: IncomingMessage, res: ServerResponse, db: MockDb) => {
   const auth = resolveAuthSession(req, db);
   if (!auth) {
+    const recordingUser = resolveWorkbookRecordingReadUser(req, db);
+    if (recordingUser) return recordingUser;
     unauthorized(res);
     return null;
   }
@@ -2604,6 +3106,7 @@ const workbookLiveSocketRuntime = {
   pickTeacher,
   ensureDbParticipantPermissionsNormalized,
   resolveAuthUser,
+  resolveRecordingReadUser: resolveWorkbookRecordingReadUser,
   getWorkbookParticipant,
   ensureRuntimeSessionBridge,
   ensureId,
@@ -2677,6 +3180,7 @@ export const handleWorkbookApiRequestByDomains = async (
 
   try {
       const db = getDb();
+      ensureWorkbookRecordingSafetySweep();
       pickTeacher(db);
       ensureDbParticipantPermissionsNormalized(db);
       if (
@@ -3024,6 +3528,7 @@ export const handleWorkbookApiRequestByDomains = async (
           session.status = body.status;
           if (body.status === "ended") {
             session.endedAt = nowIso();
+            await stopActiveWorkbookRecordingForSession(db, session.id);
           }
         }
 
@@ -3088,6 +3593,8 @@ export const handleWorkbookApiRequestByDomains = async (
           forbidden(res);
           return;
         }
+
+        await stopActiveWorkbookRecordingForSession(db, sessionId);
 
         db.workbookSessions = db.workbookSessions.filter((item) => item.id !== sessionId);
         db.workbookParticipants = db.workbookParticipants.filter((item) => {
@@ -3258,6 +3765,7 @@ export const handleWorkbookApiRequestByDomains = async (
             : item
         );
 
+        await stopActiveWorkbookRecordingForSession(db, session.id);
         saveDb();
         json(res, 200, {
           ok: true,
@@ -3664,6 +4172,307 @@ export const handleWorkbookApiRequestByDomains = async (
         return;
       }
 
+      if (pathname === "/api/workbook/recordings" && method === "GET") {
+        const actor = requireAuthUser(req, res, db);
+        if (!actor) return;
+        if (actor.role !== "teacher") {
+          forbidden(res);
+          return;
+        }
+        const recordingsChanged = await reconcileMissingRecordingMediaForUser(db, actor.id);
+        if (recordingsChanged) {
+          saveDb();
+        }
+        json(res, 200, {
+          items: listWorkbookServerRecordingsForUser(db, actor.id).map(
+            serializeWorkbookRecordingLibraryItem
+          ),
+          serverTime: nowIso(),
+        });
+        return;
+      }
+
+      const workbookRecordingLibraryMatch = pathname.match(
+        /^\/api\/workbook\/recordings\/([^/]+)(?:\/(title|playback|download))?$/
+      );
+      if (workbookRecordingLibraryMatch) {
+        const actor = requireAuthUser(req, res, db);
+        if (!actor) return;
+        if (actor.role !== "teacher") {
+          forbidden(res);
+          return;
+        }
+        const recordingId = decodeURIComponent(workbookRecordingLibraryMatch[1]);
+        const action = workbookRecordingLibraryMatch[2] ?? "";
+
+        if (method === "PUT" && action === "title") {
+          const body = (await readBody(req)) as { title?: unknown } | null;
+          if (typeof body?.title !== "string" || body.title.trim().length < 2) {
+            badRequest(res, "Введите название записи.");
+            return;
+          }
+          try {
+            const recording = renameWorkbookServerRecording(
+              db,
+              actor.id,
+              recordingId,
+              body.title
+            );
+            if (!recording) {
+              notFound(res);
+              return;
+            }
+            saveDb();
+            json(res, 200, {
+              ok: true,
+              recording: serializeWorkbookRecordingLibraryItem(recording),
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "recording_rename_failed";
+            badRequest(res, message);
+          }
+          return;
+        }
+
+        if (method === "DELETE" && action === "") {
+          try {
+            const existingRecording = getWorkbookServerRecordingForUser(db, actor.id, recordingId);
+            if (!existingRecording) {
+              notFound(res);
+              return;
+            }
+            if (existingRecording.status !== "ready") {
+              const recording = deleteWorkbookServerRecording(db, actor.id, recordingId);
+              if (!recording) {
+                notFound(res);
+                return;
+              }
+              saveDb();
+              json(res, 200, {
+                ok: true,
+                deletedRecordingId: recording.id,
+              });
+              return;
+            }
+            await deleteRecordingS3Objects(existingRecording);
+            const recording = deleteWorkbookServerRecording(db, actor.id, recordingId);
+            if (!recording) {
+              notFound(res);
+              return;
+            }
+            saveDb();
+            json(res, 200, {
+              ok: true,
+              deletedRecordingId: recording.id,
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "recording_delete_failed";
+            if (message === "recording_is_active") {
+              conflict(res, message);
+              return;
+            }
+            if (message.startsWith("recording_s3_delete_") || message === "fetch failed") {
+              serviceUnavailable(res, message);
+              return;
+            }
+            badRequest(res, message);
+          }
+          return;
+        }
+
+        if (method === "GET" && (action === "playback" || action === "download")) {
+          const recording = getWorkbookServerRecordingForUser(db, actor.id, recordingId);
+          if (!recording) {
+            notFound(res);
+            return;
+          }
+          await reconcileWorkbookRecording(db, recording);
+          if (recording.status !== "ready" || (!recording.filePath && !recording.outputUrl)) {
+            badRequest(res, "recording_not_ready");
+            return;
+          }
+          const presence = await resolveRecordingS3ObjectPresence(recording.filePath);
+          if (presence === "missing") {
+            try {
+              await deleteRecordingS3Object(buildRecordingCompanionMetadataPath(recording));
+            } catch {
+              // The main media file is gone, so the library entry should disappear
+              // even if companion cleanup cannot be completed immediately.
+            }
+            deleteWorkbookServerRecording(db, actor.id, recording.id);
+            saveDb();
+            notFound(res);
+            return;
+          }
+          try {
+            redirectWorkbookRecordingMedia({
+              res,
+              recording,
+              disposition: action === "download" ? "attachment" : "inline",
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "recording_stream_failed";
+            serviceUnavailable(res, message);
+          }
+          return;
+        }
+      }
+
+      const workbookRecordingStatusMatch = pathname.match(
+        /^\/api\/workbook\/sessions\/([^/]+)\/recording$/
+      );
+      if (workbookRecordingStatusMatch && method === "GET") {
+        const actor = requireAuthUser(req, res, db);
+        if (!actor) return;
+        const sessionId = decodeURIComponent(workbookRecordingStatusMatch[1]);
+        const session = getWorkbookSessionById(db, sessionId);
+        if (!session) {
+          notFound(res);
+          return;
+        }
+        const participant = getWorkbookParticipant(db, sessionId, actor.id);
+        if (!participant) {
+          forbidden(res);
+          return;
+        }
+        const availability = getWorkbookServerRecordingAvailability();
+        const recording = getWorkbookServerRecordingForSession(db, sessionId);
+        if (recording) {
+          await reconcileWorkbookRecording(db, recording);
+        }
+        json(res, 200, {
+          available: availability.available,
+          unavailableReason: availability.reason,
+          serverTime: nowIso(),
+          recording: serializeWorkbookServerRecording(recording),
+        });
+        return;
+      }
+
+      const workbookRecordingStartMatch = pathname.match(
+        /^\/api\/workbook\/sessions\/([^/]+)\/recording\/start$/
+      );
+      if (workbookRecordingStartMatch && method === "POST") {
+        const actor = requireAuthUser(req, res, db);
+        if (!actor) return;
+        const sessionId = decodeURIComponent(workbookRecordingStartMatch[1]);
+        const session = getWorkbookSessionById(db, sessionId);
+        if (!session) {
+          notFound(res);
+          return;
+        }
+        const participant = getWorkbookParticipant(db, sessionId, actor.id);
+        if (!participant) {
+          forbidden(res);
+          return;
+        }
+        const permissions = normalizeParticipantPermissions(
+          participant.roleInSession,
+          participant.permissions
+        );
+        const canManageRecording = Boolean(
+          permissions.canManageSession || session.createdBy === actor.id
+        );
+        if (!canManageRecording) {
+          forbidden(res);
+          return;
+        }
+        if (session.status === "ended") {
+          badRequest(res, "lesson_ended");
+          return;
+        }
+        const availability = getWorkbookServerRecordingAvailability();
+        if (!availability.available) {
+          serviceUnavailable(res, availability.reason ?? "server_recording_unavailable");
+          return;
+        }
+        try {
+          const recording = await startWorkbookServerRecording({
+            db,
+            sessionId,
+            sessionTitle: session.title,
+            publicBaseUrl: PUBLIC_BASE_URL || inferPublicOrigin(req),
+            createdBy: actor.id,
+            persist: saveDb,
+          });
+          saveDb();
+          json(res, 200, {
+            available: true,
+            unavailableReason: null,
+            serverTime: nowIso(),
+            recording: serializeWorkbookServerRecording(recording),
+          });
+        } catch (error) {
+          saveDb();
+          const message = error instanceof Error ? error.message : "recording_start_failed";
+          if (message === "recording_stop_in_progress") {
+            conflict(res, message);
+            return;
+          }
+          serviceUnavailable(res, message);
+        }
+        return;
+      }
+
+      const workbookRecordingStopMatch = pathname.match(
+        /^\/api\/workbook\/sessions\/([^/]+)\/recording\/stop$/
+      );
+      if (workbookRecordingStopMatch && method === "POST") {
+        const actor = requireAuthUser(req, res, db);
+        if (!actor) return;
+        const sessionId = decodeURIComponent(workbookRecordingStopMatch[1]);
+        const session = getWorkbookSessionById(db, sessionId);
+        if (!session) {
+          notFound(res);
+          return;
+        }
+        const participant = getWorkbookParticipant(db, sessionId, actor.id);
+        if (!participant) {
+          forbidden(res);
+          return;
+        }
+        const permissions = normalizeParticipantPermissions(
+          participant.roleInSession,
+          participant.permissions
+        );
+        const canManageRecording = Boolean(
+          permissions.canManageSession || session.createdBy === actor.id
+        );
+        if (!canManageRecording) {
+          forbidden(res);
+          return;
+        }
+        const body = (await readBody(req)) as { recordingId?: unknown } | null;
+        try {
+          const recording = await stopWorkbookServerRecording({
+            db,
+            sessionId,
+            recordingId:
+              typeof body?.recordingId === "string" && body.recordingId.trim().length > 0
+                ? body.recordingId.trim()
+                : null,
+            resolveOutputPresence: resolveRecordingOutputPresence,
+            persist: saveDb,
+          });
+          saveDb();
+          json(res, 200, {
+            available: true,
+            unavailableReason: null,
+            serverTime: nowIso(),
+            recording: serializeWorkbookServerRecording(recording),
+          });
+        } catch (error) {
+          saveDb();
+          const message = error instanceof Error ? error.message : "recording_stop_failed";
+          if (message === "recording_not_found") {
+            notFound(res);
+            return;
+          }
+          serviceUnavailable(res, message);
+        }
+        return;
+      }
+
       const workbookMediaConfigMatch = pathname.match(
         /^\/api\/workbook\/sessions\/([^/]+)\/media\/config$/
       );
@@ -3715,6 +4524,37 @@ export const handleWorkbookApiRequestByDomains = async (
         }
         if (!MEDIA_LIVEKIT_ENABLED) {
           serviceUnavailable(res, "livekit_unavailable");
+          return;
+        }
+        const recordingAccess = resolveWorkbookRecordingAccessPayload(req);
+        if (recordingAccess?.sessionId === sessionId) {
+          const recorderUser: UserRecord = {
+            id: `recorder-${recordingAccess.recordingId}`.slice(0, 120),
+            role: "student",
+            email: "recording@mathwise.local",
+            firstName: "Recorder",
+            lastName: "",
+            createdAt: nowIso(),
+          };
+          const tokenConfig = buildWorkbookLivekitTokenPayload(
+            session.id,
+            recorderUser,
+            false
+          );
+          const token = signJwtHs256(tokenConfig.payload, MEDIA_LIVEKIT_API_SECRET);
+          json(res, 200, {
+            generatedAt: nowIso(),
+            ttlSeconds: MEDIA_LIVEKIT_TOKEN_TTL_SECONDS,
+            wsUrl: MEDIA_LIVEKIT_WS_URL,
+            roomName: tokenConfig.roomName,
+            participant: {
+              identity: tokenConfig.identity,
+              name: tokenConfig.payload.name,
+              canPublish: false,
+              roleInSession: "student",
+            },
+            token,
+          });
           return;
         }
         const permissions = normalizeParticipantPermissions(

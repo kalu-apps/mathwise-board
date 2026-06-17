@@ -8,7 +8,7 @@ import {
   readWorkbookSessionLatestSeqCached,
   setWorkbookSessionLatestSeqCached,
 } from "./workbookSeqCache";
-import { sanitizeAuthSessions, sanitizeUserRecords, sanitizeWorkbookAccessLogs, sanitizeWorkbookDrafts, sanitizeWorkbookEvents, sanitizeWorkbookInvites, sanitizeWorkbookOperations, sanitizeWorkbookParticipants, sanitizeWorkbookSessions, sanitizeWorkbookSnapshots } from "./dbSanitizers";
+import { sanitizeAuthSessions, sanitizeUserRecords, sanitizeWorkbookAccessLogs, sanitizeWorkbookDrafts, sanitizeWorkbookEvents, sanitizeWorkbookInvites, sanitizeWorkbookOperations, sanitizeWorkbookParticipants, sanitizeWorkbookRecordings, sanitizeWorkbookSessions, sanitizeWorkbookSnapshots } from "./dbSanitizers";
 import { isTeacherEmail, TEACHER_USER_ID, WHITEBOARD_TEACHER_EMAIL } from "./teacherIdentity";
 
 export type UserRole = "teacher" | "student";
@@ -124,6 +124,33 @@ export type WorkbookSnapshotRecord = {
   createdAt: string;
 };
 
+export type WorkbookRecordingStatus =
+  | "starting"
+  | "recording"
+  | "stopping"
+  | "processing"
+  | "ready"
+  | "failed";
+
+export type WorkbookRecordingRecord = {
+  id: string;
+  sessionId: string;
+  createdBy: string;
+  title: string;
+  sessionTitle?: string | null;
+  status: WorkbookRecordingStatus;
+  createdAt: string;
+  startedAt: string | null;
+  stoppedAt: string | null;
+  updatedAt: string;
+  outputUrl: string | null;
+  filePath: string | null;
+  errorMessage: string | null;
+  egressId: string | null;
+  recordingPageUrl: string | null;
+  deletedAt?: string | null;
+};
+
 export type WorkbookAccessDeviceClass = "desktop" | "mobile" | "tablet" | "bot" | "unknown";
 
 export type WorkbookAccessEventType =
@@ -218,6 +245,7 @@ export type MockDb = {
   workbookOperations: WorkbookOperationRecord[];
   workbookEvents: WorkbookEventRecord[];
   workbookSnapshots: WorkbookSnapshotRecord[];
+  workbookRecordings: WorkbookRecordingRecord[];
   workbookAccessLogs: WorkbookAccessLogRecord[];
 };
 
@@ -414,6 +442,7 @@ const createDefaultDb = (): MockDb => ({
   workbookOperations: [],
   workbookEvents: [],
   workbookSnapshots: [],
+  workbookRecordings: [],
   workbookAccessLogs: [],
 });
 
@@ -684,6 +713,9 @@ const ensureShape = (raw: unknown): MockDb => {
     workbookSnapshots: Array.isArray(source.workbookSnapshots)
       ? (sanitizeWorkbookSnapshots(source.workbookSnapshots) as WorkbookSnapshotRecord[])
       : base.workbookSnapshots,
+    workbookRecordings: Array.isArray(source.workbookRecordings)
+      ? (sanitizeWorkbookRecordings(source.workbookRecordings) as WorkbookRecordingRecord[])
+      : base.workbookRecordings,
     workbookAccessLogs: Array.isArray(source.workbookAccessLogs)
       ? (sanitizeWorkbookAccessLogs(source.workbookAccessLogs) as WorkbookAccessLogRecord[])
       : base.workbookAccessLogs,
@@ -779,6 +811,11 @@ const ensureShape = (raw: unknown): MockDb => {
     (entry) => `${entry.sessionId}:${entry.layer}`,
     (current, candidate) => candidate.version >= current.version
   );
+  const recordings = dedupeBy(
+    next.workbookRecordings.filter((entry) => validUserIds.has(entry.createdBy)),
+    (entry) => entry.id,
+    (current, candidate) => parseTs(candidate.updatedAt) >= parseTs(current.updatedAt)
+  );
   const accessLogs = dedupeBy(
     next.workbookAccessLogs.filter((entry) => validSessionIds.has(entry.sessionId)),
     (entry) => entry.id,
@@ -796,6 +833,7 @@ const ensureShape = (raw: unknown): MockDb => {
     workbookOperations: operationRecords,
     workbookEvents: events,
     workbookSnapshots: snapshots,
+    workbookRecordings: recordings,
     workbookAccessLogs: accessLogs,
   };
 };

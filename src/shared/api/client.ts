@@ -1,5 +1,9 @@
 import { dispatchDataUpdate } from "@/shared/lib/dataUpdateBus";
 import { buildApiUrl } from "@/shared/api/base";
+import {
+  readWorkbookRecordingAccessToken,
+  WORKBOOK_RECORDING_TOKEN_HEADER,
+} from "@/shared/api/workbookRecordingAccess";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
 
@@ -225,6 +229,20 @@ const resolveWorkbookDeviceHeader = (
   };
 };
 
+const resolveWorkbookRecordingTokenHeader = (
+  path: string,
+  headers: Record<string, string> | undefined
+) => {
+  if (!path.startsWith(WORKBOOK_API_PREFIX)) return headers;
+  if (hasHeaderCaseInsensitive(headers, WORKBOOK_RECORDING_TOKEN_HEADER)) return headers;
+  const token = readWorkbookRecordingAccessToken();
+  if (!token) return headers;
+  return {
+    ...(headers ?? {}),
+    [WORKBOOK_RECORDING_TOKEN_HEADER]: token,
+  };
+};
+
 const resolveIdempotencyHeader = (
   method: HttpMethod,
   options: RequestOptions,
@@ -446,7 +464,10 @@ const notifyDataUpdate = () => {
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method ?? "GET";
   const requestId = createRequestId();
-  const requestHeaders = resolveWorkbookDeviceHeader(path, options.headers);
+  const requestHeaders = resolveWorkbookRecordingTokenHeader(
+    path,
+    resolveWorkbookDeviceHeader(path, options.headers)
+  );
   const idempotencyHeaders = resolveIdempotencyHeader(method, options, requestId);
   const retryPolicy = normalizeRetryPolicy(method, options.retryPolicy);
   const timeoutMs = Math.max(1_000, Math.floor(options.timeoutMs ?? DEFAULT_TIMEOUT_MS));
