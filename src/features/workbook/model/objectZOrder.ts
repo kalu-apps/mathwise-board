@@ -163,3 +163,40 @@ export const resolveWorkbookObjectReorderZOrder = (params: {
   if (currentPosition === 0) return null;
   return scoped[0].zOrder - 1;
 };
+
+export const resolveWorkbookObjectReorderMutation = (params: {
+  objects: WorkbookBoardObject[];
+  targetObjectId: string;
+  direction: "front" | "back";
+}) => {
+  const target = params.objects.find((object) => object.id === params.targetObjectId);
+  if (!target || target.type !== "image" || target.locked) return null;
+  const stackingLayer: WorkbookObjectStackingLayer =
+    params.direction === "front" ? "overlay" : "board";
+  const reorderedZOrder = resolveWorkbookObjectReorderZOrder(params);
+  const zOrder =
+    reorderedZOrder ??
+    resolveWorkbookObjectEffectiveZOrder(
+      target,
+      Math.max(0, params.objects.findIndex((object) => object.id === params.targetObjectId))
+    );
+  if (reorderedZOrder === null && resolveWorkbookObjectStackingLayer(target) === stackingLayer) {
+    return null;
+  }
+  return {
+    nextObject: withWorkbookObjectStackingLayer({ ...target, zOrder }, stackingLayer),
+    stackingLayer,
+    zOrder,
+  };
+};
+
+export const resolveWorkbookObjectReorderUpdate = (
+  object: WorkbookBoardObject,
+  zOrder: number,
+  stackingLayer: unknown
+): WorkbookBoardObject => {
+  const nextObject = { ...object, zOrder };
+  return stackingLayer === "board" || stackingLayer === "overlay"
+    ? withWorkbookObjectStackingLayer(nextObject, stackingLayer)
+    : nextObject;
+};

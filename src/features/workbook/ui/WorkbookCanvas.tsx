@@ -2363,7 +2363,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           areaSelectionDraftRect={areaSelectionDraftRect}
           areaSelectionResizeRect={areaSelectionResizeRect}
         />
-
         <path
           ref={committedStrokeBridgePathRef}
           stroke={color}
@@ -2375,7 +2374,6 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           style={{ mixBlendMode: "normal" }}
           pointerEvents="none"
         />
-
         <path
           ref={draftStrokePathRef}
           stroke={strokeVisual.color}
@@ -2387,9 +2385,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           style={{ mixBlendMode: resolveWorkbookStrokeSvgBlendMode(strokeVisual.committedTool) }}
           pointerEvents="none"
         />
-        {objectOverlaySceneEntries.length > 0 ? (
-          <WorkbookObjectSceneLayer entries={objectOverlaySceneEntries} />
-        ) : null}
+        <WorkbookObjectSceneLayer entries={objectOverlaySceneEntries} />
         <WorkbookSelectionOverlayLayer
           areaSelection={areaSelectionOverlay}
           selectedRect={selectedRect}

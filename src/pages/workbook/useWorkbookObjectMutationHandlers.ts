@@ -3,11 +3,7 @@ import { optimizeImageDataUrl, WORKBOOK_BOARD_IMAGE_MAX_DATA_URL_CHARS } from "@
 import { normalizeObjectPayload, WORKBOOK_IMAGE_ASSET_META_KEY } from "@/features/workbook/model/scene";
 import {
   ensureWorkbookObjectZOrder,
-  resolveWorkbookObjectEffectiveZOrder,
-  resolveWorkbookObjectReorderZOrder,
-  resolveWorkbookObjectStackingLayer,
-  withWorkbookObjectStackingLayer,
-  type WorkbookObjectStackingLayer,
+  resolveWorkbookObjectReorderMutation,
 } from "@/features/workbook/model/objectZOrder";
 import { uploadWorkbookAsset } from "@/features/workbook/model/api";
 import {
@@ -454,38 +450,21 @@ export const useWorkbookObjectMutationHandlers = ({
     async (objectId: string, direction: "front" | "back") => {
       if (!sessionId || !canSelect) return;
       const currentBoardObjects = boardObjectsRef.current;
-      const target = currentBoardObjects.find((item) => item.id === objectId) ?? null;
-      if (!target || target.type !== "image" || target.locked) return;
-      const currentStackingLayer = resolveWorkbookObjectStackingLayer(target);
-      const nextStackingLayer: WorkbookObjectStackingLayer =
-        direction === "front" ? "overlay" : "board";
-      const nextZOrder = resolveWorkbookObjectReorderZOrder({
+      const reorder = resolveWorkbookObjectReorderMutation({
         objects: currentBoardObjects,
         targetObjectId: objectId,
         direction,
       });
-      if (nextZOrder === null && currentStackingLayer === nextStackingLayer) return;
-      const targetIndex = currentBoardObjects.findIndex((item) => item.id === objectId);
-      const effectiveZOrder =
-        nextZOrder ??
-        resolveWorkbookObjectEffectiveZOrder(target, Math.max(0, targetIndex));
-      const nextObject = withWorkbookObjectStackingLayer(
-        { ...target, zOrder: effectiveZOrder },
-        nextStackingLayer
-      );
+      if (!reorder) return;
       const optimisticBoardObjects = currentBoardObjects.map((item) =>
-        item.id === objectId ? nextObject : item
+        item.id === objectId ? reorder.nextObject : item
       );
       commitInteractiveBoardObjects(optimisticBoardObjects);
       try {
         await appendEventsAndApply([
           {
             type: "board.object.reorder",
-            payload: {
-              objectId,
-              zOrder: effectiveZOrder,
-              stackingLayer: nextStackingLayer,
-            },
+            payload: { objectId, zOrder: reorder.zOrder, stackingLayer: reorder.stackingLayer },
           },
         ]);
       } catch (error) {
