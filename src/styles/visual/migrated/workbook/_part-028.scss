@@ -90,6 +90,10 @@
 }
 
 @media (max-width: 1024px) {
+  .workbook-hub__list--recordings {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .workbook-session__layout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -376,8 +380,47 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .workbook-hub__list--recordings {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .workbook-hub__card {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbook-hub__recording-card {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .workbook-hub__recording-thumb {
+    min-height: 0;
+  }
+
+  .workbook-hub__recording-title-row h3 {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .workbook-hub__recording-dialog .MuiDialog-paper {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    margin: 8px;
+    border-radius: 16px;
+  }
+
+  .workbook-hub__recording-dialog-title.MuiDialogTitle-root {
+    padding: 14px 14px 10px;
+  }
+
+  .workbook-hub__recording-dialog-content.MuiDialogContent-root {
+    padding: 0 12px 12px;
+  }
+
+  .workbook-hub__recording-dialog-actions.MuiDialogActions-root {
+    padding: 0 12px 14px;
   }
 
   .workbook-hub__card-title-row h3 {

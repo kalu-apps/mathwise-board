@@ -72,6 +72,7 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
   eventTimestamp: number;
   userId?: string;
   currentBoardPageRef: MutableRefObject<number>;
+  followRemoteViewport: boolean;
   selectedObjectId: string | null;
   selectedTextDraftDirty: boolean;
   selectedTextDraftObjectId: string | null;
@@ -114,7 +115,9 @@ type ApplyWorkbookIncomingRealtimeEventParams = {
   boardStrokesRef: MutableRefObject<WorkbookStroke[]>;
   annotationStrokesRef: MutableRefObject<WorkbookStroke[]>;
   setSession: Dispatch<SetStateAction<WorkbookSession | null>>;
+  setCurrentBoardPage: Dispatch<SetStateAction<number>>;
   setCanvasViewport: Dispatch<SetStateAction<WorkbookPoint>>;
+  setViewportZoom: Dispatch<SetStateAction<number>>;
   setIncomingEraserPreviews: Dispatch<
     SetStateAction<Record<string, IncomingEraserPreviewEntry>>
   >;
@@ -164,6 +167,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     eventTimestamp,
     userId,
     currentBoardPageRef,
+    followRemoteViewport,
     selectedObjectId,
     selectedTextDraftDirty,
     selectedTextDraftObjectId,
@@ -186,7 +190,10 @@ export const applyWorkbookIncomingRealtimeEvent = (
     boardStrokesRef,
     annotationStrokesRef,
     setSession,
+    setCurrentBoardPage,
     setIncomingEraserPreviews,
+    setCanvasViewport,
+    setViewportZoom,
     setBoardStrokes,
     setAnnotationStrokes,
     setConstraints,
@@ -199,6 +206,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     setPointerPoint,
     setFocusPointsByUser,
     setPointerPointsByUser,
+    viewportLastReceivedAtRef,
     finalizedStrokePreviewIdsRef,
     incomingStrokePreviewVersionRef,
     appliedStrokeTranslateOperationIdsRef,
@@ -217,6 +225,7 @@ export const applyWorkbookIncomingRealtimeEvent = (
     eraserPreviewPointMergeMinDistancePx,
     eraserPreviewExpiryMs,
     eraserPreviewEndExpiryMs,
+    viewportSyncEpsilon,
   } = params;
   const pageFrameBounds = resolveWorkbookPageFrameBounds(
     boardSettingsRef.current.pageFrameWidth
@@ -245,7 +254,46 @@ export const applyWorkbookIncomingRealtimeEvent = (
   }
 
   if (event.type === "board.viewport.sync") {
-    // Viewport is local per participant: keep incoming sync events as no-op for compatibility.
+    if (!followRemoteViewport) {
+      // Viewport stays local for normal participants; the recorder is the only follower.
+      return true;
+    }
+    if (event.authorUserId && userId && event.authorUserId === userId) return true;
+    const payload = event.payload as {
+      offset?: unknown;
+      page?: unknown;
+      zoom?: unknown;
+    };
+    const offset = payload.offset as Partial<WorkbookPoint> | undefined;
+    if (
+      !offset ||
+      typeof offset.x !== "number" ||
+      !Number.isFinite(offset.x) ||
+      typeof offset.y !== "number" ||
+      !Number.isFinite(offset.y)
+    ) {
+      return true;
+    }
+    const now = Date.now();
+    const previousAt = viewportLastReceivedAtRef.current;
+    if (now - previousAt < 12) return true;
+    viewportLastReceivedAtRef.current = now;
+    const nextOffset = { x: offset.x, y: offset.y };
+    setCanvasViewport((current) => {
+      const delta = Math.hypot(current.x - nextOffset.x, current.y - nextOffset.y);
+      return delta <= viewportSyncEpsilon ? current : nextOffset;
+    });
+    if (typeof payload.page === "number" && Number.isFinite(payload.page)) {
+      const nextPage = toSafePage(payload.page);
+      currentBoardPageRef.current = nextPage;
+      setCurrentBoardPage((current) => (toSafePage(current) === nextPage ? current : nextPage));
+    }
+    if (typeof payload.zoom === "number" && Number.isFinite(payload.zoom)) {
+      const nextZoom = Math.max(0.3, Math.min(3, Number(payload.zoom.toFixed(2))));
+      setViewportZoom((current) =>
+        Math.abs(current - nextZoom) <= 0.005 ? current : nextZoom
+      );
+    }
     return true;
   }
 
@@ -808,6 +856,14 @@ export const applyWorkbookIncomingRealtimeEvent = (
       typeof eventPageRaw === "number" && Number.isFinite(eventPageRaw)
         ? Math.max(1, Math.trunc(eventPageRaw))
         : null;
+    if (
+      followRemoteViewport &&
+      eventPage !== null &&
+      eventPage !== toSafePage(currentBoardPageRef.current)
+    ) {
+      currentBoardPageRef.current = eventPage;
+      setCurrentBoardPage((current) => (toSafePage(current) === eventPage ? current : eventPage));
+    }
     if (
       eventPage !== null
       && eventPage !== toSafePage(currentBoardPageRef.current)

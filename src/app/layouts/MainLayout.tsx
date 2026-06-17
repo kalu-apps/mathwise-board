@@ -11,9 +11,11 @@ export function MainLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const isWorkbookSessionRoute = location.pathname.startsWith("/workbook/session/");
+  const isWorkbookRecordingRoute = location.pathname.startsWith("/workbook/recording/");
+  const isWorkbookFullScreenRoute = isWorkbookSessionRoute || isWorkbookRecordingRoute;
   const hideAuthModalForWorkbook =
     location.pathname.startsWith("/workbook/invite/") ||
-    isWorkbookSessionRoute;
+    isWorkbookFullScreenRoute;
   const workbookInviteTokenFromRouteState =
     location.state &&
     typeof location.state === "object" &&
@@ -40,6 +42,7 @@ export function MainLayout() {
     if (!isAuthReady || user) return;
     if (!location.pathname.startsWith("/workbook")) return;
     if (location.pathname.startsWith("/workbook/invite/")) return;
+    if (isWorkbookRecordingRoute) return;
     if (isWorkbookSessionRoute && workbookInviteTokenFromRouteState) {
       navigate(`/workbook/invite/${encodeURIComponent(workbookInviteTokenFromRouteState)}`, {
         replace: true,
@@ -50,6 +53,7 @@ export function MainLayout() {
     navigate("/", { replace: true, state: null });
   }, [
     isAuthReady,
+    isWorkbookRecordingRoute,
     isWorkbookSessionRoute,
     location.pathname,
     navigate,
@@ -59,10 +63,10 @@ export function MainLayout() {
 
   return (
     <>
-      {!isWorkbookSessionRoute ? <Header /> : null}
+      {!isWorkbookFullScreenRoute ? <Header /> : null}
       <ConnectivityBanner />
       <PerformanceModeBanner />
-      <main className={`app-main${isWorkbookSessionRoute ? " app-main--workbook-session" : ""}`}>
+      <main className={`app-main${isWorkbookFullScreenRoute ? " app-main--workbook-session" : ""}`}>
         <Outlet />
       </main>
       {!hideAuthModalForWorkbook ? (

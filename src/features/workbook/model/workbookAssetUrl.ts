@@ -1,4 +1,5 @@
 import { API_ROOT } from "@/shared/api/base";
+import { appendWorkbookRecordingAccessToken } from "@/shared/api/workbookRecordingAccess";
 
 const WORKBOOK_ASSET_URL_RE =
   /^\/api\/workbook\/sessions\/[^/]+\/assets\/[^/]+(?:\/content)?$/i;
@@ -43,13 +44,15 @@ export const normalizeWorkbookAssetContentUrl = (value: string): string => {
       parsed.pathname = `${parsed.pathname}/content`;
     }
     if (isAbsolute) {
-      return parsed.toString();
+      return appendWorkbookRecordingAccessToken(parsed.toString());
     }
     const apiOrigin = resolveApiOrigin();
     if (apiOrigin) {
-      return `${apiOrigin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+      return appendWorkbookRecordingAccessToken(
+        `${apiOrigin}${parsed.pathname}${parsed.search}${parsed.hash}`
+      );
     }
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return appendWorkbookRecordingAccessToken(`${parsed.pathname}${parsed.search}${parsed.hash}`);
   } catch {
     return rawValue;
   }

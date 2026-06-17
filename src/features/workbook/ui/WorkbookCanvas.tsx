@@ -1128,12 +1128,20 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   ]);
 
   useEffect(() => {
-    if (moving || areaSelectionResizePreview) return;
+    const objectId = solid3dGesture?.object.id ?? null;
+    if (!objectId) return;
+    const previewMeta = solid3dPreviewMetaById[objectId];
+    if (!previewMeta || !objectById.has(objectId)) return;
+    emitLiveObjectPreviewPatch(objectId, { meta: previewMeta });
+  }, [emitLiveObjectPreviewPatch, objectById, solid3dGesture, solid3dPreviewMetaById]);
+
+  useEffect(() => {
+    if (moving || areaSelectionResizePreview || solid3dGesture) return;
     liveObjectPreviewSentAtRef.current.clear();
     liveObjectPreviewSignatureRef.current.clear();
     liveStrokePreviewSentAtRef.current.clear();
     liveStrokePreviewSignatureRef.current.clear();
-  }, [areaSelectionResizePreview, moving]);
+  }, [areaSelectionResizePreview, moving, solid3dGesture]);
 
   const visibleBoardObjectsForDisplay = useMemo(() => {
     if (!areaSelectionResizePreview || areaSelectionResizePreview.resizedObjectsById.size === 0) {

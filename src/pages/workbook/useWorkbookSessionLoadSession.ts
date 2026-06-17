@@ -51,6 +51,7 @@ const toSafeWorkbookSeq = (value: unknown) =>
 export const useWorkbookSessionLoadSession = ({
   sessionId,
   isWorkbookSessionAuthLost,
+  readOnlyMode,
   clearIncomingRealtimeApplyQueue,
   clearLocalPreviewPatchRuntime,
   clearObjectSyncRuntime,
@@ -674,6 +675,9 @@ export const useWorkbookSessionLoadSession = ({
           });
 
           const recoverChatFromHistory = Boolean(normalizedBoard && normalizedBoard.chat.length === 0);
+          if (readOnlyMode) {
+            return;
+          }
           void (async () => {
             const sessionOpenStartedAtMs = getNowMs();
             try {
@@ -758,7 +762,7 @@ export const useWorkbookSessionLoadSession = ({
       }
     },
     [
-      sessionId, isWorkbookSessionAuthLost, clearIncomingRealtimeApplyQueue,
+      sessionId, isWorkbookSessionAuthLost, readOnlyMode, clearIncomingRealtimeApplyQueue,
       clearLocalPreviewPatchRuntime, setSaveState, setError, setSaveSyncWarning,
       setBootstrapReady, setLoading, clearStrokePreviewRuntime, clearIncomingEraserPreviewRuntime,
       setSession, setBoardStrokes, setBoardObjects, setConstraints, setBoardSettings,
