@@ -77,6 +77,7 @@ import {
   getWorkbookServerRecordingForSession,
   getWorkbookServerRecordingForUser,
   listWorkbookServerRecordingsForUser,
+  reconcileWorkbookServerRecordingState,
   deleteWorkbookServerRecording,
   renameWorkbookServerRecording,
   resolveWorkbookRecordingAccessPayload,
@@ -85,6 +86,7 @@ import {
   serializeWorkbookServerRecording,
   startWorkbookServerRecording,
   stopWorkbookServerRecording,
+  type WorkbookRecordingOutputPresence,
   type WorkbookServerRecordingRecord,
 } from "./core/workbookServerRecordingService";
 import {
@@ -234,6 +236,18 @@ const MEDIA_LIVEKIT_ENABLED =
   MEDIA_LIVEKIT_API_KEY.length > 0 &&
   MEDIA_LIVEKIT_API_SECRET.length > 0;
 const PUBLIC_BASE_URL = String(process.env.VITE_PUBLIC_BASE_URL ?? "").trim().replace(/\/+$/g, "");
+const WORKBOOK_RECORDING_SAFETY_SWEEP_INTERVAL_MS = readPositiveInt(
+  "WORKBOOK_RECORDING_SAFETY_SWEEP_INTERVAL_MS",
+  60_000
+);
+const WORKBOOK_RECORDING_TEACHER_INACTIVE_AUTO_STOP_MS = readPositiveInt(
+  "WORKBOOK_RECORDING_TEACHER_INACTIVE_AUTO_STOP_MS",
+  10 * 60_000
+);
+const WORKBOOK_RECORDING_MAX_DURATION_MS = readPositiveInt(
+  "WORKBOOK_RECORDING_MAX_DURATION_MS",
+  4 * 60 * 60_000
+);
 
 type WorkbookSettings = {
   undoPolicy: "everyone" | "teacher_only" | "own_only";
@@ -1010,9 +1024,28 @@ const resolveRecordingS3ObjectPresence = async (
   return "unknown";
 };
 
+const resolveRecordingOutputPresence = (recording: WorkbookServerRecordingRecord) =>
+  resolveRecordingS3ObjectPresence(recording.filePath) as Promise<WorkbookRecordingOutputPresence>;
+
+const reconcileWorkbookRecording = (db: MockDb, recording: WorkbookServerRecordingRecord) =>
+  reconcileWorkbookServerRecordingState({
+    db,
+    recording,
+    resolveOutputPresence: resolveRecordingOutputPresence,
+    persist: saveDb,
+  });
+
 const reconcileMissingRecordingMediaForUser = async (db: MockDb, userId: string) => {
   let changed = false;
   for (const recording of listWorkbookServerRecordingsForUser(db, userId)) {
+    if (
+      recording.status === "starting" ||
+      recording.status === "recording" ||
+      recording.status === "stopping" ||
+      recording.status === "processing"
+    ) {
+      changed = (await reconcileWorkbookRecording(db, recording)) || changed;
+    }
     if (recording.status !== "ready" || !recording.filePath) continue;
     const presence = await resolveRecordingS3ObjectPresence(recording.filePath);
     if (presence !== "missing") continue;
@@ -1026,6 +1059,138 @@ const reconcileMissingRecordingMediaForUser = async (db: MockDb, userId: string)
     changed = true;
   }
   return changed;
+};
+
+const isWorkbookRecordingLifecycleStatus = (recording: WorkbookServerRecordingRecord) =>
+  recording.status === "starting" ||
+  recording.status === "recording" ||
+  recording.status === "stopping" ||
+  recording.status === "processing";
+
+const parseRecordingTimeMs = (value: string | null | undefined) => {
+  const parsed = Date.parse(String(value ?? ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const hasRecordingExceededMaxDuration = (recording: WorkbookServerRecordingRecord) => {
+  const startedAt = parseRecordingTimeMs(recording.startedAt);
+  return startedAt > 0 && nowTs() - startedAt >= WORKBOOK_RECORDING_MAX_DURATION_MS;
+};
+
+const isRecordingTeacherInactive = (
+  db: MockDb,
+  session: WorkbookSessionRecord,
+  recording: WorkbookServerRecordingRecord
+) => {
+  if (recording.status === "stopping" || recording.status === "processing") return false;
+  const teacher =
+    db.workbookParticipants.find(
+      (participant) =>
+        participant.sessionId === session.id &&
+        participant.userId === session.createdBy &&
+        participant.roleInSession === "teacher"
+    ) ??
+    db.workbookParticipants.find(
+      (participant) => participant.sessionId === session.id && participant.roleInSession === "teacher"
+    );
+  if (!teacher || isParticipantOnline(teacher)) return false;
+  const lastSeenAt =
+    parseRecordingTimeMs(teacher.lastSeenAt) ||
+    parseRecordingTimeMs(teacher.leftAt) ||
+    parseRecordingTimeMs(teacher.lastVisitEndedAt) ||
+    parseRecordingTimeMs(session.lastActivityAt);
+  return lastSeenAt > 0 && nowTs() - lastSeenAt >= WORKBOOK_RECORDING_TEACHER_INACTIVE_AUTO_STOP_MS;
+};
+
+const shouldAutoStopWorkbookRecording = (
+  db: MockDb,
+  recording: WorkbookServerRecordingRecord
+) => {
+  const session = getWorkbookSessionById(db, recording.sessionId);
+  if (!session) return { stop: true, reason: "session_missing" };
+  if (session.status === "ended") return { stop: true, reason: "lesson_ended" };
+  if (hasRecordingExceededMaxDuration(recording)) {
+    return { stop: true, reason: "max_duration_exceeded" };
+  }
+  if (isRecordingTeacherInactive(db, session, recording)) {
+    return { stop: true, reason: "teacher_inactive" };
+  }
+  return { stop: false, reason: null };
+};
+
+let workbookRecordingSafetySweepTimer: NodeJS.Timeout | null = null;
+let workbookRecordingSafetySweepInFlight = false;
+
+const runWorkbookRecordingSafetySweep = async () => {
+  if (workbookRecordingSafetySweepInFlight) return;
+  workbookRecordingSafetySweepInFlight = true;
+  try {
+    const db = getDb();
+    const recordings = [...(db.workbookRecordings ?? [])].filter(
+      (recording) => !recording.deletedAt && isWorkbookRecordingLifecycleStatus(recording)
+    );
+    for (const recording of recordings) {
+      await reconcileWorkbookRecording(db, recording);
+      if (
+        recording.status !== "starting" &&
+        recording.status !== "recording" &&
+        recording.status !== "stopping"
+      ) {
+        continue;
+      }
+      const autoStop =
+        recording.status === "stopping"
+          ? { stop: true, reason: "stop_retry" }
+          : shouldAutoStopWorkbookRecording(db, recording);
+      if (!autoStop.stop) continue;
+      try {
+        await stopWorkbookServerRecording({
+          db,
+          sessionId: recording.sessionId,
+          recordingId: recording.id,
+          resolveOutputPresence: resolveRecordingOutputPresence,
+          persist: saveDb,
+        });
+      } catch (error) {
+        recording.errorMessage = normalizeError(error).slice(0, 600);
+        recording.updatedAt = nowIso();
+        saveDb();
+      }
+    }
+  } finally {
+    workbookRecordingSafetySweepInFlight = false;
+  }
+};
+
+const ensureWorkbookRecordingSafetySweep = () => {
+  if (workbookRecordingSafetySweepTimer) return;
+  workbookRecordingSafetySweepTimer = setInterval(() => {
+    void runWorkbookRecordingSafetySweep();
+  }, WORKBOOK_RECORDING_SAFETY_SWEEP_INTERVAL_MS);
+  workbookRecordingSafetySweepTimer.unref?.();
+};
+
+const stopActiveWorkbookRecordingForSession = async (db: MockDb, sessionId: string) => {
+  const recording = getWorkbookServerRecordingForSession(db, sessionId);
+  if (!recording || !isWorkbookRecordingLifecycleStatus(recording)) return null;
+  if (recording.status === "processing") {
+    await reconcileWorkbookRecording(db, recording);
+    return recording;
+  }
+  try {
+    return await stopWorkbookServerRecording({
+      db,
+      sessionId,
+      recordingId: recording.id,
+      resolveOutputPresence: resolveRecordingOutputPresence,
+      persist: saveDb,
+    });
+  } catch (error) {
+    recording.errorMessage = normalizeError(error).slice(0, 600);
+    recording.updatedAt = nowIso();
+    saveDb();
+    return recording;
+  }
 };
 
 const buildRecordingMediaRedirectUrl = (
@@ -3015,6 +3180,7 @@ export const handleWorkbookApiRequestByDomains = async (
 
   try {
       const db = getDb();
+      ensureWorkbookRecordingSafetySweep();
       pickTeacher(db);
       ensureDbParticipantPermissionsNormalized(db);
       if (
@@ -3362,6 +3528,7 @@ export const handleWorkbookApiRequestByDomains = async (
           session.status = body.status;
           if (body.status === "ended") {
             session.endedAt = nowIso();
+            await stopActiveWorkbookRecordingForSession(db, session.id);
           }
         }
 
@@ -3426,6 +3593,8 @@ export const handleWorkbookApiRequestByDomains = async (
           forbidden(res);
           return;
         }
+
+        await stopActiveWorkbookRecordingForSession(db, sessionId);
 
         db.workbookSessions = db.workbookSessions.filter((item) => item.id !== sessionId);
         db.workbookParticipants = db.workbookParticipants.filter((item) => {
@@ -3596,6 +3765,7 @@ export const handleWorkbookApiRequestByDomains = async (
             : item
         );
 
+        await stopActiveWorkbookRecordingForSession(db, session.id);
         saveDb();
         json(res, 200, {
           ok: true,
@@ -4116,8 +4286,22 @@ export const handleWorkbookApiRequestByDomains = async (
             notFound(res);
             return;
           }
+          await reconcileWorkbookRecording(db, recording);
           if (recording.status !== "ready" || (!recording.filePath && !recording.outputUrl)) {
             badRequest(res, "recording_not_ready");
+            return;
+          }
+          const presence = await resolveRecordingS3ObjectPresence(recording.filePath);
+          if (presence === "missing") {
+            try {
+              await deleteRecordingS3Object(buildRecordingCompanionMetadataPath(recording));
+            } catch {
+              // The main media file is gone, so the library entry should disappear
+              // even if companion cleanup cannot be completed immediately.
+            }
+            deleteWorkbookServerRecording(db, actor.id, recording.id);
+            saveDb();
+            notFound(res);
             return;
           }
           try {
@@ -4152,13 +4336,15 @@ export const handleWorkbookApiRequestByDomains = async (
           return;
         }
         const availability = getWorkbookServerRecordingAvailability();
+        const recording = getWorkbookServerRecordingForSession(db, sessionId);
+        if (recording) {
+          await reconcileWorkbookRecording(db, recording);
+        }
         json(res, 200, {
           available: availability.available,
           unavailableReason: availability.reason,
           serverTime: nowIso(),
-          recording: serializeWorkbookServerRecording(
-            getWorkbookServerRecordingForSession(db, sessionId)
-          ),
+          recording: serializeWorkbookServerRecording(recording),
         });
         return;
       }
@@ -4265,6 +4451,7 @@ export const handleWorkbookApiRequestByDomains = async (
               typeof body?.recordingId === "string" && body.recordingId.trim().length > 0
                 ? body.recordingId.trim()
                 : null,
+            resolveOutputPresence: resolveRecordingOutputPresence,
             persist: saveDb,
           });
           saveDb();
