@@ -1,6 +1,9 @@
 import type { WorkbookBoardObject } from "./types";
 
 const MAIN_SCENE_LAYER_ID = "main";
+const OBJECT_STACKING_LAYER_META_KEY = "stackingLayer";
+
+export type WorkbookObjectStackingLayer = "board" | "overlay";
 
 const toFiniteInteger = (value: unknown): number | null => {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
@@ -35,6 +38,10 @@ export const normalizeWorkbookObjectZOrder = (value: unknown): number | undefine
   return normalized === null ? undefined : normalized;
 };
 
+export const normalizeWorkbookObjectStackingLayer = (
+  value: unknown
+): WorkbookObjectStackingLayer => (value === "overlay" ? "overlay" : "board");
+
 export const resolveWorkbookObjectSceneLayerId = (
   object: Pick<WorkbookBoardObject, "meta">
 ) => {
@@ -43,6 +50,31 @@ export const resolveWorkbookObjectSceneLayerId = (
       ? object.meta.sceneLayerId
       : "";
   return layerId.trim() || MAIN_SCENE_LAYER_ID;
+};
+
+export const resolveWorkbookObjectStackingLayer = (
+  object: Pick<WorkbookBoardObject, "meta">
+): WorkbookObjectStackingLayer =>
+  normalizeWorkbookObjectStackingLayer(
+    object.meta && typeof object.meta === "object"
+      ? object.meta[OBJECT_STACKING_LAYER_META_KEY]
+      : undefined
+  );
+
+export const withWorkbookObjectStackingLayer = (
+  object: WorkbookBoardObject,
+  stackingLayer: WorkbookObjectStackingLayer
+): WorkbookBoardObject => {
+  const nextMeta = { ...(object.meta ?? {}) };
+  if (stackingLayer === "overlay") {
+    nextMeta[OBJECT_STACKING_LAYER_META_KEY] = "overlay";
+  } else {
+    delete nextMeta[OBJECT_STACKING_LAYER_META_KEY];
+  }
+  return {
+    ...object,
+    meta: Object.keys(nextMeta).length > 0 ? nextMeta : undefined,
+  };
 };
 
 export const isWorkbookObjectInSameZOrderScope = (

@@ -58,7 +58,11 @@ export type WorkbookKnownEventPayloadMap = {
   };
   "board.object.delete": { objectId: string };
   "board.object.pin": { objectId: string; pinned: boolean };
-  "board.object.reorder": { objectId: string; zOrder: number };
+  "board.object.reorder": {
+    objectId: string;
+    zOrder: number;
+    stackingLayer?: "board" | "overlay";
+  };
   "board.clear": { page?: number; scope?: "page" | "all" };
   "board.undo": { operations?: unknown[]; scene?: unknown; page?: number };
   "board.redo": { operations?: unknown[]; scene?: unknown; page?: number };

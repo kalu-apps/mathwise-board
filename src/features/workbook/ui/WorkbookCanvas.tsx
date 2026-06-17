@@ -1230,6 +1230,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     selectedPreviewObject,
     resolveGraphFunctionHit,
     objectSceneEntries,
+    objectOverlaySceneEntries,
     selectedRect,
     selectedLineControls,
     selectedSolidResizeHandles,
@@ -2386,6 +2387,9 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
           style={{ mixBlendMode: resolveWorkbookStrokeSvgBlendMode(strokeVisual.committedTool) }}
           pointerEvents="none"
         />
+        {objectOverlaySceneEntries.length > 0 ? (
+          <WorkbookObjectSceneLayer entries={objectOverlaySceneEntries} />
+        ) : null}
         <WorkbookSelectionOverlayLayer
           areaSelection={areaSelectionOverlay}
           selectedRect={selectedRect}

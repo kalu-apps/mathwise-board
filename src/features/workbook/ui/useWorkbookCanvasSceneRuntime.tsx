@@ -18,6 +18,7 @@ import {
   prepareWorkbookRenderObject,
   type WorkbookMaskedObjectSceneEntry,
 } from "../model/sceneRender";
+import { resolveWorkbookObjectStackingLayer } from "../model/objectZOrder";
 import {
   resolveRealtimePatchBaseObject,
   resolveSelectedPreviewObject,
@@ -262,7 +263,18 @@ export const useWorkbookCanvasSceneRuntime = ({
     ? `${inlineTextEdit.objectId}:${inlineTextEdit.value}`
     : "";
 
-  const objectSceneEntries = useMemo<WorkbookMaskedObjectSceneEntry[]>(() => {
+  const objectStackingLayerById = useMemo(
+    () =>
+      new Map(
+        visibleBoardObjects.map((object) => [
+          object.id,
+          resolveWorkbookObjectStackingLayer(object),
+        ])
+      ),
+    [visibleBoardObjects]
+  );
+
+  const allObjectSceneEntries = useMemo<WorkbookMaskedObjectSceneEntry[]>(() => {
     const { entries } = buildWorkbookObjectSceneEntries({
       visibleBoardObjects,
       selectedPreviewObject,
@@ -285,6 +297,22 @@ export const useWorkbookCanvasSceneRuntime = ({
     selectedPreviewObject,
     visibleBoardObjects,
   ]);
+
+  const objectSceneEntries = useMemo(
+    () =>
+      allObjectSceneEntries.filter(
+        (entry) => objectStackingLayerById.get(entry.id) !== "overlay"
+      ),
+    [allObjectSceneEntries, objectStackingLayerById]
+  );
+
+  const objectOverlaySceneEntries = useMemo(
+    () =>
+      allObjectSceneEntries.filter(
+        (entry) => objectStackingLayerById.get(entry.id) === "overlay"
+      ),
+    [allObjectSceneEntries, objectStackingLayerById]
+  );
 
   const isLiveInteractionActive = Boolean(
     moving || resizing || graphPan || solid3dGesture || solid3dResize
@@ -369,6 +397,7 @@ export const useWorkbookCanvasSceneRuntime = ({
     selectedPreviewObject,
     resolveGraphFunctionHit,
     objectSceneEntries,
+    objectOverlaySceneEntries,
     selectedRect,
     selectedLineControls,
     selectedSolidResizeHandles,
