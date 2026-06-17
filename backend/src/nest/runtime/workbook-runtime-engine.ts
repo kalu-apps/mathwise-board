@@ -820,7 +820,12 @@ const buildRecordingS3ObjectUrl = (filePath: string | null) => {
 
   const region = readTrimmedEnv("WORKBOOK_RECORDING_S3_REGION") || "auto";
   const forcePathStyle = readBoolEnv("WORKBOOK_RECORDING_S3_FORCE_PATH_STYLE", true);
-  const endpointUrl = new URL(endpoint);
+  let endpointUrl: URL;
+  try {
+    endpointUrl = new URL(endpoint);
+  } catch {
+    return null;
+  }
   const endpointOrigin = `${endpointUrl.protocol}//${endpointUrl.host}`;
   const endpointPath = endpointUrl.pathname.replace(/\/+$/g, "");
   const encodedObjectPath = encodeS3ObjectPath(objectPath);
@@ -887,6 +892,118 @@ const buildRecordingS3PresignedUrl = (
   const signature = crypto.createHmac("sha256", signingKey).update(stringToSign).digest("hex");
   object.url.search = `${canonicalQueryString}&X-Amz-Signature=${signature}`;
   return object.url.toString();
+};
+
+const buildRecordingS3SignedRequest = (
+  filePath: string | null,
+  method: "DELETE" | "GET"
+) => {
+  const object = buildRecordingS3ObjectUrl(filePath);
+  if (!object) return null;
+
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const dateStamp = amzDate.slice(0, 8);
+  const payloadHash = sha256Hex("");
+  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+  const canonicalHeaders = [
+    `host:${object.url.host}`,
+    `x-amz-content-sha256:${payloadHash}`,
+    `x-amz-date:${amzDate}`,
+  ].join("\n");
+  const canonicalRequest = [
+    method,
+    object.url.pathname,
+    "",
+    `${canonicalHeaders}\n`,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+  const scope = `${dateStamp}/${object.region}/s3/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    scope,
+    sha256Hex(canonicalRequest),
+  ].join("\n");
+  const dateKey = hmacSha256(`AWS4${object.secret}`, dateStamp);
+  const regionKey = hmacSha256(dateKey, object.region);
+  const serviceKey = hmacSha256(regionKey, "s3");
+  const signingKey = hmacSha256(serviceKey, "aws4_request");
+  const signature = crypto.createHmac("sha256", signingKey).update(stringToSign).digest("hex");
+
+  return {
+    url: object.url.toString(),
+    headers: {
+      Authorization: `AWS4-HMAC-SHA256 Credential=${object.accessKey}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+      "x-amz-content-sha256": payloadHash,
+      "x-amz-date": amzDate,
+    },
+    method,
+  };
+};
+
+const readS3ErrorCode = async (response: Response) => {
+  try {
+    const text = await response.text();
+    const match = text.match(/<Code>([^<]+)<\/Code>/i);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const isMissingRecordingS3ObjectResponse = async (response: Response) => {
+  if (response.status !== 404) return false;
+  const errorCode = await readS3ErrorCode(response);
+  return errorCode === "NoSuchKey";
+};
+
+const deleteRecordingS3Object = async (filePath: string | null) => {
+  if (!filePath) return;
+  const request = buildRecordingS3SignedRequest(filePath, "DELETE");
+  if (!request) {
+    throw new Error("recording_s3_delete_unconfigured");
+  }
+  const response = await fetch(request.url, {
+    method: request.method,
+    headers: request.headers,
+  });
+  if (response.ok || (await isMissingRecordingS3ObjectResponse(response))) return;
+  throw new Error(`recording_s3_delete_http_${response.status}`);
+};
+
+const resolveRecordingS3ObjectPresence = async (
+  filePath: string | null
+): Promise<"exists" | "missing" | "unknown"> => {
+  try {
+    const request = buildRecordingS3SignedRequest(filePath, "GET");
+    if (!request) return "unknown";
+    const response = await fetch(request.url, {
+      method: request.method,
+      headers: {
+        ...request.headers,
+        Range: "bytes=0-0",
+      },
+    });
+    if (response.ok || response.status === 206) return "exists";
+    if (await isMissingRecordingS3ObjectResponse(response)) return "missing";
+  } catch {
+    return "unknown";
+  }
+  return "unknown";
+};
+
+const reconcileMissingRecordingMediaForUser = async (db: MockDb, userId: string) => {
+  let changed = false;
+  for (const recording of listWorkbookServerRecordingsForUser(db, userId)) {
+    if (recording.status !== "ready" || !recording.filePath) continue;
+    const presence = await resolveRecordingS3ObjectPresence(recording.filePath);
+    if (presence !== "missing") continue;
+    deleteWorkbookServerRecording(db, userId, recording.id);
+    changed = true;
+  }
+  return changed;
 };
 
 const buildRecordingMediaRedirectUrl = (
@@ -3870,6 +3987,10 @@ export const handleWorkbookApiRequestByDomains = async (
           forbidden(res);
           return;
         }
+        const recordingsChanged = await reconcileMissingRecordingMediaForUser(db, actor.id);
+        if (recordingsChanged) {
+          saveDb();
+        }
         json(res, 200, {
           items: listWorkbookServerRecordingsForUser(db, actor.id).map(
             serializeWorkbookRecordingLibraryItem
@@ -3923,6 +4044,25 @@ export const handleWorkbookApiRequestByDomains = async (
 
         if (method === "DELETE" && action === "") {
           try {
+            const existingRecording = getWorkbookServerRecordingForUser(db, actor.id, recordingId);
+            if (!existingRecording) {
+              notFound(res);
+              return;
+            }
+            if (existingRecording.status !== "ready") {
+              const recording = deleteWorkbookServerRecording(db, actor.id, recordingId);
+              if (!recording) {
+                notFound(res);
+                return;
+              }
+              saveDb();
+              json(res, 200, {
+                ok: true,
+                deletedRecordingId: recording.id,
+              });
+              return;
+            }
+            await deleteRecordingS3Object(existingRecording.filePath);
             const recording = deleteWorkbookServerRecording(db, actor.id, recordingId);
             if (!recording) {
               notFound(res);
@@ -3937,6 +4077,10 @@ export const handleWorkbookApiRequestByDomains = async (
             const message = error instanceof Error ? error.message : "recording_delete_failed";
             if (message === "recording_is_active") {
               conflict(res, message);
+              return;
+            }
+            if (message.startsWith("recording_s3_delete_") || message === "fetch failed") {
+              serviceUnavailable(res, message);
               return;
             }
             badRequest(res, message);
